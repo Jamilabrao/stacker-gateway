@@ -148,6 +148,15 @@ onUnmounted(() => {
             </Link>
             <Link
                 v-if="isPlatformAdmin"
+                href="/plataforma/meu-perfil"
+                :prefetch="panelNavPrefetch"
+                class="mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                @click="closeDropdown"
+            >
+                Meu perfil
+            </Link>
+            <Link
+                v-if="isPlatformAdmin"
                 href="/plataforma/logout"
                 method="post"
                 as="button"

@@ -454,11 +454,12 @@ class MemberBuilderController extends Controller
     {
         $this->authorizeProduct($produto);
         $request->validate([
-            'file' => ['required', 'file', 'mimetypes:application/pdf', 'max:20480'],
+            // max is in KB (Laravel): 30 MB = 30720 KB
+            'file' => ['required', 'file', 'mimetypes:application/pdf', 'max:30720'],
         ], [
             'file.required' => 'Nenhum arquivo enviado.',
             'file.mimetypes' => 'O arquivo deve ser um material em formato PDF.',
-            'file.max' => 'O material deve ter no máximo 20 MB.',
+            'file.max' => 'O material deve ter no máximo 30 MB.',
         ]);
         $file = $request->file('file');
         $name = $file->getClientOriginalName();

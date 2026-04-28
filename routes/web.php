@@ -187,6 +187,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
     Route::middleware(['auth', 'platform.admin'])->group(function () {
         Route::post('/logout', [\App\Http\Controllers\Platform\LoginController::class, 'logout'])->name('logout');
         Route::get('/dashboard', [\App\Http\Controllers\Platform\DashboardController::class, '__invoke'])->name('dashboard');
+        Route::get('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'index'])->name('profile.index');
+        Route::post('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'update'])->name('profile.update');
+        Route::put('/meu-perfil/senha', [\App\Http\Controllers\Platform\ProfileController::class, 'updatePassword'])->name('profile.update-password');
         Route::get('/app', [\App\Http\Controllers\Platform\AppController::class, 'index'])->name('app.index');
         Route::get('/app/data', [\App\Http\Controllers\Platform\AppController::class, 'data'])->name('app.data');
         Route::put('/app', [\App\Http\Controllers\Platform\AppController::class, 'update'])->name('app.update');
