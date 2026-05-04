@@ -23,14 +23,7 @@ const sidebarItems = computed(() => sidebar.value?.items ?? [
     { title: 'Início', icon: 'home', link: '/', open_external: false },
 ]);
 
-/** Número de itens no nav: sidebar + comunidade (se ativa). Se > 2, em mobile mostra hamburger. */
-const totalNavCount = computed(() => {
-    const items = sidebarItems.value.length;
-    const withCommunity = config.value?.community_enabled ? 1 : 0;
-    return items + withCommunity;
-});
 const certificateEnabled = computed(() => (config.value?.certificate ?? {})?.enabled ?? false);
-const showMobileHamburger = computed(() => totalNavCount.value > 2);
 
 const gamificationEnabled = computed(() => (config.value?.gamification ?? {})?.enabled ?? false);
 const gamificationAchievements = computed(() => props.value?.gamification_achievements ?? []);
@@ -488,11 +481,8 @@ watch(
                         {{ product?.name || 'Área de Membros' }}
                     </span>
                 </Link>
-                <!-- Nav: escondido em mobile quando há hamburger; visível em desktop ou quando <= 2 itens -->
-                <nav
-                    class="hidden items-center gap-1 md:flex"
-                    :class="{ '!flex': showMobileHamburger === false }"
-                >
+                <!-- Nav: apenas desktop; no mobile o menu fica no drawer (hamburger) -->
+                <nav class="hidden items-center gap-1 md:flex">
                     <template v-for="item in sidebarItems" :key="item.title">
                         <a
                             v-if="item.open_external"
@@ -519,9 +509,8 @@ watch(
                         Comunidade
                     </Link>
                 </nav>
-                <!-- Botão hamburger: só quando mais de 2 itens E em telas pequenas (md:hidden quando showMobileHamburger) -->
+                <!-- Menu principal no mobile: sempre drawer (evita colisão logo + links + ícones) -->
                 <button
-                    v-if="showMobileHamburger"
                     type="button"
                     class="flex h-10 w-10 items-center justify-center rounded-lg text-white/90 hover:bg-white/10 md:hidden"
                     aria-label="Abrir menu"
@@ -581,7 +570,6 @@ watch(
                 <button
                     v-if="canRegisterPush && !pushRegistered"
                     class="hidden rounded-lg px-3 py-2 text-sm text-white/80 hover:bg-white/10 hover:text-white md:block"
-                    :class="{ '!block': !showMobileHamburger }"
                     :disabled="pushSubscribing"
                     @click="registerPushSubscription"
                 >

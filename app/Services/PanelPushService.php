@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\PanelNotification;
 use App\Models\PanelPushSubscription;
+use App\Support\PanelPwaIconUrls;
 use App\Support\VapidEnvKeys;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -137,10 +138,13 @@ class PanelPushService
             ],
         ];
 
+        $icon = PanelPwaIconUrls::primaryNotificationIconUrl();
         $payload = json_encode([
             'title' => $title,
             'body' => $body,
             'url' => $url,
+            'icon' => $icon,
+            'badge' => $icon,
         ]);
 
         $sent = 0;

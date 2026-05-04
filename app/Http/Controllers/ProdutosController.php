@@ -199,6 +199,7 @@ class ProdutosController extends Controller
             $imageUrl = $target && $target->image
                 ? app(StorageService::class)->url($target->image)
                 : null;
+
             return [
                 'id' => $b->id,
                 'target_product_id' => $b->target_product_id,
@@ -218,12 +219,13 @@ class ProdutosController extends Controller
         $availableForBump = Product::forTenant($tenantId)
             ->where('id', '!=', $produto->id)
             ->where('billing_type', Product::BILLING_ONE_TIME)
-            ->where('is_active', true)
+            ->availableForPurchase()
             ->orderBy('name')
             ->with('offers')
             ->get();
-        $produtoArray['available_products_for_bump'] = $availableForBump->map(function (Product $p) use ($rates) {
+        $produtoArray['available_products_for_bump'] = $availableForBump->map(function (Product $p) {
             $imageUrl = $p->image ? app(StorageService::class)->url($p->image) : null;
+
             return [
                 'id' => $p->id,
                 'name' => $p->name,
@@ -265,7 +267,7 @@ class ProdutosController extends Controller
         ];
 
         $productsForUpsell = Product::where('tenant_id', $tenantId)
-            ->where('is_active', true)
+            ->availableForPurchase()
             ->where('id', '!=', $produto->id)
             ->with('offers')
             ->orderBy('name')
@@ -658,7 +660,7 @@ class ProdutosController extends Controller
         $url = route('produtos.edit', $produto);
         $tab = $request->query('tab');
         if ($tab) {
-            $url .= '?tab=' . urlencode($tab);
+            $url .= '?tab='.urlencode($tab);
         }
 
         return redirect($url)->with('success', 'Produto atualizado.');
@@ -735,11 +737,22 @@ class ProdutosController extends Controller
         ]);
 
         $file = $request->file('logo');
-        $ext = $file->getClientOriginalExtension() ?: 'png';
-        $path = 'email-templates/'.$produto->id.'/logo.'.strtolower($ext);
+        $ext = strtolower((string) ($file->guessExtension() ?: $file->getClientOriginalExtension() ?: 'png'));
+        if (! in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
+            $ext = 'png';
+        }
 
         $storage = app(StorageService::class);
-        $storage->putFileAs(dirname($path), $file, basename($path));
+        $dir = 'email-templates/'.$produto->id;
+        $disk = $storage->disk();
+        if ($disk->exists($dir)) {
+            foreach ($disk->files($dir) as $existing) {
+                $storage->delete($existing);
+            }
+        }
+        $filename = 'logo-'.strtolower((string) Str::ulid()).'.'.$ext;
+        $path = $dir.'/'.$filename;
+        $storage->putFileAs($dir, $file, $filename);
         $logoUrl = $storage->url($path);
 
         $config = $produto->checkout_config ?? [];
@@ -770,6 +783,7 @@ class ProdutosController extends Controller
         $validated['position'] = $maxPosition + 1;
         $validated['checkout_slug'] = ProductOffer::generateUniqueCheckoutSlug();
         ProductOffer::create($validated);
+
         return back()->with('success', 'Oferta adicionada.');
     }
 
@@ -786,6 +800,7 @@ class ProdutosController extends Controller
         ]);
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
         $offer->update($validated);
+
         return back()->with('success', 'Oferta atualizada.');
     }
 
@@ -796,6 +811,7 @@ class ProdutosController extends Controller
             abort(404);
         }
         $offer->delete();
+
         return back()->with('success', 'Oferta removida.');
     }
 
@@ -827,6 +843,7 @@ class ProdutosController extends Controller
         $maxPosition = $produto->orderBumps()->max('position') ?? 0;
         $validated['position'] = $maxPosition + 1;
         ProductOrderBump::create($validated);
+
         return back()->with('success', 'Order bump adicionado.');
     }
 
@@ -858,6 +875,7 @@ class ProdutosController extends Controller
         $validated['target_product_offer_id'] = $validated['target_product_offer_id'] ?? null;
         $validated['price_override'] = isset($validated['price_override']) ? (float) $validated['price_override'] : null;
         $bump->update($validated);
+
         return back()->with('success', 'Order bump atualizado.');
     }
 
@@ -868,6 +886,7 @@ class ProdutosController extends Controller
             abort(404);
         }
         $bump->delete();
+
         return back()->with('success', 'Order bump removido.');
     }
 
@@ -889,6 +908,7 @@ class ProdutosController extends Controller
         $validated['position'] = $maxPosition + 1;
         $validated['checkout_slug'] = SubscriptionPlan::generateUniqueCheckoutSlug();
         SubscriptionPlan::create($validated);
+
         return back()->with('success', 'Plano adicionado.');
     }
 
@@ -906,6 +926,7 @@ class ProdutosController extends Controller
         ]);
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
         $plan->update($validated);
+
         return back()->with('success', 'Plano atualizado.');
     }
 
@@ -916,6 +937,7 @@ class ProdutosController extends Controller
             abort(404);
         }
         $plan->delete();
+
         return back()->with('success', 'Plano removido.');
     }
 
@@ -1032,7 +1054,8 @@ class ProdutosController extends Controller
                 $produto->checkout_slug = Product::generateUniqueCheckoutSlug();
                 $produto->save();
             }
-            return redirect()->to(route('produtos.edit', $produto) . '?tab=checkout')->with('success', 'Link do checkout (produto base) gerado.');
+
+            return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Link do checkout (produto base) gerado.');
         }
 
         if ($type === 'offer') {
@@ -1041,7 +1064,8 @@ class ProdutosController extends Controller
                 $offer->checkout_slug = ProductOffer::generateUniqueCheckoutSlug();
                 $offer->save();
             }
-            return redirect()->to(route('produtos.edit', $produto) . '?tab=checkout')->with('success', 'Link do checkout da oferta gerado.');
+
+            return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Link do checkout da oferta gerado.');
         }
 
         $plan = SubscriptionPlan::where('id', $validated['plan_id'])->where('product_id', $produto->id)->firstOrFail();
@@ -1049,7 +1073,8 @@ class ProdutosController extends Controller
             $plan->checkout_slug = SubscriptionPlan::generateUniqueCheckoutSlug();
             $plan->save();
         }
-        return redirect()->to(route('produtos.edit', $produto) . '?tab=checkout')->with('success', 'Link do checkout do plano gerado.');
+
+        return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Link do checkout do plano gerado.');
     }
 
     /**
@@ -1069,11 +1094,13 @@ class ProdutosController extends Controller
         if ($validated['type'] === 'offer') {
             $offer = ProductOffer::where('id', $validated['offer_id'])->where('product_id', $produto->id)->firstOrFail();
             $offer->update(['checkout_slug' => null]);
-            return redirect()->to(route('produtos.edit', $produto) . '?tab=checkout')->with('success', 'Checkout exclusivo da oferta removido; ela passará a usar o checkout principal.');
+
+            return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Checkout exclusivo da oferta removido; ela passará a usar o checkout principal.');
         }
 
         $plan = SubscriptionPlan::where('id', $validated['plan_id'])->where('product_id', $produto->id)->firstOrFail();
         $plan->update(['checkout_slug' => null]);
-        return redirect()->to(route('produtos.edit', $produto) . '?tab=checkout')->with('success', 'Checkout exclusivo do plano removido; ele passará a usar o checkout principal.');
+
+        return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Checkout exclusivo do plano removido; ele passará a usar o checkout principal.');
     }
 }

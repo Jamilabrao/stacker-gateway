@@ -355,13 +355,17 @@ function fireInitiateCheckout(value, currency = 'BRL', checkoutKey = '') {
     const key = (checkoutKey || '').trim();
 
     if (p.meta?.enabled && window.fbq) {
+        const payload = {
+            value: num,
+            currency: normalizedCurrency,
+            content_type: 'product',
+            num_items: 1,
+            content_ids: key ? [key] : [],
+            contents: key ? [{ id: key, quantity: 1 }] : [],
+        };
         getMetaEntries(p).forEach((entry) => {
             if (!entry.pixel_id) return;
-            window.fbq('track', 'InitiateCheckout', {
-                value: num,
-                currency: normalizedCurrency,
-                content_ids: key ? [key] : [],
-            });
+            window.fbq('track', 'InitiateCheckout', payload);
         });
     }
 }
@@ -371,9 +375,17 @@ function firePurchase(value, currency = 'BRL', orderId = '', isOrderBump = false
     const { value: num, currency: normalizedCurrency, orderId: normalizedOrderId } = normalizedPurchasePayload(value, currency, orderId);
 
     if (p.meta?.enabled && window.fbq) {
+        const purchasePayload = {
+            value: num,
+            currency: normalizedCurrency,
+            content_type: 'product',
+            num_items: 1,
+            content_ids: normalizedOrderId ? [normalizedOrderId] : [],
+            contents: normalizedOrderId ? [{ id: normalizedOrderId, quantity: 1 }] : [],
+        };
         getMetaEntries(p).forEach((entry) => {
             if (!entry.pixel_id || !shouldFireForEntry(entry, triggerType, isOrderBump)) return;
-            window.fbq('track', 'Purchase', { value: num, currency: normalizedCurrency, content_ids: normalizedOrderId ? [normalizedOrderId] : [] });
+            window.fbq('track', 'Purchase', purchasePayload);
         });
     }
     if (p.tiktok?.enabled && window.ttq?.track) {
@@ -416,7 +428,7 @@ defineExpose({
     async fireInitiateCheckoutReliable(value, currency = 'BRL', checkoutKey = '', settleDelayMs = 250) {
         const key = (checkoutKey || '').trim();
         if (initiateCheckoutReliableInFlight) {
-            return;
+            return false;
         }
         initiateCheckoutReliableInFlight = true;
 
@@ -424,31 +436,37 @@ defineExpose({
         const p = props.pixels || {};
         if (!p.meta?.enabled) {
             initiateCheckoutReliableInFlight = false;
-            return;
+            return false;
         }
 
         const metaEntries = getMetaEntries(p);
         if (!metaEntries.length) {
             initiateCheckoutReliableInFlight = false;
-            return;
+            return false;
         }
 
+        const waitMs = 4200;
         try {
-            // Garante que o pixel foi carregado/inicializado antes do track (senão o evento pode se perder).
             injectMetaLibAndInit(metaEntries);
-            await waitForMeta(2600);
+            await waitForMeta(waitMs);
             if (typeof window.fbq !== 'function') {
-                return;
+                return false;
             }
-            await waitForMetaPixelInit(metaEntries, 2600);
-            if (!metaInitedPixelIds.size) {
-                return;
+            const inited = await waitForMetaPixelInit(metaEntries, waitMs);
+            if (!inited || !metaInitedPixelIds.size) {
+                // Fallback: script pode ter carregado após o deadline do poll; fbq já existe — init + track.
+                injectMetaLibAndInit(metaEntries);
+                await sleep(200);
+                if (typeof window.fbq !== 'function') {
+                    return false;
+                }
             }
 
             fireInitiateCheckout(value, currency, key);
             if (settleDelayMs > 0) {
                 await sleep(settleDelayMs);
             }
+            return true;
         } finally {
             initiateCheckoutReliableInFlight = false;
         }
@@ -457,7 +475,14 @@ defineExpose({
         const oid = orderId ? String(orderId) : '';
         const dedupeKey = oid ? `px:purchase_sent:${oid}` : '';
         if (dedupeKey && safeStorageGet(dedupeKey) === '1') return;
-        await waitForTrackers(1200);
+        const p = props.pixels || {};
+        if (p.meta?.enabled) {
+            const metaEntries = getMetaEntries(p);
+            if (metaEntries.length) {
+                injectMetaLibAndInit(metaEntries);
+            }
+        }
+        await waitForTrackers(2200);
         firePurchase(value, currency, orderId, isOrderBump, triggerType);
         if (dedupeKey) safeStorageSet(dedupeKey, '1');
         if (settleDelayMs > 0) {

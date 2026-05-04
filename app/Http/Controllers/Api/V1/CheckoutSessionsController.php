@@ -44,6 +44,9 @@ class CheckoutSessionsController extends Controller
             if (! $product) {
                 return response()->json(['message' => 'Produto não encontrado.'], 422);
             }
+            if (! $product->isAvailableForPurchase()) {
+                return response()->json(['message' => 'Produto indisponível para compra.'], 422);
+            }
             $offerId = isset($validated['product_offer_id']) ? (int) $validated['product_offer_id'] : null;
             $planId = isset($validated['subscription_plan_id']) ? (int) $validated['subscription_plan_id'] : null;
             if ($offerId) {

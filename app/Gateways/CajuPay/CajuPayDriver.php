@@ -99,7 +99,7 @@ class CajuPayDriver implements GatewayDriver
         $name = $this->sanitizeName((string) ($consumer['name'] ?? ''));
         $email = $this->sanitizeEmail((string) ($consumer['email'] ?? ''));
 
-        $idempotencyKey = Str::limit('getfy-order-'.$externalId, 200, '');
+        $baseIdempotencyKey = Str::limit('getfy-order-'.$externalId, 200, '');
 
         $body = [
             'amount_cents' => $amountCents,
@@ -115,8 +115,18 @@ class CajuPayDriver implements GatewayDriver
         ];
 
         $response = $this->httpForCredentials($credentials)
-            ->withHeaders(['Idempotency-Key' => $idempotencyKey])
+            ->withHeaders(['Idempotency-Key' => $baseIdempotencyKey])
             ->post('/api/payments/pix', $body);
+
+        // Alguns cenários reaproveitam o mesmo order id com payload levemente diferente.
+        // Quando a API acusa mismatch de idempotência, tenta uma única vez com chave derivada do payload.
+        if (! $response->successful() && str_contains(strtolower((string) $response->body()), 'idempotency_key_reuse_mismatch')) {
+            $payloadHash = sha1(json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+            $retryIdempotencyKey = Str::limit($baseIdempotencyKey.'-'.$payloadHash, 200, '');
+            $response = $this->httpForCredentials($credentials)
+                ->withHeaders(['Idempotency-Key' => $retryIdempotencyKey])
+                ->post('/api/payments/pix', $body);
+        }
 
         if (! $response->successful()) {
             $msg = $response->body();

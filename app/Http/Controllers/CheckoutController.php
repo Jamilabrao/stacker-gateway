@@ -9,6 +9,7 @@ use App\Events\PixGenerated;
 use App\Events\SubscriptionCreated;
 use App\Gateways\GatewayRegistry;
 use App\Jobs\ProcessPaymentWebhook;
+use App\Models\CheckoutSession;
 use App\Models\Coupon;
 use App\Models\GatewayCredential;
 use App\Models\Order;
@@ -16,19 +17,19 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
 use App\Models\ProductOffer;
-use App\Models\CheckoutSession;
 use App\Models\ProductOrderBump;
+use App\Models\SavedPaymentMethod;
 use App\Models\Setting;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\AffiliateConversionPixels;
 use App\Services\BuyerAccountService;
-use App\Services\GeoIp;
 use App\Services\EfiPixRecorrenteService;
-use App\Services\StorageService;
+use App\Services\GeoIp;
 use App\Services\PaymentService;
 use App\Services\PushinPayPixRecorrenteService;
+use App\Services\StorageService;
 use App\Support\CheckoutCardContract;
 use App\Support\CheckoutTranslations;
 use App\Support\FakeConsumerData;
@@ -47,6 +48,7 @@ class CheckoutController extends Controller
     {
         try {
             $order->delete();
+
             return;
         } catch (\Throwable $deleteError) {
             Log::warning('Checkout: failed to delete order after payment failure', [
@@ -75,7 +77,7 @@ class CheckoutController extends Controller
     private function resolveCheckoutBySlug(string $slug): array
     {
         $offer = ProductOffer::where('checkout_slug', $slug)->with('product')->first();
-        if ($offer && $offer->product && $offer->product->is_active) {
+        if ($offer && $offer->product && $offer->product->isAvailableForPurchase()) {
             return [
                 'product' => $offer->product,
                 'offer' => $offer,
@@ -87,7 +89,7 @@ class CheckoutController extends Controller
         }
 
         $plan = SubscriptionPlan::where('checkout_slug', $slug)->with('product')->first();
-        if ($plan && $plan->product && $plan->product->is_active) {
+        if ($plan && $plan->product && $plan->product->isAvailableForPurchase()) {
             return [
                 'product' => $plan->product,
                 'offer' => null,
@@ -98,7 +100,7 @@ class CheckoutController extends Controller
             ];
         }
 
-        $product = Product::where('checkout_slug', $slug)->where('is_active', true)->first();
+        $product = Product::where('checkout_slug', $slug)->availableForPurchase()->first();
         if ($product) {
             return [
                 'product' => $product,
@@ -313,6 +315,7 @@ class CheckoutController extends Controller
                 : null;
             $effectiveBrl = $b->getEffectiveAmountBrl();
             $originalBrl = $b->getOriginalAmountBrl();
+
             return [
                 'id' => $b->id,
                 'title' => $b->title,
@@ -331,7 +334,7 @@ class CheckoutController extends Controller
         $payload['conversion_pixels'] = AffiliateConversionPixels::forProductAndRef($product, $affiliateRef);
 
         $sessionToken = Str::uuid()->toString();
-        CheckoutSession::create([
+        CheckoutSession::create(array_merge([
             'tenant_id' => $product->tenant_id,
             'product_id' => $product->id,
             'product_offer_id' => $resolved['offer']?->id,
@@ -340,10 +343,7 @@ class CheckoutController extends Controller
             'session_token' => $sessionToken,
             'step' => CheckoutSession::STEP_VISIT,
             'customer_ip' => $request->ip(),
-            'utm_source' => $request->query('utm_source'),
-            'utm_medium' => $request->query('utm_medium'),
-            'utm_campaign' => $request->query('utm_campaign'),
-        ]);
+        ], CheckoutSession::trackingFromQuery($request)));
         $payload['checkout_session_token'] = $sessionToken;
 
         /** Preview ao vivo no Builder (iframe): o front confia neste flag, não só na query (Inertia pode alterar URL). */
@@ -363,6 +363,9 @@ class CheckoutController extends Controller
             'subscription_plan_id' => ['nullable', 'exists:subscription_plans,id'],
         ]);
         $product = Product::findOrFail($request->input('product_id'));
+        if (! $product->isAvailableForPurchase()) {
+            return response()->json(['valid' => false, 'message' => 'Este produto não está disponível para compra.']);
+        }
         $code = trim((string) $request->input('coupon_code'));
         if ($code === '') {
             return response()->json(['valid' => false, 'message' => 'Código do cupom é obrigatório.']);
@@ -397,6 +400,7 @@ class CheckoutController extends Controller
         if ($result === null) {
             return response()->json(['valid' => false, 'message' => 'Este cupom não pode ser aplicado (expirado, uso esgotado ou valor mínimo não atingido).']);
         }
+
         return response()->json([
             'valid' => true,
             'discount_amount' => $result['discount_amount'],
@@ -407,6 +411,13 @@ class CheckoutController extends Controller
     public function process(Request $request): RedirectResponse|JsonResponse
     {
         $product = Product::findOrFail($request->input('product_id'));
+        if (! $product->isAvailableForPurchase()) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Este produto não está disponível para compra no momento.'], 422);
+            }
+
+            return redirect()->back()->with('error', 'Este produto não está disponível para compra no momento.');
+        }
         $customerFields = $product->checkout_config['customer_fields'] ?? [];
 
         $productOfferIdForRules = $request->filled('product_offer_id') ? (int) $request->input('product_offer_id') : null;
@@ -450,11 +461,11 @@ class CheckoutController extends Controller
             'cpf' => [$requireCpf ? 'required' : 'nullable', 'string', 'max:11'],
             'phone' => [$phoneRequiredForCheckout ? 'required' : 'nullable', 'string', 'max:24'],
             'coupon_code' => ['nullable', 'string', 'max:64'],
-            'utm_source' => ['nullable', 'string', 'max:255'],
-            'utm_medium' => ['nullable', 'string', 'max:255'],
-            'utm_campaign' => ['nullable', 'string', 'max:255'],
             'affiliate_ref' => ['nullable', 'string', 'max:32'],
         ];
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
+            $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
+        }
         if ($request->input('payment_method') === 'card') {
             $firstCardGateway = $firstCardGatewayForRules ?? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'card', $product);
             if ($firstCardGateway === 'asaas') {
@@ -497,7 +508,7 @@ class CheckoutController extends Controller
             : null;
 
         if ($idempotencyKey !== null) {
-            $cached = Cache::get('checkout_idempotency:' . $idempotencyKey);
+            $cached = Cache::get('checkout_idempotency:'.$idempotencyKey);
             if ($cached !== null && is_array($cached)) {
                 if (($cached['type'] ?? '') === 'redirect' && ! empty($cached['url'])) {
                     return redirect($cached['url']);
@@ -519,6 +530,7 @@ class CheckoutController extends Controller
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'PIX automático está disponível apenas para assinaturas.'], 422);
             }
+
             return back()->withErrors(['payment_method' => 'PIX automático está disponível apenas para assinaturas.']);
         }
 
@@ -628,7 +640,7 @@ class CheckoutController extends Controller
             }
         }
         if ($product->type === Product::TYPE_AREA_MEMBROS && $plainPassword !== null) {
-            Cache::put('access_password.' . $user->id . '.' . $product->id, $plainPassword, now()->addHours(2));
+            Cache::put('access_password.'.$user->id.'.'.$product->id, $plainPassword, now()->addHours(2));
             $orderMetadata['access_password_temp'] = encrypt($plainPassword);
         }
 
@@ -671,6 +683,7 @@ class CheckoutController extends Controller
                     'position' => $pos++,
                 ]);
             }
+
             return $order;
         };
 
@@ -732,7 +745,7 @@ class CheckoutController extends Controller
                 $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
                 $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
                 $pixToken = \Illuminate\Support\Str::random(32);
-                session()->put('pix_display.' . $pixToken, [
+                session()->put('pix_display.'.$pixToken, [
                     'order_id' => $order->id,
                     'qrcode' => $pixResult['qrcode'] ?? null,
                     'copy_paste' => $pixResult['copy_paste'] ?? null,
@@ -766,6 +779,7 @@ class CheckoutController extends Controller
                         'message' => $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.',
                     ], 422);
                 }
+
                 return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.');
             }
         }
@@ -777,6 +791,7 @@ class CheckoutController extends Controller
                 if ($request->expectsJson()) {
                     return response()->json(['message' => 'Nenhum gateway PIX automático configurado.'], 422);
                 }
+
                 return back()->withErrors(['payment_method' => 'Nenhum gateway PIX automático configurado.']);
             }
 
@@ -786,6 +801,7 @@ class CheckoutController extends Controller
                     if ($request->expectsJson()) {
                         return response()->json(['message' => 'Pushin Pay não configurado para PIX automático.'], 422);
                     }
+
                     return back()->withErrors(['payment_method' => 'Pushin Pay não configurado para PIX automático.']);
                 }
                 $credentials = $credential->getDecryptedCredentials();
@@ -793,6 +809,7 @@ class CheckoutController extends Controller
                     if ($request->expectsJson()) {
                         return response()->json(['message' => 'Pushin Pay: API Token não configurado.'], 422);
                     }
+
                     return back()->withErrors(['payment_method' => 'Pushin Pay: API Token não configurado.']);
                 }
 
@@ -825,7 +842,7 @@ class CheckoutController extends Controller
                         $webhookUrl,
                         $frequency,
                         $subscriptionName,
-                        'Assinatura PIX automático - Pedido #' . $order->id
+                        'Assinatura PIX automático - Pedido #'.$order->id
                     );
 
                     $txid = $result['transaction_id'];
@@ -859,7 +876,7 @@ class CheckoutController extends Controller
                     $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
                     $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
                     $pixToken = Str::random(32);
-                    session()->put('pix_display.' . $pixToken, [
+                    session()->put('pix_display.'.$pixToken, [
                         'order_id' => $order->id,
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
@@ -872,6 +889,7 @@ class CheckoutController extends Controller
                         'customer_phone' => $validated['phone'] ?? null,
                         'created_at' => time(),
                     ]);
+
                     return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.pix', ['token' => $pixToken]));
                 } catch (\Throwable $e) {
                     $this->rollbackFailedOrder($order, $e);
@@ -881,6 +899,7 @@ class CheckoutController extends Controller
                             'message' => $e->getMessage() ?: 'Não foi possível gerar o PIX automático. Tente novamente.',
                         ], 422);
                     }
+
                     return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX automático. Tente novamente.');
                 }
             }
@@ -891,6 +910,7 @@ class CheckoutController extends Controller
                     if ($request->expectsJson()) {
                         return response()->json(['message' => 'Gateway Efí não configurado para PIX automático.'], 422);
                     }
+
                     return back()->withErrors(['payment_method' => 'Gateway Efí não configurado para PIX automático.']);
                 }
                 $credentials = $credential->getDecryptedCredentials();
@@ -898,6 +918,7 @@ class CheckoutController extends Controller
                     if ($request->expectsJson()) {
                         return response()->json(['message' => 'Efí: certificado ou chave PIX não configurados.'], 422);
                     }
+
                     return back()->withErrors(['payment_method' => 'Efí: certificado ou chave PIX não configurados.']);
                 }
 
@@ -911,8 +932,8 @@ class CheckoutController extends Controller
                 $order->load('orderItems');
                 event(new OrderPending($order));
 
-                $base = 'pixauto' . $order->id;
-                $txid = $base . Str::random(max(26 - strlen($base), 10));
+                $base = 'pixauto'.$order->id;
+                $txid = $base.Str::random(max(26 - strlen($base), 10));
                 $txid = substr($txid, 0, 35);
                 $rawDoc = preg_replace('/\D/', '', $validated['cpf'] ?? '');
                 $fake = FakeConsumerData::getForGateway($order->id);
@@ -932,7 +953,7 @@ class CheckoutController extends Controller
                         (float) $totalAmount,
                         $consumer,
                         $credentials['pix_key'],
-                        'Assinatura PIX automático - Pedido #' . $order->id
+                        'Assinatura PIX automático - Pedido #'.$order->id
                     );
 
                     $criacao = now();
@@ -1007,7 +1028,7 @@ class CheckoutController extends Controller
                     $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
                     $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
                     $pixToken = Str::random(32);
-                    session()->put('pix_display.' . $pixToken, [
+                    session()->put('pix_display.'.$pixToken, [
                         'order_id' => $order->id,
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
@@ -1030,6 +1051,7 @@ class CheckoutController extends Controller
                             'message' => $e->getMessage() ?: 'Não foi possível gerar o PIX automático. Tente novamente.',
                         ], 422);
                     }
+
                     return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX automático. Tente novamente.');
                 }
             }
@@ -1037,6 +1059,7 @@ class CheckoutController extends Controller
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'Gateway PIX automático não suportado.'], 422);
             }
+
             return back()->withErrors(['payment_method' => 'Gateway PIX automático não suportado.']);
         }
 
@@ -1112,6 +1135,7 @@ class CheckoutController extends Controller
                             'current_period_end' => $periodEnd,
                         ]);
                         event(new SubscriptionCreated($subscription));
+                        $this->attachStripeSavedPaymentMethodForSubscription($subscription, $order, $card, $tenantId, $user->id);
                     }
                     event(new OrderCompleted($order));
                 }
@@ -1123,7 +1147,7 @@ class CheckoutController extends Controller
                     $upsell = $config['upsell'] ?? [];
                     if (! empty($upsell['enabled']) && ! empty($upsell['products']) && is_array($upsell['products'])) {
                         $upsellToken = Str::random(64);
-                        Cache::put('upsell_token.' . $upsellToken, ['order_id' => $order->id, 'gateway' => $order->gateway], now()->addMinutes(60));
+                        Cache::put('upsell_token.'.$upsellToken, ['order_id' => $order->id, 'gateway' => $order->gateway], now()->addMinutes(60));
                         $redirectUrl = route('checkout.upsell', ['token' => $upsellToken]);
                     } else {
                         $customRedirect = $config['redirect_after_purchase'] ?? null;
@@ -1153,17 +1177,20 @@ class CheckoutController extends Controller
                         $json['requires_action'] = true;
                         $json['client_secret'] = $cardResult['client_secret'];
                     }
+
                     return $this->idempotencyReturn($idempotencyKey, response()->json($json));
                 }
                 if ($redirectUrl !== null) {
                     if (str_starts_with($redirectUrl, 'http') && ! str_starts_with($redirectUrl, request()->getSchemeAndHttpHost())) {
                         return $this->idempotencyReturn($idempotencyKey, redirect()->away($redirectUrl)->with('success', 'Compra concluída.'));
                     }
+
                     return $this->idempotencyReturn($idempotencyKey, redirect()->to($redirectUrl)->with('success', $isApproved ? 'Compra concluída.' : 'Pagamento em processamento.'));
                 }
                 if ($checkoutSlug !== '') {
                     return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.show', ['slug' => $checkoutSlug])->with('success', 'Pagamento com cartão recebido. Você receberá a confirmação por e-mail.'));
                 }
+
                 return $this->idempotencyReturn($idempotencyKey, back()->with('success', 'Pagamento com cartão recebido. Você receberá a confirmação por e-mail.'));
             } catch (\Throwable $e) {
                 $this->rollbackFailedOrder($order, $e);
@@ -1173,6 +1200,7 @@ class CheckoutController extends Controller
                         'message' => $e->getMessage() ?: 'Não foi possível processar o pagamento. Tente novamente.',
                     ], 422);
                 }
+
                 return back()->with('error', $e->getMessage() ?: 'Não foi possível processar o pagamento. Tente novamente.');
             }
         }
@@ -1222,8 +1250,8 @@ class CheckoutController extends Controller
                 $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
                 $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
                 $boletoToken = Str::random(32);
-                $amountFormatted = 'R$ ' . number_format((float) ($boletoResult['amount'] ?? $totalAmount), 2, ',', '.');
-                session()->put('boleto_display.' . $boletoToken, [
+                $amountFormatted = 'R$ '.number_format((float) ($boletoResult['amount'] ?? $totalAmount), 2, ',', '.');
+                session()->put('boleto_display.'.$boletoToken, [
                     'order_id' => $order->id,
                     'amount' => $boletoResult['amount'] ?? $totalAmount,
                     'amount_formatted' => $amountFormatted,
@@ -1246,6 +1274,7 @@ class CheckoutController extends Controller
                         'redirect_url' => route('checkout.boleto', ['token' => $boletoToken]),
                     ]));
                 }
+
                 return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.boleto', ['token' => $boletoToken]));
             } catch (\Throwable $e) {
                 $this->rollbackFailedOrder($order, $e);
@@ -1255,6 +1284,7 @@ class CheckoutController extends Controller
                         'message' => $e->getMessage() ?: 'Não foi possível gerar o boleto. Tente novamente.',
                     ], 422);
                 }
+
                 return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o boleto. Tente novamente.');
             }
         }
@@ -1280,6 +1310,7 @@ class CheckoutController extends Controller
         if ($offer && $offer->checkout_config) {
             return array_replace_recursive(Product::defaultCheckoutConfig(), $offer->checkout_config);
         }
+
         return $product->checkout_config;
     }
 
@@ -1297,7 +1328,7 @@ class CheckoutController extends Controller
             return redirect()->route('login')->with('error', 'Link inválido ou expirado.');
         }
 
-        $stored = session('pix_display.' . $token);
+        $stored = session('pix_display.'.$token);
         if (! is_array($stored)) {
             return redirect()->route('login')->with('error', 'Código PIX expirado ou inválido. Gere um novo PIX.');
         }
@@ -1305,21 +1336,23 @@ class CheckoutController extends Controller
         $orderId = (int) ($stored['order_id'] ?? 0);
         $order = Order::with('product', 'productOffer', 'subscriptionPlan')->find($orderId);
         if (! $order || $order->status !== 'pending') {
-            session()->forget('pix_display.' . $token);
+            session()->forget('pix_display.'.$token);
             $slug = $order ? $order->getCheckoutSlug() : null;
             $redirect = $slug ? redirect()->route('checkout.show', ['slug' => $slug]) : redirect()->route('login');
+
             return $redirect->with('error', 'Código PIX expirado ou inválido. Gere um novo PIX.');
         }
 
         $createdAt = (int) ($stored['created_at'] ?? 0);
         if ($createdAt + self::PIX_EXPIRY_SECONDS < time()) {
-            session()->forget('pix_display.' . $token);
+            session()->forget('pix_display.'.$token);
+
             return redirect()->route('checkout.show', ['slug' => $order->getCheckoutSlug()])
                 ->with('error', 'Código PIX expirado. Gere um novo PIX.');
         }
 
         $amount = (float) ($stored['amount'] ?? 0);
-        $amountFormatted = 'R$ ' . number_format($amount, 2, ',', '.');
+        $amountFormatted = 'R$ '.number_format($amount, 2, ',', '.');
 
         $conversionPixels = AffiliateConversionPixels::forOrder($order);
 
@@ -1354,7 +1387,7 @@ class CheckoutController extends Controller
             return redirect()->route('login')->with('error', 'Link inválido ou expirado.');
         }
 
-        $stored = session('boleto_display.' . $token);
+        $stored = session('boleto_display.'.$token);
         if (! is_array($stored)) {
             return redirect()->route('login')->with('error', 'Boleto expirado ou inválido. Gere um novo boleto.');
         }
@@ -1362,9 +1395,10 @@ class CheckoutController extends Controller
         $orderId = (int) ($stored['order_id'] ?? 0);
         $order = Order::with('product', 'productOffer', 'subscriptionPlan')->find($orderId);
         if (! $order || $order->status !== 'pending') {
-            session()->forget('boleto_display.' . $token);
+            session()->forget('boleto_display.'.$token);
             $slug = $order ? $order->getCheckoutSlug() : null;
             $redirect = $slug ? redirect()->route('checkout.show', ['slug' => $slug]) : redirect()->route('login');
+
             return $redirect->with('error', 'Boleto expirado ou inválido. Gere um novo boleto.');
         }
 
@@ -1397,9 +1431,9 @@ class CheckoutController extends Controller
             return response()->json(['status' => 'invalid'], 400);
         }
 
-        $stored = session('pix_display.' . $token);
+        $stored = session('pix_display.'.$token);
         if (! is_array($stored)) {
-            $stored = session('boleto_display.' . $token);
+            $stored = session('boleto_display.'.$token);
         }
         if (! is_array($stored)) {
             return response()->json(['status' => 'not_found'], 404);
@@ -1448,24 +1482,24 @@ class CheckoutController extends Controller
             if ($order->api_application_id) {
                 $redirectUrl = route('api-checkout.thank-you', ['order_id' => $order->id]);
             } else {
-            $config = $this->getOrderCheckoutConfig($order);
-            $upsell = $config['upsell'] ?? [];
-            if (! empty($upsell['enabled']) && ! empty($upsell['products']) && is_array($upsell['products'])) {
-                $upsellToken = Str::random(64);
-                Cache::put('upsell_token.' . $upsellToken, [
-                    'order_id' => $order->id,
-                    'gateway' => 'pix',
-                ], now()->addMinutes(60));
-                $redirectUrl = route('checkout.upsell', ['token' => $upsellToken]);
-            } else {
-                $customRedirect = $config['redirect_after_purchase'] ?? null;
-                if (! empty($customRedirect) && is_string($customRedirect)) {
-                    $redirectUrl = $customRedirect;
+                $config = $this->getOrderCheckoutConfig($order);
+                $upsell = $config['upsell'] ?? [];
+                if (! empty($upsell['enabled']) && ! empty($upsell['products']) && is_array($upsell['products'])) {
+                    $upsellToken = Str::random(64);
+                    Cache::put('upsell_token.'.$upsellToken, [
+                        'order_id' => $order->id,
+                        'gateway' => 'pix',
+                    ], now()->addMinutes(60));
+                    $redirectUrl = route('checkout.upsell', ['token' => $upsellToken]);
                 } else {
-                    $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
-                    $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
+                    $customRedirect = $config['redirect_after_purchase'] ?? null;
+                    if (! empty($customRedirect) && is_string($customRedirect)) {
+                        $redirectUrl = $customRedirect;
+                    } else {
+                        $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
+                        $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
+                    }
                 }
-            }
             }
         }
 
@@ -1486,6 +1520,7 @@ class CheckoutController extends Controller
         if ($order->productOffer && $order->productOffer->checkout_config) {
             return array_replace_recursive(Product::defaultCheckoutConfig(), $order->productOffer->checkout_config);
         }
+
         return $order->product ? $order->product->checkout_config : [];
     }
 
@@ -1546,6 +1581,7 @@ class CheckoutController extends Controller
         $brlUsd = $rates['USD'] ?? config('products.rates.brl_usd', 0.18);
         $priceBrl = $currency === 'BRL' ? $price : ($currency === 'EUR' ? $price / $brlEur : $price / $brlUsd);
         $productArray['price_brl'] = round($priceBrl, 2);
+
         return $productArray;
     }
 
@@ -1559,28 +1595,29 @@ class CheckoutController extends Controller
             return $response;
         }
         if ($response instanceof RedirectResponse) {
-            Cache::put('checkout_idempotency:' . $key, [
+            Cache::put('checkout_idempotency:'.$key, [
                 'type' => 'redirect',
                 'url' => $response->getTargetUrl(),
             ], now()->addMinutes(1440));
         }
         if ($response instanceof JsonResponse && $response->getStatusCode() === 200) {
-            Cache::put('checkout_idempotency:' . $key, [
+            Cache::put('checkout_idempotency:'.$key, [
                 'type' => 'json',
                 'data' => json_decode($response->getContent(), true),
             ], now()->addMinutes(1440));
         }
+
         return $response;
     }
 
     /**
      * @param  array<string, mixed>  $validated
-     * @return array{utm_source: ?string, utm_medium: ?string, utm_campaign: ?string}
+     * @return array<string, string|null>
      */
     private function utmPayloadFromValidated(array $validated): array
     {
         $out = [];
-        foreach (['utm_source', 'utm_medium', 'utm_campaign'] as $k) {
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $k) {
             $v = isset($validated[$k]) ? trim((string) $validated[$k]) : '';
             $out[$k] = $v !== '' ? $v : null;
         }
@@ -1589,13 +1626,13 @@ class CheckoutController extends Controller
     }
 
     /**
-     * @param  array{utm_source: ?string, utm_medium: ?string, utm_campaign: ?string}  $fromRequest
-     * @return array{utm_source: ?string, utm_medium: ?string, utm_campaign: ?string}
+     * @param  array<string, string|null>  $fromRequest
+     * @return array<string, string|null>
      */
     private function mergeSessionUtms(CheckoutSession $session, array $fromRequest): array
     {
         $out = [];
-        foreach (['utm_source', 'utm_medium', 'utm_campaign'] as $k) {
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $k) {
             $req = $fromRequest[$k] ?? null;
             $sess = $session->{$k} ?? null;
             $reqN = is_string($req) && trim($req) !== '' ? trim($req) : null;
@@ -1607,14 +1644,14 @@ class CheckoutController extends Controller
     }
 
     /**
-     * @param  array{utm_source: ?string, utm_medium: ?string, utm_campaign: ?string}  $utmTriple
+     * @param  array<string, string|null>  $tracking
      */
-    private function persistOrderUtms(Order $order, array $utmTriple): void
+    private function persistOrderUtms(Order $order, array $tracking): void
     {
         $meta = $order->metadata ?? [];
         $changed = false;
-        foreach (['utm_source', 'utm_medium', 'utm_campaign'] as $k) {
-            $v = $utmTriple[$k] ?? null;
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $k) {
+            $v = $tracking[$k] ?? null;
             if (! is_string($v) || trim($v) === '') {
                 continue;
             }
@@ -1627,5 +1664,38 @@ class CheckoutController extends Controller
         if ($changed) {
             $order->update(['metadata' => $meta]);
         }
+    }
+
+    /**
+     * @param  array{payment_token?: string, card_mask?: string}  $card
+     */
+    private function attachStripeSavedPaymentMethodForSubscription(
+        Subscription $subscription,
+        Order $order,
+        array $card,
+        int $tenantId,
+        int $userId
+    ): void {
+        if (($order->gateway ?? '') !== 'stripe') {
+            return;
+        }
+        $pm = trim((string) ($card['payment_token'] ?? ''));
+        if ($pm === '' || ! str_starts_with($pm, 'pm_')) {
+            return;
+        }
+        $lastFour = null;
+        if (! empty($card['card_mask']) && preg_match('/(\d{4})\s*$/', (string) $card['card_mask'], $m)) {
+            $lastFour = $m[1];
+        }
+        $spm = SavedPaymentMethod::create([
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'gateway' => 'stripe',
+            'gateway_payment_method_id' => $pm,
+            'last_four' => $lastFour,
+            'brand' => 'card',
+            'type' => 'card',
+        ]);
+        $subscription->update(['saved_payment_method_id' => $spm->id]);
     }
 }

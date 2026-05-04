@@ -17,6 +17,11 @@ const props = defineProps({
         type: Object,
         default: () => ({ withdrawal_status: 'all' }),
     },
+    /** Gateway de saque ativo (ex.: cajupay) — usado para exibir reprocessamento */
+    payout_gateway_active: {
+        type: String,
+        default: '',
+    },
 });
 
 const withdrawalFilterChips = [
@@ -58,6 +63,17 @@ function approveWithdrawal(id, manual = false) {
 function rejectWithdrawal(id) {
     const note = window.prompt('Motivo da rejeição (opcional). O saldo será devolvido ao infoprodutor.') || '';
     router.post(`/plataforma/financeiro/saques/${id}/rejeitar`, { admin_note: note }, { preserveScroll: true });
+}
+
+function reprocessCajuPayWithdrawal(id) {
+    if (
+        !confirm(
+            'Tentar enviar novamente este saque via CajuPay (mesmo valor e chave PIX cadastrada)? Use quando já houver saldo na conta CajuPay.'
+        )
+    ) {
+        return;
+    }
+    router.post(`/plataforma/financeiro/saques/${id}/reprocessar-cajupay`, {}, { preserveScroll: true });
 }
 
 function formatBRL(value) {
@@ -145,8 +161,9 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
             >
                 <p class="font-medium">Pendentes</p>
                 <p class="mt-1 text-sm opacity-95">
-                    O envio do PIX costuma ser <strong>automático</strong> ao solicitar no Financeiro. Use
-                    <strong>Pago (CajuPay)</strong> se o envio automático falhou (linha de erro abaixo) ou para reenviar. Use
+                    O envio do PIX costuma ser <strong>automático</strong> ao solicitar no Financeiro. Com CajuPay ativo, use
+                    <strong>Reprocessar</strong> para nova tentativa (ex.: saldo insuficiente antes) ou
+                    <strong>Pago (CajuPay)</strong> na primeira aprovação. Use
                     <strong>Pago manual</strong> se o pagamento já foi feito por fora.
                 </p>
             </div>
@@ -200,6 +217,15 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                 </td>
                                 <td class="py-3 text-right">
                                     <div v-if="w.status === 'pending'" class="flex flex-wrap justify-end gap-2">
+                                        <Button
+                                            v-if="payout_gateway_active === 'cajupay'"
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            @click="reprocessCajuPayWithdrawal(w.id)"
+                                        >
+                                            Reprocessar
+                                        </Button>
                                         <Button type="button" size="sm" @click="approveWithdrawal(w.id, false)">
                                             Pago (CajuPay)
                                         </Button>

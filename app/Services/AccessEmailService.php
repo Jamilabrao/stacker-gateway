@@ -83,7 +83,7 @@ class AccessEmailService
         $senha = '';
         $passwordCacheKey = null;
         if ($product->type === Product::TYPE_AREA_MEMBROS && $order->user_id && $order->product_id) {
-            $passwordCacheKey = 'access_password.' . $order->user_id . '.' . $order->product_id;
+            $passwordCacheKey = 'access_password.'.$order->user_id.'.'.$order->product_id;
             $decrypted = null;
             $meta = $order->metadata ?? [];
             if (! empty($meta['access_password_temp'])) {
@@ -373,6 +373,7 @@ class AccessEmailService
                     \Illuminate\Support\Facades\URL::forceScheme($scheme);
                 }
                 \Illuminate\Support\Facades\URL::forceRootUrl(rtrim($base, '/'));
+
                 return \Illuminate\Support\Facades\URL::temporarySignedRoute('member-area.magic-access.host', $expiresAt, [
                     'u' => $user->id,
                 ]);
@@ -396,7 +397,12 @@ class AccessEmailService
         if (str_contains($bodyHtml, 'data-email-logo="1"')) {
             return $bodyHtml;
         }
-        $img = '<div data-email-logo="1" style="text-align:center;margin-bottom:20px"><img src="'.e($logoUrl).'" alt="Logo" style="max-height:60px;width:auto" /></div>';
+        // Fundo branco explícito: clientes (ex.: Outlook) e pré-visualizações escuras tratam alpha como preto.
+        $img = '<div data-email-logo="1" style="text-align:center;margin-bottom:20px">'
+            .'<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;background-color:#ffffff">'
+            .'<tr><td bgcolor="#ffffff" style="padding:12px 16px;background-color:#ffffff;border-radius:8px">'
+            .'<img src="'.e($logoUrl).'" alt="Logo" width="240" style="max-height:60px;max-width:240px;width:auto;height:auto;display:block;margin:0 auto;border:0;outline:none;text-decoration:none" />'
+            .'</td></tr></table></div>';
 
         return $img.$bodyHtml;
     }

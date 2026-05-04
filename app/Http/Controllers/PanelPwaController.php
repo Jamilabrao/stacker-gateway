@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\BrandingSetting;
 use App\Models\PanelPushSubscription;
 use App\Services\MemberAreaResolver;
+use App\Support\PanelPwaIconUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -33,49 +34,13 @@ class PanelPwaController extends Controller
 
         $icons = [];
         $addIconVariants = function (string $src, string $sizes) use (&$icons, $brandingVersion): void {
-            $src = $this->withVersion($src, $brandingVersion);
+            $src = PanelPwaIconUrls::withVersion($src, $brandingVersion);
             $icons[] = ['src' => $src, 'sizes' => $sizes, 'type' => 'image/png', 'purpose' => 'any'];
             $icons[] = ['src' => $src, 'sizes' => $sizes, 'type' => 'image/png', 'purpose' => 'maskable'];
         };
 
-        $pwa192 = is_string($v = config('getfy.pwa_icon_192')) ? trim($v) : '';
-        $pwa512 = is_string($v = config('getfy.pwa_icon_512')) ? trim($v) : '';
-        $has192 = $pwa192 !== '';
-        $has512 = $pwa512 !== '';
-
-        if ($has192 || $has512) {
-            if ($has192 && $has512) {
-                $addIconVariants($pwa192, '192x192');
-                $addIconVariants($pwa512, '512x512');
-            } elseif ($has192) {
-                $addIconVariants($pwa192, '192x192');
-                $addIconVariants($pwa192, '512x512');
-            } else {
-                $addIconVariants($pwa512, '512x512');
-                $addIconVariants($pwa512, '192x192');
-            }
-        } else {
-            $iconsDir = public_path('icons');
-            $file192 = is_file($iconsDir.'/icon-192x192.png');
-            $file512 = is_file($iconsDir.'/icon-512x512.png');
-            $icon192Url = url('/icons/icon-192x192.png');
-            $icon512Url = url('/icons/icon-512x512.png');
-
-            if ($file192) {
-                $addIconVariants($icon192Url, '192x192');
-            }
-            if ($file512) {
-                $addIconVariants($icon512Url, '512x512');
-            }
-            if (empty($icons)) {
-                $fallbackIcon = (string) config('getfy.app_logo_icon', 'https://cdn.getfy.cloud/collapsed-logo.png');
-                $addIconVariants($fallbackIcon, '192x192');
-                $addIconVariants($fallbackIcon, '512x512');
-            } elseif ($file512 && ! $file192) {
-                $addIconVariants($icon512Url, '192x192');
-            } elseif ($file192 && ! $file512) {
-                $addIconVariants($icon192Url, '512x512');
-            }
+        foreach (PanelPwaIconUrls::manifestIconSpecs() as $spec) {
+            $addIconVariants($spec['src'], $spec['sizes']);
         }
 
         $manifest = [
@@ -95,18 +60,6 @@ class PanelPwaController extends Controller
             ->json($manifest)
             ->header('Content-Type', 'application/manifest+json')
             ->header('Cache-Control', 'public, max-age=0, must-revalidate');
-    }
-
-    private function withVersion(string $src, ?string $v): string
-    {
-        $src = trim($src);
-        if ($src === '' || $v === null || $v === '') {
-            return $src;
-        }
-        if (str_contains($src, 'v=')) {
-            return $src;
-        }
-        return str_contains($src, '?') ? ($src.'&v='.$v) : ($src.'?v='.$v);
     }
 
     private function brandingVersionForRequest(Request $request): ?string

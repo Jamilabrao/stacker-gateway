@@ -62,6 +62,9 @@ class ApiCheckoutController extends Controller
                 $productModel = $offer->product;
             }
         }
+        if ($productModel && ! $productModel->isAvailableForPurchase()) {
+            abort(403, 'Este produto não está disponível para compra.');
+        }
         if ($productModel) {
             $productName = $productModel->name;
             if ($productModel->image) {
@@ -298,6 +301,9 @@ class ApiCheckoutController extends Controller
             if ($offer && $offer->product && (int) $offer->product->tenant_id === (int) $tenantId) {
                 $product = $offer->product;
             }
+        }
+        if ($product && ! $product->isAvailableForPurchase()) {
+            return redirect()->back()->with('error', 'Este produto não está disponível para compra no momento.');
         }
         if ($method === 'pix_auto' && $product && ! $subscriptionPlanId) {
             $plan = SubscriptionPlan::where('product_id', $product->id)->orderBy('position')->first();

@@ -12,9 +12,25 @@ const { t } = useI18n();
 const props = defineProps({
     stats: { type: Object, default: () => ({ ativas: 0, clientes: 0, mrr: 0 }) },
     assinaturas: { type: [Array, Object], default: () => [] },
+    status_filter: { type: String, default: 'active' },
 });
 
 const assinaturasList = computed(() => props.assinaturas?.data ?? (Array.isArray(props.assinaturas) ? props.assinaturas : []));
+
+const statusTabs = computed(() => [
+    { value: 'active', label: t('subscriptions.status.active', 'Ativas') },
+    { value: 'past_due', label: t('subscriptions.status.past_due', 'Em atraso') },
+    { value: 'cancelled', label: t('subscriptions.status.cancelled', 'Canceladas') },
+    { value: 'all', label: t('subscriptions.filter_all', 'Todas') },
+]);
+
+function filterStatus(status) {
+    router.get('/vendas/assinaturas', { status }, { preserveState: true, replace: true });
+}
+
+function openSubscription(id) {
+    router.visit(`/vendas/assinaturas/${id}`);
+}
 
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0);
@@ -82,8 +98,30 @@ function statusBadgeLabel(status) {
             <div class="border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
                 <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">{{ t('sales.tab_subscriptions', 'Assinaturas') }}</h2>
                 <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
-                    {{ t('subscriptions.list_hint', 'Lista de assinaturas ativas. Os lembretes de renovação são enviados por e-mail antes do vencimento.') }}
+                    {{
+                        t(
+                            'subscriptions.list_hint_extended',
+                            'Filtre por status, abra o detalhe para ver períodos pagos e cancelar assinaturas. Lembretes de renovação são enviados por e-mail.',
+                        )
+                    }}
                 </p>
+            </div>
+
+            <div class="flex flex-wrap gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+                <button
+                    v-for="tab in statusTabs"
+                    :key="tab.value"
+                    type="button"
+                    class="rounded-full px-3 py-1.5 text-sm font-medium transition"
+                    :class="
+                        status_filter === tab.value
+                            ? 'bg-[var(--color-primary)] text-white'
+                            : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600'
+                    "
+                    @click="filterStatus(tab.value)"
+                >
+                    {{ tab.label }}
+                </button>
             </div>
 
             <div v-if="assinaturasList.length > 0" class="sm:hidden p-4">
@@ -91,7 +129,11 @@ function statusBadgeLabel(status) {
                     <div
                         v-for="s in assinaturasList"
                         :key="s.id"
-                        class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/60"
+                        role="button"
+                        tabindex="0"
+                        class="cursor-pointer rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-[var(--color-primary)]/40 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/60 dark:hover:border-[var(--color-primary)]/40"
+                        @click="openSubscription(s.id)"
+                        @keydown.enter.prevent="openSubscription(s.id)"
                     >
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
@@ -157,7 +199,15 @@ function statusBadgeLabel(status) {
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-zinc-200 dark:divide-zinc-700">
-                        <tr v-for="s in assinaturasList" :key="s.id" class="text-zinc-700 dark:text-zinc-300">
+                        <tr
+                            v-for="s in assinaturasList"
+                            :key="s.id"
+                            class="cursor-pointer text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/80"
+                            tabindex="0"
+                            role="link"
+                            @click="openSubscription(s.id)"
+                            @keydown.enter.prevent="openSubscription(s.id)"
+                        >
                             <td class="px-4 py-3">
                                 <p class="font-medium">{{ s.user?.name || '—' }}</p>
                                 <p class="text-xs text-zinc-500 dark:text-zinc-400">{{ s.user?.email }}</p>

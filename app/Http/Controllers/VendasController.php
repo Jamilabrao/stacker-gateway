@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductOffer;
@@ -110,16 +111,54 @@ class VendasController extends Controller
         });
     }
 
+    /**
+     * @return list<string>
+     */
+    private function normalizeProductIds(Request $request): array
+    {
+        $raw = $request->query('product_ids');
+        $ids = [];
+        if (is_array($raw)) {
+            foreach ($raw as $id) {
+                $s = $this->normalizeString(is_scalar($id) ? (string) $id : null);
+                if ($s !== null) {
+                    $ids[$s] = $s;
+                }
+            }
+        } elseif (is_string($raw) && trim($raw) !== '') {
+            foreach (array_filter(array_map('trim', explode(',', $raw))) as $id) {
+                $s = $this->normalizeString($id);
+                if ($s !== null) {
+                    $ids[$s] = $s;
+                }
+            }
+        }
+        $legacy = $this->normalizeString($request->query('product_id'));
+        if ($legacy !== null) {
+            $ids[$legacy] = $legacy;
+        }
+
+        return array_values($ids);
+    }
+
     private function applyProductFilters($query, Request $request)
     {
-        $productId = $this->normalizeString($request->query('product_id'));
+        $productIds = $this->normalizeProductIds($request);
+        if (auth()->user()?->isTeam()) {
+            $allowed = app(TeamAccessService::class)->allowedProductIdsFor(auth()->user());
+            $productIds = array_values(array_intersect($productIds, $allowed));
+        }
+
+        if (count($productIds) === 1) {
+            $query->where('product_id', $productIds[0]);
+        } elseif (count($productIds) > 1) {
+            $query->whereIn('product_id', $productIds);
+        }
+
         $offerId = $request->query('offer_id');
         $offerId = is_string($offerId) || is_int($offerId) ? (string) $offerId : null;
         $offerId = $this->normalizeString($offerId);
 
-        if ($productId !== null) {
-            $query->where('product_id', $productId);
-        }
         if ($offerId !== null) {
             $query->where('product_offer_id', (int) $offerId);
         }
@@ -283,7 +322,7 @@ class VendasController extends Controller
                 'orderItems.product:id,name',
                 'orderItems.productOffer:id,name',
                 'orderItems.subscriptionPlan:id,name',
-                'checkoutSession:id,order_id,utm_source,utm_medium,utm_campaign',
+                'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
             ])
             ->orderByDesc('created_at')
             ->paginate(20)
@@ -390,7 +429,7 @@ class VendasController extends Controller
                 'period' => $this->normalizeString($request->query('period')) ?? 'all',
                 'date_from' => $this->normalizeString($request->query('date_from')),
                 'date_to' => $this->normalizeString($request->query('date_to')),
-                'product_id' => $this->normalizeString($request->query('product_id')),
+                'product_ids' => $this->normalizeProductIds($request),
                 'offer_id' => $this->normalizeString((string) ($request->query('offer_id') ?? '')),
                 'payment_method' => $this->normalizeString($request->query('payment_method')) ?? 'all',
                 'payment_status' => $this->normalizeString($request->query('payment_status')) ?? 'all',

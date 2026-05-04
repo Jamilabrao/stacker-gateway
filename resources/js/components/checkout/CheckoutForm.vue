@@ -18,7 +18,16 @@ import {
 
 const STORAGE_KEY = 'checkout_draft';
 
-const UTM_PARAM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign'];
+/** Mesmas chaves que CheckoutSession::TRACKING_FIELD_KEYS (UTMfy + funis). */
+const TRACKING_PARAM_KEYS = [
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_content',
+    'utm_term',
+    'sck',
+    'src',
+];
 
 function utmStorageKey() {
     return `getfy_checkout_utm_${String(props.productId)}`;
@@ -28,7 +37,7 @@ function readUtmsFromUrl() {
     if (typeof window === 'undefined') return {};
     const p = new URLSearchParams(window.location.search);
     const o = {};
-    UTM_PARAM_KEYS.forEach((k) => {
+    TRACKING_PARAM_KEYS.forEach((k) => {
         const v = p.get(k);
         if (v != null && String(v).trim() !== '') o[k] = String(v).trim();
     });
@@ -54,7 +63,7 @@ function mergeStoredUtms() {
 function getUtmPayload() {
     const m = mergeStoredUtms();
     const out = {};
-    UTM_PARAM_KEYS.forEach((k) => {
+    TRACKING_PARAM_KEYS.forEach((k) => {
         if (m[k]) out[k] = m[k];
     });
     return out;

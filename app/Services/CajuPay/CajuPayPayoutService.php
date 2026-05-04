@@ -4,6 +4,7 @@ namespace App\Services\CajuPay;
 
 use App\Models\GatewayCredential;
 use App\Models\Withdrawal;
+use App\Support\BrazilianDocumentDigits;
 use App\Services\EffectiveMerchantFees;
 use App\Services\Payout\GatewayPayoutEconomics;
 use Illuminate\Support\Facades\Http;
@@ -13,9 +14,15 @@ use Illuminate\Support\Str;
 class CajuPayPayoutService
 {
     /**
-     * @return array{ok: bool, external_id?: string, error?: string, status?: int}
+     * @return array{ok: bool, external_id?: string, error?: string, status?: int, cajupay_error_code?: string}
      */
-    public function sendWithdrawalToPixKey(Withdrawal $withdrawal, string $pixKeyId): array
+    public function sendWithdrawalToPixKey(
+        Withdrawal $withdrawal,
+        ?string $pixKeyId = null,
+        ?string $pixKey = null,
+        ?string $pixKeyType = null,
+        ?string $keyOwnerDocument = null
+    ): array
     {
         $credential = GatewayCredential::resolveForPayment(null, 'cajupay');
         if ($credential === null) {
@@ -54,13 +61,30 @@ class CajuPayPayoutService
 
         $idempotencyKey = Str::limit('getfy-withdrawal-'.$withdrawal->id, 200, '');
 
+        $keyOwnerDocument = BrazilianDocumentDigits::onlyDigits((string) $keyOwnerDocument);
+        if ($keyOwnerDocument === null || ! BrazilianDocumentDigits::isValidCpfOrCnpjLength($keyOwnerDocument)) {
+            return ['ok' => false, 'error' => 'CPF/CNPJ do titular ausente ou inválido no cadastro da chave PIX. Atualize em Financeiro e salve novamente.'];
+        }
+        $pixKey = trim((string) $pixKey);
+        $pixKeyType = trim((string) $pixKeyType);
+        if ($pixKeyType !== '' && ! in_array($pixKeyType, ['cpf', 'cnpj', 'email', 'phone', 'evp'], true)) {
+            $pixKeyType = '';
+        }
+
         $body = [
             'amount_cents' => $amountCents,
             'currency' => 'BRL',
             'wallet_kind' => 'main',
-            'destination' => ['method' => 'pix_saved_key'],
-            'pix_key_id' => $pixKeyId,
+            'key_owner_document' => $keyOwnerDocument,
         ];
+        // Saque dict-only: sempre usa chave/tipo/documento cadastrados localmente.
+        if ($pixKey !== '' && $pixKeyType !== '') {
+            $body['destination'] = ['method' => 'dict'];
+            $body['pix_key'] = $pixKey;
+            $body['pix_key_type'] = $pixKeyType;
+        } else {
+            return ['ok' => false, 'error' => 'Configure a chave PIX e o tipo da chave em Financeiro antes de solicitar saque.'];
+        }
 
         $response = $http
             ->withHeaders(['Idempotency-Key' => $idempotencyKey])
@@ -92,21 +116,74 @@ class CajuPayPayoutService
             return ['ok' => true, 'external_id' => Str::limit($ext, 80, ''), 'status' => $response->status()];
         }
 
+        $decoded = $response->json();
+        if (! is_array($decoded)) {
+            $decoded = json_decode((string) $response->body(), true);
+        }
+        if (is_array($decoded) && (($decoded['error'] ?? '') === 'insufficient_funds')) {
+            $userMessage = is_string($decoded['user_message'] ?? null) ? trim($decoded['user_message']) : '';
+            $friendly = $userMessage !== ''
+                ? $userMessage
+                : 'Saldo insuficiente na conta de pagamentos para este valor (incluindo taxas).';
+
+            Log::warning('CajuPayPayoutService: payout recusado.', [
+                'withdrawal_id' => $withdrawal->id,
+                'http_status' => $response->status(),
+                'response_body' => $response->body(),
+                'payload_preview' => [
+                    'amount_cents' => $amountCents,
+                    'wallet_kind' => 'main',
+                    'pix_key_type' => $pixKeyType,
+                    'pix_key' => $pixKey !== '' ? Str::mask($pixKey, '*', 2, max(0, strlen($pixKey) - 4)) : '',
+                    'key_owner_document' => strlen($keyOwnerDocument) >= 4
+                        ? str_repeat('*', max(0, strlen($keyOwnerDocument) - 4)).substr($keyOwnerDocument, -4)
+                        : $keyOwnerDocument,
+                ],
+            ]);
+
+            return [
+                'ok' => false,
+                'error' => $friendly,
+                'status' => $response->status(),
+                'cajupay_error_code' => 'insufficient_funds',
+            ];
+        }
+
         $msg = $response->body();
         if (strlen($msg) > 500) {
             $msg = substr($msg, 0, 500).'…';
         }
+        $rawLower = strtolower($msg);
+        if (str_contains($rawLower, 'profile_incomplete')) {
+            $msg = 'A conta na CajuPay está com cadastro incompleto (documento do perfil ausente/inválido). Atualize o perfil da conta na CajuPay.';
+        }
+        if (str_contains($rawLower, 'pix_key_owner_required')) {
+            $msg = 'A CajuPay exige CPF/CNPJ do titular para essa chave PIX. Revise o cadastro da chave em Financeiro.';
+        }
+        if (str_contains($rawLower, 'pix_key_profile_document_mismatch')) {
+            $msg = 'Os dados da chave PIX não foram aceitos. Revise chave, tipo e CPF/CNPJ do titular informados no cadastro da chave. (Código CajuPay: pix_key_profile_document_mismatch)';
+        }
         if ($response->status() === 403) {
             if (str_contains(strtolower($msg), 'kyc')) {
-                $msg = 'Conta CajuPay com KYC pendente ou saques bloqueados. Conclua no painel CajuPay.';
+                $msg = 'A conta de recebimento está com validação pendente ou bloqueio de saques no provedor de pagamento.';
             } elseif (str_contains(strtolower($msg), 'scope') || str_contains(strtolower($msg), 'permiss')) {
-                $msg = 'Chave de API sem permissão de saque (payouts). Crie uma chave com escopo payouts.write no painel CajuPay.';
+                $msg = 'A integração de pagamentos não possui permissão de saque.';
             }
         }
 
         Log::warning('CajuPayPayoutService: payout recusado.', [
             'withdrawal_id' => $withdrawal->id,
             'http_status' => $response->status(),
+            'response_body' => $response->body(),
+            'payload_preview' => [
+                'amount_cents' => $amountCents,
+                'wallet_kind' => 'main',
+                'pix_key_type' => $pixKeyType,
+                'pix_key' => $pixKey !== '' ? Str::mask($pixKey, '*', 2, max(0, strlen($pixKey) - 4)) : '',
+                'key_owner_document' => strlen($keyOwnerDocument) >= 4
+                    ? str_repeat('*', max(0, strlen($keyOwnerDocument) - 4)).substr($keyOwnerDocument, -4)
+                    : $keyOwnerDocument,
+            ],
         ]);
 
         return ['ok' => false, 'error' => $msg !== '' ? $msg : 'Erro HTTP '.$response->status(), 'status' => $response->status()];
@@ -167,7 +244,7 @@ class CajuPayPayoutService
 
     /**
      * @param  array<string, mixed>  $credentials
-     * @param  array{label: string, pix_key_type: string, pix_key: string, is_default?: bool}  $payload
+     * @param  array{label: string, pix_key_type: string, pix_key: string, is_default?: bool, key_owner_document?: string}  $payload
      * @return array{ok: bool, id?: string, error?: string}
      */
     public static function createPixKey(array $credentials, array $payload): array
@@ -178,7 +255,17 @@ class CajuPayPayoutService
             return ['ok' => false, 'error' => 'Credenciais ausentes.'];
         }
         $base = rtrim((string) config('services.cajupay.base_url', 'https://api.cajupay.com.br'), '/');
-        $idempotencyKey = Str::limit('getfy-pixkey-'.sha1(($payload['pix_key'] ?? '').$payload['pix_key_type']), 200, '');
+        // Inclui key_owner_document/label para evitar reaproveitar erro antigo quando usuário corrige titular.
+        $idempotencyKey = Str::limit(
+            'getfy-pixkey-'.sha1(
+                (string) ($payload['pix_key'] ?? '')
+                .'|'.(string) ($payload['pix_key_type'] ?? '')
+                .'|'.(string) ($payload['key_owner_document'] ?? '')
+                .'|'.(string) ($payload['label'] ?? '')
+            ),
+            200,
+            ''
+        );
 
         $response = Http::acceptJson()
             ->asJson()

@@ -115,6 +115,9 @@ class PaymentsController extends Controller
             if (! $product) {
                 abort(422, 'Produto não encontrado.');
             }
+            if (! $product->isAvailableForPurchase()) {
+                abort(422, 'Produto indisponível para compra.');
+            }
             $offer = $productOfferId ? ProductOffer::where('id', $productOfferId)->where('product_id', $product->id)->first() : null;
             $plan = $subscriptionPlanId ? SubscriptionPlan::where('id', $subscriptionPlanId)->where('product_id', $product->id)->first() : null;
             if ($offer) {

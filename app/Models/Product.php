@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -36,6 +38,7 @@ class Product extends Model
         'price',
         'currency',
         'is_active',
+        'admin_blocked',
         'conversion_pixels',
         'member_area_config',
         'affiliate_enabled',
@@ -53,6 +56,7 @@ class Product extends Model
         return [
             'price' => 'decimal:2',
             'is_active' => 'boolean',
+            'admin_blocked' => 'boolean',
             'checkout_config' => 'array',
             'member_area_config' => 'array',
             'conversion_pixels' => 'array',
@@ -509,6 +513,22 @@ class Product extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'product_user')->withTimestamps();
+    }
+
+    public function tenantOwner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'tenant_id', 'id');
+    }
+
+    /** Produto pode ser vendido no checkout (ativo e não bloqueado pela plataforma). */
+    public function isAvailableForPurchase(): bool
+    {
+        return (bool) $this->is_active && ! (bool) $this->admin_blocked;
+    }
+
+    public function scopeAvailableForPurchase(Builder $query): Builder
+    {
+        return $query->where('is_active', true)->where('admin_blocked', false);
     }
 
     public function scopeForTenant($query, ?int $tenantId)

@@ -11,10 +11,11 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RelatoriosController extends Controller
 {
-    private const PERIODS = ['hoje', 'ontem', '7dias', 'mes', 'ano', 'total'];
+    private const PERIODS = ['hoje', 'ontem', '7dias', 'mes', 'ano', 'total', 'personalizado'];
 
     public function index(Request $request): Response
     {
@@ -24,7 +25,7 @@ class RelatoriosController extends Controller
         }
 
         $tenantId = auth()->user()->tenant_id;
-        [$start, $end] = $this->rangeForPeriod($period);
+        [$start, $end] = $this->resolveDateRange($request, $period);
 
         $ordersQuery = Order::forTenant($tenantId);
         if ($start && $end) {
@@ -159,6 +160,8 @@ class RelatoriosController extends Controller
 
         return Inertia::render('Relatorios/Index', [
             'period' => $period,
+            'date_from' => $period === 'personalizado' ? ($this->normalizeDateQuery($request->query('date_from')) ?? '') : null,
+            'date_to' => $period === 'personalizado' ? ($this->normalizeDateQuery($request->query('date_to')) ?? '') : null,
             'receita_total' => round($receitaTotal, 2),
             'quantidade_vendas' => $quantidadeVendas,
             'ticket_medio' => round($ticketMedio, 2),
@@ -175,6 +178,138 @@ class RelatoriosController extends Controller
             'reembolsos_count' => $reembolsosCount,
             'reembolsos_total' => round($reembolsosTotal, 2),
         ]);
+    }
+
+    public function exportAbandonedCarts(Request $request): StreamedResponse
+    {
+        $period = $request->query('period', 'hoje');
+        if (! in_array($period, self::PERIODS, true)) {
+            $period = 'hoje';
+        }
+
+        $tenantId = auth()->user()->tenant_id;
+        [$start, $end] = $this->resolveDateRange($request, $period);
+
+        $query = $this->abandonedCheckoutSessionsQuery($tenantId, $start, $end)
+            ->with(['product:id,name', 'productOffer:id,name'])
+            ->orderByDesc('updated_at');
+
+        $filename = 'carrinhos_abandonados_'.date('Y-m-d_His').'.csv';
+
+        return response()->streamDownload(function () use ($query) {
+            $out = fopen('php://output', 'w');
+            fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
+            fputcsv($out, [
+                'ID',
+                'Criado em',
+                'Atualizado em',
+                'Etapa',
+                'E-mail',
+                'Nome',
+                'Produto',
+                'Oferta',
+                'Checkout',
+                'utm_source',
+                'utm_medium',
+                'utm_campaign',
+                'Pedido',
+            ], ';');
+
+            $query->chunkById(500, function ($sessions) use ($out) {
+                foreach ($sessions as $s) {
+                    fputcsv($out, [
+                        $s->id,
+                        $s->created_at?->format('d/m/Y H:i'),
+                        $s->updated_at?->format('d/m/Y H:i'),
+                        $s->step,
+                        $s->email ?? '',
+                        $s->name ?? '',
+                        $s->product?->name ?? '',
+                        $s->productOffer?->name ?? '',
+                        $s->checkout_slug ?? '',
+                        $s->utm_source ?? '',
+                        $s->utm_medium ?? '',
+                        $s->utm_campaign ?? '',
+                        $s->order_id ? (string) $s->order_id : '',
+                    ], ';');
+                }
+            }, 'id');
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    /**
+     * Sessões consideradas carrinho abandonado (visitou checkout sem pedido ou formulário sem conclusão).
+     *
+     * @param  string|null  $start  datetime string
+     * @param  string|null  $end  datetime string
+     */
+    private function abandonedCheckoutSessionsQuery(?int $tenantId, ?string $start, ?string $end)
+    {
+        $q = CheckoutSession::forTenant($tenantId);
+        if ($start && $end) {
+            $q->whereBetween('created_at', [$start, $end]);
+        } elseif ($start) {
+            $q->where('created_at', '>=', $start);
+        } elseif ($end) {
+            $q->where('created_at', '<=', $end);
+        }
+
+        return $q->where(function ($outer) {
+            $outer->where(function ($visit) {
+                $visit->where('step', CheckoutSession::STEP_VISIT)
+                    ->whereNull('order_id');
+            })->orWhere(function ($form) {
+                $form->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
+                    ->where('updated_at', '<=', now()->subMinutes(10))
+                    ->where(function ($q) {
+                        $q->whereNull('order_id')
+                            ->orWhereDoesntHave('order', fn ($orderQuery) => $orderQuery->where('status', 'completed'));
+                    });
+            });
+        });
+    }
+
+    private function normalizeDateQuery(mixed $v): ?string
+    {
+        if (! is_string($v)) {
+            return null;
+        }
+        $v = trim($v);
+        if ($v === '' || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
+            return null;
+        }
+
+        return $v;
+    }
+
+    /**
+     * @return array{0: ?string, 1: ?string} [$start, $end] as datetime strings for SQL
+     */
+    private function resolveDateRange(Request $request, string $period): array
+    {
+        if ($period === 'personalizado') {
+            $df = $this->normalizeDateQuery($request->query('date_from'));
+            $dt = $this->normalizeDateQuery($request->query('date_to'));
+            if ($df !== null && $dt !== null) {
+                $start = Carbon::parse($df)->startOfDay();
+                $end = Carbon::parse($dt)->endOfDay();
+                if ($start->gt($end)) {
+                    $tmp = $start->copy();
+                    $start = $end->copy()->startOfDay();
+                    $end = $tmp->endOfDay();
+                }
+
+                return [$start->toDateTimeString(), $end->toDateTimeString()];
+            }
+
+            $now = Carbon::now();
+
+            return [$now->copy()->subDays(6)->startOfDay()->toDateTimeString(), $now->copy()->endOfDay()->toDateTimeString()];
+        }
+
+        return $this->rangeForPeriod($period);
     }
 
     private function rangeForPeriod(string $period): array

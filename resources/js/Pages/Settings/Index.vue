@@ -13,7 +13,7 @@ import {
     Trash2,
     RefreshCw,
     Upload,
-    Download,
+    Tag,
     Palette,
     Images,
 } from 'lucide-vue-next';
@@ -33,14 +33,6 @@ const props = defineProps({
     current_version: {
         type: String,
         default: '1.0.0',
-    },
-    updates_enabled: {
-        type: Boolean,
-        default: true,
-    },
-    git_available: {
-        type: Boolean,
-        default: false,
     },
     cloud_mode: {
         type: Boolean,
@@ -171,7 +163,7 @@ const coreTabsStatic = [
     { id: 'traducoes', label: 'Traduções', icon: Languages },
     { id: 'moedas', label: 'Moedas', icon: Banknote },
     { id: 'cron', label: 'Cron', icon: Clock },
-    { id: 'update', label: 'Update', icon: Download },
+    { id: 'update', label: 'Versão', icon: Tag },
 ];
 
 const tabs = computed(() => {
@@ -182,107 +174,6 @@ const tabs = computed(() => {
     }));
     return [...coreTabsStatic, ...plug];
 });
-
-const updateCheckLoading = ref(false);
-const updateCheckResult = ref(null);
-const updateRunLoading = ref(false);
-const integrityLoading = ref(false);
-const integrityResult = ref(null);
-const migrateLoading = ref(false);
-const migrateResult = ref(null);
-
-async function checkForUpdate() {
-    updateCheckLoading.value = true;
-    updateCheckResult.value = null;
-    try {
-        const res = await window.axios.get('/plataforma/configuracoes/update/check');
-        updateCheckResult.value = res.data;
-    } catch (e) {
-        updateCheckResult.value = {
-            current: props.current_version,
-            latest: null,
-            available: false,
-            error: e?.response?.data?.message || 'Erro ao verificar atualizações.',
-            changelog_remote: null,
-        };
-    } finally {
-        updateCheckLoading.value = false;
-    }
-}
-
-async function runUpdate() {
-    updateRunLoading.value = true;
-    try {
-        const res = await window.axios.post('/plataforma/configuracoes/update/run', {}, {
-            headers: { Accept: 'application/json' },
-            maxRedirects: 0,
-            validateStatus: (status) => status >= 200 && status < 400,
-        });
-        if (res.data?.success) {
-            window.location.href = res.data.redirect || '/plataforma/configuracoes?tab=update';
-            return;
-        }
-        const msg = res.data?.message || 'Falha na atualização.';
-        if (typeof window.router !== 'undefined') {
-            window.router.visit('/plataforma/configuracoes?tab=update', { preserveState: false });
-        } else {
-            window.location.href = '/plataforma/configuracoes?tab=update';
-        }
-        setTimeout(() => { alert(msg); }, 100);
-    } catch (e) {
-        const status = e?.response?.status;
-        const msg =
-            status === 429
-                ? 'Muitas tentativas em pouco tempo. Aguarde e tente novamente.'
-                : (e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Falha na atualização.');
-        alert(msg);
-    } finally {
-        updateRunLoading.value = false;
-    }
-}
-
-async function checkIntegrity() {
-    integrityLoading.value = true;
-    integrityResult.value = null;
-    try {
-        const res = await window.axios.post('/plataforma/configuracoes/update/run', { action: 'integrity' }, {
-            headers: { Accept: 'application/json' },
-        });
-        integrityResult.value = res.data;
-    } catch (e) {
-        integrityResult.value = {
-            repository_exists: null,
-            total_migrations: 0,
-            ran_count: 0,
-            pending_count: 0,
-            pending: [],
-            pending_truncated: false,
-            error: e?.response?.data?.message || e?.response?.data?.error || 'Erro ao verificar integridade.',
-        };
-    } finally {
-        integrityLoading.value = false;
-    }
-}
-
-async function runMigrations() {
-    migrateLoading.value = true;
-    migrateResult.value = null;
-    try {
-        const res = await window.axios.post('/plataforma/configuracoes/update/run', { action: 'migrate' }, {
-            headers: { Accept: 'application/json' },
-        });
-        migrateResult.value = res.data;
-    } catch (e) {
-        const status = e?.response?.status;
-        const msg =
-            status === 429
-                ? 'Muitas tentativas em pouco tempo. Aguarde e tente novamente.'
-                : (e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Falha ao rodar migrations.');
-        migrateResult.value = { success: false, message: msg, output: '' };
-    } finally {
-        migrateLoading.value = false;
-    }
-}
 
 const translationKeys = computed(() => {
     const t = form.checkout_translations ?? {};
@@ -1308,7 +1199,7 @@ const selectClass =
             </div>
         </Transition>
 
-        <!-- Aba Update (fora do form) -->
+        <!-- Aba Versão (somente leitura do arquivo VERSION) -->
         <Transition
             enter-active-class="transition duration-200 ease-out"
             enter-from-class="opacity-0"
@@ -1320,123 +1211,20 @@ const selectClass =
             <div v-show="activeTab === 'update'" class="w-full max-w-full space-y-6">
                 <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
                     <div class="border-b border-zinc-200 bg-zinc-50 px-6 py-5 dark:border-zinc-700 dark:bg-zinc-800">
-                        <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Versão e atualizações</h2>
+                        <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Versão instalada</h2>
                         <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                            Versão atual instalada e verificação de atualizações a partir do repositório oficial.
+                            O número exibido é o conteúdo do arquivo <code class="rounded bg-zinc-200 px-1 font-mono text-xs dark:bg-zinc-700">VERSION</code> na raiz do projeto (fallback: configuração interna).
                         </p>
                     </div>
-                    <div class="space-y-6 p-6">
-                        <div class="flex flex-wrap items-center gap-4">
-                            <div>
-                                <span class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Versão atual</span>
-                                <p class="mt-0.5 text-lg font-semibold text-zinc-900 dark:text-white">{{ current_version }}</p>
-                            </div>
-                            <div class="flex flex-wrap items-center gap-2">
-                                <button
-                                    type="button"
-                                    :disabled="updateCheckLoading"
-                                    class="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-600 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-[var(--color-primary)]"
-                                    @click="checkForUpdate"
-                                >
-                                    <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': updateCheckLoading }" />
-                                    {{ updateCheckLoading ? 'Verificando...' : 'Verificar atualização' }}
-                                </button>
-                                <button
-                                    v-if="updateCheckResult?.available && updates_enabled"
-                                    type="button"
-                                    :disabled="updateRunLoading"
-                                    class="inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60"
-                                    @click="runUpdate"
-                                >
-                                    <Download class="h-4 w-4" :class="{ 'animate-pulse': updateRunLoading }" />
-                                    {{ updateRunLoading ? 'Atualizando... Aguarde.' : 'Atualizar' }}
-                                </button>
-                            </div>
+                    <div class="space-y-4 p-6">
+                        <div class="rounded-xl border border-zinc-200 bg-zinc-50/80 p-6 dark:border-zinc-600 dark:bg-zinc-900/40">
+                            <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Versão atual</p>
+                            <p class="mt-2 font-mono text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">{{ current_version }}</p>
                         </div>
-                        <div
-                            v-if="!git_available"
-                            class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20"
-                        >
-                            <p class="text-sm font-medium text-amber-800 dark:text-amber-200">Git não detectado</p>
-                            <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                                O painel tentará atualizar baixando um pacote do GitHub e aplicando os arquivos por cima, preservando <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">.env</code>, <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">storage/</code>, <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">database/</code> e <code class="rounded bg-amber-100 px-1 dark:bg-amber-900/40">plugins/</code>.
-                            </p>
-                        </div>
-                        <div v-if="updateCheckResult" class="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
-                            <p v-if="updateCheckResult.error" class="text-sm text-amber-600 dark:text-amber-400">{{ updateCheckResult.error }}</p>
-                            <p v-else-if="updateCheckResult.available" class="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                                Nova versão disponível: {{ updateCheckResult.latest }}
-                            </p>
-                            <p v-else-if="updateCheckResult.latest" class="text-sm text-zinc-600 dark:text-zinc-400">
-                                Você está na versão mais recente ({{ updateCheckResult.latest }}).
-                            </p>
-                            <p v-else class="text-sm text-zinc-600 dark:text-zinc-400">
-                                Nenhuma release encontrada no repositório.
-                            </p>
-                            <div
-                                v-if="updateCheckResult.changelog_remote"
-                                class="mt-3 rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                            >
-                                <p class="mb-2 font-medium">O que há de novo na versão {{ updateCheckResult.latest }}</p>
-                                <pre class="whitespace-pre-wrap font-sans">{{ updateCheckResult.changelog_remote }}</pre>
-                            </div>
-                        </div>
-                        <div class="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
-                            <div class="flex flex-wrap items-center justify-between gap-3">
-                                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Integridade</p>
-                                <button
-                                    type="button"
-                                    :disabled="integrityLoading"
-                                    class="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-600 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-[var(--color-primary)]"
-                                    @click="checkIntegrity"
-                                >
-                                    <AlertCircle class="h-4 w-4" :class="{ 'animate-spin': integrityLoading }" />
-                                    {{ integrityLoading ? 'Verificando...' : 'Verificar integridade' }}
-                                </button>
-                            </div>
-                            <div v-if="integrityResult" class="mt-3 text-sm">
-                                <p v-if="integrityResult.error" class="text-amber-600 dark:text-amber-400">{{ integrityResult.error }}</p>
-                                <template v-else>
-                                    <p v-if="integrityResult.pending_count > 0" class="text-amber-700 dark:text-amber-300">
-                                        Existem {{ integrityResult.pending_count }} migrations pendentes para rodar.
-                                    </p>
-                                    <p v-else class="text-emerald-700 dark:text-emerald-400">
-                                        Nenhuma migration pendente.
-                                    </p>
-                                    <div v-if="(integrityResult.pending ?? []).length" class="mt-2 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900/30">
-                                        <pre class="whitespace-pre-wrap font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ (integrityResult.pending ?? []).join('\n') }}</pre>
-                                        <p v-if="integrityResult.pending_truncated" class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Lista truncada.</p>
-                                    </div>
-                                    <p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                                        Observação: ao atualizar pelo painel, o sistema já tenta rodar as migrations automaticamente.
-                                    </p>
-                                </template>
-                            </div>
-                        </div>
-                        <div class="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-600 dark:bg-zinc-800/50">
-                            <div class="flex flex-wrap items-center justify-between gap-3">
-                                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Migrations</p>
-                                <button
-                                    type="button"
-                                    :disabled="migrateLoading"
-                                    class="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-600 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-[var(--color-primary)]"
-                                    @click="runMigrations"
-                                >
-                                    <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': migrateLoading }" />
-                                    {{ migrateLoading ? 'Rodando...' : 'Rodar migrations' }}
-                                </button>
-                            </div>
-                            <div v-if="migrateResult" class="mt-3 text-sm">
-                                <p v-if="migrateResult.success" class="text-emerald-700 dark:text-emerald-400">{{ migrateResult.message }}</p>
-                                <p v-else class="text-amber-700 dark:text-amber-300">{{ migrateResult.message }}</p>
-                                <div v-if="(migrateResult.output ?? '').trim() !== ''" class="mt-2 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900/30">
-                                    <pre class="whitespace-pre-wrap font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ migrateResult.output }}</pre>
-                                </div>
-                            </div>
-                        </div>
-                        <div v-if="!updates_enabled" class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20">
-                            <p class="text-sm text-amber-800 dark:text-amber-200">Atualizações pela interface estão desativadas (GETFY_UPDATES_ENABLED).</p>
-                        </div>
+                        <p class="text-sm text-zinc-600 dark:text-zinc-400">
+                            Atualizações de código não são feitas por esta tela. Use o seu fluxo habitual (deploy no servidor, Git, imagem Docker, etc.) e mantenha o arquivo
+                            <code class="rounded bg-zinc-200 px-1 font-mono text-xs dark:bg-zinc-700">VERSION</code> alinhado à release instalada.
+                        </p>
                     </div>
                 </section>
             </div>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
@@ -19,7 +19,10 @@ import {
     Download,
     Search,
     X,
+    Package,
+    ChevronDown,
 } from 'lucide-vue-next';
+import Checkbox from '@/components/ui/Checkbox.vue';
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
@@ -78,12 +81,19 @@ const paymentStatusOptions = [
     { value: 'refunded', label: t('sales.status.refunded', 'Reembolsado') },
 ];
 
+function initialProductIds(f) {
+    if (Array.isArray(f?.product_ids) && f.product_ids.length) {
+        return [...f.product_ids];
+    }
+    return [];
+}
+
 const filterForm = ref({
     q: props.filters?.q ?? '',
     period: props.filters?.period ?? 'all',
     date_from: props.filters?.date_from ?? '',
     date_to: props.filters?.date_to ?? '',
-    product_id: props.filters?.product_id ?? '',
+    product_ids: initialProductIds(props.filters),
     offer_id: props.filters?.offer_id ?? '',
     payment_method: props.filters?.payment_method ?? 'all',
     payment_status: props.filters?.payment_status ?? 'all',
@@ -93,12 +103,38 @@ const filterForm = ref({
 });
 
 const advancedFiltersOpen = ref(false);
+const productFilterOpen = ref(false);
 let searchTimer = null;
 
+watch(
+    () => props.filters,
+    (f) => {
+        if (!f) return;
+        filterForm.value.q = f.q ?? '';
+        filterForm.value.period = f.period ?? 'all';
+        filterForm.value.date_from = f.date_from ?? '';
+        filterForm.value.date_to = f.date_to ?? '';
+        filterForm.value.product_ids = Array.isArray(f.product_ids) ? [...f.product_ids] : [];
+        filterForm.value.offer_id = f.offer_id ?? '';
+        filterForm.value.payment_method = f.payment_method ?? 'all';
+        filterForm.value.payment_status = f.payment_status ?? 'all';
+        filterForm.value.utm_source = f.utm_source ?? '';
+        filterForm.value.utm_medium = f.utm_medium ?? '';
+        filterForm.value.utm_campaign = f.utm_campaign ?? '';
+    },
+    { deep: true },
+);
+
 const offersForSelectedProduct = computed(() => {
-    const pid = filterForm.value.product_id;
-    if (!pid) return props.offers ?? [];
-    return (props.offers ?? []).filter((o) => String(o.product_id) === String(pid));
+    const ids = filterForm.value.product_ids ?? [];
+    if (!ids.length) return props.offers ?? [];
+    const set = new Set(ids.map((x) => String(x)));
+    return (props.offers ?? []).filter((o) => set.has(String(o.product_id)));
+});
+
+const selectedProductLabels = computed(() => {
+    const ids = filterForm.value.product_ids ?? [];
+    return (props.products ?? []).filter((p) => ids.some((x) => String(x) === String(p.id))).map((p) => ({ id: p.id, name: p.name }));
 });
 
 function buildQuery(overrides = {}) {
@@ -108,6 +144,11 @@ function buildQuery(overrides = {}) {
     const cleaned = {};
     Object.entries(q).forEach(([k, v]) => {
         if (v === null || v === undefined) return;
+        if (Array.isArray(v)) {
+            if (v.length === 0) return;
+            cleaned[k] = v;
+            return;
+        }
         if (typeof v === 'string' && v.trim() === '') return;
         if ((k === 'period' || k === 'payment_method' || k === 'payment_status') && v === 'all') return;
         cleaned[k] = v;
@@ -232,12 +273,49 @@ function closeMenu() {
 }
 
 function handleClickOutside(event) {
+    if (productFilterOpen.value) {
+        const pf = document.querySelector('[data-vendas-product-filter]');
+        if (pf && !pf.contains(event.target)) {
+            productFilterOpen.value = false;
+        }
+    }
     if (openMenuId.value == null) return;
     const el = document.querySelector(`[data-venda-menu="${openMenuId.value}"]`);
     const menu = menuEl.value;
     if (el && el.contains(event.target)) return;
     if (menu && menu.contains(event.target)) return;
     closeMenu();
+}
+
+function toggleProductFilter(id) {
+    const cur = [...(filterForm.value.product_ids ?? [])];
+    const idx = cur.findIndex((x) => String(x) === String(id));
+    if (idx >= 0) {
+        cur.splice(idx, 1);
+    } else {
+        cur.push(id);
+    }
+    filterForm.value.product_ids = cur;
+    const offers = !cur.length
+        ? (props.offers ?? [])
+        : (props.offers ?? []).filter((o) => cur.some((pid) => String(pid) === String(o.product_id)));
+    if (filterForm.value.offer_id && !offers.some((o) => String(o.id) === String(filterForm.value.offer_id))) {
+        filterForm.value.offer_id = '';
+    }
+    onFilterChange();
+}
+
+function removeProductFilter(id) {
+    filterForm.value.product_ids = (filterForm.value.product_ids ?? []).filter((x) => String(x) !== String(id));
+    const offers = !filterForm.value.product_ids.length
+        ? (props.offers ?? [])
+        : (props.offers ?? []).filter((o) =>
+              filterForm.value.product_ids.some((pid) => String(pid) === String(o.product_id)),
+          );
+    if (filterForm.value.offer_id && !offers.some((o) => String(o.id) === String(filterForm.value.offer_id))) {
+        filterForm.value.offer_id = '';
+    }
+    onFilterChange();
 }
 
 async function resendEmail(v) {
@@ -308,7 +386,7 @@ function clearFilters() {
         period: 'all',
         date_from: '',
         date_to: '',
-        product_id: '',
+        product_ids: [],
         offer_id: '',
         payment_method: 'all',
         payment_status: 'all',
@@ -319,15 +397,26 @@ function clearFilters() {
     applyFilters();
 }
 
-const exportCsvUrl = computed(() => {
-    const params = new URLSearchParams({ ...buildQuery(), format: 'csv' });
-    return `/vendas/export?${params.toString()}`;
-});
+function buildExportSearchParams(format) {
+    const q = buildQuery({ format });
+    const params = new URLSearchParams();
+    Object.entries(q).forEach(([k, v]) => {
+        if (v === null || v === undefined) return;
+        if (Array.isArray(v)) {
+            if (!v.length) return;
+            v.forEach((id) => params.append('product_ids[]', String(id)));
+            return;
+        }
+        if (typeof v === 'string' && v.trim() === '') return;
+        if ((k === 'period' || k === 'payment_method' || k === 'payment_status') && v === 'all') return;
+        params.append(k, String(v));
+    });
+    return params;
+}
 
-const exportXlsUrl = computed(() => {
-    const params = new URLSearchParams({ ...buildQuery(), format: 'xls' });
-    return `/vendas/export?${params.toString()}`;
-});
+const exportCsvUrl = computed(() => `/vendas/export?${buildExportSearchParams('csv').toString()}`);
+
+const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('xls').toString()}`);
 </script>
 
 <template>
@@ -504,16 +593,68 @@ const exportXlsUrl = computed(() => {
                     />
                 </div>
 
-                <div :class="filterForm.period === 'custom' ? 'lg:col-span-2' : ''">
-                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ t('sidebar.products', 'Produto') }}</label>
-                    <select
-                        v-model="filterForm.product_id"
-                        class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-                        @change="() => { if (filterForm.offer_id && !offersForSelectedProduct.some(o => String(o.id) === String(filterForm.offer_id))) filterForm.offer_id = ''; onFilterChange(); }"
-                    >
-                        <option value="">{{ t('sales.products.all', 'Todos produtos') }}</option>
-                        <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
-                    </select>
+                <div class="min-w-0 space-y-2 lg:col-span-2">
+                    <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ t('sidebar.products', 'Produtos') }}</label>
+                    <div class="flex flex-wrap items-start gap-2">
+                        <div class="relative shrink-0" data-vendas-product-filter>
+                            <button
+                                type="button"
+                                class="inline-flex w-full min-w-[11rem] items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                :class="filterForm.product_ids?.length ? 'border-[var(--color-primary)] text-[var(--color-primary)] dark:border-[var(--color-primary)] dark:text-[var(--color-primary)]' : ''"
+                                aria-expanded="productFilterOpen"
+                                @click.stop="productFilterOpen = !productFilterOpen"
+                            >
+                                <span class="inline-flex items-center gap-2 truncate">
+                                    <Package class="h-4 w-4 shrink-0" />
+                                    <span class="truncate">{{ t('sales.products.filter', 'Filtrar') }}</span>
+                                    <span
+                                        v-if="filterForm.product_ids?.length"
+                                        class="shrink-0 rounded-full bg-[var(--color-primary)]/20 px-1.5 py-0.5 text-xs"
+                                    >
+                                        {{ filterForm.product_ids.length }}
+                                    </span>
+                                </span>
+                                <ChevronDown class="h-4 w-4 shrink-0 transition" :class="productFilterOpen && 'rotate-180'" />
+                            </button>
+                            <div
+                                v-show="productFilterOpen"
+                                class="absolute left-0 top-full z-50 mt-1 max-h-64 w-72 overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 text-left shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                                @click.stop
+                            >
+                                <div v-for="p in products" :key="p.id" class="px-2 py-1">
+                                    <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/80">
+                                        <span class="shrink-0">
+                                            <Checkbox
+                                                :model-value="filterForm.product_ids?.some((x) => String(x) === String(p.id))"
+                                                @update:model-value="toggleProductFilter(p.id)"
+                                            />
+                                        </span>
+                                        <span class="flex-1 text-left text-sm text-zinc-900 dark:text-white">{{ p.name }}</span>
+                                    </label>
+                                </div>
+                                <p v-if="!products.length" class="px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400">
+                                    {{ t('products.empty', 'Nenhum produto') }}
+                                </p>
+                            </div>
+                        </div>
+                        <div v-if="selectedProductLabels.length" class="flex min-w-0 flex-1 flex-wrap gap-1.5">
+                            <span
+                                v-for="p in selectedProductLabels"
+                                :key="p.id"
+                                class="inline-flex max-w-full items-center gap-1 rounded-lg bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300"
+                            >
+                                <span class="truncate" :title="p.name">{{ p.name }}</span>
+                                <button
+                                    type="button"
+                                    class="shrink-0 rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                                    :aria-label="t('sales.products.remove_filter', 'Remover produto do filtro')"
+                                    @click="removeProductFilter(p.id)"
+                                >
+                                    <X class="h-3 w-3" />
+                                </button>
+                            </span>
+                        </div>
+                    </div>
                 </div>
 
                 <div>

@@ -37,7 +37,6 @@ class SettingsController extends Controller
             $currencies = config('products.currencies');
         }
 
-        $gitAvailable = is_dir(base_path('.git'));
         $cloudMode = (bool) config('getfy.cloud_mode', false);
         $dockerMode = DockerSetupState::isDocker();
         $cronSecret = config('getfy.cron_secret');
@@ -78,8 +77,6 @@ class SettingsController extends Controller
 
         return Inertia::render('Settings/Index', [
             'current_version' => $currentVersion,
-            'updates_enabled' => config('getfy.updates_enabled', true),
-            'git_available' => $gitAvailable,
             'cloud_mode' => $cloudMode,
             'docker_mode' => $dockerMode,
             'app_url' => $appUrl,

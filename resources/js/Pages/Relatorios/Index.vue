@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import VueApexCharts from 'vue3-apexcharts';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
@@ -16,6 +16,7 @@ import {
     Eye,
     EyeOff,
     XCircle,
+    Download,
 } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -30,6 +31,8 @@ onMounted(() => {
 
 const props = defineProps({
     period: { type: String, default: 'hoje' },
+    date_from: { type: String, default: null },
+    date_to: { type: String, default: null },
     receita_total: { type: Number, default: 0 },
     quantidade_vendas: { type: Number, default: 0 },
     ticket_medio: { type: Number, default: 0 },
@@ -54,11 +57,69 @@ const periodOptions = [
     { value: 'mes', label: t('period.month', 'Mês') },
     { value: 'ano', label: t('period.year', 'Ano') },
     { value: 'total', label: t('period.total', 'Total') },
+    { value: 'personalizado', label: t('sales.period.custom', 'Personalizado') },
 ];
 
+function formatYmd(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function defaultDateFrom() {
+    const d = new Date();
+    d.setDate(1);
+    return formatYmd(d);
+}
+
+function defaultDateTo() {
+    return formatYmd(new Date());
+}
+
+const customFrom = ref(props.date_from || '');
+const customTo = ref(props.date_to || '');
+
+watch(
+    () => [props.period, props.date_from, props.date_to],
+    () => {
+        if (props.period === 'personalizado') {
+            customFrom.value = props.date_from || '';
+            customTo.value = props.date_to || '';
+        }
+    },
+);
+
 function setPeriod(value) {
+    if (value === 'personalizado') {
+        const from = props.date_from || defaultDateFrom();
+        const to = props.date_to || defaultDateTo();
+        router.get('/relatorios', { period: value, date_from: from, date_to: to }, { preserveState: false });
+        return;
+    }
     router.get('/relatorios', { period: value }, { preserveState: false });
 }
+
+function applyCustomPeriod() {
+    router.get(
+        '/relatorios',
+        {
+            period: 'personalizado',
+            date_from: customFrom.value || defaultDateFrom(),
+            date_to: customTo.value || defaultDateTo(),
+        },
+        { preserveState: false },
+    );
+}
+
+const abandonedExportUrl = computed(() => {
+    const p = new URLSearchParams({ period: props.period });
+    if (props.period === 'personalizado') {
+        if (props.date_from) p.set('date_from', props.date_from);
+        if (props.date_to) p.set('date_to', props.date_to);
+    }
+    return `/relatorios/carrinhos-abandonados/export?${p.toString()}`;
+});
 
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0);
@@ -177,6 +238,35 @@ const chartOptionsFormas = computed(() => ({
             >
                 <Eye v-if="valuesVisible" class="h-5 w-5" aria-hidden="true" />
                 <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
+            </button>
+        </div>
+
+        <div
+            v-if="period === 'personalizado'"
+            class="flex flex-wrap items-end gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-800/40"
+        >
+            <div>
+                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ t('common.from', 'De') }}</label>
+                <input
+                    v-model="customFrom"
+                    type="date"
+                    class="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ t('common.to', 'Até') }}</label>
+                <input
+                    v-model="customTo"
+                    type="date"
+                    class="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+            </div>
+            <button
+                type="button"
+                class="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                @click="applyCustomPeriod"
+            >
+                {{ t('reports.apply_period', 'Aplicar período') }}
             </button>
         </div>
 
@@ -310,10 +400,22 @@ const chartOptionsFormas = computed(() => ({
         </div>
 
         <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-            <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-                <XCircle class="h-4 w-4 text-zinc-500" />
-                Vendas abandonadas com e-mail (para recuperação)
-            </h2>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
+                    <XCircle class="h-4 w-4 text-zinc-500" />
+                    Vendas abandonadas com e-mail (para recuperação)
+                </h2>
+                <a
+                    :href="abandonedExportUrl"
+                    class="inline-flex shrink-0 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                >
+                    <Download class="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {{ t('reports.export_abandoned_csv', 'Exportar carrinhos abandonados (CSV)') }}
+                </a>
+            </div>
+            <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                {{ t('reports.export_abandoned_hint', 'O arquivo segue o período selecionado acima e inclui visitas sem pedido e formulários não concluídos (mesma regra dos totais de abandono).') }}
+            </p>
             <div class="mt-4 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
                 <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
                     <thead class="bg-zinc-100/80 dark:bg-zinc-800/80">

@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import {
     LayoutDashboard,
@@ -15,6 +16,7 @@ import {
     Banknote,
     Trophy,
     BadgeCheck,
+    Package,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 
@@ -25,13 +27,28 @@ const showText = () => isExpanded.value || isMobileOpen.value;
 
 const appSettings = () => page.props.appSettings ?? {};
 const appName = () => appSettings().app_name || 'Getfy';
+const hasLogoFull = () => !!(appSettings().app_logo || appSettings().app_logo_dark);
 const hasLogoIcon = () => !!(appSettings().app_logo_icon || appSettings().app_logo_icon_dark);
+
+/** Classes da imagem conforme Configurações → Personalização (mesma origem do painel vendedor). */
+const headerLogoImgClass = computed(() => {
+    const expanded = isExpanded.value || isMobileOpen.value;
+    return expanded
+        ? 'h-10 max-w-[200px] object-contain object-left'
+        : 'h-8 max-w-[56px] object-contain object-center';
+});
+
+const headerIconImgClass = computed(() => {
+    const expanded = isExpanded.value || isMobileOpen.value;
+    return expanded ? 'h-9 w-9 shrink-0 object-contain' : 'h-8 w-8 shrink-0 object-contain';
+});
 
 const navItems = [
     { name: 'Dashboard', href: '/plataforma/dashboard', icon: LayoutDashboard },
     { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
     { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
     { name: 'Transações', href: '/plataforma/transacoes', icon: ArrowLeftRight },
+    { name: 'Produtos', href: '/plataforma/produtos', icon: Package },
     { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck },
     { name: 'Saques', href: '/plataforma/saques', icon: Banknote },
     { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet },
@@ -51,6 +68,9 @@ function isActive(href) {
     }
     if (href === '/plataforma/clientes') {
         return url === '/plataforma/clientes' || url.startsWith('/plataforma/clientes/');
+    }
+    if (href === '/plataforma/produtos') {
+        return url === '/plataforma/produtos' || url.startsWith('/plataforma/produtos/');
     }
     if (href === '/plataforma/verificacoes-kyc') {
         return url === '/plataforma/verificacoes-kyc' || url.startsWith('/plataforma/verificacoes-kyc/');
@@ -90,27 +110,40 @@ const linkInactive =
         <div class="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-zinc-200/60 px-3 dark:border-zinc-700/60">
             <Link
                 href="/plataforma/dashboard"
-                class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-lg py-1.5"
+                :class="[
+                    'flex min-w-0 flex-1 items-center overflow-hidden rounded-lg py-1.5',
+                    showText() ? 'justify-start gap-2' : 'justify-center',
+                ]"
             >
-                <template v-if="hasLogoIcon()">
+                <template v-if="hasLogoFull()">
                     <img
-                        :src="appSettings().app_logo_icon"
+                        v-if="appSettings().app_logo"
+                        :src="appSettings().app_logo"
                         :alt="appName()"
-                        class="h-8 w-8 shrink-0 object-contain dark:hidden"
+                        :class="[headerLogoImgClass, appSettings().app_logo_dark ? 'dark:hidden' : '']"
                     />
                     <img
-                        :src="appSettings().app_logo_icon_dark || appSettings().app_logo_icon"
+                        v-if="appSettings().app_logo_dark"
+                        :src="appSettings().app_logo_dark"
                         :alt="appName()"
-                        class="hidden h-8 w-8 shrink-0 object-contain dark:block"
+                        :class="['hidden dark:block', headerLogoImgClass]"
+                    />
+                </template>
+                <template v-else-if="hasLogoIcon()">
+                    <img
+                        v-if="appSettings().app_logo_icon"
+                        :src="appSettings().app_logo_icon"
+                        :alt="appName()"
+                        :class="[headerIconImgClass, appSettings().app_logo_icon_dark ? 'dark:hidden' : '']"
+                    />
+                    <img
+                        v-if="appSettings().app_logo_icon_dark"
+                        :src="appSettings().app_logo_icon_dark"
+                        :alt="appName()"
+                        :class="['hidden dark:block', headerIconImgClass]"
                     />
                 </template>
                 <Shield v-else class="h-8 w-8 shrink-0 text-[var(--color-primary)]" />
-                <span
-                    v-show="showText()"
-                    class="truncate text-sm font-semibold text-zinc-900 dark:text-white"
-                >
-                    Plataforma
-                </span>
             </Link>
             <button
                 v-if="isMobile"

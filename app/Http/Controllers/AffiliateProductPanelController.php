@@ -37,7 +37,7 @@ class AffiliateProductPanelController extends Controller
         $items = [];
         foreach ($enrollments as $e) {
             $p = $e->product;
-            if (! $p || ! $p->is_active) {
+            if (! $p || ! $p->isAvailableForPurchase()) {
                 continue;
             }
             // Opcional: não listar como "afiliado" o próprio produto da conta (dono = mesmo tenant)

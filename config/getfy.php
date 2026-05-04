@@ -53,4 +53,13 @@ return [
     'webhook_public_url' => is_string($v = env('GETFY_WEBHOOK_PUBLIC_URL')) && trim($v) !== ''
         ? rtrim(trim($v), '/')
         : null,
+
+    /**
+     * Assinaturas: após N dias corridos desde o fim do período (current_period_end) em atraso (past_due),
+     * o comando subscriptions:expire-due marca como cancelled e dispara webhook assinatura_cancelada.
+     * Use 0 para cancelar no mesmo dia em que entra em past_due (não recomendado).
+     */
+    'subscriptions' => [
+        'cancel_grace_days_after_period_end' => max(0, (int) env('GETFY_SUBSCRIPTION_CANCEL_GRACE_DAYS', 14)),
+    ],
 ];

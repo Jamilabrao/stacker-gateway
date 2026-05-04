@@ -3,19 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Events\BoletoGenerated;
-use App\Events\OrderCompleted;
 use App\Events\OrderPending;
 use App\Events\PixGenerated;
-use App\Events\SubscriptionRenewed;
+use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Subscription;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\PaymentService;
+use App\Services\SubscriptionRenewalService;
+use App\Support\CheckoutCardContract;
 use App\Support\FakeConsumerData;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -63,7 +65,15 @@ class RenewalController extends Controller
             'interval' => $plan->interval,
         ];
 
-        return Inertia::render('Renewal/Show', [
+        $defaults = Product::defaultCheckoutConfig();
+        $productConfig = $product->checkout_config ?? [];
+        $config = array_replace_recursive($defaults, $productConfig);
+        if ($plan->checkout_config !== null && $plan->checkout_config !== []) {
+            $config = array_replace_recursive($config, $plan->checkout_config);
+        }
+        $cardInstallmentsConfig = $config['card_installments'] ?? ['enabled' => false, 'max' => 1];
+
+        $payload = [
             'token' => $token,
             'subscription' => [
                 'id' => $subscription->id,
@@ -75,7 +85,111 @@ class RenewalController extends Controller
             'amount_brl' => round($amount, 2),
             'available_payment_methods' => $availablePaymentMethods,
             'saved_payment_methods' => $savedPaymentMethods,
-        ]);
+            'card_gateway_slug' => null,
+            'card_payee_code' => '',
+            'card_efi_sandbox' => false,
+            'card_stripe_publishable_key' => '',
+            'card_stripe_sandbox' => false,
+            'card_stripe_link_enabled' => true,
+            'card_mercadopago_public_key' => '',
+            'card_mercadopago_sandbox' => false,
+            'card_pagarme_public_key' => '',
+            'card_pagarme_api_base_url' => rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/'),
+            'card_gateway_keys' => [],
+            'card_installments_enabled' => ! empty($cardInstallmentsConfig['enabled']),
+            'card_max_installments' => min(12, max(1, (int) ($cardInstallmentsConfig['max'] ?? 1))),
+            'customer_cpf' => $subscription->user?->document ? preg_replace('/\D/', '', (string) $subscription->user->document) : '',
+        ];
+
+        $this->fillRenewalCardPayload($payload, $product, $tenantId, $availablePaymentMethods);
+
+        return Inertia::render('Renewal/Show', $payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload  passed by reference for merge
+     * @param  array<int, array<string, mixed>>  $availablePaymentMethods
+     */
+    private function fillRenewalCardPayload(array &$payload, Product $product, int $tenantId, array $availablePaymentMethods): void
+    {
+        foreach ($availablePaymentMethods as $m) {
+            if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'efi') {
+                $cred = GatewayCredential::resolveForTenantOrGlobal($tenantId, 'efi');
+                if ($cred) {
+                    $creds = $cred->getDecryptedCredentials();
+                    $payload['card_gateway_slug'] = 'efi';
+                    $payload['card_payee_code'] = (string) ($creds['payee_code'] ?? '');
+                    $payload['card_efi_sandbox'] = ! empty($creds['sandbox']);
+                }
+                break;
+            }
+        }
+        foreach ($availablePaymentMethods as $m) {
+            if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'stripe') {
+                $cred = GatewayCredential::resolveForTenantOrGlobal($tenantId, 'stripe');
+                if ($cred) {
+                    $creds = $cred->getDecryptedCredentials();
+                    $payload['card_gateway_slug'] = 'stripe';
+                    $payload['card_stripe_publishable_key'] = (string) ($creds['publishable_key'] ?? '');
+                    $payload['card_stripe_sandbox'] = ! empty($creds['sandbox']);
+                    $payload['card_stripe_link_enabled'] = isset($creds['link_enabled'])
+                        ? (bool) $creds['link_enabled']
+                        : true;
+                }
+                break;
+            }
+        }
+        foreach ($availablePaymentMethods as $m) {
+            if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'mercadopago') {
+                $cred = GatewayCredential::resolveForTenantOrGlobal($tenantId, 'mercadopago');
+                if ($cred) {
+                    $creds = $cred->getDecryptedCredentials();
+                    $payload['card_gateway_slug'] = 'mercadopago';
+                    $payload['card_mercadopago_public_key'] = (string) ($creds['public_key'] ?? '');
+                    $payload['card_mercadopago_sandbox'] = ! empty($creds['sandbox']);
+                }
+                break;
+            }
+        }
+        foreach ($availablePaymentMethods as $m) {
+            if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'pagarme') {
+                $cred = GatewayCredential::resolveForTenantOrGlobal($tenantId, 'pagarme');
+                if ($cred) {
+                    $creds = $cred->getDecryptedCredentials();
+                    $payload['card_gateway_slug'] = 'pagarme';
+                    $payload['card_pagarme_public_key'] = (string) ($creds['public_key'] ?? '');
+                }
+                break;
+            }
+        }
+        foreach ($availablePaymentMethods as $m) {
+            if (($m['id'] ?? '') !== 'card') {
+                continue;
+            }
+            $slug = $m['gateway_slug'] ?? '';
+            if ($slug === '') {
+                continue;
+            }
+            $gateway = GatewayRegistry::get($slug);
+            $keys = $gateway['checkout_payload_keys'] ?? null;
+            if (! is_array($keys) || $keys === []) {
+                continue;
+            }
+            $cred = GatewayCredential::resolveForPayment($tenantId, $slug);
+            if (! $cred) {
+                continue;
+            }
+            $creds = $cred->getDecryptedCredentials();
+            $payload['card_gateway_keys'][$slug] = [];
+            foreach ($keys as $key) {
+                if (is_string($key) && array_key_exists($key, $creds)) {
+                    $payload['card_gateway_keys'][$slug][$key] = $creds[$key];
+                }
+            }
+            if ($slug === 'pagarme') {
+                $payload['card_gateway_keys'][$slug]['api_base_url'] = rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/');
+            }
+        }
     }
 
     public function process(Request $request): RedirectResponse
@@ -83,6 +197,8 @@ class RenewalController extends Controller
         $request->validate([
             'token' => ['required', 'string', 'max:64'],
             'payment_method' => ['nullable', 'string', 'in:pix,card,boleto,pix_auto,manual'],
+            'payment_token' => ['nullable', 'string', 'max:8192'],
+            'card_mask' => ['nullable', 'string', 'max:64'],
         ]);
 
         $subscription = Subscription::with(['user', 'product', 'subscriptionPlan'])
@@ -151,8 +267,8 @@ class RenewalController extends Controller
                     try {
                         $idRec = $subscription->gateway_subscription_id;
                         $dataDeVencimento = $periodEnd ? $periodEnd->format('Y-m-d') : now()->addMonth()->format('Y-m-d');
-                        $base = 'pixautorenov' . $order->id;
-                        $txid = $base . \Illuminate\Support\Str::random(max(26 - strlen($base), 10));
+                        $base = 'pixautorenov'.$order->id;
+                        $txid = $base.Str::random(max(26 - strlen($base), 10));
                         $txid = substr($txid, 0, 35);
                         $devedor = [
                             'name' => $user->name ?? $user->email,
@@ -165,13 +281,15 @@ class RenewalController extends Controller
                             $dataDeVencimento,
                             $txid,
                             $devedor,
-                            'Renovação assinatura #' . $subscription->id
+                            'Renovação assinatura #'.$subscription->id
                         );
                         $order->update(['gateway_id' => $txid]);
+
                         return redirect()->route('renewal.show', $request->input('token'))
                             ->with('info', 'O débito PIX automático foi agendado. Você receberá a confirmação quando o pagamento for processado.');
                     } catch (\Throwable $e) {
                         $order->delete();
+
                         return back()->with('error', $e->getMessage() ?: 'Não foi possível agendar o PIX automático. Tente outro método.');
                     }
                 }
@@ -201,8 +319,8 @@ class RenewalController extends Controller
                     'copy_paste' => $pixResult['copy_paste'] ?? null,
                     'transaction_id' => $pixResult['transaction_id'] ?? null,
                 ]));
-                $pixToken = \Illuminate\Support\Str::random(32);
-                session()->put('pix_display.' . $pixToken, [
+                $pixToken = Str::random(32);
+                session()->put('pix_display.'.$pixToken, [
                     'order_id' => $order->id,
                     'qrcode' => $pixResult['qrcode'] ?? null,
                     'copy_paste' => $pixResult['copy_paste'] ?? null,
@@ -215,27 +333,116 @@ class RenewalController extends Controller
                     'customer_phone' => null,
                     'created_at' => time(),
                 ]);
+
                 return redirect()->route('checkout.pix', ['token' => $pixToken]);
             } catch (\Throwable $e) {
                 $order->delete();
+
                 return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.');
             }
         }
 
-        if ($paymentMethod === 'card' || $paymentMethod === 'boleto') {
+        if ($paymentMethod === 'boleto') {
             $order = Order::create(array_merge($orderPayload, [
                 'status' => 'pending',
-                'gateway' => $paymentMethod,
+                'gateway' => null,
                 'gateway_id' => null,
-                'payment_method' => $paymentMethod,
+                'payment_method' => 'boleto',
+                'metadata' => ['checkout_payment_method' => 'boleto'],
             ]));
             event(new OrderPending($order));
-            if ($paymentMethod === 'boleto') {
-                event(new BoletoGenerated($order));
+            try {
+                $paymentService = app(PaymentService::class);
+                $fake = FakeConsumerData::getForGateway($order->id);
+                $consumer = [
+                    'name' => $user->name ?? $user->email,
+                    'document' => $fake['document'],
+                    'email' => $user->email,
+                    'phone' => '',
+                ];
+                $boletoResult = $paymentService->createBoletoPayment($order, $product, $consumer);
+                $boletoData = [
+                    'amount' => $boletoResult['amount'] ?? $amount,
+                    'expire_at' => $boletoResult['expire_at'] ?? null,
+                    'barcode' => $boletoResult['barcode'] ?? null,
+                    'pdf_url' => $boletoResult['pdf_url'] ?? null,
+                ];
+                event(new BoletoGenerated($order, $boletoData));
+                $boletoToken = Str::random(32);
+                $amountFormatted = 'R$ '.number_format((float) ($boletoResult['amount'] ?? $amount), 2, ',', '.');
+                session()->put('boleto_display.'.$boletoToken, [
+                    'order_id' => $order->id,
+                    'amount' => $boletoResult['amount'] ?? $amount,
+                    'amount_formatted' => $amountFormatted,
+                    'expire_at' => $boletoResult['expire_at'] ?? null,
+                    'barcode' => $boletoResult['barcode'] ?? null,
+                    'pdf_url' => $boletoResult['pdf_url'] ?? null,
+                    'product_name' => $product->name,
+                    'checkout_slug' => $plan->checkout_slug,
+                    'redirect_after_purchase' => null,
+                    'customer_name' => $user->name,
+                    'customer_email' => $user->email,
+                    'customer_phone' => null,
+                    'created_at' => time(),
+                ]);
+
+                return redirect()->route('checkout.boleto', ['token' => $boletoToken]);
+            } catch (\Throwable $e) {
+                $order->delete();
+
+                return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o boleto. Tente novamente.');
             }
-            $methodLabel = $paymentMethod === 'card' ? 'Cartão' : 'Boleto';
-            return redirect()->route('renewal.show', $request->input('token'))
-                ->with('info', "Pagamento por {$methodLabel} em breve. Você receberá as instruções por e-mail.");
+        }
+
+        if ($paymentMethod === 'card') {
+            $card = CheckoutCardContract::fromRequest($request->all());
+            if (($card['payment_token'] ?? '') === '') {
+                return back()->with('error', 'Informe os dados do cartão (token de pagamento ausente).');
+            }
+            $order = Order::create(array_merge($orderPayload, [
+                'status' => 'pending',
+                'gateway' => null,
+                'gateway_id' => null,
+                'payment_method' => 'card',
+                'metadata' => ['checkout_payment_method' => 'card'],
+            ]));
+            event(new OrderPending($order));
+            try {
+                $paymentService = app(PaymentService::class);
+                $fake = FakeConsumerData::getForGateway($order->id);
+                $rawDoc = preg_replace('/\D/', '', (string) ($user->document ?? ''));
+                $consumer = [
+                    'name' => $user->name ?? $user->email,
+                    'document' => strlen($rawDoc) >= 11 ? $rawDoc : $fake['document'],
+                    'email' => $user->email,
+                    'phone' => '',
+                ];
+                $card['currency'] = strtolower($currency);
+                $checkoutSlug = (string) ($plan->checkout_slug ?? $product->checkout_slug ?? '');
+                if ($checkoutSlug !== '') {
+                    $card['return_url'] = url()->route('checkout.show', ['slug' => $checkoutSlug]);
+                }
+                $cardResult = $paymentService->createCardPayment($order, $product, $consumer, $card);
+                $status = $cardResult['status'] ?? null;
+                if (($status ?? '') === 'requires_action' && ! empty($cardResult['client_secret'])) {
+                    $order->delete();
+
+                    return back()->with('error', 'O cartão exige confirmação adicional (3DS). Use PIX, boleto ou finalize em um checkout completo.');
+                }
+                if (in_array($status, ['paid', 'settled', 'approved', 'completed'], true)) {
+                    app(SubscriptionRenewalService::class)->applySuccessfulRenewal($order->fresh(), $subscription->fresh(), $plan);
+
+                    return redirect()->route('renewal.show', $request->input('token'))
+                        ->with('success', 'Renovação concluída. Seu acesso foi estendido.');
+                }
+                $order->delete();
+
+                return back()->with('error', 'Pagamento não aprovado. Tente outro método ou cartão.');
+            } catch (\Throwable $e) {
+                $order->delete();
+
+                return back()->with('error', $e->getMessage() ?: 'Não foi possível processar o cartão. Tente novamente.');
+            }
         }
 
         $order = Order::create(array_merge($orderPayload, [
@@ -243,16 +450,9 @@ class RenewalController extends Controller
             'gateway' => 'manual',
             'payment_method' => 'pix',
         ]));
-        $subscription->update([
-            'status' => Subscription::STATUS_ACTIVE,
-            'current_period_start' => $periodStart,
-            'current_period_end' => $periodEnd,
-        ]);
-        event(new SubscriptionRenewed($subscription->fresh()));
-        event(new OrderCompleted($order));
+        app(SubscriptionRenewalService::class)->applySuccessfulRenewal($order, $subscription, $plan);
 
         return redirect()->route('renewal.show', $request->input('token'))
             ->with('success', 'Renovação concluída. Seu acesso foi estendido.');
     }
-
 }

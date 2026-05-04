@@ -23,6 +23,7 @@ use App\Services\StorageService;
 use App\Services\GamificationService;
 use App\Services\MemberProgressService;
 use App\Services\TeamAccessService;
+use App\Support\MemberAreaPwaIconUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -1193,9 +1194,12 @@ class MemberBuilderController extends Controller
                 'privateKey' => $vapidPrivate,
             ],
         ];
+        $icon = MemberAreaPwaIconUrls::notificationIconUrl($request, $produto);
         $payload = json_encode([
             'title' => $validated['title'],
             'body' => $validated['body'],
+            'icon' => $icon,
+            'badge' => $icon,
         ]);
         $userIdsSent = [];
         try {

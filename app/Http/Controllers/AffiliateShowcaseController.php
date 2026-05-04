@@ -22,7 +22,7 @@ class AffiliateShowcaseController extends Controller
         $query = Product::query()
             ->where('affiliate_enabled', true)
             ->where('affiliate_show_in_showcase', true)
-            ->where('is_active', true)
+            ->availableForPurchase()
             ->withCount([
                 'orderBumps',
                 'orders as sales_count' => fn ($q) => $q->where('orders.status', 'completed'),
@@ -145,7 +145,7 @@ class AffiliateShowcaseController extends Controller
             return back()->with('error', 'Você não pode se afiliar ao próprio produto.');
         }
 
-        if (! $product->affiliate_enabled || ! $product->affiliate_show_in_showcase || ! $product->is_active) {
+        if (! $product->affiliate_enabled || ! $product->affiliate_show_in_showcase || ! $product->isAvailableForPurchase()) {
             return back()->with('error', 'Este produto não está disponível para afiliação.');
         }
 

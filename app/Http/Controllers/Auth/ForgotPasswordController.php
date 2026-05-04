@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Services\TenantMailConfigService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,8 +30,16 @@ class ForgotPasswordController extends Controller
             'email' => ['required', 'email'],
         ]);
 
-        // Usar o SMTP configurado nas Configurações (E-mail) em vez do .env
-        $this->mailConfig->applyMailerConfigForTenant(null);
+        $user = User::query()->where('email', $request->input('email'))->first();
+
+        // Admin da plataforma (/plataforma): SMTP e remetente em Configurações globais (tenant_id null).
+        // applyMailerConfigForTenant(null) pega o primeiro infoprodutor com smtp_host — o e-mail não sai ou falha.
+        if ($user?->canAccessPlatformPanel()) {
+            $this->mailConfig->applyPlatformGlobalMailerConfig();
+            app()->instance('password_reset_redirect', '/plataforma/login');
+        } else {
+            $this->mailConfig->applyMailerConfigForTenant($user?->tenant_id);
+        }
         config(['mail.default' => 'smtp']);
 
         try {

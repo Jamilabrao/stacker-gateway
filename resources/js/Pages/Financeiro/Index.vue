@@ -28,6 +28,8 @@ const props = defineProps({
     fee_preview: { type: Object, default: () => ({}) },
     payout_settings: { type: Object, default: () => ({}) },
     payout_pix_setup: { type: String, default: null },
+    /** Dígitos do documento do titular (KYC) para pré-preencher CajuPay */
+    caju_pix_owner_document_hint: { type: String, default: '' },
     settlement_preview: { type: Object, default: () => ({}) },
     seller_profile: {
         type: Object,
@@ -92,6 +94,8 @@ const payoutPixForm = useForm({
     label: '',
     pix_key_type: 'cpf',
     pix_key: '',
+    /** CPF ou CNPJ do titular da chave — obrigatório CajuPay. Apenas dígitos ao enviar. */
+    key_owner_document: '',
     receiver_name: '',
     receiver_document: '',
     receiver_email: '',
@@ -112,6 +116,7 @@ function submitPayoutPix() {
         editingPayoutPix.value = false;
         if (props.payout_pix_setup === 'label_and_key') {
             payoutPixForm.reset('pix_key');
+            payoutPixForm.reset('key_owner_document');
         }
     };
     if (props.payout_pix_setup === 'label_and_key') {
@@ -120,6 +125,7 @@ function submitPayoutPix() {
                 label: data.label,
                 pix_key_type: data.pix_key_type,
                 pix_key: data.pix_key,
+                key_owner_document: data.key_owner_document,
             }))
             .post('/financeiro/pix-saque', {
                 preserveScroll: true,
@@ -159,8 +165,10 @@ function syncPayoutPixFormFromProps() {
     const s = props.payout_settings || {};
     if (props.payout_pix_setup === 'label_and_key') {
         payoutPixForm.label = (s.payout_pix_label || s.cajupay_pix_label || '').trim();
-        payoutPixForm.pix_key = '';
-        payoutPixForm.pix_key_type = 'cpf';
+        payoutPixForm.pix_key = (s.cajupay_pix_key || '').trim();
+        payoutPixForm.pix_key_type = s.cajupay_pix_key_type || s.payout_pix_key_type || 'cpf';
+        const savedDoc = (s.cajupay_pix_key_owner_document || '').replace(/\D/g, '');
+        payoutPixForm.key_owner_document = savedDoc || (props.caju_pix_owner_document_hint || '').replace(/\D/g, '') || '';
     } else if (props.payout_pix_setup === 'key_and_receiver') {
         payoutPixForm.pix_key = (s.payout_pix_key || s.spacepag_pix_key || '').trim();
         payoutPixForm.pix_key_type = s.payout_pix_key_type || s.spacepag_pix_key_type || 'cpf';
@@ -286,7 +294,7 @@ const settlementCards = computed(() => {
 const hasPayoutPixRegistered = computed(() => {
     const s = props.payout_settings || {};
     if (props.payout_pix_setup === 'label_and_key') {
-        return !!s.cajupay_pix_key_id;
+        return !!(s.cajupay_pix_key_id || s.cajupay_pix_key);
     }
     if (props.payout_pix_setup === 'key_and_receiver' || props.payout_pix_setup === 'pix_key_only') {
         const k = (s.payout_pix_key || s.spacepag_pix_key || s.woovi_pix_key || '').trim();
@@ -298,12 +306,23 @@ const hasPayoutPixRegistered = computed(() => {
 const hasExtratoContent = computed(() => (props.withdrawals?.length || 0) > 0);
 
 watch(
-    () => [props.payout_pix_setup, props.payout_settings],
+    () => [props.payout_pix_setup, props.payout_settings, props.caju_pix_owner_document_hint],
     () => {
         syncPayoutPixFormFromProps();
     },
     { immediate: true }
 );
+
+function maskCpfCnpjDigits(digits) {
+    const d = String(digits || '').replace(/\D/g, '');
+    if (d.length === 11) {
+        return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    }
+    if (d.length === 14) {
+        return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+    }
+    return digits || '—';
+}
 
 const inputClass =
     'mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white';
@@ -698,11 +717,23 @@ const inputClass =
                                         <dt class="text-xs font-medium uppercase text-zinc-500">Identificação</dt>
                                         <dd class="mt-1 font-medium text-zinc-900 dark:text-white">{{ payoutPixLabelDisplay }}</dd>
                                     </div>
+                                    <div v-if="(payout_settings.cajupay_pix_key_owner_document || '').replace(/\D/g, '').length >= 11">
+                                        <dt class="text-xs font-medium uppercase text-zinc-500">CPF/CNPJ do titular</dt>
+                                        <dd class="mt-1 text-zinc-700 dark:text-zinc-200">
+                                            {{ maskCpfCnpjDigits(payout_settings.cajupay_pix_key_owner_document) }}
+                                            <span class="block text-xs text-zinc-500 dark:text-zinc-400">Deve ser o mesmo CPF/CNPJ do titular da chave PIX cadastrada.</span>
+                                        </dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-xs font-medium uppercase text-zinc-500">Tipo da chave</dt>
+                                        <dd class="mt-1 font-medium text-zinc-900 dark:text-white">
+                                            {{ (payout_settings.cajupay_pix_key_type || payout_settings.payout_pix_key_type || '—').toUpperCase() }}
+                                        </dd>
+                                    </div>
                                     <div>
                                         <dt class="text-xs font-medium uppercase text-zinc-500">Chave PIX</dt>
-                                        <dd class="mt-1 text-zinc-700 dark:text-zinc-200">
-                                            Cadastrada na plataforma de pagamentos. Clique em <strong>Editar</strong> para informar uma nova chave ao
-                                            salvar.
+                                        <dd class="mt-1 break-all font-medium text-zinc-900 dark:text-white">
+                                            {{ (payout_settings.cajupay_pix_key || '').trim() || '—' }}
                                         </dd>
                                     </div>
                                 </dl>
@@ -747,6 +778,10 @@ const inputClass =
 
                         <form v-if="!hasPayoutPixRegistered || editingPayoutPix" class="max-w-lg space-y-4" @submit.prevent="submitPayoutPix">
                             <template v-if="payout_pix_setup === 'label_and_key'">
+                                <p class="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+                                    A chave PIX e o documento informado em <strong>CPF ou CNPJ do titular</strong> devem estar corretos para aprovação do saque.
+                                    Para chave e-mail, telefone ou aleatória (EVP), informe também o documento do titular abaixo.
+                                </p>
                                 <div>
                                     <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Identificação</label>
                                     <input v-model="payoutPixForm.label" type="text" required maxlength="120" :class="inputClass" placeholder="Ex.: conta principal" />
@@ -766,6 +801,23 @@ const inputClass =
                                     <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Chave PIX</label>
                                     <input v-model="payoutPixForm.pix_key" type="text" required maxlength="120" :class="inputClass" autocomplete="off" />
                                     <p v-if="payoutPixForm.errors.pix_key" class="mt-1 text-sm text-red-600">{{ payoutPixForm.errors.pix_key }}</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">CPF ou CNPJ do titular</label>
+                                    <input
+                                        v-model="payoutPixForm.key_owner_document"
+                                        type="text"
+                                        required
+                                        maxlength="20"
+                                        inputmode="numeric"
+                                        :class="inputClass"
+                                        autocomplete="off"
+                                        placeholder="Mesmo CPF/CNPJ do titular da chave PIX"
+                                    />
+                                    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                        Obrigatório (11 ou 14 dígitos). Use o documento do titular da chave PIX cadastrada.
+                                    </p>
+                                    <p v-if="payoutPixForm.errors.key_owner_document" class="mt-1 text-sm text-red-600">{{ payoutPixForm.errors.key_owner_document }}</p>
                                 </div>
                             </template>
                             <template v-else-if="payout_pix_setup === 'pix_key_only'">

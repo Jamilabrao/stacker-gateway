@@ -11,20 +11,29 @@ const emit = defineEmits(['close']);
 
 const activeTab = ref('venda');
 
-const utmSource = computed(() => {
+function trackingValue(key) {
     const v = props.venda;
     if (!v) return '';
-    return (v.checkout_session?.utm_source || v.metadata?.utm_source || '').trim();
-});
-const utmCampaign = computed(() => {
-    const v = props.venda;
-    if (!v) return '';
-    return (v.checkout_session?.utm_campaign || v.metadata?.utm_campaign || '').trim();
-});
-const utmMedium = computed(() => {
-    const v = props.venda;
-    if (!v) return '';
-    return (v.checkout_session?.utm_medium || v.metadata?.utm_medium || '').trim();
+    const fromSession = v.checkout_session?.[key];
+    const fromMeta = v.metadata?.[key];
+    return String(fromSession ?? fromMeta ?? '').trim();
+}
+
+const utmRows = computed(() => {
+    const keys = [
+        ['utm_source', 'utm_source'],
+        ['utm_medium', 'utm_medium'],
+        ['utm_campaign', 'utm_campaign'],
+        ['utm_content', 'utm_content'],
+        ['utm_term', 'utm_term'],
+        ['sck', 'sck'],
+        ['src', 'src'],
+    ];
+    return keys.map(([key, label]) => ({
+        key,
+        label,
+        value: trackingValue(key),
+    }));
 });
 
 function close() {
@@ -224,22 +233,14 @@ function itemLabel(item) {
                                 </a>
                                 <p v-else class="text-sm text-zinc-500">–</p>
                             </div>
-                            <div class="space-y-1">
-                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">utm_source</p>
-                                <p class="text-sm" :class="utmSource ? 'text-zinc-900 dark:text-white' : 'text-zinc-500'">
-                                    {{ utmSource || 'Não informado' }}
-                                </p>
-                            </div>
-                            <div class="space-y-1">
-                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">utm_campaign</p>
-                                <p class="text-sm" :class="utmCampaign ? 'text-zinc-900 dark:text-white' : 'text-zinc-500'">
-                                    {{ utmCampaign || 'Não informado' }}
-                                </p>
-                            </div>
-                            <div class="space-y-1">
-                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">utm_medium</p>
-                                <p class="text-sm" :class="utmMedium ? 'text-zinc-900 dark:text-white' : 'text-zinc-500'">
-                                    {{ utmMedium || 'Não informado' }}
+                            <div
+                                v-for="row in utmRows"
+                                :key="row.key"
+                                class="space-y-1"
+                            >
+                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ row.label }}</p>
+                                <p class="text-sm break-all" :class="row.value ? 'text-zinc-900 dark:text-white' : 'text-zinc-500'">
+                                    {{ row.value || 'Não informado' }}
                                 </p>
                             </div>
                             <div class="space-y-1">

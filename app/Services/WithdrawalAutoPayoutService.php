@@ -38,7 +38,7 @@ class WithdrawalAutoPayoutService
     }
 
     /**
-     * @return array{ok: bool, skipped?: bool, reason?: string, error?: string}
+     * @return array{ok: bool, skipped?: bool, reason?: string, error?: string, pending?: bool}
      */
     public function attemptCajuPay(Withdrawal $withdrawal): array
     {
@@ -61,13 +61,25 @@ class WithdrawalAutoPayoutService
         }
 
         $settings = is_array($owner?->payout_settings) ? $owner->payout_settings : [];
-        $pixKeyId = isset($settings['cajupay_pix_key_id']) ? trim((string) $settings['cajupay_pix_key_id']) : '';
-        if ($pixKeyId === '') {
+        $pixKey = PayoutUserSettings::cajuPixKey($settings);
+        $pixKeyType = PayoutUserSettings::cajuPixKeyType($settings);
+        // O documento do titular vem do cadastro da chave PIX, sem comparação com documento do perfil.
+        $keyOwnerDocument = PayoutUserSettings::cajuPixOwnerDocument($settings);
+        if ($pixKey === '' || $pixKeyType === '') {
             return ['ok' => false, 'skipped' => true, 'reason' => 'no_pix_key'];
+        }
+        if ($keyOwnerDocument === '') {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'no_key_owner_document'];
         }
 
         $payout = new CajuPayPayoutService;
-        $result = $payout->sendWithdrawalToPixKey($withdrawal->fresh(), $pixKeyId);
+        $result = $payout->sendWithdrawalToPixKey(
+            $withdrawal->fresh(),
+            null,
+            $pixKey,
+            $pixKeyType,
+            $keyOwnerDocument
+        );
 
         if ($result['ok'] ?? false) {
             $withdrawal->update([
@@ -86,14 +98,27 @@ class WithdrawalAutoPayoutService
         }
 
         $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+        $errorCode = $result['cajupay_error_code'] ?? null;
+        $meta = [
+            'last_error' => $result['error'] ?? 'Erro desconhecido',
+            'last_attempt_at' => now()->toIso8601String(),
+            'auto' => true,
+        ];
+        if ($errorCode === 'insufficient_funds') {
+            $meta['cajupay_error_code'] = 'insufficient_funds';
+        }
         $withdrawal->update([
             'payout_provider' => 'cajupay',
-            'payout_meta' => $prev + [
-                'last_error' => $result['error'] ?? 'Erro desconhecido',
-                'last_attempt_at' => now()->toIso8601String(),
-                'auto' => true,
-            ],
+            'payout_meta' => $prev + $meta,
         ]);
+
+        if ($errorCode === 'insufficient_funds') {
+            return [
+                'ok' => false,
+                'skipped' => true,
+                'reason' => 'cajupay_insufficient_funds',
+            ];
+        }
 
         return [
             'ok' => false,

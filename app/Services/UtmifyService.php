@@ -83,15 +83,19 @@ class UtmifyService
             ];
         }
 
-        $trackingParameters = [
-            'src' => null,
-            'sck' => null,
-            'utm_source' => $session?->utm_source,
-            'utm_campaign' => $session?->utm_campaign,
-            'utm_medium' => $session?->utm_medium,
-            'utm_content' => null,
-            'utm_term' => null,
-        ];
+        // Ordem alinhada à documentação UTMfy; omite chaves vazias para não enviar null artificial.
+        $trackingParameters = [];
+        foreach (['src', 'sck', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as $key) {
+            $raw = $session?->{$key} ?? null;
+            if (! is_string($raw)) {
+                continue;
+            }
+            $trimmed = trim($raw);
+            if ($trimmed === '') {
+                continue;
+            }
+            $trackingParameters[$key] = $trimmed;
+        }
 
         $totalCents = (int) round((float) $order->amount * 100);
         $commission = [
@@ -132,7 +136,7 @@ class UtmifyService
 
         if (! $response->successful()) {
             throw new \RuntimeException(
-                'UTMfy API error: ' . $response->status() . ' ' . $response->body()
+                'UTMfy API error: '.$response->status().' '.$response->body()
             );
         }
 

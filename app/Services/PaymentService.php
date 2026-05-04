@@ -272,7 +272,8 @@ class PaymentService
      */
     public function getGatewayOrderForMethod(?int $tenantId, string $method, ?Product $product = null, ?array $gatewayConfigOverride = null): array
     {
-        $raw = Setting::get('gateway_order', null, null);
+        // Ordem salva em Financeiro / Gateways por tenant (PlatformConfigContext); não misturar com settings globais (tenant null).
+        $raw = Setting::get('gateway_order', null, $tenantId);
         if (is_string($raw)) {
             $decoded = json_decode($raw, true);
             $raw = is_array($decoded) ? $decoded : null;
@@ -361,7 +362,7 @@ class PaymentService
         $enabled = is_array($enabled) ? $enabled : [];
 
         $tenantId = $product->tenant_id;
-        $orderRaw = Setting::get('gateway_order', null, null);
+        $orderRaw = Setting::get('gateway_order', null, $tenantId);
         if (is_string($orderRaw)) {
             $orderRaw = json_decode($orderRaw, true);
         }
@@ -431,7 +432,7 @@ class PaymentService
     public function globallyAvailablePaymentMethodKeys(Product $product, ?SubscriptionPlan $plan = null): array
     {
         $tenantId = $product->tenant_id;
-        $orderRaw = Setting::get('gateway_order', null, null);
+        $orderRaw = Setting::get('gateway_order', null, $tenantId);
         if (is_string($orderRaw)) {
             $orderRaw = json_decode($orderRaw, true);
         }

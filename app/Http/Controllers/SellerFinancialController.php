@@ -15,6 +15,7 @@ use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\WithdrawalAutoPayoutService;
+use App\Support\BrazilianDocumentDigits;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -91,6 +92,10 @@ class SellerFinancialController extends Controller
             'woovi' => 'pix_key_only',
             default => null,
         };
+        $cajuPixOwnerDocumentHint = '';
+        if ($payoutGateway === 'cajupay') {
+            $cajuPixOwnerDocumentHint = BrazilianDocumentDigits::onlyDigits((string) ($subject->document ?? ''));
+        }
 
         $walletPayload = null;
         if ($wallet !== null) {
@@ -137,6 +142,7 @@ class SellerFinancialController extends Controller
             'payout_settings' => is_array($user->payout_settings) ? $user->payout_settings : [],
             /** @var 'label_and_key'|'key_and_receiver'|null Fluxo de cadastro PIX sem expor adquirente ao vendedor */
             'payout_pix_setup' => $payoutPixSetup,
+            'caju_pix_owner_document_hint' => $cajuPixOwnerDocumentHint,
             'fee_preview' => $feesPreview,
             'settlement_preview' => [
                 'pix' => EffectiveSettlementRules::forTenantMethod($tenantId, 'pix'),
@@ -248,37 +254,29 @@ class SellerFinancialController extends Controller
                 'label' => ['required', 'string', 'max:120'],
                 'pix_key_type' => ['required', 'string', 'in:cpf,cnpj,email,phone,evp'],
                 'pix_key' => ['required', 'string', 'max:120'],
+                'key_owner_document' => ['required', 'string', 'max:20'],
             ]);
 
-            $cred = GatewayCredential::resolveForPayment(null, 'cajupay');
-            if ($cred === null || ! $cred->is_connected) {
+            $ownerDoc = BrazilianDocumentDigits::onlyDigits($validated['key_owner_document']);
+            if (! BrazilianDocumentDigits::isValidCpfOrCnpjLength($ownerDoc)) {
                 return redirect()->route('financeiro.seller.index')
-                    ->with('error', 'A plataforma ainda não configurou o recebimento automático de saques por PIX.');
+                    ->withErrors(['key_owner_document' => 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido do titular da chave PIX.'])
+                    ->onlyInput('key_owner_document');
             }
 
-            $credentials = $cred->getDecryptedCredentials();
-            $res = CajuPayPayoutService::createPixKey($credentials, [
-                'label' => $validated['label'],
-                'pix_key_type' => $validated['pix_key_type'],
-                'pix_key' => trim($validated['pix_key']),
-                'is_default' => true,
-            ]);
-
-            if (! ($res['ok'] ?? false)) {
-                return redirect()->route('financeiro.seller.index')
-                    ->with('error', $res['error'] ?? 'Não foi possível cadastrar a chave PIX.');
-            }
-
-            $id = $res['id'] ?? null;
-            if (! is_string($id) || $id === '') {
-                return redirect()->route('financeiro.seller.index')
-                    ->with('error', 'Não foi possível confirmar o cadastro da chave. Tente novamente ou contate o suporte.');
-            }
+            $pixKeyTrim = trim($validated['pix_key']);
 
             $settings = is_array($user->payout_settings) ? $user->payout_settings : [];
-            $settings['cajupay_pix_key_id'] = $id;
+            // Cadastro local: a validação de titularidade é feita no momento do saque (API do adquirente).
+            $settings['cajupay_pix_key_id'] = null;
+            $settings['cajupay_pix_key'] = $pixKeyTrim;
+            $settings['payout_pix_key'] = $pixKeyTrim;
+            $settings['cajupay_pix_key_type'] = $validated['pix_key_type'];
+            $settings['payout_pix_key_type'] = $validated['pix_key_type'];
             $settings['cajupay_pix_label'] = $validated['label'];
             $settings['payout_pix_label'] = $validated['label'];
+            $settings['cajupay_pix_key_owner_document'] = $ownerDoc;
+            $settings['payout_pix_key_owner_document'] = $ownerDoc;
             $user->payout_settings = $settings;
             $user->save();
 
@@ -350,10 +348,17 @@ class SellerFinancialController extends Controller
         $slug = PlatformPayoutGateway::activeSlug();
         if ($slug === 'cajupay') {
             $settings = is_array($user->payout_settings) ? $user->payout_settings : [];
-            $pixId = isset($settings['cajupay_pix_key_id']) ? trim((string) $settings['cajupay_pix_key_id']) : '';
-            if ($pixId === '') {
+            $pixKey = PayoutUserSettings::cajuPixKey($settings);
+            $pixKeyType = PayoutUserSettings::cajuPixKeyType($settings);
+            if ($pixKey === '' || $pixKeyType === '') {
                 throw ValidationException::withMessages([
                     'amount' => 'Cadastre os dados de PIX para recebimento (seção acima) antes de solicitar o saque.',
+                ]);
+            }
+            $payoutDoc = PayoutUserSettings::cajuPixOwnerDocument($settings);
+            if ($payoutDoc === '') {
+                throw ValidationException::withMessages([
+                    'amount' => 'Atualize os dados de recebimento PIX (Financeiro): informe o CPF ou CNPJ do titular no cadastro da chave e salve novamente.',
                 ]);
             }
         }
@@ -400,8 +405,11 @@ class SellerFinancialController extends Controller
             }
 
             if (($auto['skipped'] ?? false) === true) {
-                return redirect()->route('financeiro.seller.index')
-                    ->with('success', 'Solicitação de saque registrada. Complete o cadastro de dados de recebimento PIX para envio automático.');
+                $msg = ($auto['reason'] ?? '') === 'cajupay_insufficient_funds'
+                    ? 'Solicitação de saque registrada e aguardando processamento pela plataforma.'
+                    : 'Solicitação de saque registrada. Complete o cadastro de dados de recebimento PIX para envio automático.';
+
+                return redirect()->route('financeiro.seller.index')->with('success', $msg);
             }
 
             return redirect()->route('financeiro.seller.index')

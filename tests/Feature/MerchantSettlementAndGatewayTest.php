@@ -42,6 +42,35 @@ class MerchantSettlementAndGatewayTest extends TestCase
         $this->assertContains('cajupay', $order);
     }
 
+    public function test_payment_service_reads_gateway_order_for_seller_tenant_not_only_global(): void
+    {
+        $seller = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+        ]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        Setting::set('gateway_order', [
+            'pix' => ['mercadopago', 'cajupay'],
+            'card' => [],
+            'boleto' => [],
+            'pix_auto' => [],
+        ], null);
+
+        Setting::set('gateway_order', [
+            'pix' => ['cajupay', 'mercadopago'],
+            'card' => [],
+            'boleto' => [],
+            'pix_auto' => [],
+        ], $seller->id);
+
+        /** @var PaymentService $ps */
+        $ps = app(PaymentService::class);
+        $order = $ps->getGatewayOrderForMethod((int) $seller->id, 'pix');
+
+        $this->assertNotEmpty($order);
+        $this->assertSame('cajupay', $order[0], 'PIX deve seguir a ordem do Financeiro do tenant, não só a configuração global.');
+    }
+
     public function test_settlement_pending_created_when_delay_configured(): void
     {
         if (! Schema::hasTable('wallet_transactions')) {

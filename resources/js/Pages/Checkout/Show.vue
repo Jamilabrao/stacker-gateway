@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
+import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import { useCheckoutLocale } from '@/composables/useCheckoutLocale';
@@ -174,20 +174,25 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
 
 const checkoutTotalInCurrency = computed(() => priceInCurrency(checkoutTotalBrl.value));
 
-let initiateCheckoutRequested = false;
+/** Só marca sucesso após o track — se o ref ou o fbq falharem na 1ª tentativa, @ready / nextTick podem tentar de novo. */
+let initiateCheckoutSucceeded = false;
 async function fireInitiateCheckoutOnce() {
-    if (initiateCheckoutRequested) return;
-    initiateCheckoutRequested = true;
-    if (!conversionPixelsRef.value?.fireInitiateCheckoutReliable) return;
-    await conversionPixelsRef.value.fireInitiateCheckoutReliable(
+    if (initiateCheckoutSucceeded) return;
+    await nextTick();
+    if (!conversionPixelsRef.value?.fireInitiateCheckoutReliable) {
+        return;
+    }
+    const ok = await conversionPixelsRef.value.fireInitiateCheckoutReliable(
         checkoutTotalInCurrency.value,
         displayCurrency.value,
         props.product?.checkout_slug || ''
     );
+    if (ok) {
+        initiateCheckoutSucceeded = true;
+    }
 }
 
 onMounted(async () => {
-    // Meta: InitiateCheckout ao abrir o checkout (evita double fire no mesmo carreg. com initiateCheckoutRequested).
     await fireInitiateCheckoutOnce();
 });
 </script>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Events\DashboardLoading;
+use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
@@ -28,7 +29,7 @@ class DashboardController extends Controller
         }
 
         $tenantId = auth()->user()->tenant_id;
-        $cacheKey = 'dashboard:v2:' . ($tenantId ?? 'global') . ':' . $period;
+        $cacheKey = 'dashboard:v3:' . ($tenantId ?? 'global') . ':' . $period;
 
         $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($tenantId, $period) {
             [$start, $end] = $this->rangeForPeriod($period);
@@ -90,6 +91,8 @@ class DashboardController extends Controller
         }
         $quantidadeProdutos = $productsQuery->count();
 
+            $funnel = $this->checkoutFunnelStats($tenantId, $start, $end);
+
             return [
                 'period' => $period,
                 'vendas_totais' => round($vendasTotais, 2),
@@ -97,8 +100,8 @@ class DashboardController extends Controller
                 'quantidade_vendas' => $quantidadeVendas,
                 'ticket_medio' => round($ticketMedio, 2),
                 'formas_pagamento' => $formasPagamento,
-                'taxa_conversao' => 0,
-                'abandono_carrinho' => 0,
+                'taxa_conversao' => $funnel['taxa_conversao'],
+                'abandono_carrinho' => $funnel['abandono_carrinho'],
                 'reembolsos_count' => $reembolsosCount,
                 'reembolsos_total' => round($reembolsosTotal, 2),
                 'quantidade_produtos' => $quantidadeProdutos,
@@ -111,6 +114,55 @@ class DashboardController extends Controller
         event(new DashboardLoading($data));
 
         return Inertia::render('Dashboard/Index', $data->getArrayCopy());
+    }
+
+    /**
+     * Alinhado a RelatoriosController: conversões = sessões com step converted;
+     * denominador = visitas abandonadas + formulário abandonado + convertidas.
+     *
+     * @return array{taxa_conversao: float, abandono_carrinho: int}
+     */
+    private function checkoutFunnelStats(?int $tenantId, ?string $start, ?string $end): array
+    {
+        $sessionsQuery = CheckoutSession::forTenant($tenantId);
+        if (auth()->user()?->isTeam()) {
+            $allowed = app(TeamAccessService::class)->allowedProductIdsFor(auth()->user());
+            $sessionsQuery->whereIn('product_id', $allowed ?: ['__none__']);
+        }
+        if ($start && $end) {
+            $sessionsQuery->whereBetween('created_at', [$start, $end]);
+        } elseif ($start) {
+            $sessionsQuery->where('created_at', '>=', $start);
+        } elseif ($end) {
+            $sessionsQuery->where('created_at', '<=', $end);
+        }
+
+        $abandonadosVisit = (clone $sessionsQuery)
+            ->where('step', CheckoutSession::STEP_VISIT)
+            ->whereNull('order_id')
+            ->count();
+
+        $abandonadosForm = (clone $sessionsQuery)
+            ->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
+            ->where('updated_at', '<=', now()->subMinutes(10))
+            ->where(function ($q) {
+                $q->whereNull('order_id')
+                    ->orWhereDoesntHave('order', fn ($orderQuery) => $orderQuery->where('status', 'completed'));
+            })
+            ->count();
+
+        $converted = (clone $sessionsQuery)
+            ->where('step', CheckoutSession::STEP_CONVERTED)
+            ->count();
+
+        $abandonadosTotal = $abandonadosVisit + $abandonadosForm;
+        $totalSessions = $abandonadosVisit + $abandonadosForm + $converted;
+        $taxaConversao = $totalSessions > 0 ? round((float) $converted / $totalSessions * 100, 1) : 0.0;
+
+        return [
+            'taxa_conversao' => $taxaConversao,
+            'abandono_carrinho' => $abandonadosTotal,
+        ];
     }
 
     private function rangeForPeriod(string $period): array

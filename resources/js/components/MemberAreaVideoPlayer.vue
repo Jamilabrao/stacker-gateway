@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { getVideoProviderType } from '@/lib/utils';
-import { Maximize2, Play, Pause, Settings } from 'lucide-vue-next';
+import { Maximize2, Minimize2, Play, Pause, Settings } from 'lucide-vue-next';
 
 const props = defineProps({
     src: { type: String, default: '' },
@@ -26,12 +26,15 @@ const isEmbedProvider = computed(() => {
 });
 const isYoutube = computed(() => providerType.value === 'youtube' && !!props.src);
 const isMobile = ref(false);
-const isIphoneSafari = ref(false);
 let mobileMql = null;
 function onMobileQueryChange(e) {
     isMobile.value = !!e.matches;
 }
 const playerRef = ref(null);
+const wrapperRef = ref(null);
+const immersiveActive = ref(false);
+let bodyOverflowPrev = '';
+let onKeydownImmersive = null;
 let onFullscreenChangeHandler = null;
 
 const youtubeVideoId = computed(() => {
@@ -364,28 +367,103 @@ function showControls() {
     scheduleHideControls();
 }
 
-async function requestYoutubeFullscreen() {
-    const el = ytRootEl.value;
-    if (!el) return;
-    try {
-        if (document.fullscreenElement || document.webkitFullscreenElement) {
-            if (document.exitFullscreen) await document.exitFullscreen();
-            else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
-            return;
-        }
-        if (el.requestFullscreen) await el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
-    } catch (_) {}
-}
-
-function detectIphoneSafari() {
+function isIosTouchDevice() {
     if (typeof navigator === 'undefined') return false;
     const ua = String(navigator.userAgent || '');
-    // iPhone Safari: exclui browsers iOS com UA próprio (Chrome/Firefox/Edge) e webviews comuns.
-    const isIphone = /\biPhone\b/i.test(ua);
-    const isSafari = /Safari/i.test(ua) && !/(CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo)/i.test(ua);
-    const isWebView = /(FBAN|FBAV|Instagram|Line|WhatsApp|GSA)/i.test(ua) || (!/Safari/i.test(ua) && /AppleWebKit/i.test(ua));
-    return isIphone && isSafari && !isWebView;
+    return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function enterImmersiveMode() {
+    if (immersiveActive.value) return;
+    immersiveActive.value = true;
+    if (typeof document !== 'undefined') {
+        bodyOverflowPrev = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function exitImmersiveMode() {
+    if (!immersiveActive.value) return;
+    immersiveActive.value = false;
+    if (typeof document !== 'undefined') {
+        document.body.style.overflow = bodyOverflowPrev;
+        bodyOverflowPrev = '';
+    }
+}
+
+async function tryEnterFullscreen(el) {
+    if (!el) return false;
+    try {
+        if (el.requestFullscreen) {
+            await el.requestFullscreen();
+            return true;
+        }
+        if (el.webkitRequestFullscreen) {
+            await el.webkitRequestFullscreen();
+            return true;
+        }
+    } catch (_) {}
+    return false;
+}
+
+/**
+ * Tela cheia: Fullscreen API quando suportado; no iOS + YouTube (e fallback Vidstack) usa modo imersivo (fixed).
+ */
+async function requestMemberVideoFullscreen() {
+    if (immersiveActive.value) {
+        exitImmersiveMode();
+        return;
+    }
+
+    const wrap = wrapperRef.value;
+    if (typeof document !== 'undefined') {
+        const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+        if (fsEl && wrap && (fsEl === wrap || wrap.contains(fsEl))) {
+            try {
+                if (document.exitFullscreen) await document.exitFullscreen();
+                else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
+            } catch (_) {}
+            return;
+        }
+    }
+
+    if (isYoutube.value && wrap) {
+        if (isIosTouchDevice() && isMobile.value) {
+            enterImmersiveMode();
+            return;
+        }
+        const ok = await tryEnterFullscreen(wrap);
+        if (!ok) {
+            enterImmersiveMode();
+        }
+        return;
+    }
+
+    const el = playerRef.value;
+    if (el) {
+        try {
+            if (typeof el.enterFullscreen === 'function') {
+                await el.enterFullscreen('provider');
+                return;
+            }
+        } catch (_) {
+            if (isIosTouchDevice() && isMobile.value) {
+                enterImmersiveMode();
+            }
+            return;
+        }
+        try {
+            el.dispatchEvent(new CustomEvent('media-enter-fullscreen-request', { bubbles: true, composed: true }));
+        } catch (_) {}
+        if (isIosTouchDevice() && isMobile.value) {
+            enterImmersiveMode();
+        }
+        return;
+    }
+
+    if (isIosTouchDevice() && isMobile.value && wrap) {
+        enterImmersiveMode();
+    }
 }
 
 async function lockOrientationLandscape() {
@@ -404,10 +482,14 @@ function unlockOrientation() {
 }
 function isPlayerFullscreen() {
     if (typeof document === 'undefined') return false;
-    const el = playerRef.value;
-    if (!el) return false;
     const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
     if (!fsEl) return false;
+    const wrap = wrapperRef.value;
+    if (wrap && (fsEl === wrap || wrap.contains(fsEl))) {
+        return true;
+    }
+    const el = playerRef.value;
+    if (!el) return false;
     return fsEl === el || (typeof el.contains === 'function' && el.contains(fsEl));
 }
 
@@ -449,7 +531,6 @@ const watermarkText = computed(() => {
 });
 
 onMounted(() => {
-    isIphoneSafari.value = detectIphoneSafari();
     if (typeof window !== 'undefined' && 'matchMedia' in window) {
         mobileMql = window.matchMedia('(max-width: 768px)');
         isMobile.value = !!mobileMql.matches;
@@ -472,6 +553,13 @@ onMounted(() => {
         };
         document.addEventListener('fullscreenchange', onFullscreenChangeHandler);
         document.addEventListener('webkitfullscreenchange', onFullscreenChangeHandler);
+        onKeydownImmersive = (e) => {
+            if (e.key === 'Escape' && immersiveActive.value) {
+                e.preventDefault();
+                exitImmersiveMode();
+            }
+        };
+        document.addEventListener('keydown', onKeydownImmersive);
     }
     if (props.watermarkEnabled && watermarkText.value) {
         watermarkInterval = setInterval(() => {
@@ -484,10 +572,15 @@ onMounted(() => {
 onUnmounted(() => {
     if (watermarkInterval) clearInterval(watermarkInterval);
     destroyYoutubePlayer();
+    exitImmersiveMode();
     if (typeof document !== 'undefined' && onFullscreenChangeHandler) {
         document.removeEventListener('fullscreenchange', onFullscreenChangeHandler);
         document.removeEventListener('webkitfullscreenchange', onFullscreenChangeHandler);
         onFullscreenChangeHandler = null;
+    }
+    if (typeof document !== 'undefined' && onKeydownImmersive) {
+        document.removeEventListener('keydown', onKeydownImmersive);
+        onKeydownImmersive = null;
     }
     unlockOrientation();
     if (mobileMql) {
@@ -516,25 +609,9 @@ const effectivePlaysinline = computed(() => {
 });
 
 const showFullscreenOverlay = computed(() => {
-    // iPhone Safari + YouTube: botão de fullscreen pode não aparecer no layout.
-    return isIphoneSafari.value && isMobile.value && providerType.value === 'youtube' && !!props.src;
+    // iOS (Safari/Chrome) + YouTube legado: overlay porque o Vidstack não está montado neste branch.
+    return isIosTouchDevice() && isMobile.value && providerType.value === 'youtube' && !!props.src;
 });
-
-async function requestProviderFullscreen() {
-    const el = playerRef.value;
-    if (!el) return;
-    try {
-        // Vidstack 1.x: método no elemento <media-player>.
-        if (typeof el.enterFullscreen === 'function') {
-            await el.enterFullscreen('provider');
-            return;
-        }
-        // Fallback: evento (caso a instância não exponha o método).
-        el.dispatchEvent(new CustomEvent('media-enter-fullscreen-request', { bubbles: true, composed: true }));
-    } catch (_) {
-        // Silencioso: no iOS o provider pode bloquear a request fora de gesto.
-    }
-}
 
 function onEnded() {
     emit('ended');
@@ -547,15 +624,27 @@ function onContextMenu(e) {
 
 <template>
     <div
+        ref="wrapperRef"
         class="member-area-video-player aspect-video w-full overflow-hidden rounded-lg bg-black relative"
+        :class="{ 'is-immersive': immersiveActive }"
         @contextmenu.prevent="onContextMenu"
     >
         <button
-            v-if="showFullscreenOverlay"
+            v-if="immersiveActive"
+            type="button"
+            class="exit-immersive-btn"
+            aria-label="Sair da tela cheia"
+            @click.stop.prevent="exitImmersiveMode"
+        >
+            <Minimize2 class="h-5 w-5" aria-hidden="true" />
+            <span class="sr-only">Sair da tela cheia</span>
+        </button>
+        <button
+            v-if="showFullscreenOverlay && !immersiveActive"
             type="button"
             class="fullscreen-overlay-btn"
             aria-label="Tela cheia"
-            @click.stop.prevent="requestProviderFullscreen"
+            @click.stop.prevent="requestMemberVideoFullscreen"
         >
             <Maximize2 class="h-4 w-4" aria-hidden="true" />
             <span class="sr-only">Tela cheia</span>
@@ -618,8 +707,9 @@ function onContextMenu(e) {
                         {{ formatTime(ytCurrentTime) }} <span class="yt-time-sep">/</span> {{ formatTime(ytDuration) }}
                     </div>
 
-                    <button type="button" class="yt-icon-btn" aria-label="Tela cheia" @click="requestYoutubeFullscreen">
-                        <Maximize2 class="h-4 w-4" aria-hidden="true" />
+                    <button type="button" class="yt-icon-btn" aria-label="Tela cheia" @click="requestMemberVideoFullscreen">
+                        <Maximize2 v-if="!immersiveActive" class="h-4 w-4" aria-hidden="true" />
+                        <Minimize2 v-else class="h-4 w-4" aria-hidden="true" />
                     </button>
 
                     <div class="yt-menu-wrap">
@@ -685,6 +775,43 @@ function onContextMenu(e) {
 .member-area-video-player {
     --media-brand: #f5f5f5;
     --media-focus-ring-color: #4e9cf6;
+}
+.member-area-video-player.is-immersive {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    border-radius: 0;
+    aspect-ratio: unset;
+    display: flex;
+    flex-direction: column;
+}
+.member-area-video-player.is-immersive .yt-legacy-root {
+    flex: 1;
+    min-height: 0;
+}
+.member-area-video-player.is-immersive .player {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+.exit-immersive-btn {
+    position: absolute;
+    top: max(10px, env(safe-area-inset-top, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    z-index: 120;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 44px;
+    width: 44px;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.65);
+    color: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.exit-immersive-btn:focus-visible {
+    outline: 2px solid rgba(78, 156, 246, 0.9);
+    outline-offset: 2px;
 }
 .player {
     width: 100%;

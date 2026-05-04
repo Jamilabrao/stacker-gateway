@@ -74,7 +74,7 @@ const PIXEL_TABS = computed(() => [
 const TABS = [
     { id: 'geral', label: t('products.edit.tab_general', 'Geral'), icon: LayoutDashboard },
     { id: 'configuracoes', label: t('products.edit.tab_settings', 'Configurações'), icon: Settings },
-    // Aba de e-mail (template de acesso): mantida no código por compatibilidade, mas ocultada do menu.
+    { id: 'email', label: t('products.edit.tab_email', 'E-mail'), icon: Mail },
     { id: 'order_bump', label: t('products.edit.tab_order_bump', 'Order Bump'), icon: Package },
     { id: 'upsell_downsell', label: t('products.edit.tab_upsell_downsell', 'Upsell / Downsell'), icon: ArrowUpDown },
     { id: 'checkout', label: t('products.edit.tab_checkout', 'Checkout'), icon: ShoppingCart },
@@ -2094,7 +2094,15 @@ function submit() {
                                             <span class="mt-2 text-xs text-zinc-500">{{ t('common.sending', 'Enviando...') }}</span>
                                         </template>
                                         <template v-else-if="form.email_template.logo_url">
-                                            <img :src="form.email_template.logo_url" alt="Logo" class="max-h-20 w-auto object-contain px-2" @error="($e) => $e.target.style.display = 'none'" />
+                                            <div class="rounded-lg bg-white px-2 py-1.5 shadow-sm ring-1 ring-zinc-200/80 dark:ring-zinc-600">
+                                                <img
+                                                    :key="form.email_template.logo_url"
+                                                    :src="form.email_template.logo_url"
+                                                    alt="Logo"
+                                                    class="max-h-20 w-auto object-contain mx-auto"
+                                                    @error="($e) => $e.target.style.display = 'none'"
+                                                />
+                                            </div>
                                             <span class="mt-2 text-xs text-zinc-500">{{ t('products.edit.click_to_change', 'Clique para trocar') }}</span>
                                         </template>
                                         <template v-else>

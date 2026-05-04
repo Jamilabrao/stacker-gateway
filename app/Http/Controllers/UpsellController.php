@@ -204,7 +204,7 @@ class UpsellController extends Controller
             if ($productId === '') {
                 continue;
             }
-            $product = Product::where('id', $productId)->where('is_active', true)->first();
+            $product = Product::where('id', $productId)->availableForPurchase()->first();
             if (! $product) {
                 continue;
             }
@@ -446,7 +446,7 @@ class UpsellController extends Controller
                 continue;
             }
 
-            $product = Product::where('id', $productId)->where('is_active', true)->first();
+            $product = Product::where('id', $productId)->availableForPurchase()->first();
             $offer = $offerId > 0 ? ProductOffer::where('id', $offerId)->where('product_id', $productId)->first() : null;
             if (! $product) {
                 continue;

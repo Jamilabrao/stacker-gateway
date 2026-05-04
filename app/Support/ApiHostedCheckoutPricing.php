@@ -18,7 +18,7 @@ class ApiHostedCheckoutPricing
         ?int $subscriptionPlanId,
     ): ?float {
         $product = Product::where('id', $productId)->where('tenant_id', $tenantId)->first();
-        if (! $product) {
+        if (! $product || ! $product->isAvailableForPurchase()) {
             return null;
         }
 

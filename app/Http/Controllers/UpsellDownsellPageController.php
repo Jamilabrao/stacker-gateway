@@ -233,7 +233,7 @@ class UpsellDownsellPageController extends Controller
         $tenantId = auth()->user()->tenant_id;
 
         return Product::where('tenant_id', $tenantId)
-            ->where('is_active', true)
+            ->availableForPurchase()
             ->where('id', '!=', $excludeProduct->id)
             ->with('offers')
             ->orderBy('name')

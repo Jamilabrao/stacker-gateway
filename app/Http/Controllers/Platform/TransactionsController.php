@@ -3,11 +3,12 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
+use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Services\EffectiveMerchantFees;
 use App\Services\OrderManualApprovalService;
-use App\Services\PlatformOrderAdminService;
 use App\Services\PlatformAuditService;
+use App\Services\PlatformOrderAdminService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -85,7 +86,7 @@ class TransactionsController extends Controller
                     'product:id,name,slug,checkout_slug',
                     'productOffer:id,name,checkout_slug',
                     'subscriptionPlan:id,name,checkout_slug',
-                    'checkoutSession:id,order_id,utm_source,utm_medium,utm_campaign',
+                    'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
                     'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
                     'orderItems.product:id,name',
                     'orderItems.productOffer:id,name',

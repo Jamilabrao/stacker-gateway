@@ -71,7 +71,7 @@ class PlatformDashboardRevenueTest extends TestCase
             ->get('/plataforma/dashboard?period=hoje')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('kpis.faturamento_taxas_cobradas', 10.0));
+                ->where('kpis.faturamento_taxas_cobradas', 10));
     }
 
     public function test_faturamento_sums_pending_parts_when_no_credit_sale(): void
@@ -128,7 +128,7 @@ class PlatformDashboardRevenueTest extends TestCase
             ->get('/plataforma/dashboard?period=hoje')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('kpis.faturamento_taxas_cobradas', 10.0));
+                ->where('kpis.faturamento_taxas_cobradas', 10));
     }
 
     public function test_faturamento_respects_period_filter(): void
@@ -179,6 +179,6 @@ class PlatformDashboardRevenueTest extends TestCase
             ->get('/plataforma/dashboard?period=hoje')
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->where('kpis.faturamento_taxas_cobradas', 0.0));
+                ->where('kpis.faturamento_taxas_cobradas', 0));
     }
 }

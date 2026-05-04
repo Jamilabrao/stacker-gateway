@@ -6,24 +6,23 @@ use App\Mail\SubscriptionReminderMail;
 use App\Models\Subscription;
 use App\Services\TenantMailConfigService;
 use Carbon\Carbon;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
-class SendSubscriptionRemindersJob implements ShouldQueue
+/**
+ * Runs synchronously when scheduled (no ShouldQueue) so renewal e-mails do not depend on queue workers.
+ */
+class SendSubscriptionRemindersJob
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable;
 
     public function handle(TenantMailConfigService $mailConfig): void
     {
         $today = Carbon::today();
         $windowStart = $today->copy()->subDays(2);
-        $windowEnd = $today->copy()->addDays(3);
+        $windowEnd = $today->copy()->addDays(5);
 
         $subscriptions = Subscription::with(['user', 'product', 'subscriptionPlan'])
             ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PAST_DUE])
@@ -41,7 +40,8 @@ class SendSubscriptionRemindersJob implements ShouldQueue
             }
 
             $periodEnd = Carbon::parse($subscription->current_period_end)->startOfDay();
-            $daysLeft = (int) $today->diffInDays($periodEnd, false);
+            $todayStart = $today->copy()->startOfDay();
+            $daysLeft = (int) $todayStart->diffInDays($periodEnd, false);
             if (! in_array($daysLeft, [3, 0, -1, -2], true)) {
                 continue;
             }
@@ -68,29 +68,29 @@ class SendSubscriptionRemindersJob implements ShouldQueue
                 continue;
             }
 
-            $renewalUrl = url('/renovar/' . $subscription->renewal_token);
+            $renewalUrl = url('/renovar/'.$subscription->renewal_token);
             $planName = e($subscription->subscriptionPlan->name);
             $productName = e($subscription->product->name);
-            $greeting = '<p>Olá' . ($user->name ? ', ' . e($user->name) : '') . '!</p>';
+            $greeting = '<p>Olá'.($user->name ? ', '.e($user->name) : '').'!</p>';
 
             if ($daysLeft > 0) {
-                $subject = 'Lembrete: sua assinatura de ' . $subscription->product->name . ' vence em ' . $daysLeft . ' dia(s)';
-                $headline = '<p>Sua assinatura de <strong>' . $productName . '</strong> (plano ' . $planName . ') vence em <strong>' . $daysLeft . ' dia(s)</strong>.</p>';
+                $subject = 'Lembrete: sua assinatura de '.$subscription->product->name.' vence em '.$daysLeft.' dia(s)';
+                $headline = '<p>Sua assinatura de <strong>'.$productName.'</strong> (plano '.$planName.') vence em <strong>'.$daysLeft.' dia(s)</strong>.</p>';
             } elseif ($daysLeft === 0) {
-                $subject = 'Atenção: sua assinatura de ' . $subscription->product->name . ' vence hoje';
-                $headline = '<p>Sua assinatura de <strong>' . $productName . '</strong> (plano ' . $planName . ') <strong>vence hoje</strong>.</p>';
+                $subject = 'Atenção: sua assinatura de '.$subscription->product->name.' vence hoje';
+                $headline = '<p>Sua assinatura de <strong>'.$productName.'</strong> (plano '.$planName.') <strong>vence hoje</strong>.</p>';
             } else {
                 $daysOverdue = abs($daysLeft);
-                $subject = 'Sua assinatura de ' . $subscription->product->name . ' está vencida';
-                $headline = '<p>Sua assinatura de <strong>' . $productName . '</strong> (plano ' . $planName . ') está vencida há <strong>' . $daysOverdue . ' dia(s)</strong>.</p>';
+                $subject = 'Sua assinatura de '.$subscription->product->name.' está vencida';
+                $headline = '<p>Sua assinatura de <strong>'.$productName.'</strong> (plano '.$planName.') está vencida há <strong>'.$daysOverdue.' dia(s)</strong>.</p>';
             }
 
-            $body = '<p>Olá' . ($user->name ? ', ' . e($user->name) : '') . '!</p>';
+            $body = '<p>Olá'.($user->name ? ', '.e($user->name) : '').'!</p>';
             $body = $greeting;
             $body .= $headline;
             $body .= '<p>Para renovar e manter seu acesso, use o link abaixo:</p>';
-            $body .= '<p><a href="' . e($renewalUrl) . '" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;">Renovar agora</a></p>';
-            $body .= '<p>Ou copie e cole no navegador: ' . e($renewalUrl) . '</p>';
+            $body .= '<p><a href="'.e($renewalUrl).'" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;">Renovar agora</a></p>';
+            $body .= '<p>Ou copie e cole no navegador: '.e($renewalUrl).'</p>';
 
             try {
                 $mailConfig->applyMailerConfigForTenant($subscription->tenant_id, [], null);

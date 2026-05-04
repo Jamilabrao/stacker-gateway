@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\Withdrawal;
+use App\Services\Payout\PlatformPayoutGateway;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Schema;
@@ -60,6 +61,7 @@ class WithdrawalsController extends Controller
             'filters' => [
                 'withdrawal_status' => $withdrawalStatus,
             ],
+            'payout_gateway_active' => PlatformPayoutGateway::activeSlug() ?? '',
         ]);
     }
 }

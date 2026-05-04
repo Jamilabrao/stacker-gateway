@@ -252,7 +252,15 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/financeiro/liquidacao', [\App\Http\Controllers\Platform\FinancialController::class, 'updateSettlement'])->name('financeiro.liquidacao.update');
         Route::put('/financeiro/payout-gateway', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePayoutGatewayPreference'])->name('financeiro.payout-gateway.update');
         Route::post('/financeiro/saques/{withdrawal}/aprovar', [\App\Http\Controllers\Platform\FinancialController::class, 'approveWithdrawal'])->name('financeiro.saques.approve');
+        Route::post('/financeiro/saques/{withdrawal}/reprocessar-cajupay', [\App\Http\Controllers\Platform\FinancialController::class, 'retryCajuPayWithdrawal'])
+            ->name('financeiro.saques.reprocessar-cajupay')
+            ->middleware('throttle:30,1');
         Route::post('/financeiro/saques/{withdrawal}/rejeitar', [\App\Http\Controllers\Platform\FinancialController::class, 'rejectWithdrawal'])->name('financeiro.saques.reject');
+
+        Route::get('/produtos', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'index'])->name('produtos.index');
+        Route::post('/produtos/{product}/bloqueio', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'updateBlock'])
+            ->name('produtos.bloqueio')
+            ->middleware('throttle:60,1');
 
         Route::get('/saques', [\App\Http\Controllers\Platform\WithdrawalsController::class, 'index'])->name('saques.index');
         Route::get('/transacoes', [\App\Http\Controllers\Platform\TransactionsController::class, 'index'])->name('transacoes.index');
@@ -313,7 +321,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/logs/clear', [\App\Http\Controllers\EquipeController::class, 'clearLogs'])->name('usuarios.equipe.logs.clear');
     });
 
-    Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|team|admin', 'audit.log'])->group(function () {
+Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|team|admin', 'audit.log'])->group(function () {
     Route::post('/coproducao/convite/{token}/aceitar', [\App\Http\Controllers\CoproductionInviteController::class, 'accept'])
         ->name('coproduction.invite.accept')
         ->middleware('throttle:20,1')
@@ -529,12 +537,21 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/produtos/{produto}/member-builder/send-push', [\App\Http\Controllers\MemberBuilderController::class, 'sendPushNotification'])->name('member-builder.send-push');
     });
 
-    Route::get('/vendas/assinaturas', [\App\Http\Controllers\AssinaturasController::class, 'index'])
-        ->middleware('team.permission:vendas.view')
-        ->name('assinaturas.index');
+    Route::middleware('team.permission:vendas.view')->group(function () {
+        Route::get('/vendas/assinaturas', [\App\Http\Controllers\AssinaturasController::class, 'index'])->name('assinaturas.index');
+        Route::get('/vendas/assinaturas/{subscription}', [\App\Http\Controllers\AssinaturasController::class, 'show'])
+            ->name('assinaturas.show')
+            ->whereNumber('subscription');
+        Route::post('/vendas/assinaturas/{subscription}/cancel', [\App\Http\Controllers\AssinaturasController::class, 'cancel'])
+            ->name('assinaturas.cancel')
+            ->whereNumber('subscription');
+    });
     Route::get('/relatorios', [\App\Http\Controllers\RelatoriosController::class, 'index'])
         ->middleware('team.permission:relatorios.view')
         ->name('relatorios.index');
+    Route::get('/relatorios/carrinhos-abandonados/export', [\App\Http\Controllers\RelatoriosController::class, 'exportAbandonedCarts'])
+        ->middleware(['throttle:30,1', 'team.permission:relatorios.view'])
+        ->name('relatorios.abandoned-carts.export');
 
     Route::get('/integracoes', [\App\Http\Controllers\IntegrationsController::class, 'index'])
         ->middleware('team.permission:integracoes.view')
@@ -570,7 +587,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/integracoes/cademi', [\App\Http\Controllers\CademiController::class, 'store'])->name('integrations.cademi.store');
         Route::put('/integracoes/cademi/{cademi}', [\App\Http\Controllers\CademiController::class, 'update'])->name('integrations.cademi.update');
         Route::delete('/integracoes/cademi/{cademi}', [\App\Http\Controllers\CademiController::class, 'destroy'])->name('integrations.cademi.destroy');
-    Route::get('/integracoes/cademi/{cademi}/tags', [\App\Http\Controllers\CademiController::class, 'tags'])->name('integrations.cademi.tags');
+        Route::get('/integracoes/cademi/{cademi}/tags', [\App\Http\Controllers\CademiController::class, 'tags'])->name('integrations.cademi.tags');
 
         Route::get('/integracoes/webhooks', [\App\Http\Controllers\WebhookController::class, 'index'])->name('integrations.webhooks.index');
         Route::post('/integracoes/webhooks', [\App\Http\Controllers\WebhookController::class, 'store'])->name('integrations.webhooks.store');

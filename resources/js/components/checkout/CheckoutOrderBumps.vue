@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { ShoppingBag, Check } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -63,6 +63,36 @@ const totalBumpsBrl = computed(() =>
     selectedBumps.value.reduce((sum, b) => sum + (Number(b.amount_brl) || 0), 0)
 );
 
+const allBumpIds = computed(() => (props.orderBumps || []).map((b) => b.id));
+const allSelected = computed(
+    () => allBumpIds.value.length > 0 && allBumpIds.value.every((id) => selectedSet.value.has(id))
+);
+const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value);
+
+const selectAllInputRef = ref(null);
+
+function syncSelectAllIndeterminate() {
+    const el = selectAllInputRef.value;
+    if (el && el instanceof HTMLInputElement) {
+        el.indeterminate = someSelected.value;
+    }
+}
+
+function onSelectAllChange(e) {
+    const checked = e.target?.checked === true;
+    if (checked) {
+        selectedIds.value = [...allBumpIds.value];
+    } else {
+        selectedIds.value = [];
+    }
+    emit('update:selectedIds', selectedIds.value);
+    nextTick(() => syncSelectAllIndeterminate());
+}
+
+watch([selectedIds, someSelected, allSelected], () => nextTick(() => syncSelectAllIndeterminate()), {
+    immediate: true,
+});
+
 defineExpose({
     selectedIds,
     selectedBumps,
@@ -89,11 +119,27 @@ defineExpose({
             <button
                 v-if="selectedIds.length > 0"
                 type="button"
-                class="text-sm font-medium text-gray-500 hover:text-gray-700"
+                class="shrink-0 text-sm font-medium text-gray-500 hover:text-gray-700"
+                data-checkout="order-bumps-deselect-all"
                 @click="selectedIds = []; $emit('update:selectedIds', [])"
             >
                 {{ t('checkout.deselect_all') || 'Desmarcar todos' }}
             </button>
+        </div>
+
+        <div class="mb-4 border-b border-gray-100 pb-3" data-checkout="order-bumps-select-all-row">
+            <label class="inline-flex cursor-pointer select-none items-center gap-2.5 text-sm font-medium text-gray-700">
+                <input
+                    ref="selectAllInputRef"
+                    type="checkbox"
+                    class="h-4 w-4 shrink-0 rounded border-gray-300 text-gray-900 focus:ring-2 focus:ring-gray-400"
+                    data-checkout="order-bumps-select-all"
+                    :checked="allSelected"
+                    :aria-label="t('checkout.select_all_order_bumps') || 'Selecionar todos'"
+                    @change="onSelectAllChange"
+                />
+                <span>{{ t('checkout.select_all_order_bumps') || 'Selecionar todos' }}</span>
+            </label>
         </div>
 
         <ul class="space-y-4" data-checkout="order-bumps-list">
