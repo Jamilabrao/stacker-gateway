@@ -2523,11 +2523,14 @@ function submit() {
                     </template>
                 </div>
                 <!-- Cartão / Apple Pay / Google Pay (CajuPay SDK, draft session — referência) -->
-                <div v-else-if="isCajuPaySdkFlow" class="space-y-2 min-h-[8rem]">
+                <div v-else-if="isCajuPaySdkFlow" class="space-y-2">
                     <p v-if="cajupayError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">
                         {{ cajupayError }}
                     </p>
-                    <div class="rounded-xl border-2 border-gray-100 bg-white px-4 py-3">
+                    <div
+                        class="rounded-xl border-2 border-gray-100 bg-white px-4"
+                        :class="form.payment_method === 'card' ? 'py-2' : 'py-3'"
+                    >
                         <CajuPaySdkMount
                             ref="cajupayMountRef"
                             :payment-method="form.payment_method"
@@ -2801,6 +2804,7 @@ function submit() {
                 type="submit"
                 data-checkout="form-submit"
                 class="flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-lg shadow-black/10 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70"
+                :class="{ '!mt-2': isCajuPaySdkFlow && form.payment_method === 'card' }"
                 :style="{ backgroundColor: primaryColor }"
                 :disabled="form.processing || cardTokenizing || cardApproved"
             >

@@ -196,7 +196,7 @@ defineExpose({
 
 <template>
     <div class="space-y-2">
-        <div :id="containerId" />
+        <div :id="containerId" class="min-h-0 w-full" />
         <div v-if="error" class="text-xs text-red-600">{{ error }}</div>
     </div>
 </template>
