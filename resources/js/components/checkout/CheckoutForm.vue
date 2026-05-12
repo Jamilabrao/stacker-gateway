@@ -903,8 +903,6 @@ watch(
 );
 
 const cajupayMountRef = ref(null);
-/** Cartão CajuPay: true enquanto cria pedido/sessão ou 1.º clique em Pagar antes do token (prefetch / bootstrap). */
-const cajupayCardBootstrapLoading = ref(false);
 const cajupaySessionToken = ref('');
 const cajupayApiBaseUrl = ref('');
 const cajupayPendingOrderId = ref(null);
@@ -930,7 +928,7 @@ const cajupayInitialPayer = computed(() => {
 const showCajupayCardLoading = computed(() => isCardGatewayCajupay.value
     && form.payment_method === 'card'
     && !cajupaySessionToken.value
-    && (cajupayCardBootstrapLoading.value || cardTokenizing.value));
+    && cardTokenizing.value);
 
 /** Fase 1: no-op — a Order já existe no Getfy antes do SDK; estender se wallets exigirem passo extra. */
 async function cajupayBeforeWalletPrimeNoop() {}
@@ -960,7 +958,6 @@ watch(
 function destroyCajupaySdk() {
     cajupaySessionToken.value = '';
     cajupayApiBaseUrl.value = '';
-    cajupayCardBootstrapLoading.value = false;
     cajupayPendingOrderId.value = null;
     cajupayPendingNonce.value = null;
 }
@@ -1070,7 +1067,11 @@ function startCajupaySdkBootstrap(interactive = false) {
         try {
             return await runCajupaySdkBootstrapCore(interactive);
         } catch (err) {
-            const msg = err?.response?.data?.message || err?.message || 'Não foi possível processar o pagamento.';
+            const st = err?.response?.status;
+            let msg = err?.response?.data?.message || err?.message || 'Não foi possível processar o pagamento.';
+            if (st === 429) {
+                msg = 'Muitas tentativas. Aguarde cerca de um minuto e tente novamente.';
+            }
             const s = typeof msg === 'string' ? msg : 'Não foi possível processar o pagamento.';
             cardFormError.value = s;
             if (interactive) {
@@ -1085,41 +1086,6 @@ function startCajupaySdkBootstrap(interactive = false) {
     });
     return cajupaySdkBootstrapInflight;
 }
-
-/** Com cartão + CajuPay: monta o iframe do SDK assim que há e-mail (e nome, se obrigatório), sem esperar o 1.º clique em Pagar. */
-let cajupayCardPrefetchTimer = null;
-watch(
-    () => [
-        isCardGatewayCajupay.value,
-        form.payment_method,
-        form.email,
-        form.name,
-        showName.value,
-    ],
-    () => {
-        clearTimeout(cajupayCardPrefetchTimer);
-        cajupayCardPrefetchTimer = setTimeout(() => {
-            if (!isCardGatewayCajupay.value || form.payment_method !== 'card') {
-                return;
-            }
-            if (cajupaySessionToken.value) {
-                return;
-            }
-            const email = (form.email || '').trim();
-            if (!email || !email.includes('@')) {
-                return;
-            }
-            if (showName.value && !(form.name || '').trim()) {
-                return;
-            }
-            cajupayCardBootstrapLoading.value = true;
-            startCajupaySdkBootstrap(false).finally(() => {
-                cajupayCardBootstrapLoading.value = false;
-            });
-        }, 350);
-    },
-    { flush: 'post', immediate: true }
-);
 
 watch(
     () => [(form.email || '').trim(), isCardGatewayCajupay.value, form.payment_method],
@@ -1368,7 +1334,6 @@ async function submitCajupayCardFlow() {
 }
 
 onBeforeUnmount(() => {
-    clearTimeout(cajupayCardPrefetchTimer);
     clearTimeout(cajupayWalletPrefetchTimer);
     destroyMercadopagoBrick();
     destroyCajupaySdk();
@@ -2643,7 +2608,7 @@ function submit() {
                     </template>
                 </div>
                 <!-- Cartão / Apple Pay / Google Pay (CajuPay SDK, embeddedOnly) -->
-                <div v-else-if="isCardGatewayCajupay" class="space-y-2">
+                <div v-else-if="isCardGatewayCajupay" class="space-y-2 min-h-[8rem]">
                     <div
                         v-if="showCajupayCardLoading"
                         class="flex min-h-[120px] items-center justify-center gap-2 rounded-xl border-2 border-gray-100 bg-white px-4 py-6 text-sm text-gray-600"

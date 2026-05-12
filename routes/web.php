@@ -139,7 +139,7 @@ Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'
 Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'pixPage'])->name('checkout.pix');
 Route::get('/checkout/boleto', [\App\Http\Controllers\CheckoutController::class, 'boletoPage'])->name('checkout.boleto');
 Route::get('/checkout/order-status', [\App\Http\Controllers\CheckoutController::class, 'orderStatus'])->name('checkout.order-status')->middleware('throttle:30,1');
-Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])->name('checkout.process')->middleware('throttle:10,1');
+Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])->name('checkout.process')->middleware('throttle:30,1');
 Route::post('/checkout/cajupay/sdk-session', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'createSession'])
     ->name('checkout.cajupay.sdk-session')
     ->middleware('throttle:30,1');
