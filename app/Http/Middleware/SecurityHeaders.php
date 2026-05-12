@@ -21,13 +21,14 @@ class SecurityHeaders
         if (config('app.env') === 'production') {
             $csp = implode('; ', [
                 "default-src 'self'",
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com",
-                "script-src-elem 'self' 'unsafe-inline' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com",
+                // CajuPay: SDK em cdn + checkout embutido (cartão / Apple Pay / Google Pay)
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://www.gstatic.com",
+                "script-src-elem 'self' 'unsafe-inline' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://www.gstatic.com",
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                 "img-src 'self' data: https: blob:",
                 "font-src 'self' https://fonts.gstatic.com",
-                "connect-src 'self' https://api.stripe.com https://api.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://http2.mlstatic.com https://*.mlstatic.com https://api.mercadolibre.com https://www.mercadolibre.com https://*.mercadolibre.com https://viacep.com.br https://api.pagar.me https://www.facebook.com https://www.googletagmanager.com https://analytics.tiktok.com wss:",
-                "frame-src 'self' https://js.stripe.com https://www.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://www.mercadolibre.com https://*.mercadolibre.com https://www.youtube-nocookie.com https://youtube-nocookie.com https://www.youtube.com https://youtube.com",
+                "connect-src 'self' https://api.stripe.com https://api.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://http2.mlstatic.com https://*.mlstatic.com https://api.mercadolibre.com https://www.mercadolibre.com https://*.mercadolibre.com https://viacep.com.br https://api.pagar.me https://www.facebook.com https://www.googletagmanager.com https://analytics.tiktok.com https://api.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://google.com https://www.google.com https://www.gstatic.com wss:",
+                "frame-src 'self' https://js.stripe.com https://www.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://www.mercadolibre.com https://*.mercadolibre.com https://www.youtube-nocookie.com https://youtube-nocookie.com https://www.youtube.com https://youtube.com https://api.cajupay.com.br https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com",
                 "media-src 'self' https: blob:",
             ]);
             $response->headers->set('Content-Security-Policy', $csp);
