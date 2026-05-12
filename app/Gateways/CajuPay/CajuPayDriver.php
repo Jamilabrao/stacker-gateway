@@ -163,7 +163,25 @@ class CajuPayDriver implements GatewayDriver
 
     public function getTransactionStatus(string $transactionId, array $credentials): ?string
     {
-        if (! $this->hasApiKeys($credentials) || $transactionId === '') {
+        if ($transactionId === '') {
+            return null;
+        }
+
+        if ($this->looksLikeSdkSessionToken($transactionId)) {
+            $sdkStatus = $this->getSdkSessionStatus($transactionId, $credentials);
+            if ($sdkStatus !== null) {
+                return $sdkStatus;
+            }
+        }
+
+        if ($this->looksLikeUuid($transactionId)) {
+            $sdkStatus = $this->getSdkSessionStatus($transactionId, $credentials);
+            if ($sdkStatus !== null) {
+                return $sdkStatus;
+            }
+        }
+
+        if (! $this->hasApiKeys($credentials)) {
             return null;
         }
 
@@ -198,6 +216,233 @@ class CajuPayDriver implements GatewayDriver
         }
 
         return null;
+    }
+
+    private function looksLikeSdkSessionToken(string $value): bool
+    {
+        if (strlen($value) < 20) {
+            return false;
+        }
+        if ($this->looksLikeUuid($value)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function looksLikeUuid(string $value): bool
+    {
+        return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value);
+    }
+
+    public function getSdkSessionStatus(string $token, array $credentials = []): ?string
+    {
+        if ($token === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->timeout(15)
+                ->withOptions(['connect_timeout' => 10])
+                ->baseUrl($this->baseUrl($credentials))
+                ->get('/api/sdk/public/checkout/sessions/'.urlencode($token));
+
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $data = $response->json();
+            if (! is_array($data)) {
+                return null;
+            }
+
+            $raw = $this->extractPublicSessionStatus($data);
+
+            return $this->normalizePaymentStatus($raw);
+        } catch (\Throwable $e) {
+            Log::debug('CajuPayDriver getSdkSessionStatus', ['message' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function extractPublicSessionStatus(array $data): mixed
+    {
+        foreach (['status', 'state', 'checkout_status', 'session_status', 'payment_status'] as $key) {
+            if (! array_key_exists($key, $data)) {
+                continue;
+            }
+            $v = $data[$key];
+            if (is_string($v) && trim($v) !== '') {
+                return $v;
+            }
+        }
+
+        foreach (['payment', 'latest_payment', 'charge', 'latest_charge'] as $nest) {
+            $obj = $data[$nest] ?? null;
+            if (! is_array($obj)) {
+                continue;
+            }
+            foreach (['status', 'state'] as $key) {
+                if (! array_key_exists($key, $obj)) {
+                    continue;
+                }
+                $v = $obj[$key];
+                if (is_string($v) && trim($v) !== '') {
+                    return $v;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<int, string>
+     */
+    public function getSessionAvailableMethods(string $token, array $credentials = []): array
+    {
+        if ($token === '') {
+            return [];
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->timeout(15)
+                ->withOptions(['connect_timeout' => 10])
+                ->baseUrl($this->baseUrl($credentials))
+                ->get('/api/sdk/public/checkout/sessions/'.urlencode($token));
+
+            if (! $response->successful()) {
+                return [];
+            }
+
+            $data = $response->json();
+            if (! is_array($data)) {
+                return [];
+            }
+
+            $methods = $data['methods_available'] ?? ($data['available_methods'] ?? []);
+            if (! is_array($methods)) {
+                return [];
+            }
+
+            $normalized = [];
+            foreach ($methods as $m) {
+                $slug = strtolower(trim((string) $m));
+                if ($slug === 'applepay') {
+                    $slug = 'apple_pay';
+                }
+                if ($slug === 'googlepay') {
+                    $slug = 'google_pay';
+                }
+                if (in_array($slug, ['card', 'boleto', 'pix', 'apple_pay', 'google_pay'], true)) {
+                    $normalized[] = $slug;
+                }
+            }
+
+            return array_values(array_unique($normalized));
+        } catch (\Throwable $e) {
+            Log::debug('CajuPayDriver getSessionAvailableMethods', ['message' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @param  array<int, string>  $allowedMethods
+     * @return array{token: string, checkout_session_id: string, raw: array<string, mixed>}
+     */
+    public function createSdkCheckoutSession(
+        array $credentials,
+        int $amountCents,
+        string $description,
+        string $externalId,
+        array $consumer,
+        array $allowedMethods,
+        string $defaultMethod
+    ): array {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure a chave pública e a chave secreta da API (painel CajuPay → API / Chaves).');
+        }
+
+        if ($amountCents < 1) {
+            throw new \RuntimeException('CajuPay: valor inválido.');
+        }
+
+        $body = [
+            'amount_cents' => $amountCents,
+            'currency' => 'BRL',
+            'description' => $description !== '' ? $description : ('Pedido #'.$externalId),
+            'allow_card' => in_array('card', $allowedMethods, true),
+            'allow_boleto' => in_array('boleto', $allowedMethods, true),
+            'allow_pix' => in_array('pix', $allowedMethods, true),
+            'allow_apple_pay' => in_array('apple_pay', $allowedMethods, true),
+            'allow_google_pay' => in_array('google_pay', $allowedMethods, true),
+            'metadata' => [
+                'external_id' => $externalId,
+                'source' => 'getfy',
+            ],
+        ];
+
+        $rawName = trim((string) ($consumer['name'] ?? ''));
+        $email = $this->sanitizeEmail((string) ($consumer['email'] ?? ''));
+        $document = $this->normalizeDocument((string) ($consumer['document'] ?? ''));
+
+        $payer = array_filter([
+            'name' => $rawName !== '' ? $this->sanitizeName($rawName) : null,
+            'email' => $email !== '' ? $email : null,
+            'document' => $document !== '' && $document !== '00000000000' ? $document : null,
+        ], static fn ($v) => $v !== null && $v !== '');
+
+        if (! empty($payer)) {
+            $body['initial_payer'] = $payer;
+        }
+
+        if ($defaultMethod !== '') {
+            $body['default_method'] = $defaultMethod;
+        }
+
+        $idempotencyKey = 'getfy-sdk-'.$externalId.'-'.Str::lower(Str::random(8));
+
+        $response = $this->httpForCredentials($credentials)
+            ->withHeaders(['Idempotency-Key' => Str::limit($idempotencyKey, 200, '')])
+            ->post('/api/sdk/v1/checkout/sessions', $body);
+
+        if (! $response->successful()) {
+            $msg = $response->body();
+            if (strlen($msg) > 300) {
+                $msg = substr($msg, 0, 300).'…';
+            }
+            throw new \RuntimeException('CajuPay: '.($msg !== '' ? $msg : 'Erro ao criar sessão de checkout.'));
+        }
+
+        $data = $response->json();
+        if (! is_array($data)) {
+            throw new \RuntimeException('CajuPay: resposta inválida ao criar sessão.');
+        }
+
+        $token = $data['token'] ?? null;
+        $sessionId = $data['checkout_session_id'] ?? ($data['id'] ?? null);
+
+        if (! is_string($token) || $token === '') {
+            throw new \RuntimeException('CajuPay: token ausente na resposta da sessão.');
+        }
+        if (! is_string($sessionId) || $sessionId === '') {
+            throw new \RuntimeException('CajuPay: checkout_session_id ausente na resposta da sessão.');
+        }
+
+        return [
+            'token' => $token,
+            'checkout_session_id' => $sessionId,
+            'raw' => $data,
+        ];
     }
 
     private function normalizePaymentStatus(mixed $status): ?string

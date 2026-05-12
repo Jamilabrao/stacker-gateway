@@ -1506,6 +1506,486 @@ class CheckoutController extends Controller
     }
 
     /**
+     * Cria apenas a sessão pública na CajuPay (sem Order/User). A Order é materializada em
+     * {@see cajupayConfirmOrder()} quando o cliente confirma os dados — alinhado ao fluxo draft da referência.
+     */
+    public function cajupaySession(Request $request): JsonResponse
+    {
+        $product = Product::where('id', $request->input('product_id'))->availableForPurchase()->first();
+        if (! $product) {
+            return response()->json(['message' => 'Produto não encontrado.'], 404);
+        }
+
+        $rules = [
+            'product_id' => ['required', 'exists:products,id'],
+            'product_offer_id' => ['nullable', 'exists:product_offers,id'],
+            'subscription_plan_id' => ['nullable', 'exists:subscription_plans,id'],
+            'order_bump_ids' => ['nullable', 'array'],
+            'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
+            'payment_method' => ['required', 'string', 'in:card,apple_pay,google_pay'],
+            'checkout_session_token' => ['nullable', 'string', 'max:64'],
+            'display_currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
+            'coupon_code' => ['nullable', 'string', 'max:64'],
+        ];
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
+            $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
+        }
+        $rules['fbp'] = ['nullable', 'string', 'max:512'];
+        $rules['fbc'] = ['nullable', 'string', 'max:512'];
+        $rules['user_agent'] = ['nullable', 'string', 'max:2048'];
+        $validated = $request->validate($rules);
+
+        try {
+            $context = $this->calculateCajuPayDraftContext($request, $product, $validated);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage() ?: 'Não foi possível calcular o pedido.'], 422);
+        }
+
+        $totalAmount = (float) $context['total_amount'];
+
+        $credential = GatewayCredential::resolveForPayment($product->tenant_id, 'cajupay');
+        if (! $credential) {
+            return response()->json(['message' => 'CajuPay não está conectado.'], 422);
+        }
+        $credentials = $credential->getDecryptedCredentials();
+        if (empty($credentials['public_key']) || empty($credentials['secret_key'])) {
+            return response()->json(['message' => 'CajuPay: chaves de API não configuradas.'], 422);
+        }
+
+        $method = $validated['payment_method'];
+        $defaultMethodMap = [
+            'card' => 'card',
+            'apple_pay' => 'apple_pay',
+            'google_pay' => 'google_pay',
+        ];
+        $allowedMethods = [$method];
+        if ($method === 'apple_pay' || $method === 'google_pay') {
+            $allowedMethods[] = 'card';
+        }
+        $allowedMethods = array_values(array_unique($allowedMethods));
+
+        $externalRef = (string) Str::uuid();
+
+        try {
+            $driver = GatewayRegistry::driver('cajupay');
+            if (! $driver) {
+                throw new \RuntimeException('Driver CajuPay não disponível.');
+            }
+            /** @var \App\Gateways\CajuPay\CajuPayDriver $driver */
+            $sessionResult = $driver->createSdkCheckoutSession(
+                $credentials,
+                (int) round($totalAmount * 100),
+                $product->name.' (draft '.substr($externalRef, 0, 8).')',
+                $externalRef,
+                [],
+                $allowedMethods,
+                $defaultMethodMap[$method] ?? 'card'
+            );
+        } catch (\Throwable $e) {
+            Log::warning('CajuPaySession: falha ao criar sessão SDK', [
+                'product_id' => $product->id,
+                'method' => $method,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(['message' => $e->getMessage() ?: 'Falha ao iniciar pagamento na CajuPay.'], 422);
+        }
+
+        $availableMethods = $driver->getSessionAvailableMethods($sessionResult['token'], $credentials);
+
+        $pollingToken = Str::random(32);
+        Cache::put('cajupay_draft.'.$pollingToken, [
+            'product_id' => $product->id,
+            'product_offer_id' => $context['offer']?->id,
+            'subscription_plan_id' => $context['plan']?->id,
+            'order_bump_ids' => $context['order_bump_ids'],
+            'payment_method' => $method,
+            'coupon_code' => $context['coupon_code'],
+            'total_amount' => $totalAmount,
+            'base_amount' => (float) $context['base_amount'],
+            'checkout_session_token' => $validated['checkout_session_token'] ?? null,
+            'display_currency' => $validated['display_currency'] ?? 'BRL',
+            'cajupay_token' => $sessionResult['token'],
+            'checkout_session_id' => $sessionResult['checkout_session_id'],
+            'tenant_id' => $product->tenant_id,
+            'external_id' => $externalRef,
+            'methods_available' => $availableMethods,
+            'created_at' => time(),
+        ], now()->addMinutes(30));
+
+        return response()->json([
+            'success' => true,
+            'token' => $sessionResult['token'],
+            'checkout_session_id' => $sessionResult['checkout_session_id'],
+            'polling_token' => $pollingToken,
+            'methods_available' => $availableMethods,
+            'method_supported' => $availableMethods === [] ? null : in_array($method, $availableMethods, true),
+        ]);
+    }
+
+    /**
+     * Materializa User + Order pendente a partir do draft em cache (fluxo CajuPay SDK).
+     */
+    public function cajupayConfirmOrder(Request $request): JsonResponse
+    {
+        $rules = [
+            'polling_token' => ['required', 'string', 'size:32'],
+            'email' => ['required', 'email'],
+            'name' => ['nullable', 'string', 'max:255'],
+            'cpf' => ['nullable', 'string', 'max:11'],
+            'phone' => ['nullable', 'string', 'max:24'],
+            'fbp' => ['nullable', 'string', 'max:512'],
+            'fbc' => ['nullable', 'string', 'max:512'],
+            'user_agent' => ['nullable', 'string', 'max:2048'],
+        ];
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
+            $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
+        }
+        $validated = $request->validate($rules);
+
+        $draftKey = 'cajupay_draft.'.$validated['polling_token'];
+        $draft = Cache::get($draftKey);
+        if (! is_array($draft)) {
+            $existingDisplay = session('cajupay_display.'.$validated['polling_token']);
+            if (is_array($existingDisplay) && ! empty($existingDisplay['order_id'])) {
+                return response()->json([
+                    'success' => true,
+                    'order_id' => (int) $existingDisplay['order_id'],
+                    'polling_token' => $validated['polling_token'],
+                    'polling_url' => route('checkout.order-status', ['token' => $validated['polling_token']]),
+                    'idempotent' => true,
+                ]);
+            }
+
+            return response()->json(['message' => 'Sessão CajuPay expirada. Recarregue a página.'], 404);
+        }
+
+        $product = Product::where('id', $draft['product_id'])->availableForPurchase()->first();
+        if (! $product) {
+            Cache::forget($draftKey);
+
+            return response()->json(['message' => 'Produto não encontrado.'], 404);
+        }
+
+        $defaultsConfig = Product::defaultCheckoutConfig();
+        $effectiveConfigBase = array_replace_recursive($defaultsConfig, $product->checkout_config ?? []);
+        $customerFields = $effectiveConfigBase['customer_fields'] ?? ($defaultsConfig['customer_fields'] ?? []);
+
+        $errors = [];
+        if (($customerFields['name'] ?? true) && trim((string) ($validated['name'] ?? '')) === '') {
+            $errors['name'] = 'Informe seu nome.';
+        }
+        $cpfDigits = preg_replace('/\D/', '', (string) ($validated['cpf'] ?? ''));
+        if (($customerFields['cpf'] ?? false) && strlen((string) $cpfDigits) !== 11) {
+            $errors['cpf'] = 'CPF obrigatório.';
+        }
+        if (($customerFields['phone'] ?? false) && trim((string) ($validated['phone'] ?? '')) === '') {
+            $errors['phone'] = 'Telefone obrigatório.';
+        }
+        if (! empty($errors)) {
+            return response()->json(['message' => 'Dados do cliente incompletos.', 'errors' => $errors], 422);
+        }
+
+        try {
+            $context = $this->createUserAndOrderFromCajuPayDraft($request, $product, $draft, $validated);
+        } catch (\Throwable $e) {
+            Log::warning('CajuPayConfirmOrder: falha ao criar Order do draft', [
+                'product_id' => $product->id,
+                'polling_token' => $validated['polling_token'],
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(['message' => $e->getMessage() ?: 'Falha ao registrar o pedido.'], 422);
+        }
+
+        /** @var Order $order */
+        $order = $context['order'];
+        $totalAmount = (float) $context['total_amount'];
+
+        $this->updateCheckoutSessionForCajuPayOrder($order, array_merge($validated, [
+            'checkout_session_token' => $draft['checkout_session_token'] ?? null,
+        ]));
+
+        event(new OrderPending($order->fresh()));
+
+        $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
+        $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
+
+        session()->put('cajupay_display.'.$validated['polling_token'], [
+            'order_id' => $order->id,
+            'checkout_session_id' => $draft['checkout_session_id'],
+            'session_token' => $draft['cajupay_token'],
+            'payment_method' => $draft['payment_method'],
+            'amount' => $totalAmount,
+            'product_name' => $product->name,
+            'checkout_slug' => $context['checkout_slug'],
+            'redirect_after_purchase' => $redirectUrl,
+            'customer_name' => $validated['name'] ?? null,
+            'customer_email' => $validated['email'],
+            'customer_phone' => $validated['phone'] ?? null,
+            'created_at' => time(),
+        ]);
+
+        Cache::forget($draftKey);
+
+        return response()->json([
+            'success' => true,
+            'order_id' => $order->id,
+            'polling_token' => $validated['polling_token'],
+            'polling_url' => route('checkout.order-status', ['token' => $validated['polling_token']]),
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function updateCheckoutSessionForCajuPayOrder(Order $order, array $validated): void
+    {
+        $utmFromRequest = $this->utmPayloadFromValidated($validated);
+        $token = $validated['checkout_session_token'] ?? null;
+        if ($token) {
+            $session = CheckoutSession::where('session_token', $token)->first();
+            if ($session) {
+                $mergedUtms = $this->mergeSessionUtms($session, $utmFromRequest);
+                $session->update(array_merge([
+                    'step' => CheckoutSession::STEP_CONVERTED,
+                    'order_id' => $order->id,
+                ], $mergedUtms));
+                $this->persistOrderUtms($order, $mergedUtms);
+
+                return;
+            }
+        }
+        $this->persistOrderUtms($order, $utmFromRequest);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{offer: ?ProductOffer, plan: ?SubscriptionPlan, total_amount: float, base_amount: float, order_bump_ids: array<int, int>, coupon_code: ?string, checkout_slug: string, period_start: ?\Carbon\Carbon, period_end: ?\Carbon\Carbon}
+     */
+    private function calculateCajuPayDraftContext(Request $request, Product $product, array $validated): array
+    {
+        $productOfferId = $request->filled('product_offer_id') ? (int) $request->input('product_offer_id') : null;
+        $subscriptionPlanId = $request->filled('subscription_plan_id') ? (int) $request->input('subscription_plan_id') : null;
+        $offer = $productOfferId ? ProductOffer::where('id', $productOfferId)->where('product_id', $product->id)->first() : null;
+        $plan = $subscriptionPlanId ? SubscriptionPlan::where('id', $subscriptionPlanId)->where('product_id', $product->id)->first() : null;
+
+        $amount = (float) $product->price;
+        if ($offer) {
+            $amount = (float) $offer->price;
+        } elseif ($plan) {
+            $amount = (float) $plan->price;
+        }
+        $currency = $product->currency ?? 'BRL';
+        if ($offer) {
+            $currency = $offer->getCurrencyOrDefault();
+        } elseif ($plan) {
+            $currency = $plan->getCurrencyOrDefault();
+        }
+        if ($currency !== 'BRL') {
+            $rates = config('products.rates');
+            $amount = $currency === 'EUR' ? $amount / ($rates['brl_eur'] ?? 0.16) : $amount / ($rates['brl_usd'] ?? 0.18);
+        }
+
+        $orderBumpIds = array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])));
+        $selectedBumps = collect();
+        if ($orderBumpIds) {
+            $selectedBumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $orderBumpIds)->get();
+        }
+        $bumpAmountTotal = $selectedBumps->sum(fn (ProductOrderBump $b) => $b->getEffectiveAmountBrl());
+        $totalAmount = $amount + $bumpAmountTotal;
+
+        $couponCode = isset($validated['coupon_code']) && trim((string) ($validated['coupon_code'] ?? '')) !== ''
+            ? trim((string) $validated['coupon_code'])
+            : null;
+        if ($couponCode !== null) {
+            $coupon = Coupon::forTenant($product->tenant_id)
+                ->where('code', $couponCode)
+                ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
+                ->first();
+            if ($coupon) {
+                $applied = $coupon->applyTo($product, $amount);
+                if ($applied !== null) {
+                    $amount = $applied['final_price'];
+                }
+            }
+        }
+        $totalAmount = $amount + $bumpAmountTotal;
+
+        $periodStart = null;
+        $periodEnd = null;
+        if ($plan) {
+            [$periodStart, $periodEnd] = $plan->getCurrentPeriod();
+        }
+
+        $checkoutSlug = $product->checkout_slug ?? '';
+        if ($offer && ! empty($offer->checkout_slug)) {
+            $checkoutSlug = $offer->checkout_slug;
+        } elseif ($plan && ! empty($plan->checkout_slug)) {
+            $checkoutSlug = $plan->checkout_slug;
+        }
+        $checkoutSlug = (string) $checkoutSlug;
+        if ($checkoutSlug === '') {
+            $checkoutSlug = (string) ($product->checkout_slug ?? '');
+        }
+
+        return [
+            'offer' => $offer,
+            'plan' => $plan,
+            'total_amount' => $totalAmount,
+            'base_amount' => $amount,
+            'order_bump_ids' => $orderBumpIds,
+            'coupon_code' => $couponCode,
+            'checkout_slug' => $checkoutSlug,
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $draft
+     * @param  array<string, mixed>  $validated
+     * @return array{order: Order, total_amount: float, checkout_slug: string}
+     */
+    private function createUserAndOrderFromCajuPayDraft(Request $request, Product $product, array $draft, array $validated): array
+    {
+        $offer = ! empty($draft['product_offer_id'])
+            ? ProductOffer::where('id', (int) $draft['product_offer_id'])->where('product_id', $product->id)->first()
+            : null;
+        $plan = ! empty($draft['subscription_plan_id'])
+            ? SubscriptionPlan::where('id', (int) $draft['subscription_plan_id'])->where('product_id', $product->id)->first()
+            : null;
+
+        $totalAmount = (float) $draft['total_amount'];
+        $baseAmount = (float) $draft['base_amount'];
+
+        $periodStart = null;
+        $periodEnd = null;
+        if ($plan) {
+            [$periodStart, $periodEnd] = $plan->getCurrentPeriod();
+        }
+
+        $checkoutSlug = $product->checkout_slug ?? '';
+        if ($offer && ! empty($offer->checkout_slug)) {
+            $checkoutSlug = $offer->checkout_slug;
+        } elseif ($plan && ! empty($plan->checkout_slug)) {
+            $checkoutSlug = $plan->checkout_slug;
+        }
+        $checkoutSlug = (string) $checkoutSlug;
+        if ($checkoutSlug === '') {
+            $checkoutSlug = (string) ($product->checkout_slug ?? '');
+        }
+
+        $tenantId = $product->tenant_id;
+
+        $plainPassword = null;
+        if ($product->type === Product::TYPE_AREA_MEMBROS) {
+            $loginConfig = $product->member_area_config['login'] ?? [];
+            $passwordMode = $loginConfig['password_mode'] ?? 'auto';
+            $defaultPassword = trim((string) ($loginConfig['default_password'] ?? ''));
+            if ($passwordMode === 'default' && $defaultPassword !== '') {
+                $plainPassword = $defaultPassword;
+            } else {
+                $plainPassword = Str::random(12);
+            }
+        } else {
+            $plainPassword = Str::random(32);
+        }
+        $passwordHash = bcrypt($plainPassword);
+
+        $buyerAccount = app(BuyerAccountService::class)->ensureBuyerFromCheckout(
+            $validated['email'],
+            (string) ($validated['name'] ?? $validated['email']),
+            $passwordHash,
+            $product->type === Product::TYPE_AREA_MEMBROS,
+        );
+        $user = $buyerAccount['user'];
+        if (! $buyerAccount['was_recently_created'] && ! empty($validated['name']) && trim((string) $user->name) !== trim((string) $validated['name'])) {
+            $user->update(['name' => trim((string) $validated['name'])]);
+        }
+
+        $orderMetadata = [
+            'checkout_payment_method' => $draft['payment_method'],
+            'cajupay_session_token' => $draft['cajupay_token'] ?? null,
+            'cajupay_checkout_session_id' => $draft['checkout_session_id'] ?? null,
+        ];
+        if ($product->type === Product::TYPE_AREA_MEMBROS && $plainPassword !== null) {
+            Cache::put('access_password.'.$user->id.'.'.$product->id, $plainPassword, now()->addHours(2));
+            $orderMetadata['access_password_temp'] = encrypt($plainPassword);
+        }
+
+        $fbp = isset($validated['fbp']) && is_string($validated['fbp']) ? trim($validated['fbp']) : '';
+        $fbc = isset($validated['fbc']) && is_string($validated['fbc']) ? trim($validated['fbc']) : '';
+        $ua = isset($validated['user_agent']) && is_string($validated['user_agent']) ? trim($validated['user_agent']) : '';
+        if ($fbp !== '') {
+            $orderMetadata['fbp'] = $fbp;
+        }
+        if ($fbc !== '') {
+            $orderMetadata['fbc'] = $fbc;
+        }
+        if ($ua !== '') {
+            $orderMetadata['user_agent'] = $ua;
+        }
+
+        $cpfDigits = preg_replace('/\D/', '', (string) ($validated['cpf'] ?? '')) ?: null;
+        $phone = ($validated['phone'] ?? null) ?: null;
+
+        $order = Order::create([
+            'tenant_id' => $tenantId,
+            'user_id' => $user->id,
+            'product_id' => $product->id,
+            'product_offer_id' => $offer?->id,
+            'subscription_plan_id' => $plan?->id,
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+            'is_renewal' => false,
+            'amount' => $totalAmount,
+            'email' => $validated['email'],
+            'cpf' => $cpfDigits,
+            'phone' => $phone,
+            'customer_ip' => $request->ip(),
+            'coupon_code' => $draft['coupon_code'] ?? null,
+            'metadata' => $orderMetadata,
+            'status' => 'pending',
+            'gateway' => 'cajupay',
+            'gateway_id' => $draft['checkout_session_id'] ?? null,
+            'payment_method' => 'card',
+        ]);
+
+        OrderItem::create([
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_offer_id' => $offer?->id,
+            'subscription_plan_id' => $plan?->id,
+            'amount' => $baseAmount,
+            'position' => 0,
+        ]);
+        $bumpIds = is_array($draft['order_bump_ids'] ?? null) ? $draft['order_bump_ids'] : [];
+        if ($bumpIds) {
+            $bumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $bumpIds)->get();
+            $pos = 1;
+            foreach ($bumps as $bump) {
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'product_id' => $bump->target_product_id,
+                    'product_offer_id' => $bump->target_product_offer_id,
+                    'subscription_plan_id' => null,
+                    'amount' => $bump->getEffectiveAmountBrl(),
+                    'position' => $pos++,
+                ]);
+            }
+        }
+
+        $order->load('orderItems');
+
+        return [
+            'order' => $order,
+            'total_amount' => $totalAmount,
+            'checkout_slug' => $checkoutSlug,
+        ];
+    }
+
+    /**
      * Status do pedido para polling na página PIX ou Boleto (identificado por token).
      */
     public function orderStatus(Request $request): JsonResponse
@@ -1518,6 +1998,9 @@ class CheckoutController extends Controller
         $stored = session('pix_display.'.$token);
         if (! is_array($stored)) {
             $stored = session('boleto_display.'.$token);
+        }
+        if (! is_array($stored)) {
+            $stored = session('cajupay_display.'.$token);
         }
         if (! is_array($stored)) {
             return response()->json(['status' => 'not_found'], 404);
@@ -1538,7 +2021,15 @@ class CheckoutController extends Controller
                     $driver = GatewayRegistry::driver($gatewaySlug);
                     $efiNeedsCert = $gatewaySlug === 'efi' && empty($credentials['certificate_path'] ?? '');
                     if ($driver && $credentials !== [] && ! $efiNeedsCert) {
-                        $apiStatus = $driver->getTransactionStatus((string) $order->gateway_id, $credentials);
+                        $statusLookupId = (string) $order->gateway_id;
+                        if ($gatewaySlug === 'cajupay') {
+                            $meta = $order->metadata;
+                            $sessionTok = is_array($meta) ? ($meta['cajupay_session_token'] ?? null) : null;
+                            if (is_string($sessionTok) && $sessionTok !== '') {
+                                $statusLookupId = $sessionTok;
+                            }
+                        }
+                        $apiStatus = $driver->getTransactionStatus($statusLookupId, $credentials);
                         if ($apiStatus === 'paid') {
                             ProcessPaymentWebhook::dispatchSync(
                                 $gatewaySlug,
@@ -1590,6 +2081,7 @@ class CheckoutController extends Controller
         return response()->json([
             'status' => $status,
             'redirect_url' => $redirectUrl,
+            'order_id' => $status === 'completed' ? $order->id : null,
         ]);
     }
 
