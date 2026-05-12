@@ -1,9 +1,0 @@
-{
-    "slug": "onlyup",
-    "name": "OnlyUp",
-    "version": "1.0.0",
-    "description": "Adquirente OnlyUp (PIX cash-in e saque PIX). Ative o plugin e configure as credenciais em Plataforma → Financeiro → Adquirentes. Webhook HTTPS: POST /webhooks/gateways/onlyup — configure o mesmo header e token nas notificações OnlyUp e nesta tela.",
-    "category": "pagamentos",
-    "type": "gateway",
-    "banner": null
-}
