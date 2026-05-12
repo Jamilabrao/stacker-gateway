@@ -7,6 +7,7 @@ import CheckoutDropdown from './CheckoutDropdown.vue';
 import CheckoutOrderBumps from './CheckoutOrderBumps.vue';
 import CheckoutPaymentMethods from './CheckoutPaymentMethods.vue';
 import AsaasCard from './gateways/asaas/Card.vue';
+import CajuPaySdkMount from './CajuPaySdkMount.vue';
 import {
     CHECKOUT_PAGARME_TOKENIZE_FORM_ID,
     PAGARME_TOKENIZE_FORM_ACTION,
@@ -15,6 +16,7 @@ import {
     requestPagarmeTokenFromForm,
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
+import { loadCajuPaySdk } from '@/composables/useCajuPaySdk';
 
 const STORAGE_KEY = 'checkout_draft';
 
@@ -255,6 +257,9 @@ const isCardGatewayCajupay = computed(() => cardGatewaySlug.value === 'cajupay')
 const isCardPaymentFamily = computed(() => ['card', 'apple_pay', 'google_pay'].includes(form.payment_method));
 const isCajupayCardOnly = computed(() => isCardGatewayCajupay.value && form.payment_method === 'card');
 const isCajupayCheckoutUi = computed(() => isCardGatewayCajupay.value && isCardPaymentFamily.value);
+/** Apple/Google Pay CajuPay: o SDK exibe o botão de pagar; escondemos o submit principal do formulário. */
+const hidePrimarySubmitForCajupayWallet = computed(() => isCardGatewayCajupay.value
+    && (form.payment_method === 'apple_pay' || form.payment_method === 'google_pay'));
 
 const primarySubmitButtonLabel = computed(() => {
     const pt = props.t;
@@ -898,7 +903,9 @@ watch(
 );
 
 const cajupaySdkHint = ref('');
-const cajupaySdkController = ref(null);
+const cajupayMountRef = ref(null);
+const cajupaySessionToken = ref('');
+const cajupayApiBaseUrl = ref('');
 const cajupayPendingOrderId = ref(null);
 const cajupayPendingNonce = ref(null);
 /** Wallet enviada ao SDK (método de pagamento no checkout). */
@@ -908,13 +915,27 @@ const cajupaySdkWallet = computed(() => {
     return 'card';
 });
 
+const cajupayInitialPayer = computed(() => {
+    const email = (form.email || '').trim();
+    const docDigits = showCpf.value ? String(form.cpf || '').replace(/\D/g, '') : '';
+    const payer = {
+        name: (showName.value ? form.name : email).trim() || 'Cliente',
+        email: email || 'cliente@checkout.local',
+    };
+    if (docDigits.length >= 11) payer.document = docDigits;
+    return payer;
+});
+
+/** Fase 1: no-op — a Order já existe no Getfy antes do SDK; estender se wallets exigirem passo extra. */
+async function cajupayBeforeWalletPrimeNoop() {}
+
 /** Pré-carrega o SDK CajuPay no fluxo cartão/carteiras; não altera `payment_method` (probeWallet costuma retornar indisponível fora do contexto ideal e não deve trocar a escolha do comprador). */
 async function refreshCajupayWalletProbe() {
     if (!isCajupayCheckoutUi.value) {
         return;
     }
     try {
-        await loadCajupaySdkScript();
+        await loadCajuPaySdk();
     } catch (_) {
         /* opcional */
     }
@@ -931,13 +952,8 @@ watch(
 );
 
 function destroyCajupaySdk() {
-    try {
-        const c = cajupaySdkController.value;
-        if (c && typeof c.destroy === 'function') {
-            c.destroy();
-        }
-    } catch (_) {}
-    cajupaySdkController.value = null;
+    cajupaySessionToken.value = '';
+    cajupayApiBaseUrl.value = '';
     cajupaySdkHint.value = '';
     cajupayPendingOrderId.value = null;
     cajupayPendingNonce.value = null;
@@ -952,107 +968,30 @@ watch(
     }
 );
 
-function loadCajupaySdkScript() {
-    return new Promise((resolve, reject) => {
-        if (typeof window !== 'undefined' && window.CajuPaySDK) {
-            resolve();
-            return;
-        }
-        const existing = document.querySelector('script[data-cajupay-sdk="1"]');
-        if (existing) {
-            if (window.CajuPaySDK) {
-                resolve();
-                return;
-            }
-            existing.addEventListener('load', () => resolve());
-            existing.addEventListener('error', () => reject(new Error('CajuPay SDK')));
-            return;
-        }
-        const script = document.createElement('script');
-        script.src = 'https://cdn.cajupay.com.br/sdk/v1/cajupay-sdk.min.js';
-        script.async = true;
-        script.dataset.cajupaySdk = '1';
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Falha ao carregar CajuPay SDK.'));
-        document.head.appendChild(script);
-    });
-}
-
-function defaultMethodForCajupayWallet(w) {
-    const map = { card: 'card', apple_pay: 'apple_pay', google_pay: 'google_pay' };
-    return map[w] || 'card';
-}
-
-async function pollCajupayOrderStatus(orderId, nonce) {
-    const deadline = Date.now() + 120000;
-    while (Date.now() < deadline) {
-        const { data } = await axios.get('/checkout/cajupay/session-status', {
-            params: { order_id: orderId, cajupay_sdk_nonce: nonce },
-            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
-            withCredentials: true,
-        });
-        if (data?.order_status === 'completed') return { ok: true, orderId };
-        if (data?.payment_status === 'paid') return { ok: true, orderId };
-        if (data?.payment_status === 'cancelled') return { ok: false, orderId };
-        await new Promise((r) => { setTimeout(r, 2000); });
-    }
-    return { ok: false, orderId };
-}
-
-async function cajupayConfirmAndFinish() {
-    const orderId = cajupayPendingOrderId.value;
-    const nonce = cajupayPendingNonce.value;
-    const controller = cajupaySdkController.value;
-    if (!orderId || !nonce || !controller) {
-        cardFormError.value = 'Sessão de pagamento inválida. Recarregue a página.';
-        return;
-    }
-    cardTokenizing.value = true;
-    cardFormError.value = '';
-    try {
-        if (typeof controller.confirm === 'function') {
-            await controller.confirm();
-        }
-        const poll = await pollCajupayOrderStatus(orderId, nonce);
-        if (poll.ok) {
-            cardApproved.value = true;
-            emitPurchaseConfirmed(orderId, 'approved');
-            const next = 'login';
-            const url = `/checkout/obrigado?order_id=${encodeURIComponent(String(orderId))}&next=${next}`;
-            cardApprovedRedirectUrl.value = url;
+watch(
+    cajupaySdkWallet,
+    (w, prev) => {
+        if (prev === undefined || w === prev) return;
+        if (cajupaySessionToken.value || cajupayPendingOrderId.value) {
             destroyCajupaySdk();
-            setTimeout(() => router.visit(url), 800);
-        } else {
-            cardFormError.value = 'Pagamento não confirmado. Tente novamente ou use outro método.';
-            showCardRefusedModal.value = true;
-            cardRefusedMessage.value = cardFormError.value;
         }
-    } catch (err) {
-        const msg = err?.response?.data?.message || err?.message || 'Erro ao confirmar pagamento.';
-        cardFormError.value = typeof msg === 'string' ? msg : 'Erro ao confirmar pagamento.';
-        showCardRefusedModal.value = true;
-        cardRefusedMessage.value = cardFormError.value;
-    } finally {
-        cardTokenizing.value = false;
+    }
+);
+
+/** Evita POST /checkout duplicados quando o prefetch e o clique em Pagar correm em paralelo. */
+let cajupaySdkBootstrapInflight = null;
+
+async function drainCajupayBootstrapInflight() {
+    if (cajupaySdkBootstrapInflight) {
+        await cajupaySdkBootstrapInflight;
     }
 }
 
-async function submitCajupayCardFlow() {
-    if (cajupaySdkController.value && cajupayPendingOrderId.value && cajupayPendingNonce.value) {
-        await cajupayConfirmAndFinish();
-        return;
-    }
-    const email = (form.email || '').trim();
-    if (!email) {
-        cardFormError.value = 'Informe o e-mail.';
-        return;
-    }
-    if (showName.value && !(form.name || '').trim()) {
-        cardFormError.value = 'Informe o nome completo.';
-        return;
-    }
-    cardTokenizing.value = true;
-    cardFormError.value = '';
+/**
+ * Cria pedido pendente + sessão pública CajuPay (`/checkout` + `/checkout/cajupay/sdk-session`).
+ * @param {boolean} interactive se true, erros também abrem o modal de recusa (fluxo explícito do botão Pagar).
+ */
+async function runCajupaySdkBootstrapCore(interactive) {
     destroyCajupaySdk();
     const payload = {
         product_id: form.product_id,
@@ -1074,103 +1013,359 @@ async function submitCajupayCardFlow() {
         payload.order_bump_ids = props.orderBumpIds.map((id) => (typeof id === 'number' ? id : parseInt(id, 10))).filter((n) => !Number.isNaN(n));
     }
     appendUtmsAndAffiliate(payload);
-    try {
-        const res = await axios.post('/checkout', payload, {
-            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
-            withCredentials: true,
-        });
-        const data = res?.data;
-        if (!data?.success || !data?.cajupay_sdk) {
-            cardFormError.value = data?.message || 'Não foi possível iniciar o pagamento.';
-            return;
+    const res = await axios.post('/checkout', payload, {
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
+        withCredentials: true,
+    });
+    const data = res?.data;
+    if (!data?.success || !data?.cajupay_sdk) {
+        const msg = data?.message || 'Não foi possível iniciar o pagamento.';
+        cardFormError.value = msg;
+        if (interactive) {
+            showCardRefusedModal.value = true;
+            cardRefusedMessage.value = msg;
         }
-        const orderId = data.order_id;
-        const nonce = data.cajupay_sdk_nonce;
-        const sdkBase = (data.sdk_base_url || '').trim() || 'https://api.cajupay.com.br';
-        const sessRes = await axios.post('/checkout/cajupay/sdk-session', {
-            order_id: orderId,
-            cajupay_sdk_nonce: nonce,
-            cajupay_wallet: cajupaySdkWallet.value,
-        }, {
-            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
-            withCredentials: true,
-        });
-        const sess = sessRes?.data;
-        if (!sess?.token) {
-            cardFormError.value = sess?.message || 'Não foi possível criar a sessão de pagamento.';
-            return;
+        return false;
+    }
+    const orderId = data.order_id;
+    const nonce = data.cajupay_sdk_nonce;
+    const sdkBase = (data.sdk_base_url || '').trim() || 'https://api.cajupay.com.br';
+    const sessRes = await axios.post('/checkout/cajupay/sdk-session', {
+        order_id: orderId,
+        cajupay_sdk_nonce: nonce,
+        cajupay_wallet: cajupaySdkWallet.value,
+    }, {
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
+        withCredentials: true,
+    });
+    const sess = sessRes?.data;
+    if (!sess?.token) {
+        const msg = sess?.message || 'Não foi possível criar a sessão de pagamento.';
+        cardFormError.value = msg;
+        if (interactive) {
+            showCardRefusedModal.value = true;
+            cardRefusedMessage.value = msg;
         }
-        await loadCajupaySdkScript();
-        await nextTick();
-        if (typeof window === 'undefined' || !window.CajuPaySDK?.init) {
-            cardFormError.value = 'Formulário de pagamento indisponível. Recarregue a página.';
-            return;
-        }
-        const mountSelector = '#cajupay-method';
-        if (!document.querySelector(mountSelector)) {
-            cardFormError.value = 'Área do pagamento não encontrada.';
-            return;
-        }
-        const sdk = window.CajuPaySDK.init({ baseUrl: sdkBase });
-        const defaultMethod = defaultMethodForCajupayWallet(cajupaySdkWallet.value);
-        const docDigits = showCpf.value ? String(form.cpf || '').replace(/\D/g, '') : '';
-        const payer = {
-            name: (showName.value ? form.name : email).trim() || 'Cliente',
-            email: email || 'cliente@checkout.local',
-        };
-        if (docDigits.length >= 11) payer.document = docDigits;
-        const mountOpts = {
-            token: sess.token,
-            sessionToken: sess.token,
-            defaultMethod,
-            embeddedOnly: true,
-            preparePaymentUIOnMount: true,
-            initialPayer: payer,
-        };
-        const controller = await sdk.mountCheckout(mountSelector, mountOpts);
-        cajupaySdkController.value = controller;
-        cajupayPendingOrderId.value = orderId;
-        cajupayPendingNonce.value = nonce;
+        return false;
+    }
+    cajupayApiBaseUrl.value = sdkBase;
+    cajupayPendingOrderId.value = orderId;
+    cajupayPendingNonce.value = nonce;
+    await nextTick();
+    cajupaySessionToken.value = sess.token;
+    return true;
+}
 
-        if (cajupaySdkWallet.value === 'card') {
-            try {
-                if (typeof controller.confirm === 'function') {
-                    await controller.confirm();
-                }
-            } catch (_) {
-                /* primeiro passo pode só montar o formulário */
+function startCajupaySdkBootstrap(interactive = false) {
+    if (cajupaySdkBootstrapInflight) {
+        return cajupaySdkBootstrapInflight;
+    }
+    const p = (async () => {
+        try {
+            return await runCajupaySdkBootstrapCore(interactive);
+        } catch (err) {
+            const msg = err?.response?.data?.message || err?.message || 'Não foi possível processar o pagamento.';
+            const s = typeof msg === 'string' ? msg : 'Não foi possível processar o pagamento.';
+            cardFormError.value = s;
+            if (interactive) {
+                showCardRefusedModal.value = true;
+                cardRefusedMessage.value = s;
             }
-            cajupaySdkHint.value = 'Preencha o cartão acima e clique novamente em «Pagar com cartão» para confirmar.';
-            cardTokenizing.value = false;
+            return false;
+        }
+    })();
+    cajupaySdkBootstrapInflight = p.finally(() => {
+        cajupaySdkBootstrapInflight = null;
+    });
+    return cajupaySdkBootstrapInflight;
+}
+
+/** Com cartão + CajuPay: monta o iframe do SDK assim que há e-mail (e nome, se obrigatório), sem esperar o 1.º clique em Pagar. */
+let cajupayCardPrefetchTimer = null;
+watch(
+    () => [
+        isCardGatewayCajupay.value,
+        form.payment_method,
+        form.email,
+        form.name,
+        showName.value,
+    ],
+    () => {
+        clearTimeout(cajupayCardPrefetchTimer);
+        cajupayCardPrefetchTimer = setTimeout(() => {
+            if (!isCardGatewayCajupay.value || form.payment_method !== 'card') {
+                return;
+            }
+            if (cajupaySessionToken.value) {
+                return;
+            }
+            const email = (form.email || '').trim();
+            if (!email || !email.includes('@')) {
+                return;
+            }
+            if (showName.value && !(form.name || '').trim()) {
+                return;
+            }
+            void startCajupaySdkBootstrap(false).then((ok) => {
+                if (ok && isCardGatewayCajupay.value && form.payment_method === 'card') {
+                    cajupaySdkHint.value = 'Preencha o cartão acima e clique em «Pagar com cartão» para finalizar.';
+                }
+            });
+        }, 350);
+    },
+    { flush: 'post', immediate: true }
+);
+
+watch(
+    () => [(form.email || '').trim(), isCardGatewayCajupay.value, form.payment_method],
+    () => {
+        if (!isCardGatewayCajupay.value || form.payment_method !== 'card') {
             return;
         }
-        if (typeof controller.confirm === 'function') {
-            await controller.confirm();
+        const email = (form.email || '').trim();
+        if (email && email.includes('@')) {
+            return;
         }
+        if (cajupaySessionToken.value) {
+            destroyCajupaySdk();
+        }
+    }
+);
+
+async function waitCajupayMountPrimed(maxMs = 8000) {
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+        const m = cajupayMountRef.value;
+        if (m?.isReady?.() && m?.isCardFieldReady?.()) {
+            return true;
+        }
+        await new Promise((r) => { setTimeout(r, 100); });
+    }
+    return false;
+}
+
+async function pollCajupayOrderStatus(orderId, nonce) {
+    const deadline = Date.now() + 120000;
+    const paidLike = (s) => {
+        if (s == null || typeof s !== 'string') return false;
+        const x = s.toLowerCase().trim();
+        return ['paid', 'completed', 'succeeded', 'success', 'confirmed', 'approved'].includes(x);
+    };
+    while (Date.now() < deadline) {
+        const { data } = await axios.get('/checkout/cajupay/session-status', {
+            params: { order_id: orderId, cajupay_sdk_nonce: nonce },
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
+            withCredentials: true,
+        });
+        if (data?.order_status === 'completed') return { ok: true, orderId };
+        if (paidLike(data?.payment_status)) return { ok: true, orderId };
+        if (data?.payment_status === 'cancelled') return { ok: false, orderId };
+        await new Promise((r) => { setTimeout(r, 2000); });
+    }
+    return { ok: false, orderId };
+}
+
+/**
+ * Após `startCajupaySdkBootstrap` com Apple/Google Pay: aguarda priming, 2.º `confirm()` do SDK e polling até o pedido ficar pago.
+ * Mesmo redirect de sucesso que `cajupayConfirmAndFinish` (obrigado + login).
+ */
+async function completeCajupayWalletPaymentAfterBootstrap() {
+    const orderId = cajupayPendingOrderId.value;
+    const nonce = cajupayPendingNonce.value;
+    if (!orderId || !nonce) {
+        cardFormError.value = 'Sessão de pagamento inválida. Recarregue a página.';
+        return false;
+    }
+    const primed = await waitCajupayMountPrimed(8000);
+    if (!primed || !cajupayMountRef.value) {
+        cardFormError.value = 'Aguarde o checkout CajuPay terminar de carregar e tente novamente.';
+        destroyCajupaySdk();
+        return false;
+    }
+    cajupayMountRef.value.setPayer?.({
+        name: showName.value ? form.name : '',
+        email: form.email,
+        document: (form.cpf || '').replace(/\D/g, ''),
+    });
+    try {
+        await cajupayMountRef.value.confirm();
+    } catch (err) {
+        const msg = err?.response?.data?.message || err?.message || 'Erro ao confirmar pagamento na carteira.';
+        const s = typeof msg === 'string' ? msg : 'Erro ao confirmar pagamento na carteira.';
+        cardFormError.value = s;
+        showCardRefusedModal.value = true;
+        cardRefusedMessage.value = s;
+        destroyCajupaySdk();
+        return false;
+    }
+    const poll = await pollCajupayOrderStatus(orderId, nonce);
+    if (poll.ok) {
+        cardApproved.value = true;
+        emitPurchaseConfirmed(orderId, 'approved');
+        const url = `/checkout/obrigado?order_id=${encodeURIComponent(String(orderId))}&next=login`;
+        cardApprovedRedirectUrl.value = url;
+        destroyCajupaySdk();
+        setTimeout(() => router.visit(url), 800);
+        return true;
+    }
+    cardFormError.value = 'Pagamento não confirmado. Tente novamente ou escolha outro método.';
+    showCardRefusedModal.value = true;
+    cardRefusedMessage.value = cardFormError.value;
+    destroyCajupaySdk();
+    return false;
+}
+
+let cajupayWalletAutoPromise = null;
+let cajupayWalletPrefetchTimer = null;
+
+async function runCajupayWalletAutoCheckout() {
+    if (!isCardGatewayCajupay.value
+        || (form.payment_method !== 'apple_pay' && form.payment_method !== 'google_pay')) {
+        return;
+    }
+    if (cardApproved.value) {
+        return;
+    }
+    if (cajupayWalletAutoPromise) {
+        return cajupayWalletAutoPromise;
+    }
+    const email = (form.email || '').trim();
+    if (!email || !email.includes('@')) {
+        return;
+    }
+    if (showName.value && !(form.name || '').trim()) {
+        return;
+    }
+
+    cajupayWalletAutoPromise = (async () => {
+        try {
+            await drainCajupayBootstrapInflight();
+            if (cajupaySessionToken.value && cajupayPendingOrderId.value && cajupayPendingNonce.value) {
+                await cajupayConfirmAndFinish();
+                return;
+            }
+            cardTokenizing.value = true;
+            cardFormError.value = '';
+            const ok = await startCajupaySdkBootstrap(false);
+            if (!ok) {
+                return;
+            }
+            await completeCajupayWalletPaymentAfterBootstrap();
+        } catch (err) {
+            const msg = err?.response?.data?.message || err?.message || 'Falha no pagamento com carteira.';
+            const s = typeof msg === 'string' ? msg : 'Falha no pagamento com carteira.';
+            cardFormError.value = s;
+            showCardRefusedModal.value = true;
+            cardRefusedMessage.value = s;
+            destroyCajupaySdk();
+        } finally {
+            cardTokenizing.value = false;
+            cajupayWalletAutoPromise = null;
+        }
+    })();
+
+    return cajupayWalletAutoPromise;
+}
+
+watch(
+    () => [
+        isCardGatewayCajupay.value,
+        form.payment_method,
+        form.email,
+        form.name,
+        showName.value,
+    ],
+    () => {
+        clearTimeout(cajupayWalletPrefetchTimer);
+        cajupayWalletPrefetchTimer = setTimeout(() => {
+            if (cardApproved.value) {
+                return;
+            }
+            if (isCardGatewayCajupay.value
+                && (form.payment_method === 'apple_pay' || form.payment_method === 'google_pay')) {
+                void runCajupayWalletAutoCheckout();
+            }
+        }, 350);
+    },
+    { flush: 'post', immediate: true }
+);
+
+async function cajupayConfirmAndFinish() {
+    const orderId = cajupayPendingOrderId.value;
+    const nonce = cajupayPendingNonce.value;
+    const mount = cajupayMountRef.value;
+    if (!orderId || !nonce || !mount) {
+        cardFormError.value = 'Sessão de pagamento inválida. Recarregue a página.';
+        return;
+    }
+    cardTokenizing.value = true;
+    cardFormError.value = '';
+    try {
+        await mount.confirm();
         const poll = await pollCajupayOrderStatus(orderId, nonce);
         if (poll.ok) {
             cardApproved.value = true;
             emitPurchaseConfirmed(orderId, 'approved');
-            const url = `/checkout/obrigado?order_id=${encodeURIComponent(String(orderId))}&next=login`;
+            const next = 'login';
+            const url = `/checkout/obrigado?order_id=${encodeURIComponent(String(orderId))}&next=${next}`;
             cardApprovedRedirectUrl.value = url;
             destroyCajupaySdk();
             setTimeout(() => router.visit(url), 800);
         } else {
-            cardFormError.value = 'Pagamento não confirmado. Tente novamente.';
+            cardFormError.value = 'Pagamento não confirmado. Tente novamente ou use outro método.';
             showCardRefusedModal.value = true;
             cardRefusedMessage.value = cardFormError.value;
+            destroyCajupaySdk();
         }
     } catch (err) {
-        const msg = err?.response?.data?.message || err?.message || 'Não foi possível processar o pagamento.';
-        cardFormError.value = typeof msg === 'string' ? msg : 'Não foi possível processar o pagamento.';
+        const msg = err?.response?.data?.message || err?.message || 'Erro ao confirmar pagamento.';
+        cardFormError.value = typeof msg === 'string' ? msg : 'Erro ao confirmar pagamento.';
         showCardRefusedModal.value = true;
         cardRefusedMessage.value = cardFormError.value;
+        destroyCajupaySdk();
+    } finally {
+        cardTokenizing.value = false;
+    }
+}
+
+async function submitCajupayCardFlow() {
+    await drainCajupayBootstrapInflight();
+    if (cajupaySessionToken.value && cajupayPendingOrderId.value && cajupayPendingNonce.value) {
+        await cajupayConfirmAndFinish();
+        return;
+    }
+    const email = (form.email || '').trim();
+    if (!email) {
+        cardFormError.value = 'Informe o e-mail.';
+        return;
+    }
+    if (showName.value && !(form.name || '').trim()) {
+        cardFormError.value = 'Informe o nome completo.';
+        return;
+    }
+    cardTokenizing.value = true;
+    cardFormError.value = '';
+    try {
+        const ok = await startCajupaySdkBootstrap(true);
+        if (!ok) {
+            return;
+        }
+
+        if (cajupaySdkWallet.value === 'card') {
+            await nextTick();
+            cajupaySdkHint.value = 'Preencha o cartão acima e clique em «Pagar com cartão» para finalizar.';
+            return;
+        }
+
+        await completeCajupayWalletPaymentAfterBootstrap();
     } finally {
         cardTokenizing.value = false;
     }
 }
 
 onBeforeUnmount(() => {
+    clearTimeout(cajupayCardPrefetchTimer);
+    clearTimeout(cajupayWalletPrefetchTimer);
     destroyMercadopagoBrick();
     destroyCajupaySdk();
 });
@@ -1681,6 +1876,10 @@ function submit() {
             return;
         }
         if (isCardGatewayCajupay.value) {
+            if (isCajupayWalletMethod) {
+                void runCajupayWalletAutoCheckout();
+                return;
+            }
             void submitCajupayCardFlow();
             return;
         }
@@ -2439,15 +2638,24 @@ function submit() {
                         </div>
                     </template>
                 </div>
-                <!-- Cartão / Apple Pay / Google Pay (SDK embeddedOnly) -->
-                <div v-else-if="isCardGatewayCajupay">
-                    <template v-if="form.payment_method === 'card'">
-                        <div id="cajupay-method" class="min-h-[120px]" />
-                    </template>
-                    <div v-else class="space-y-4">
-                        <div id="cajupay-method" class="min-h-[120px] rounded-xl border-2 border-gray-100 bg-white p-3" />
-                        <p v-if="cajupaySdkHint" class="text-sm text-gray-600">{{ cajupaySdkHint }}</p>
-                    </div>
+                <!-- Cartão / Apple Pay / Google Pay (CajuPay SDK, embeddedOnly) -->
+                <div v-else-if="isCardGatewayCajupay" class="space-y-2">
+                    <CajuPaySdkMount
+                        ref="cajupayMountRef"
+                        :payment-method="cajupaySdkWallet"
+                        :session-token="cajupaySessionToken"
+                        :api-base-url="cajupayApiBaseUrl"
+                        :initial-payer="cajupayInitialPayer"
+                        :before-wallet-prime="cajupayBeforeWalletPrimeNoop"
+                        container-id="cajupay-method"
+                    />
+                    <p v-if="cajupaySdkHint" class="text-sm text-gray-600">{{ cajupaySdkHint }}</p>
+                    <p
+                        v-if="hidePrimarySubmitForCajupayWallet && cardTokenizing && !cardApproved"
+                        class="text-sm text-gray-500"
+                    >
+                        Aguardando confirmação do pagamento…
+                    </p>
                 </div>
                 <!-- Efí: campos manuais para tokenização payment-token-efi -->
                 <div v-else-if="isCardGatewayEfi" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -2679,7 +2887,7 @@ function submit() {
 
             <p v-if="form.errors.product_id" class="text-sm font-medium text-red-600">{{ form.errors.product_id }}</p>
             <button
-                v-if="!isCardPaymentFamily || !isCardGatewayMercadopago"
+                v-if="(!isCardPaymentFamily || !isCardGatewayMercadopago) && !hidePrimarySubmitForCajupayWallet"
                 type="submit"
                 data-checkout="form-submit"
                 class="flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-lg shadow-black/10 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70"
