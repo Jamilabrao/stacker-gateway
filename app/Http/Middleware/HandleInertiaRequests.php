@@ -11,6 +11,7 @@ use App\Services\SalesAchievementsService;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Services\PlatformI18nService;
+use App\Services\ApiPixAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
@@ -70,6 +71,14 @@ class HandleInertiaRequests extends Middleware
         if ($user && ($user->canAccessSellerPanel() || $user->canAccessPlatformPanel())) {
             $settingsPluginTabs = PluginRegistry::getSettingsTabs();
             $pluginNavItems = PluginRegistry::getMenuItems();
+            // Itens de menu de plugins podem apontar para rotas da plataforma (/plataforma/*).
+            // Esses links não devem aparecer no painel do infoprodutor/equipe.
+            if ($user->canAccessSellerPanel() && ! $user->canAccessPlatformPanel()) {
+                $pluginNavItems = array_values(array_filter($pluginNavItems, function ($item) {
+                    $href = is_array($item) ? (string) ($item['href'] ?? '') : '';
+                    return $href === '' || ! str_starts_with($href, '/plataforma/');
+                }));
+            }
             $vapidPublic = config('getfy.pwa.vapid_public');
             $pushEnabled = ! empty($vapidPublic) && ! empty(config('getfy.pwa.vapid_private'));
             $installed = PluginRegistry::installed();
@@ -178,6 +187,9 @@ class HandleInertiaRequests extends Middleware
             'member_notifications_unread_count' => $memberNotificationsUnreadCount,
             'member_push_subscribed' => $memberPushSubscribed,
             'customer_panel' => $customerPanel,
+            'api_pix_enabled_effective' => $user && $user->canAccessSellerPanel()
+                ? ApiPixAccess::effectiveForTenant($tenantId)
+                : false,
         ];
 
         if ($user && ($user->canAccessSellerPanel() || $user->canAccessPlatformPanel())) {

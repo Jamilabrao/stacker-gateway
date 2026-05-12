@@ -11,6 +11,7 @@ use App\Listeners\SendPanelPushOnBoletoGenerated;
 use App\Listeners\SendPanelPushOnOrderCompleted;
 use App\Listeners\SendPanelPushOnPixGenerated;
 use App\Listeners\CademiEventSubscriber;
+use App\Listeners\MetaConversionsEventSubscriber;
 use App\Listeners\SpedyEventSubscriber;
 use App\Listeners\UtmifyEventSubscriber;
 use App\Listeners\SendApiApplicationWebhookListener;
@@ -52,6 +53,16 @@ class AppServiceProvider extends ServiceProvider
         }
 
         RateLimiter::for('api', function (Request $request) {
+            $publicKey = trim((string) $request->header('X-Public-Key', ''));
+            if ($publicKey !== '') {
+                return Limit::perMinute(120)->by('pk:'.$publicKey);
+            }
+
+            $app = $request->attributes->get('api_application');
+            if ($app && isset($app->id)) {
+                return Limit::perMinute(120)->by('app:'.$app->id);
+            }
+
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
@@ -67,6 +78,7 @@ class AppServiceProvider extends ServiceProvider
         Event::subscribe(WebhookEventSubscriber::class);
         Event::subscribe(SendApiApplicationWebhookListener::class);
         Event::subscribe(UtmifyEventSubscriber::class);
+        Event::subscribe(MetaConversionsEventSubscriber::class);
         Event::subscribe(SpedyEventSubscriber::class);
         Event::subscribe(CademiEventSubscriber::class);
 

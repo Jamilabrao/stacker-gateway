@@ -13,8 +13,9 @@ class ApiDocsController extends Controller
 
         return Inertia::render('Docs/ApiPagamentos', [
             'baseUrl' => $baseUrl,
-            'pageTitle' => 'Documentação da API de pagamentos',
+            'pageTitle' => 'Documentação da API PIX (Gateway)',
             'layoutFullWidth' => true,
+            'publicMode' => true,
         ]);
     }
 
@@ -27,6 +28,7 @@ class ApiDocsController extends Controller
 
         return Inertia::render('Docs/ApiPagamentosTestar', [
             'baseUrl' => $baseUrl,
+            'publicMode' => true,
         ]);
     }
 }

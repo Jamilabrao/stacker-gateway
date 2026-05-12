@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue';
+import { ref, computed, watch, onUnmounted, onMounted, nextTick, toRef } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import { useCheckoutLocale } from '@/composables/useCheckoutLocale';
@@ -96,10 +96,11 @@ const {
     formatPrice,
     supportedLocales,
 } = useCheckoutLocale({
-    translations: props.checkout_translations,
-    currencies: props.currencies,
-    suggestedLocale: props.suggested_locale,
-    suggestedCurrency: props.suggested_currency,
+    translations: toRef(props, 'checkout_translations'),
+    currencies: toRef(props, 'currencies'),
+    suggestedLocale: toRef(props, 'suggested_locale'),
+    suggestedCurrency: toRef(props, 'suggested_currency'),
+    suggestedCountryCode: toRef(props, 'suggested_country_code'),
     storageKey: props.product?.checkout_slug || 'default',
 });
 

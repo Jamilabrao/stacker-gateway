@@ -34,6 +34,7 @@ class UtmifyService
         $order->loadMissing(['user', 'orderItems.product', 'orderItems.productOffer', 'orderItems.subscriptionPlan']);
 
         $session = CheckoutSession::where('order_id', $order->id)->first();
+        $meta = is_array($order->metadata) ? $order->metadata : [];
 
         $orderId = $order->gateway_id ?: (string) $order->id;
         $paymentMethod = $this->mapPaymentMethod($order->gateway);
@@ -86,11 +87,9 @@ class UtmifyService
         // Ordem alinhada à documentação UTMfy; omite chaves vazias para não enviar null artificial.
         $trackingParameters = [];
         foreach (['src', 'sck', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as $key) {
-            $raw = $session?->{$key} ?? null;
-            if (! is_string($raw)) {
-                continue;
-            }
-            $trimmed = trim($raw);
+            $raw = $session?->{$key} ?? ($meta[$key] ?? null);
+            if (! is_string($raw)) continue;
+            $trimmed = trim((string) $raw);
             if ($trimmed === '') {
                 continue;
             }

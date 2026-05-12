@@ -5,6 +5,7 @@ import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import MemberAreaVideoPlayer from '@/components/MemberAreaVideoPlayer.vue';
 import { formatLessonDescription } from '@/lib/utils';
+import { sanitizeHtmlAllowlist } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -35,6 +36,12 @@ function normalizePdfFiles(lesson) {
 }
 
 const pdfFiles = computed(() => normalizePdfFiles(props.lesson));
+
+function safeLessonHtml(html) {
+    return sanitizeHtmlAllowlist(html, {
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed'],
+    });
+}
 
 const completed = ref(props.lesson.is_completed ?? false);
 const commentContent = ref('');
@@ -147,7 +154,7 @@ function formatCommentDate(iso) {
             </template>
             <div v-else-if="lesson.type === 'pdf' && lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(lesson.content_text)" />
             <template v-else-if="lesson.type === 'text' && lesson.content_text">
-                <div class="prose prose-invert max-w-none p-6" v-html="lesson.content_text" />
+                <div class="prose prose-invert max-w-none p-6" v-html="safeLessonHtml(lesson.content_text)" />
             </template>
             <div v-else class="p-8 text-center text-zinc-500">
                 Conteúdo não disponível.

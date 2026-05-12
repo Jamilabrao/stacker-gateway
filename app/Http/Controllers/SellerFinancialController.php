@@ -16,6 +16,7 @@ use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\WithdrawalAutoPayoutService;
 use App\Support\BrazilianDocumentDigits;
+use App\Support\HtmlSanitizer;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -26,6 +27,66 @@ use Inertia\Response;
 
 class SellerFinancialController extends Controller
 {
+    private static function parseBrlAmountToFloat(mixed $raw): float
+    {
+        $s = trim((string) ($raw ?? ''));
+        if ($s === '') {
+            throw ValidationException::withMessages(['amount' => 'Informe um valor válido.']);
+        }
+
+        // Remove espaços e símbolo de moeda (mantém apenas dígitos e separadores comuns)
+        $s = preg_replace('/[^\d.,-]/u', '', $s) ?? '';
+        $s = trim($s);
+        if ($s === '' || $s === '-' || $s === ',' || $s === '.') {
+            throw ValidationException::withMessages(['amount' => 'Informe um valor válido.']);
+        }
+
+        // Rejeita valores negativos
+        if (str_starts_with($s, '-')) {
+            throw ValidationException::withMessages(['amount' => 'Informe um valor positivo.']);
+        }
+
+        $hasComma = str_contains($s, ',');
+        $hasDot = str_contains($s, '.');
+
+        if ($hasComma) {
+            // pt-BR: '.' milhares, ',' decimal
+            $parts = explode(',', $s);
+            if (count($parts) !== 2) {
+                throw ValidationException::withMessages(['amount' => 'Informe um valor válido.']);
+            }
+            [$int, $dec] = $parts;
+            $int = str_replace('.', '', $int);
+            if ($dec === '' || strlen($dec) > 2) {
+                throw ValidationException::withMessages(['amount' => 'Use no máximo 2 casas decimais.']);
+            }
+            $norm = $int.'.'.$dec;
+        } else {
+            // padrão: '.' decimal (sem separador de milhar)
+            if ($hasDot) {
+                $parts = explode('.', $s);
+                if (count($parts) !== 2) {
+                    throw ValidationException::withMessages(['amount' => 'Informe um valor válido.']);
+                }
+                if ($parts[1] === '' || strlen($parts[1]) > 2) {
+                    throw ValidationException::withMessages(['amount' => 'Use no máximo 2 casas decimais.']);
+                }
+            }
+            $norm = $s;
+        }
+
+        if (! preg_match('/^\d+(?:\.\d{1,2})?$/', $norm)) {
+            throw ValidationException::withMessages(['amount' => 'Informe um valor válido.']);
+        }
+
+        $amount = (float) $norm;
+        if (! is_finite($amount) || $amount <= 0) {
+            throw ValidationException::withMessages(['amount' => 'Informe um valor válido.']);
+        }
+
+        return $amount;
+    }
+
     public function index(Request $request): Response
     {
         $user = $request->user();
@@ -147,6 +208,8 @@ class SellerFinancialController extends Controller
             'settlement_preview' => [
                 'pix' => EffectiveSettlementRules::forTenantMethod($tenantId, 'pix'),
                 'card' => EffectiveSettlementRules::forTenantMethod($tenantId, 'card'),
+                'apple_pay' => EffectiveSettlementRules::forTenantMethod($tenantId, 'apple_pay'),
+                'google_pay' => EffectiveSettlementRules::forTenantMethod($tenantId, 'google_pay'),
                 'boleto' => EffectiveSettlementRules::forTenantMethod($tenantId, 'boleto'),
             ],
         ]);
@@ -334,10 +397,23 @@ class SellerFinancialController extends Controller
     public function storeWithdrawal(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999'],
+            // Pode vir como number (frontend) ou string (pt-BR / padrão). Parsing valida casas/negativo.
+            'amount' => ['required'],
             'bucket' => ['required', 'string', 'in:pix,card,boleto'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
+        // Rejeita inputs maliciosos/absurdos antes do parse (strings enormes).
+        if (is_string($validated['amount']) && mb_strlen($validated['amount']) > 32) {
+            throw ValidationException::withMessages(['amount' => 'Informe um valor válido.']);
+        }
+
+        $validated['amount'] = self::parseBrlAmountToFloat($validated['amount']);
+        if ($validated['amount'] > 99999999) {
+            throw ValidationException::withMessages(['amount' => 'Informe um valor menor.']);
+        }
+        if (array_key_exists('notes', $validated)) {
+            $validated['notes'] = HtmlSanitizer::plainTextMultiline($validated['notes'], 2000) ?: null;
+        }
 
         $user = $request->user();
         if (Schema::hasColumn('users', 'kyc_status') && ! $user->kycSubjectUser()->hasApprovedKyc()) {

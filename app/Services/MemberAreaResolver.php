@@ -36,9 +36,9 @@ class MemberAreaResolver
         // Subdomain: {slug}.members.xxx
         if (config('members.subdomain_enabled')) {
             $base = config('members.subdomain_base', '');
-            if ($base && str_ends_with($host, $base) && $host !== $base) {
-                $prefix = str_replace('.'.$base, '', $host);
-                if ($prefix !== $host) {
+            if ($base && str_ends_with($hostRaw, $base) && $hostRaw !== $base) {
+                $prefix = str_replace('.'.$base, '', $hostRaw);
+                if ($prefix !== $hostRaw) {
                     $slug = $prefix;
                     $product = Product::where('checkout_slug', $slug)
                         ->where('type', Product::TYPE_AREA_MEMBROS)

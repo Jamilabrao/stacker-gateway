@@ -105,4 +105,62 @@ class PlatformPayoutGatewayTest extends TestCase
         GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'spacepag', 'woovi'])->delete();
         Setting::set('platform_payout_gateway', null, null);
     }
+
+    public function test_onlyup_active_when_only_onlyup_connected(): void
+    {
+        Setting::set('platform_payout_gateway', null, null);
+
+        $cred = GatewayCredential::query()->firstOrNew([
+            'tenant_id' => null,
+            'gateway_slug' => 'onlyup',
+        ]);
+        $cred->is_connected = true;
+        $cred->setEncryptedCredentials([
+            'pix_key' => 'test@example.com',
+            'cashin_client_id' => 'id',
+            'cashin_client_secret' => 'secret',
+        ]);
+        $cred->save();
+
+        $this->assertSame('onlyup', PlatformPayoutGateway::activeSlug());
+
+        GatewayCredential::query()->where('gateway_slug', 'onlyup')->delete();
+    }
+
+    public function test_preference_onlyup_overrides_order_when_all_connected(): void
+    {
+        Setting::set('platform_payout_gateway', 'onlyup', null);
+
+        foreach (['cajupay', 'spacepag', 'woovi', 'onlyup'] as $slug) {
+            $cred = GatewayCredential::query()->firstOrNew([
+                'tenant_id' => null,
+                'gateway_slug' => $slug,
+            ]);
+            $cred->is_connected = true;
+            if ($slug === 'onlyup') {
+                $cred->setEncryptedCredentials([
+                    'pix_key' => 'test@example.com',
+                    'cashin_client_id' => 'id',
+                    'cashin_client_secret' => 'secret',
+                ]);
+            } elseif ($slug === 'woovi') {
+                $cred->setEncryptedCredentials([
+                    'app_id' => 'app',
+                    'from_pix_key' => 'pix@test.com',
+                ]);
+            } else {
+                $cred->setEncryptedCredentials([
+                    'public_key' => 'pk_'.$slug,
+                    'secret_key' => 'sk_'.$slug,
+                ]);
+            }
+            $cred->save();
+        }
+
+        $this->assertSame('onlyup', PlatformPayoutGateway::activeSlug());
+        $this->assertSame('onlyup', PlatformPayoutGateway::preference());
+
+        GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'spacepag', 'woovi', 'onlyup'])->delete();
+        Setting::set('platform_payout_gateway', null, null);
+    }
 }

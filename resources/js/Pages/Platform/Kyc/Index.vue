@@ -1,6 +1,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
+import { htmlToText } from '@/lib/sanitizeHtml';
 import { ShieldCheck } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
@@ -95,7 +96,7 @@ function statusLabel(s) {
                 class="rounded-lg px-3 py-1.5 text-sm"
                 :class="l.active ? 'bg-[var(--color-primary)]/20 font-semibold' : 'bg-zinc-100 dark:bg-zinc-800'"
             >
-                <span v-html="l.label" />
+                <span v-text="htmlToText(l.label)" />
             </Link>
         </div>
     </div>

@@ -26,7 +26,13 @@ class OrderManualApprovalService
         if ($order->payment_method === null || $order->payment_method === '') {
             $meta = is_array($order->metadata) ? $order->metadata : [];
             $m = $meta['checkout_payment_method'] ?? null;
-            $completedPatch['payment_method'] = in_array($m, ['pix', 'card', 'boleto', 'pix_auto'], true) ? $m : 'pix';
+            if (in_array($m, ['apple_pay', 'google_pay'], true)) {
+                $completedPatch['payment_method'] = 'card';
+            } elseif (in_array($m, ['pix', 'card', 'boleto', 'pix_auto'], true)) {
+                $completedPatch['payment_method'] = $m;
+            } else {
+                $completedPatch['payment_method'] = 'pix';
+            }
         }
         $order->update($completedPatch);
         $order->refresh();

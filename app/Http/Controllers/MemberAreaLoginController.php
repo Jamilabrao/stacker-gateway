@@ -99,7 +99,12 @@ class MemberAreaLoginController extends Controller
             abort(404, 'Área de membros não encontrada.');
         }
         $slug = $request->route('slug') ?? $request->attributes->get('member_area_slug') ?? $slug;
-        $userId = (int) $request->query('u', 0);
+        $userId = $request->attributes->get('member_area_magic_user_id');
+        if ($userId === null) {
+            $userId = (int) $request->query('u', 0);
+        } else {
+            $userId = (int) $userId;
+        }
         $user = $userId > 0 ? User::find($userId) : null;
         if (! $user || ! $product->hasMemberAreaAccess($user)) {
             return redirect()->route('member-area.login', ['slug' => $slug])->with('error', 'Link inválido ou expirado.');
@@ -115,7 +120,12 @@ class MemberAreaLoginController extends Controller
         if (! $product instanceof Product || $product->type !== Product::TYPE_AREA_MEMBROS) {
             abort(404, 'Área de membros não encontrada.');
         }
-        $userId = (int) $request->query('u', 0);
+        $userId = $request->attributes->get('member_area_magic_user_id');
+        if ($userId === null) {
+            $userId = (int) $request->query('u', 0);
+        } else {
+            $userId = (int) $userId;
+        }
         $user = $userId > 0 ? User::find($userId) : null;
         if (! $user || ! $product->hasMemberAreaAccess($user)) {
             return redirect()->to('/login')->with('error', 'Link inválido ou expirado.');

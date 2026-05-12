@@ -15,6 +15,7 @@ use App\Models\ProductOffer;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\BuyerAccountService;
+use App\Services\ApiPixAccess;
 use App\Services\PaymentService;
 use App\Support\FakeConsumerData;
 use Illuminate\Http\JsonResponse;
@@ -32,6 +33,9 @@ class PaymentsController extends Controller
         $app = $request->attributes->get('api_application');
         if (! $app instanceof ApiApplication) {
             abort(500, 'API application not resolved');
+        }
+        if (! ApiPixAccess::effectiveForTenant($app->tenant_id)) {
+            abort(403, 'API PIX disabled for this tenant.');
         }
         return $app;
     }
@@ -249,7 +253,8 @@ class PaymentsController extends Controller
 
         try {
             event(new OrderPending($order));
-            $result = $paymentService->createPixPayment($order, $ctx['product'], $ctx['consumer'], $ctx['gateway_config']);
+            // API PIX (gateway): o integrador não escolhe adquirente; sempre usa ordem global da plataforma.
+            $result = $paymentService->createPixPayment($order, $ctx['product'], $ctx['consumer'], null);
             event(new PixGenerated($order, [
                 'qrcode' => $result['qrcode'] ?? null,
                 'copy_paste' => $result['copy_paste'] ?? null,
@@ -328,7 +333,7 @@ class PaymentsController extends Controller
 
         try {
             event(new OrderPending($order));
-            $result = $paymentService->createCardPayment($order, $ctx['product'], $ctx['consumer'], $card, $ctx['gateway_config']);
+            $result = $paymentService->createCardPayment($order, $ctx['product'], $ctx['consumer'], $card, null);
             $status = $result['status'] ?? 'pending';
             if ($status === 'paid' || $status === 'approved' || $status === 'completed') {
                 $order->update(['status' => 'completed', 'payment_method' => 'card']);
@@ -407,7 +412,7 @@ class PaymentsController extends Controller
 
         try {
             event(new OrderPending($order));
-            $result = $paymentService->createBoletoPayment($order, $ctx['product'], $ctx['consumer'], $ctx['gateway_config']);
+            $result = $paymentService->createBoletoPayment($order, $ctx['product'], $ctx['consumer'], null);
             $boletoData = [
                 'amount' => $result['amount'] ?? $order->amount,
                 'expire_at' => $result['expire_at'] ?? null,

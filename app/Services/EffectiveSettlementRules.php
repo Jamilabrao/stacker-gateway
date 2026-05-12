@@ -7,8 +7,11 @@ use App\Models\User;
 
 class EffectiveSettlementRules
 {
+    /** Chaves de método com regras próprias de D+N / reserva (checkout + carteiras). */
+    public const SETTLEMENT_METHOD_KEYS = ['pix', 'card', 'apple_pay', 'google_pay', 'boleto'];
+
     /**
-     * @return array{pix: array{days_to_available: int, reserve_percent: float, reserve_hold_days: int}, card: array{days_to_available: int, reserve_percent: float, reserve_hold_days: int}, boleto: array{days_to_available: int, reserve_percent: float, reserve_hold_days: int}}
+     * @return array<string, array{days_to_available: int, reserve_percent: float, reserve_hold_days: int}>
      */
     public static function platformDefaults(): array
     {
@@ -16,15 +19,14 @@ class EffectiveSettlementRules
         if (is_string($raw)) {
             $raw = json_decode($raw, true);
         }
-        $base = [
-            'pix' => ['days_to_available' => 0, 'reserve_percent' => 0.0, 'reserve_hold_days' => 0],
-            'card' => ['days_to_available' => 0, 'reserve_percent' => 0.0, 'reserve_hold_days' => 0],
-            'boleto' => ['days_to_available' => 0, 'reserve_percent' => 0.0, 'reserve_hold_days' => 0],
-        ];
+        $base = [];
+        foreach (self::SETTLEMENT_METHOD_KEYS as $k) {
+            $base[$k] = ['days_to_available' => 0, 'reserve_percent' => 0.0, 'reserve_hold_days' => 0];
+        }
         if (! is_array($raw)) {
             return $base;
         }
-        foreach (['pix', 'card', 'boleto'] as $k) {
+        foreach (self::SETTLEMENT_METHOD_KEYS as $k) {
             if (! isset($raw[$k]) || ! is_array($raw[$k])) {
                 continue;
             }
@@ -37,12 +39,12 @@ class EffectiveSettlementRules
     }
 
     /**
-     * @param  'pix'|'card'|'boleto'  $methodKey
+     * @param  'pix'|'card'|'apple_pay'|'google_pay'|'boleto'  $methodKey
      * @return array{days_to_available: int, reserve_percent: float, reserve_hold_days: int}
      */
     public static function forTenantMethod(int $tenantId, string $methodKey): array
     {
-        if (! in_array($methodKey, ['pix', 'card', 'boleto'], true)) {
+        if (! in_array($methodKey, self::SETTLEMENT_METHOD_KEYS, true)) {
             $methodKey = 'pix';
         }
         $defaults = self::platformDefaults()[$methodKey];

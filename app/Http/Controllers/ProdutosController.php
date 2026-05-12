@@ -9,6 +9,7 @@ use App\Events\ProductDuplicated;
 use App\Events\ProductIndexLoading;
 use App\Events\ProductUpdated;
 use App\Models\CademiIntegration;
+use App\Models\GatewayCredential;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
 use App\Models\ProductCoproducer;
@@ -19,6 +20,8 @@ use App\Models\User;
 use App\Services\PaymentService;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
+use App\Support\HtmlSanitizer;
+use App\Gateways\GatewayRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -121,6 +124,13 @@ class ProdutosController extends Controller
             'image' => ['nullable', 'image', 'max:2048'],
             'deliverable_link' => ['nullable', 'string', 'url', 'max:500'],
         ]);
+
+        // Texto puro (evita XSS armazenado em nome/descrição)
+        $validated['name'] = HtmlSanitizer::plainText($validated['name'] ?? '', 255);
+        if (array_key_exists('description', $validated)) {
+            $validated['description'] = HtmlSanitizer::plainTextMultiline($validated['description'], 20000) ?: null;
+        }
+
         $validated['tenant_id'] = auth()->user()->tenant_id;
         $validated['slug'] = $validated['slug'] ?? Str::slug($validated['name']);
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
@@ -287,8 +297,21 @@ class ProdutosController extends Controller
         $paymentService = app(PaymentService::class);
         $cardOrder = $paymentService->getGatewayOrderForMethod($tenantId, 'card', null, null);
         $primaryCard = $cardOrder[0] ?? null;
+        $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
+        $primaryConnectedCardSlug = null;
+        foreach ($cardOrder as $slug) {
+            if (! is_string($slug) || $slug === '' || ! $credentialBySlug->get($slug)) {
+                continue;
+            }
+            $gw = GatewayRegistry::get($slug);
+            if ($gw && in_array('card', $gw['methods'] ?? [], true)) {
+                $primaryConnectedCardSlug = $slug;
+                break;
+            }
+        }
         $checkoutGatewayUi = [
             'card_show_installments' => in_array($primaryCard, ['efi', 'asaas'], true),
+            'digital_wallets_at_checkout' => $primaryConnectedCardSlug === 'cajupay',
         ];
 
         $basePlanForGlobalMethods = $produto->billing_type === Product::BILLING_SUBSCRIPTION
@@ -497,6 +520,8 @@ class ProdutosController extends Controller
             'payment_methods_enabled.card' => ['nullable', 'boolean'],
             'payment_methods_enabled.boleto' => ['nullable', 'boolean'],
             'payment_methods_enabled.pix_auto' => ['nullable', 'boolean'],
+            'payment_methods_enabled.apple_pay' => ['nullable', 'boolean'],
+            'payment_methods_enabled.google_pay' => ['nullable', 'boolean'],
             'email_template' => ['nullable', 'array'],
             'email_template.logo_url' => ['nullable', 'string', 'max:500'],
             'email_template.from_name' => ['nullable', 'string', 'max:255'],
@@ -506,6 +531,25 @@ class ProdutosController extends Controller
             'base_interval' => ['nullable', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
             'refund_policy_days' => ['nullable', 'integer', 'in:7,14,30'],
         ]);
+
+        // Texto puro (evita XSS armazenado em nome/descrição/template)
+        $validated['name'] = HtmlSanitizer::plainText($validated['name'] ?? '', 255);
+        if (array_key_exists('description', $validated)) {
+            $validated['description'] = HtmlSanitizer::plainTextMultiline($validated['description'], 20000) ?: null;
+        }
+        if (isset($validated['email_template']) && is_array($validated['email_template'])) {
+            if (array_key_exists('from_name', $validated['email_template'])) {
+                $validated['email_template']['from_name'] = HtmlSanitizer::plainText($validated['email_template']['from_name'], 255) ?: null;
+            }
+            if (array_key_exists('subject', $validated['email_template'])) {
+                $validated['email_template']['subject'] = HtmlSanitizer::plainText($validated['email_template']['subject'], 255) ?: null;
+            }
+            if (array_key_exists('body_html', $validated['email_template'])) {
+                // Corpo do e-mail permite HTML, mas sanitizamos para remover scripts/eventos.
+                $validated['email_template']['body_html'] = \App\Support\HtmlSanitizer::sanitize((string) ($validated['email_template']['body_html'] ?? ''));
+            }
+        }
+
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
         $validated['refund_policy_days'] = ($validated['refund_policy_days'] ?? null) !== null
@@ -608,10 +652,18 @@ class ProdutosController extends Controller
                 'pix_auto' => $produto->billing_type === Product::BILLING_SUBSCRIPTION
                     ? $request->boolean('payment_methods_enabled.pix_auto', true)
                     : false,
+                'apple_pay' => $request->boolean('payment_methods_enabled.apple_pay', true),
+                'google_pay' => $request->boolean('payment_methods_enabled.google_pay', true),
             ];
             $keysToCheck = ['pix', 'card', 'boleto'];
             if ($produto->billing_type === Product::BILLING_SUBSCRIPTION && $basePlan) {
                 $keysToCheck[] = 'pix_auto';
+            }
+            if (! empty($global['apple_pay'])) {
+                $keysToCheck[] = 'apple_pay';
+            }
+            if (! empty($global['google_pay'])) {
+                $keysToCheck[] = 'google_pay';
             }
             $anyGlobal = false;
             foreach ($keysToCheck as $k) {

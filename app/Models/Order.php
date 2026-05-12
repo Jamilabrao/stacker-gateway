@@ -134,6 +134,8 @@ class Order extends Model
             'pix' => 'PIX',
             'pix_auto' => 'PIX automático',
             'card' => 'Cartão',
+            'apple_pay' => 'Apple Pay',
+            'google_pay' => 'Google Pay',
             'boleto' => 'Boleto',
             default => self::gatewaySlugDisplayLabel($this->gateway),
         };

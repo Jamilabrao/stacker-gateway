@@ -12,7 +12,7 @@ return [
             'slug' => 'cajupay',
             'name' => 'CajuPay',
             'image' => 'images/gateways/cajupay.png',
-            'methods' => ['pix'],
+            'methods' => ['pix', 'card'],
             'scope' => 'national',
             'country' => 'br',
             'country_name' => 'Brasil',
@@ -22,6 +22,7 @@ return [
             'credential_keys' => [
                 ['key' => 'public_key', 'label' => 'Chave pública', 'type' => 'text'],
                 ['key' => 'secret_key', 'label' => 'Chave secreta', 'type' => 'password'],
+                ['key' => 'checkout_webhook_signing_secret', 'label' => 'Signing secret do webhook (cwhsec_… — checkout cartão/wallets no painel CajuPay)', 'type' => 'password', 'optional' => true],
                 ['key' => 'cajupay_payout_min_brl', 'label' => 'Mínimo líquido de payout (R$)', 'type' => 'text', 'optional' => true],
                 ['key' => 'cajupay_admin_fee_pix_brl', 'label' => 'Taxa PIX paga à CajuPay (R$)', 'type' => 'text', 'optional' => true],
                 ['key' => 'cajupay_admin_fee_payout_brl', 'label' => 'Taxa de saque paga à CajuPay (R$)', 'type' => 'text', 'optional' => true],
@@ -196,6 +197,7 @@ return [
         'efi',
         'spacepag',
         'woovi',
+        'onlyup',
         'mercadopago',
         'pagarme',
         'stripe',
@@ -207,8 +209,8 @@ return [
     |--------------------------------------------------------------------------
     */
     'default_order' => [
-        'pix' => ['cajupay', 'spacepag', 'woovi', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
-        'card' => ['efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
+        'pix' => ['cajupay', 'spacepag', 'woovi', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
+        'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
         'pix_auto' => ['efi', 'pushinpay'],
         'crypto' => [],

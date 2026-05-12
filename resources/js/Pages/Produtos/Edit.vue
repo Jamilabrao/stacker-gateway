@@ -92,11 +92,11 @@ const props = defineProps({
     cademi_integrations: { type: Array, default: () => [] },
     checkout_gateway_ui: {
         type: Object,
-        default: () => ({ card_show_installments: false }),
+        default: () => ({ card_show_installments: false, digital_wallets_at_checkout: false }),
     },
     global_payment_methods_available: {
         type: Object,
-        default: () => ({ pix: false, card: false, boleto: false, pix_auto: false }),
+        default: () => ({ pix: false, card: false, boleto: false, pix_auto: false, apple_pay: false, google_pay: false }),
     },
 });
 
@@ -155,6 +155,8 @@ const form = useForm({
         card: pme.card !== false && pme.card !== '0',
         boleto: pme.boleto !== false && pme.boleto !== '0',
         pix_auto: pme.pix_auto !== false && pme.pix_auto !== '0',
+        apple_pay: pme.apple_pay !== false && pme.apple_pay !== '0',
+        google_pay: pme.google_pay !== false && pme.google_pay !== '0',
     },
     email_template: {
         logo_url: et.logo_url ?? DEFAULT_EMAIL_TEMPLATE.logo_url,
@@ -314,8 +316,14 @@ const paymentMethodCardsList = computed(() => {
     const list = [
         { key: 'pix', label: 'PIX', hint: 'Pagamento instantâneo', visual: 'pix' },
         { key: 'card', label: 'Cartão', hint: 'Crédito ou débito', visual: 'card' },
-        { key: 'boleto', label: 'Boleto', hint: 'Compensação bancária', visual: 'boleto' },
     ];
+    if (props.checkout_gateway_ui?.digital_wallets_at_checkout) {
+        list.push(
+            { key: 'apple_pay', label: 'Apple Pay', hint: 'Checkout: só iPhone/iPad (iOS)', visual: 'apple_pay' },
+            { key: 'google_pay', label: 'Google Pay', hint: 'Checkout: Android ou computador', visual: 'google_pay' }
+        );
+    }
+    list.push({ key: 'boleto', label: 'Boleto', hint: 'Compensação bancária', visual: 'boleto' });
     if (form.billing_type === 'subscription') {
         list.push({
             key: 'pix_auto',
@@ -332,8 +340,8 @@ const paymentMethodGridClass = computed(() => {
     const n = paymentMethodCardsList.value.length;
     if (n <= 1) return 'grid-cols-1 max-w-[11rem] mx-auto';
     if (n === 2) return 'grid-cols-2';
-    if (n === 3) return 'grid-cols-2 sm:grid-cols-3';
-    return 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-4';
+    if (n <= 4) return 'grid-cols-2 sm:grid-cols-3';
+    return 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5';
 });
 
 function paymentMethodAvailable(key) {
@@ -1023,6 +1031,8 @@ function submit() {
         fd.append('payment_methods_enabled[card]', form.payment_methods_enabled.card ? '1' : '0');
         fd.append('payment_methods_enabled[boleto]', form.payment_methods_enabled.boleto ? '1' : '0');
         fd.append('payment_methods_enabled[pix_auto]', form.payment_methods_enabled.pix_auto ? '1' : '0');
+        fd.append('payment_methods_enabled[apple_pay]', form.payment_methods_enabled.apple_pay ? '1' : '0');
+        fd.append('payment_methods_enabled[google_pay]', form.payment_methods_enabled.google_pay ? '1' : '0');
         if (form.email_template) {
             fd.append('email_template[logo_url]', form.email_template.logo_url || '');
             fd.append('email_template[from_name]', form.email_template.from_name || '');
@@ -1440,6 +1450,12 @@ function submit() {
                         <p class="text-sm text-zinc-600 dark:text-zinc-400">
                             Escolha quais formas de pagamento ficam <strong class="font-medium text-zinc-800 dark:text-zinc-200">ativas neste produto</strong>.
                         </p>
+                        <p
+                            v-if="checkout_gateway_ui?.digital_wallets_at_checkout"
+                            class="text-[11px] leading-snug text-zinc-400 dark:text-zinc-500"
+                        >
+                            Apple Pay e Google Pay no checkout respeitam o aparelho: Apple Pay só em iOS; Google Pay em Android ou desktop (não aparece no iPhone/iPad).
+                        </p>
                         <div class="grid gap-2 sm:gap-2.5" :class="paymentMethodGridClass">
                             <div
                                 v-for="m in paymentMethodCardsList"
@@ -1501,6 +1517,20 @@ function submit() {
                                                 <Repeat2 class="h-3 w-3" stroke-width="2.5" />
                                             </span>
                                         </div>
+                                    </template>
+                                    <template v-else-if="m.visual === 'apple_pay'">
+                                        <img
+                                            src="/images/gateways/apple.png"
+                                            alt=""
+                                            class="h-10 w-10 object-contain"
+                                        />
+                                    </template>
+                                    <template v-else-if="m.visual === 'google_pay'">
+                                        <img
+                                            src="/images/gateways/gpay.png"
+                                            alt=""
+                                            class="h-10 w-10 object-contain"
+                                        />
                                     </template>
                                 </div>
                                 <div class="border-t border-zinc-100/90 px-2 py-2 text-center dark:border-zinc-700/80">

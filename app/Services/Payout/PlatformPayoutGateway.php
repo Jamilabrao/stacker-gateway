@@ -8,24 +8,24 @@ use App\Models\Setting;
 /**
  * Provedor de payout da plataforma (saque automático PIX).
  *
- * Gateways com API de cashout: CajuPay, Spacepag e Woovi.
- * Preferência configurável em {@see Setting} `platform_payout_gateway` (`auto`, `cajupay`, `spacepag`, `woovi`).
- * Em `auto`, a ordem fixa é CajuPay → Spacepag → Woovi — o primeiro globalmente conectado vence.
+ * Gateways com API de cashout: CajuPay, Spacepag, Woovi e OnlyUp (plugin).
+ * Preferência configurável em {@see Setting} `platform_payout_gateway` (`auto`, `cajupay`, `spacepag`, `woovi`, `onlyup`).
+ * Em `auto`, a ordem fixa é CajuPay → Spacepag → Woovi → OnlyUp — o primeiro globalmente conectado vence.
  */
 class PlatformPayoutGateway
 {
     /** @var list<string> */
-    public const PAYOUT_ORDER = ['cajupay', 'spacepag', 'woovi'];
+    public const PAYOUT_ORDER = ['cajupay', 'spacepag', 'woovi', 'onlyup'];
 
     /**
-     * Preferência salva no painel: automático ou forçar um dos três.
+     * Preferência salva no painel: automático ou forçar um dos gateways.
      *
-     * @return 'auto'|'cajupay'|'spacepag'|'woovi'
+     * @return 'auto'|'cajupay'|'spacepag'|'woovi'|'onlyup'
      */
     public static function preference(): string
     {
         $v = Setting::get('platform_payout_gateway', null, null);
-        if (in_array($v, ['cajupay', 'spacepag', 'woovi'], true)) {
+        if (in_array($v, ['cajupay', 'spacepag', 'woovi', 'onlyup'], true)) {
             return $v;
         }
 

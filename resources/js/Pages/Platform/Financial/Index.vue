@@ -38,7 +38,8 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
-    /** @type {'auto'|'cajupay'|'spacepag'|'woovi'} */
+    api_pix_enabled: { type: Boolean, default: true },
+    /** @type {'auto'|'cajupay'|'spacepag'|'woovi'|'onlyup'} */
     payout_gateway_preference: { type: String, default: 'auto' },
     /** Slug efetivo usado hoje (pode diferir do preferido se este não estiver conectado). */
     payout_gateway_active: { type: String, default: null },
@@ -160,7 +161,8 @@ const payoutPrefError = ref(false);
 watch(
     () => props.payout_gateway_preference,
     (v) => {
-        payoutPref.value = v === 'cajupay' || v === 'spacepag' || v === 'woovi' ? v : 'auto';
+        payoutPref.value =
+            v === 'cajupay' || v === 'spacepag' || v === 'woovi' || v === 'onlyup' ? v : 'auto';
     },
     { immediate: true }
 );
@@ -248,10 +250,14 @@ function feeBlock(key) {
 const feeForm = useForm({
     merchant_fee_rules: {
         pix: feeBlock('pix'),
+        api_pix: feeBlock('api_pix'),
         card: feeBlock('card'),
+        apple_pay: feeBlock('apple_pay'),
+        google_pay: feeBlock('google_pay'),
         boleto: feeBlock('boleto'),
         withdrawal: feeBlock('withdrawal'),
     },
+    api_pix_enabled: props.api_pix_enabled,
 });
 
 function submitFees() {
@@ -270,12 +276,19 @@ function settlementBlock(key) {
     };
 }
 
+/** Linhas da aba Liquidação (D+N / reserva por canal). */
+const settlementMethodRows = [
+    { key: 'pix', label: 'PIX' },
+    { key: 'card', label: 'Cartão' },
+    { key: 'apple_pay', label: 'Apple Pay' },
+    { key: 'google_pay', label: 'Google Pay' },
+    { key: 'boleto', label: 'Boleto' },
+];
+
 const settlementForm = useForm({
-    merchant_settlement_rules: {
-        pix: settlementBlock('pix'),
-        card: settlementBlock('card'),
-        boleto: settlementBlock('boleto'),
-    },
+    merchant_settlement_rules: Object.fromEntries(
+        settlementMethodRows.map(({ key }) => [key, settlementBlock(key)])
+    ),
 });
 
 function submitSettlement() {
@@ -654,6 +667,7 @@ function submitSettlement() {
                                 <option value="cajupay">Forçar CajuPay</option>
                                 <option value="spacepag">Forçar Spacepag</option>
                                 <option value="woovi">Forçar Woovi</option>
+                                <option value="onlyup">Forçar OnlyUp</option>
                             </select>
                         </div>
                         <p
@@ -691,8 +705,10 @@ function submitSettlement() {
                         Taxas padrão (plataforma)
                     </h2>
                     <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-                        Percentual e valor fixo por transação. Cada infoprodutor pode definir valores próprios na área
-                        Infoprodutores da plataforma (sobrescrevem estes padrões).
+                        Percentual e valor fixo por transação. <strong class="font-medium text-zinc-800 dark:text-zinc-200">PIX / cartão / Apple Pay / Google Pay / boleto</strong> valem para o checkout próprio da plataforma
+                        (Apple Pay e Google Pay via CajuPay SDK usam as taxas próprias; se não configuradas, herdam a taxa de <strong class="font-medium">cartão</strong> até você definir valores distintos).
+                        <strong class="font-medium text-zinc-800 dark:text-zinc-200">API — PIX</strong> aplica-se só ao PIX criado pela API REST ou pelo link de checkout hospedado gerado pela API (cartão e boleto usam sempre as taxas de checkout).
+                        Cada infoprodutor pode sobrescrever em Infoprodutores → editar.
                     </p>
                     <form class="space-y-6" @submit.prevent="submitFees">
                         <div class="overflow-x-auto">
@@ -728,6 +744,28 @@ function submitSettlement() {
                                         </td>
                                     </tr>
                                     <tr>
+                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">API — PIX</td>
+                                        <td class="py-3 pr-4">
+                                            <input
+                                                v-model.number="feeForm.merchant_fee_rules.api_pix.percent"
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            />
+                                        </td>
+                                        <td class="py-3">
+                                            <input
+                                                v-model.number="feeForm.merchant_fee_rules.api_pix.fixed"
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            />
+                                        </td>
+                                    </tr>
+                                    <tr>
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">Cartão</td>
                                         <td class="py-3 pr-4">
                                             <input
@@ -742,6 +780,50 @@ function submitSettlement() {
                                         <td class="py-3">
                                             <input
                                                 v-model.number="feeForm.merchant_fee_rules.card.fixed"
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            />
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Apple Pay</td>
+                                        <td class="py-3 pr-4">
+                                            <input
+                                                v-model.number="feeForm.merchant_fee_rules.apple_pay.percent"
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            />
+                                        </td>
+                                        <td class="py-3">
+                                            <input
+                                                v-model.number="feeForm.merchant_fee_rules.apple_pay.fixed"
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            />
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Google Pay</td>
+                                        <td class="py-3 pr-4">
+                                            <input
+                                                v-model.number="feeForm.merchant_fee_rules.google_pay.percent"
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            />
+                                        </td>
+                                        <td class="py-3">
+                                            <input
+                                                v-model.number="feeForm.merchant_fee_rules.google_pay.fixed"
                                                 type="number"
                                                 min="0"
                                                 step="0.01"
@@ -802,6 +884,13 @@ function submitSettlement() {
                         <div class="flex justify-end">
                             <Button type="submit" :disabled="feeForm.processing">Salvar taxas</Button>
                         </div>
+                        <div class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900">
+                            <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                                <input v-model="feeForm.api_pix_enabled" type="checkbox" class="h-4 w-4 rounded border-zinc-300" />
+                                API PIX externa habilitada globalmente
+                            </label>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Pode ser sobrescrita por infoprodutor na tela API Pagamentos.</p>
+                        </div>
                     </form>
                 </section>
             </div>
@@ -839,11 +928,11 @@ function submitSettlement() {
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-zinc-100 dark:divide-zinc-700">
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">PIX</td>
+                                    <tr v-for="row in settlementMethodRows" :key="'settle-' + row.key">
+                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">{{ row.label }}</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.pix.days_to_available"
+                                                v-model.number="settlementForm.merchant_settlement_rules[row.key].days_to_available"
                                                 type="number"
                                                 min="0"
                                                 max="365"
@@ -853,7 +942,7 @@ function submitSettlement() {
                                         </td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.pix.reserve_percent"
+                                                v-model.number="settlementForm.merchant_settlement_rules[row.key].reserve_percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
@@ -863,73 +952,7 @@ function submitSettlement() {
                                         </td>
                                         <td class="py-3">
                                             <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.pix.reserve_hold_days"
-                                                type="number"
-                                                min="0"
-                                                max="365"
-                                                step="1"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Cartão</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.card.days_to_available"
-                                                type="number"
-                                                min="0"
-                                                max="365"
-                                                step="1"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.card.reserve_percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.card.reserve_hold_days"
-                                                type="number"
-                                                min="0"
-                                                max="365"
-                                                step="1"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Boleto</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.boleto.days_to_available"
-                                                type="number"
-                                                min="0"
-                                                max="365"
-                                                step="1"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.boleto.reserve_percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="settlementForm.merchant_settlement_rules.boleto.reserve_hold_days"
+                                                v-model.number="settlementForm.merchant_settlement_rules[row.key].reserve_hold_days"
                                                 type="number"
                                                 min="0"
                                                 max="365"

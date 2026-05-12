@@ -5,11 +5,11 @@ use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes (v1) – Payment API
+| API Routes (v1) – API PIX (Gateway) / pagamentos
 |--------------------------------------------------------------------------
 |
-| Authenticated by API key (Bearer or X-API-Key). Middleware resolves
-| ApiApplication and attaches it to the request.
+| Autenticação: X-Public-Key + X-Secret-Key (recomendado) ou legado Bearer/X-API-Key.
+| Middleware resolve ApiApplication e anexa ao request.
 |
 */
 
@@ -29,4 +29,10 @@ Route::middleware(['api.application', 'throttle:api'])->prefix('v1')->group(func
     // Get payment/order status
     Route::get('payments/{order}', [\App\Http\Controllers\Api\V1\PaymentStatusController::class, 'show'])
         ->name('api.v1.payments.show');
+
+    // API PIX (gateway): cancel/refund
+    Route::post('pix/{order}/cancel', [\App\Http\Controllers\Api\V1\PixController::class, 'cancel'])
+        ->name('api.v1.pix.cancel');
+    Route::post('pix/{order}/refund', [\App\Http\Controllers\Api\V1\PixController::class, 'refund'])
+        ->name('api.v1.pix.refund');
 });

@@ -196,7 +196,7 @@ class RenewalController extends Controller
     {
         $request->validate([
             'token' => ['required', 'string', 'max:64'],
-            'payment_method' => ['nullable', 'string', 'in:pix,card,boleto,pix_auto,manual'],
+            'payment_method' => ['nullable', 'string', 'in:pix,card,boleto,pix_auto,manual,apple_pay,google_pay'],
             'payment_token' => ['nullable', 'string', 'max:8192'],
             'card_mask' => ['nullable', 'string', 'max:64'],
         ]);

@@ -2,13 +2,28 @@
 
 namespace App\Services;
 
+use App\Models\Order;
 use App\Models\Setting;
 use App\Models\User;
 
 class EffectiveMerchantFees
 {
+    /** Origens em que o PIX usa a taxa `api_pix` (REST ou checkout hospedado criado pela API). Cartão/boleto seguem taxas de checkout. */
+    public const API_ORDER_SOURCES = ['api', 'api_checkout_pro'];
+
+    /** @var list<string> */
+    private const RULE_KEYS = ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
+
     /**
-     * @return array{pix: array{percent: float, fixed: float}, card: array{percent: float, fixed: float}, boleto: array{percent: float, fixed: float}, withdrawal: array{percent: float, fixed: float}}
+     * @return array{
+     *     pix: array{percent: float, fixed: float},
+     *     api_pix: array{percent: float, fixed: float},
+     *     card: array{percent: float, fixed: float},
+     *     apple_pay: array{percent: float, fixed: float},
+     *     google_pay: array{percent: float, fixed: float},
+     *     boleto: array{percent: float, fixed: float},
+     *     withdrawal: array{percent: float, fixed: float}
+     * }
      */
     public static function platformDefaults(): array
     {
@@ -18,26 +33,68 @@ class EffectiveMerchantFees
         }
         $base = [
             'pix' => ['percent' => 0.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 0.0, 'fixed' => 0.0],
             'card' => ['percent' => 0.0, 'fixed' => 0.0],
+            'apple_pay' => ['percent' => 0.0, 'fixed' => 0.0],
+            'google_pay' => ['percent' => 0.0, 'fixed' => 0.0],
             'boleto' => ['percent' => 0.0, 'fixed' => 0.0],
             'withdrawal' => ['percent' => 0.0, 'fixed' => 0.0],
         ];
         if (! is_array($raw)) {
             return $base;
         }
-        foreach (['pix', 'card', 'boleto', 'withdrawal'] as $k) {
+        foreach (self::RULE_KEYS as $k) {
             if (! isset($raw[$k]) || ! is_array($raw[$k])) {
                 continue;
             }
             $base[$k]['percent'] = (float) ($raw[$k]['percent'] ?? 0);
             $base[$k]['fixed'] = (float) ($raw[$k]['fixed'] ?? 0);
         }
+        // Primeira configuração / legado: sem bloco `api_pix`, herda PIX checkout.
+        if (! isset($raw['api_pix']) || ! is_array($raw['api_pix'])) {
+            $base['api_pix'] = $base['pix'];
+        }
+        // Wallets CajuPay: sem bloco próprio, herdam taxa de cartão checkout.
+        if (! isset($raw['apple_pay']) || ! is_array($raw['apple_pay'])) {
+            $base['apple_pay'] = $base['card'];
+        }
+        if (! isset($raw['google_pay']) || ! is_array($raw['google_pay'])) {
+            $base['google_pay'] = $base['card'];
+        }
 
         return $base;
     }
 
     /**
-     * @return array{pix: array{percent: float, fixed: float}, card: array{percent: float, fixed: float}, boleto: array{percent: float, fixed: float}, withdrawal: array{percent: float, fixed: float}}
+     * Método de taxa alinhado ao checkout (ex.: CajuPay SDK: apple_pay / google_pay em metadata).
+     */
+    public static function feeMethodForOrder(Order $order): string
+    {
+        $method = $order->payment_method;
+        if ($method === null || $method === '') {
+            $meta = $order->metadata ?? [];
+            $method = is_array($meta) ? ($meta['checkout_payment_method'] ?? null) : null;
+        }
+        $feeMethod = (string) ($method ?: 'pix');
+        $meta = is_array($order->metadata ?? null) ? $order->metadata : [];
+        $cajuWallet = isset($meta['cajupay_wallet']) ? strtolower(trim((string) $meta['cajupay_wallet'])) : '';
+        if (($method === 'card' || $feeMethod === 'card') && in_array($cajuWallet, ['apple_pay', 'google_pay'], true)) {
+            return $cajuWallet;
+        }
+
+        return $feeMethod;
+    }
+
+    /**
+     * @return array{
+     *     pix: array{percent: float, fixed: float},
+     *     api_pix: array{percent: float, fixed: float},
+     *     card: array{percent: float, fixed: float},
+     *     apple_pay: array{percent: float, fixed: float},
+     *     google_pay: array{percent: float, fixed: float},
+     *     boleto: array{percent: float, fixed: float},
+     *     withdrawal: array{percent: float, fixed: float}
+     * }
      */
     public static function forTenant(int $tenantId): array
     {
@@ -53,7 +110,7 @@ class EffectiveMerchantFees
             return $defaults;
         }
         $ov = $owner->merchant_fees;
-        foreach (['pix', 'card', 'boleto', 'withdrawal'] as $k) {
+        foreach (self::RULE_KEYS as $k) {
             if (! isset($ov[$k]) || ! is_array($ov[$k])) {
                 continue;
             }
@@ -69,19 +126,29 @@ class EffectiveMerchantFees
     }
 
     /**
-     * @param  'pix'|'card'|'boleto'|'withdrawal'  $method
+     * @param  'pix'|'card'|'apple_pay'|'google_pay'|'boleto'|'withdrawal'|'pix_auto'  $method
      * @return array{fee: float, net: float, gross: float, percent: float, fixed: float}
      */
-    public static function calculateSaleFee(int $tenantId, string $method, float $gross): array
+    public static function calculateSaleFee(int $tenantId, string $method, float $gross, ?string $source = null): array
     {
-        $map = ['pix' => 'pix', 'card' => 'card', 'boleto' => 'boleto', 'pix_auto' => 'pix'];
+        $map = [
+            'pix' => 'pix',
+            'card' => 'card',
+            'apple_pay' => 'apple_pay',
+            'google_pay' => 'google_pay',
+            'boleto' => 'boleto',
+            'pix_auto' => 'pix',
+        ];
         $key = $map[$method] ?? $method;
-        if (! in_array($key, ['pix', 'card', 'boleto'], true)) {
+        if (! in_array($key, ['pix', 'card', 'apple_pay', 'google_pay', 'boleto'], true)) {
             $key = 'pix';
         }
         $rules = self::forTenant($tenantId);
-        $percent = $rules[$key]['percent'];
-        $fixed = $rules[$key]['fixed'];
+        if ($key === 'pix' && $source !== null && in_array($source, self::API_ORDER_SOURCES, true)) {
+            $key = 'api_pix';
+        }
+        $percent = $rules[$key]['percent'] ?? 0.0;
+        $fixed = $rules[$key]['fixed'] ?? 0.0;
         $fee = round($gross * ($percent / 100.0) + $fixed, 2);
         if ($fee > $gross) {
             $fee = $gross;

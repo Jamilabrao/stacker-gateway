@@ -6,6 +6,8 @@ use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
 use App\Jobs\ReconcileSpacepagWithdrawalJob;
 use App\Jobs\ReconcileWooviWithdrawalJob;
+use Plugins\OnlyUp\OnlyUpPayoutService;
+use Plugins\OnlyUp\ReconcileOnlyUpWithdrawalJob;
 use App\Models\User;
 use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayPayoutService;
@@ -13,6 +15,7 @@ use App\Services\Spacepag\SpacepagPayoutService;
 use App\Services\Woovi\WooviPayoutService;
 use App\Services\EffectiveMerchantFees;
 use App\Services\EffectiveSettlementRules;
+use App\Services\ApiPixAccess;
 use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
@@ -38,6 +41,7 @@ class FinancialController extends Controller
             'gateway_order' => $this->buildGatewayOrderForSettings($tenantId),
             'merchant_fee_rules' => EffectiveMerchantFees::platformDefaults(),
             'merchant_settlement_rules' => EffectiveSettlementRules::platformDefaults(),
+            'api_pix_enabled' => ApiPixAccess::globalEnabled(),
             'payout_gateway_preference' => PlatformPayoutGateway::preference(),
             'payout_gateway_active' => PlatformPayoutGateway::activeSlug(),
         ]);
@@ -49,7 +53,7 @@ class FinancialController extends Controller
     public function updatePayoutGatewayPreference(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'preference' => ['required', 'string', 'in:auto,cajupay,spacepag,woovi'],
+            'preference' => ['required', 'string', 'in:auto,cajupay,spacepag,woovi,onlyup'],
         ]);
 
         $pref = $validated['preference'];
@@ -70,7 +74,7 @@ class FinancialController extends Controller
         $validated = $request->validate([
             'merchant_settlement_rules' => ['required', 'array'],
         ]);
-        foreach (['pix', 'card', 'boleto'] as $key) {
+        foreach (EffectiveSettlementRules::SETTLEMENT_METHOD_KEYS as $key) {
             $request->validate([
                 "merchant_settlement_rules.$key" => ['nullable', 'array'],
                 "merchant_settlement_rules.$key.days_to_available" => ['nullable', 'integer', 'min:0', 'max:365'],
@@ -80,7 +84,7 @@ class FinancialController extends Controller
         }
 
         $out = [];
-        foreach (['pix', 'card', 'boleto'] as $key) {
+        foreach (EffectiveSettlementRules::SETTLEMENT_METHOD_KEYS as $key) {
             $block = $validated['merchant_settlement_rules'][$key] ?? [];
             $out[$key] = [
                 'days_to_available' => max(0, (int) ($block['days_to_available'] ?? 0)),
@@ -101,8 +105,9 @@ class FinancialController extends Controller
     {
         $validated = $request->validate([
             'merchant_fee_rules' => ['required', 'array'],
+            'api_pix_enabled' => ['nullable', 'boolean'],
         ]);
-        $rules = ['pix', 'card', 'boleto', 'withdrawal'];
+        $rules = ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
         foreach ($rules as $key) {
             $request->validate([
                 "merchant_fee_rules.$key" => ['nullable', 'array'],
@@ -121,8 +126,12 @@ class FinancialController extends Controller
         }
 
         Setting::set('merchant_fee_rules', $out, null);
+        Setting::set('api_pix_enabled', (bool) ($validated['api_pix_enabled'] ?? ApiPixAccess::globalEnabled()), null);
 
-        PlatformAuditService::log('platform.financial.fees_updated', ['rules' => $out], $request);
+        PlatformAuditService::log('platform.financial.fees_updated', [
+            'rules' => $out,
+            'api_pix_enabled' => (bool) ($validated['api_pix_enabled'] ?? ApiPixAccess::globalEnabled()),
+        ], $request);
 
         return redirect()->route('plataforma.financeiro.index', ['tab' => 'taxas'])
             ->with('success', 'Taxas da plataforma atualizadas.');
@@ -274,6 +283,49 @@ class FinancialController extends Controller
 
             return redirect()->route('plataforma.saques.index')
                 ->with('success', 'Saque enviado à Woovi. Será marcado como pago após confirmação na API.');
+        }
+
+        if ($slug === 'onlyup') {
+            $pixKey = PayoutUserSettings::pixKey($settings);
+            if ($pixKey === '') {
+                return redirect()->route('plataforma.saques.index')
+                    ->with('error', 'O infoprodutor precisa cadastrar uma chave PIX para saque em Financeiro (painel do vendedor).');
+            }
+
+            $payout = new OnlyUpPayoutService;
+            $result = $payout->sendWithdrawalToPix($withdrawal->fresh(), $owner);
+
+            if (! ($result['ok'] ?? false)) {
+                $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+                $withdrawal->update([
+                    'payout_provider' => 'onlyup',
+                    'payout_meta' => $prev + [
+                        'last_error' => $result['error'] ?? 'Erro desconhecido',
+                        'last_attempt_at' => now()->toIso8601String(),
+                    ],
+                ]);
+
+                return redirect()->route('plataforma.saques.index')
+                    ->with('error', 'OnlyUp: '.($result['error'] ?? 'Falha ao enviar o saque.'));
+            }
+
+            $withdrawal->update([
+                'payout_manual' => false,
+                'payout_provider' => 'onlyup',
+                'payout_external_id' => $result['transaction_id'] ?? null,
+                'payout_meta' => array_filter([
+                    'api_status' => 'pending',
+                    'requested_at' => now()->toIso8601String(),
+                ]),
+            ]);
+
+            ReconcileOnlyUpWithdrawalJob::dispatch($withdrawal->fresh()->id)
+                ->delay(now()->addSeconds(90));
+
+            PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'onlyup' => true, 'pending' => true], $request);
+
+            return redirect()->route('plataforma.saques.index')
+                ->with('success', 'Saque enviado à OnlyUp. Será marcado como pago após confirmação na API.');
         }
 
         return redirect()->route('plataforma.saques.index')

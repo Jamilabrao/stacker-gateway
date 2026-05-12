@@ -12,9 +12,11 @@ use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\Spacepag\SpacepagPayoutService;
 use App\Services\Woovi\WooviPayoutService;
+use Plugins\OnlyUp\OnlyUpPayoutService;
+use Plugins\OnlyUp\ReconcileOnlyUpWithdrawalJob;
 
 /**
- * Envia saque ao provedor PIX configurado (CajuPay, Spacepag ou Woovi) após solicitação do infoprodutor.
+ * Envia saque ao provedor PIX configurado (CajuPay, Spacepag, Woovi ou OnlyUp) após solicitação do infoprodutor.
  */
 class WithdrawalAutoPayoutService
 {
@@ -32,6 +34,9 @@ class WithdrawalAutoPayoutService
         }
         if ($slug === 'woovi') {
             return $this->attemptWoovi($withdrawal);
+        }
+        if ($slug === 'onlyup') {
+            return $this->attemptOnlyUp($withdrawal);
         }
 
         return ['ok' => false, 'skipped' => true, 'reason' => 'no_payout_gateway'];
@@ -257,6 +262,78 @@ class WithdrawalAutoPayoutService
         $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
         $withdrawal->update([
             'payout_provider' => 'woovi',
+            'payout_meta' => $prev + [
+                'last_error' => $result['error'] ?? 'Erro desconhecido',
+                'last_attempt_at' => now()->toIso8601String(),
+                'auto' => true,
+            ],
+        ]);
+
+        return [
+            'ok' => false,
+            'skipped' => false,
+            'error' => $result['error'] ?? 'Falha ao enviar o saque via PIX.',
+        ];
+    }
+
+    /**
+     * OnlyUp retorna 202; conclusão via webhook ou job de reconciliação.
+     *
+     * @return array{ok: bool, skipped?: bool, reason?: string, error?: string, pending?: bool}
+     */
+    public function attemptOnlyUp(Withdrawal $withdrawal): array
+    {
+        if ($withdrawal->status !== 'pending') {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'not_pending'];
+        }
+
+        $cred = GatewayCredential::resolveForPayment(null, 'onlyup');
+        if ($cred === null || ! $cred->is_connected) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'onlyup_not_configured'];
+        }
+
+        $tenantId = (int) $withdrawal->tenant_id;
+        $owner = User::query()
+            ->where('tenant_id', $tenantId)
+            ->where('role', User::ROLE_INFOPRODUTOR)
+            ->first();
+        if ($owner === null) {
+            $owner = User::query()->where('id', $tenantId)->where('role', User::ROLE_INFOPRODUTOR)->first();
+        }
+        if ($owner === null) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'no_owner'];
+        }
+
+        $settings = is_array($owner->payout_settings) ? $owner->payout_settings : [];
+        $pixKey = PayoutUserSettings::pixKey($settings);
+        if ($pixKey === '') {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'no_pix_key'];
+        }
+
+        $payout = new OnlyUpPayoutService;
+        $result = $payout->sendWithdrawalToPix($withdrawal->fresh(), $owner);
+
+        if ($result['ok'] ?? false) {
+            $withdrawal->update([
+                'payout_manual' => false,
+                'payout_provider' => 'onlyup',
+                'payout_external_id' => $result['transaction_id'] ?? null,
+                'payout_meta' => array_filter([
+                    'api_status' => 'pending',
+                    'requested_at' => now()->toIso8601String(),
+                    'auto' => true,
+                ]),
+            ]);
+
+            ReconcileOnlyUpWithdrawalJob::dispatch($withdrawal->fresh()->id)
+                ->delay(now()->addSeconds(90));
+
+            return ['ok' => true, 'pending' => true];
+        }
+
+        $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+        $withdrawal->update([
+            'payout_provider' => 'onlyup',
             'payout_meta' => $prev + [
                 'last_error' => $result['error'] ?? 'Erro desconhecido',
                 'last_attempt_at' => now()->toIso8601String(),

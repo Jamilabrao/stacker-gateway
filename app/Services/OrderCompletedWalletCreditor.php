@@ -46,14 +46,17 @@ class OrderCompletedWalletCreditor
             $meta = $order->metadata ?? [];
             $method = is_array($meta) ? ($meta['checkout_payment_method'] ?? null) : null;
         }
+        $feeMethod = EffectiveMerchantFees::feeMethodForOrder($order);
         $bucket = match ($method) {
-            'card' => 'card',
+            'card', 'apple_pay', 'google_pay' => 'card',
             'boleto' => 'boleto',
             'pix_auto', 'pix', null, '' => 'pix',
             default => 'pix',
         };
 
-        $methodKey = match ($bucket) {
+        $methodKey = match ($method) {
+            'apple_pay' => 'apple_pay',
+            'google_pay' => 'google_pay',
             'card' => 'card',
             'boleto' => 'boleto',
             default => 'pix',
@@ -84,7 +87,8 @@ class OrderCompletedWalletCreditor
                 'affiliate_enrollment_id' => $slice['product_affiliate_enrollment_id'] ?? null,
             ];
 
-            $feeCalc = EffectiveMerchantFees::calculateSaleFee($tenantId, (string) ($method ?? 'pix'), $grossSlice);
+            $source = is_array($order->metadata ?? null) ? (($order->metadata['source'] ?? null) ?: null) : null;
+            $feeCalc = EffectiveMerchantFees::calculateSaleFee($tenantId, $feeMethod, $grossSlice, is_string($source) ? $source : null);
             $net = $feeCalc['net'];
             if ($net <= 0) {
                 continue;

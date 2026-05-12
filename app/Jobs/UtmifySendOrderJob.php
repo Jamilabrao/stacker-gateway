@@ -16,9 +16,12 @@ class UtmifySendOrderJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
+    public int $tries = 10;
 
-    public int $backoff = 60;
+    public function backoff(): array
+    {
+        return [30, 60, 120, 300, 600, 1200, 1800, 3600];
+    }
 
     public function __construct(
         public int $utmifyIntegrationId,

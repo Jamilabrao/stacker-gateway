@@ -103,6 +103,9 @@ const navItems = computed(() => {
     }
     if (canView('relatorios.view')) items.push({ name: t('sidebar.reports', 'Relatórios'), href: '/relatorios', icon: BarChart3 });
     if (canView('integracoes.view')) items.push({ name: t('sidebar.integrations', 'Integrações'), href: '/integracoes', icon: Cable });
+    if (canView('api_pagamentos.view') && page.props.api_pix_enabled_effective) {
+        items.push({ name: 'API Pagamentos', href: '/aplicacoes-api', icon: CodeXml });
+    }
 
     // Plugins: apenas admin/infoprodutor (backend reforça) — gestão global fica em /plataforma
     if ((page.props.auth?.user?.role === 'admin' || page.props.auth?.user?.role === 'infoprodutor') && pluginNavItems.value.length) {

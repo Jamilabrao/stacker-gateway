@@ -6,7 +6,7 @@ const props = defineProps({
 });
 
 /** Cobrança PIX + saque PIX (plataforma). */
-const SLUGS_PIX_IN_OUT = new Set(['cajupay', 'spacepag', 'woovi']);
+const SLUGS_PIX_IN_OUT = new Set(['cajupay', 'spacepag', 'woovi', 'onlyup']);
 /** Só cobrança PIX (sem payout automático destes adquirentes nesta integração). */
 const SLUGS_PIX_IN_ONLY = new Set(['efi', 'mercadopago', 'pagarme']);
 
@@ -20,6 +20,7 @@ const visible = computed(() => showPixInOut.value || showPixInOnly.value);
 <template>
     <span v-if="visible" class="inline-flex flex-wrap items-center gap-1">
         <span
+            v-if="showPixInOut || showPixInOnly"
             class="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
             title="Cobrança / recebimento PIX"
         >

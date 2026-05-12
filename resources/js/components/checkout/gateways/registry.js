@@ -57,6 +57,13 @@ export const gatewayMethodComponents = {
         card: DefaultMethodCard,
         boleto: DefaultMethodCard,
     },
+    cajupay: {
+        pix: DefaultMethodCard,
+        card: DefaultMethodCard,
+        boleto: DefaultMethodCard,
+        apple_pay: DefaultMethodCard,
+        google_pay: DefaultMethodCard,
+    },
 };
 
 /**

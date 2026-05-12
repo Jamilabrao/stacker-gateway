@@ -14,7 +14,8 @@ class AccessEmailService
 {
     public function __construct(
         protected TenantMailConfigService $mailConfig,
-        protected MemberAreaResolver $memberAreaResolver
+        protected MemberAreaResolver $memberAreaResolver,
+        protected MemberAreaMagicAccessToken $memberAreaMagicAccessToken
     ) {}
 
     /**
@@ -352,43 +353,10 @@ class AccessEmailService
 
     private function resolveMemberAreaMagicLink(Product $product, User $user): string
     {
-        $base = $this->memberAreaResolver->baseUrlForProduct($product);
-        $expiresAt = now()->addDays(7);
-        $appUrl = rtrim((string) config('app.url'), '/');
-        $appScheme = parse_url($appUrl, PHP_URL_SCHEME) ?: null;
+        $base = rtrim($this->memberAreaResolver->baseUrlForProduct($product), '/');
+        $token = $this->memberAreaMagicAccessToken->mint($product, $user);
 
-        $useHostAccess = true;
-        $path = parse_url($base, PHP_URL_PATH);
-        if (is_string($path) && str_starts_with(trim($path, '/'), 'm/')) {
-            $useHostAccess = false;
-        }
-
-        $originalRoot = $appUrl;
-        $originalScheme = $appScheme;
-
-        try {
-            if ($useHostAccess) {
-                $scheme = parse_url($base, PHP_URL_SCHEME);
-                if (is_string($scheme) && $scheme !== '') {
-                    \Illuminate\Support\Facades\URL::forceScheme($scheme);
-                }
-                \Illuminate\Support\Facades\URL::forceRootUrl(rtrim($base, '/'));
-
-                return \Illuminate\Support\Facades\URL::temporarySignedRoute('member-area.magic-access.host', $expiresAt, [
-                    'u' => $user->id,
-                ]);
-            }
-
-            return \Illuminate\Support\Facades\URL::temporarySignedRoute('member-area.magic-access', $expiresAt, [
-                'slug' => $product->checkout_slug,
-                'u' => $user->id,
-            ]);
-        } finally {
-            \Illuminate\Support\Facades\URL::forceRootUrl($originalRoot);
-            if (is_string($originalScheme) && $originalScheme !== '') {
-                \Illuminate\Support\Facades\URL::forceScheme($originalScheme);
-            }
-        }
+        return $base.'/access?'.http_build_query(['m' => $token]);
     }
 
     private function prependLogoToBody(string $logoUrl, string $bodyHtml): string

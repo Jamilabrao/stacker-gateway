@@ -30,6 +30,22 @@ const methods = computed(() =>
     (props.gateway.methods || []).map((m) => methodLabels[m] || m)
 );
 
+/** CajuPay: cartão + wallets no checkout SDK; chips extras junto a PIX/Cartão. */
+const methodChips = computed(() => {
+    const base = methods.value;
+    if ((props.gateway.slug || '').toLowerCase() !== 'cajupay') {
+        return base;
+    }
+    const extra = ['Apple Pay', 'Google Pay'];
+    const out = [...base];
+    for (const label of extra) {
+        if (!out.includes(label)) {
+            out.push(label);
+        }
+    }
+    return out;
+});
+
 const imageUrl = computed(() => {
     const img = props.gateway.image;
     if (!img) return null;
@@ -141,7 +157,7 @@ const hasMultipleCountries = computed(() => countries.value != null);
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-1.5">
                 <span
-                    v-for="method in methods"
+                    v-for="method in methodChips"
                     :key="method"
                     class="inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-400"
                 >

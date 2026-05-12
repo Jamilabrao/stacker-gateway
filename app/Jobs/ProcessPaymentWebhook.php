@@ -12,6 +12,7 @@ use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Subscription;
+use App\Services\CajuPay\CajuPaySdkCheckoutService;
 use App\Services\EfiPixRecorrenteService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -42,9 +43,7 @@ class ProcessPaymentWebhook implements ShouldQueue
 
     public function handle(): void
     {
-        $order = Order::where('gateway', $this->gatewaySlug)
-            ->where('gateway_id', $this->transactionId)
-            ->first();
+        $order = $this->resolveOrderForWebhook();
 
         if (! $order) {
             Log::info('ProcessPaymentWebhook: order not found for gateway transaction', [
@@ -80,6 +79,9 @@ class ProcessPaymentWebhook implements ShouldQueue
                 return;
             }
             $apiStatus = $this->fetchGatewayTransactionStatus($order);
+            if ($apiStatus !== 'paid' && $this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.paid') {
+                $apiStatus = 'paid';
+            }
             if ($apiStatus !== 'paid') {
                 Log::warning('ProcessPaymentWebhook: paid branch aborted (gateway reconfirm not paid)', [
                     'order_id' => $order->id,
@@ -154,9 +156,12 @@ class ProcessPaymentWebhook implements ShouldQueue
             }
         }
 
-        if (in_array($this->event, ['order.rejected', 'payment.rejected'], true) && in_array($this->status, ['rejected', 'refused', 'failed'], true)) {
+        $isRejectEvent = in_array($this->event, ['order.rejected', 'payment.rejected'], true)
+            || ($this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.failed');
+        if ($isRejectEvent && in_array($this->status, ['rejected', 'refused', 'failed'], true)) {
             if ($order->status === 'pending') {
-                if (! $this->reconfirmGatewayStatus($order, ['cancelled'])) {
+                $skipReconfirm = $this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.failed';
+                if (! $skipReconfirm && ! $this->reconfirmGatewayStatus($order, ['cancelled'])) {
                     return;
                 }
                 $order->update(['status' => 'rejected']);
@@ -164,15 +169,40 @@ class ProcessPaymentWebhook implements ShouldQueue
             }
         }
 
-        if (in_array($this->event, ['order.refunded', 'payment.refunded'], true) && in_array($this->status, ['refunded', 'refund'], true)) {
+        $isRefundEvent = in_array($this->event, ['order.refunded', 'payment.refunded'], true)
+            || ($this->gatewaySlug === 'cajupay' && in_array($this->event, ['checkout.payment.refunded', 'checkout.payment.disputed'], true));
+        if ($isRefundEvent && in_array($this->status, ['refunded', 'refund', 'disputed'], true)) {
             if ($order->status === 'completed') {
-                if (! $this->reconfirmGatewayStatus($order, ['cancelled'])) {
+                $skipReconfirmRefund = $this->gatewaySlug === 'cajupay'
+                    && in_array($this->event, ['checkout.payment.refunded', 'checkout.payment.disputed'], true);
+                if (! $skipReconfirmRefund && ! $this->reconfirmGatewayStatus($order, ['cancelled'])) {
                     return;
                 }
                 $order->update(['status' => 'refunded']);
                 event(new OrderRefunded($order));
             }
         }
+    }
+
+    private function resolveOrderForWebhook(): ?Order
+    {
+        $order = Order::where('gateway', $this->gatewaySlug)
+            ->where('gateway_id', $this->transactionId)
+            ->first();
+        if ($order !== null) {
+            return $order;
+        }
+        if ($this->gatewaySlug !== 'cajupay') {
+            return null;
+        }
+        $tid = $this->transactionId;
+
+        return Order::query()
+            ->where(function ($q) use ($tid) {
+                $q->where('metadata->cajupay_checkout_session_id', $tid)
+                    ->orWhere('metadata->cajupay_sdk_token', $tid);
+            })
+            ->first();
     }
 
     /**
@@ -189,6 +219,9 @@ class ProcessPaymentWebhook implements ShouldQueue
         if ($this->gatewaySlug === 'stripe' && $this->event === 'payment_intent.succeeded') {
             return true;
         }
+        if ($this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.paid') {
+            return true;
+        }
 
         return false;
     }
@@ -201,13 +234,26 @@ class ProcessPaymentWebhook implements ShouldQueue
             return null;
         }
 
-        $driver = GatewayRegistry::driver($this->gatewaySlug);
-        if (! $driver) {
+        $credentials = $credential->getDecryptedCredentials();
+        if (empty($credentials)) {
             return null;
         }
 
-        $credentials = $credential->getDecryptedCredentials();
-        if (empty($credentials)) {
+        if ($this->gatewaySlug === 'cajupay') {
+            $meta = is_array($order->metadata) ? $order->metadata : [];
+            $publicToken = isset($meta['cajupay_sdk_token']) && is_string($meta['cajupay_sdk_token'])
+                ? trim($meta['cajupay_sdk_token'])
+                : '';
+            if ($publicToken !== '') {
+                $fromSdk = app(CajuPaySdkCheckoutService::class)->getPublicSessionStatus($publicToken, $credentials);
+                if ($fromSdk !== null) {
+                    return $fromSdk;
+                }
+            }
+        }
+
+        $driver = GatewayRegistry::driver($this->gatewaySlug);
+        if (! $driver) {
             return null;
         }
 

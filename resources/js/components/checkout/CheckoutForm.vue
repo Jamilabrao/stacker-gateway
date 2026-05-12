@@ -84,10 +84,28 @@ function getCsrfToken() {
     return '';
 }
 
-function tf(key, fallback = '') {
-    const v = typeof t === 'function' ? t(key) : null;
-    if (!v || v === key) return fallback;
-    return v;
+function getCookie(name) {
+    if (typeof document === 'undefined') return null;
+    // escape para montar regex segura
+    const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = document.cookie ? document.cookie.match(new RegExp('(?:^|; )' + escaped + '=([^;]*)')) : null;
+    if (!m) return null;
+    try {
+        return decodeURIComponent(m[1]);
+    } catch (_) {
+        return m[1];
+    }
+}
+
+function getMetaCookiePayload() {
+    const fbp = getCookie('_fbp');
+    const fbc = getCookie('_fbc');
+    const ua = typeof navigator !== 'undefined' ? (navigator.userAgent || '') : '';
+    const out = {};
+    if (fbp) out.fbp = fbp;
+    if (fbc) out.fbc = fbc;
+    if (ua) out.user_agent = ua;
+    return out;
 }
 
 const EMAIL_PROVIDERS = [
@@ -142,6 +160,40 @@ const props = defineProps({
     cardGatewayKeys: { type: Object, default: () => ({}) },
 });
 
+/** iPhone / iPod / iPad (inclui iPadOS com UA de desktop). */
+function isCheckoutIosDevice() {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/i.test(ua)) return true;
+    return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1;
+}
+
+function isCheckoutAndroidDevice() {
+    if (typeof navigator === 'undefined') return false;
+    return /Android/i.test(navigator.userAgent || '');
+}
+
+/** Apple Pay só no iOS; Google Pay em Android ou desktop (oculto no iOS). */
+const checkoutPaymentMethodsForDevice = computed(() => {
+    const list = Array.isArray(props.availablePaymentMethods) ? [...props.availablePaymentMethods] : [];
+    if (typeof navigator === 'undefined') return list;
+    const ios = isCheckoutIosDevice();
+    const android = isCheckoutAndroidDevice();
+    const showGooglePay = android || (!ios && !android);
+    return list.filter((m) => {
+        if (m.id === 'apple_pay') return ios;
+        if (m.id === 'google_pay') return showGooglePay;
+        return true;
+    });
+});
+
+function tf(key, fallback = '') {
+    const fn = props.t;
+    const v = typeof fn === 'function' ? fn(key) : null;
+    if (!v || v === key) return fallback;
+    return v;
+}
+
 const affiliateRefEffective = ref(String(props.affiliateRef || '').trim());
 onMounted(() => {
     if (!affiliateRefEffective.value && typeof window !== 'undefined') {
@@ -155,6 +207,7 @@ function appendUtmsAndAffiliate(payload) {
     if (affiliateRefEffective.value) {
         payload.affiliate_ref = affiliateRefEffective.value;
     }
+    Object.assign(payload, getMetaCookiePayload());
     return payload;
 }
 
@@ -187,17 +240,35 @@ const showFooterCustom = computed(
     () => footerEnabled.value && (footerLogoUrl.value !== '' || footerText.value !== '' || footerSupportEmail.value !== '')
 );
 
-/** Gateway do método cartão (primeiro método com id === 'card' em available_payment_methods). */
+/** Gateway do cartão / wallets (primeiro método cartão ou Apple/Google Pay na lista visível no dispositivo). */
 const cardGatewaySlug = computed(() => {
-    const methods = Array.isArray(props.availablePaymentMethods) ? props.availablePaymentMethods : [];
-    const cardMethod = methods.find((m) => m.id === 'card');
-    return (cardMethod?.gateway_slug || '').toLowerCase();
+    const methods = checkoutPaymentMethodsForDevice.value;
+    const m = methods.find((x) => ['card', 'apple_pay', 'google_pay'].includes(x.id));
+    return (m?.gateway_slug || '').toLowerCase();
 });
 const isCardGatewayStripe = computed(() => cardGatewaySlug.value === 'stripe');
 const isCardGatewayEfi = computed(() => cardGatewaySlug.value === 'efi');
 const isCardGatewayMercadopago = computed(() => cardGatewaySlug.value === 'mercadopago');
 const isCardGatewayAsaas = computed(() => cardGatewaySlug.value === 'asaas');
 const isCardGatewayPagarme = computed(() => cardGatewaySlug.value === 'pagarme');
+const isCardGatewayCajupay = computed(() => cardGatewaySlug.value === 'cajupay');
+const isCardPaymentFamily = computed(() => ['card', 'apple_pay', 'google_pay'].includes(form.payment_method));
+const isCajupayCardOnly = computed(() => isCardGatewayCajupay.value && form.payment_method === 'card');
+const isCajupayCheckoutUi = computed(() => isCardGatewayCajupay.value && isCardPaymentFamily.value);
+
+const primarySubmitButtonLabel = computed(() => {
+    const pt = props.t;
+    const pm = form.payment_method;
+    if (pm === 'pix') return pt('checkout.gerar_pix');
+    if (pm === 'pix_auto') return pt('checkout.gerar_pix_auto') || 'Gerar PIX (renovação automática)';
+    if (pm === 'boleto') return pt('checkout.gerar_boleto') || 'Gerar boleto';
+    if (pm === 'apple_pay' || pm === 'google_pay') return 'Continuar';
+    if (pm === 'card') {
+        if (isCardGatewayAsaas.value && asaasCardStep.value === 1) return 'Continuar';
+        return pt('checkout.pagar_cartao') || 'Pagar com cartão';
+    }
+    return pt('checkout.submit_button');
+});
 const cardPagarmePublicKey = computed(() => {
     const k = props.cardGatewayKeys?.pagarme;
     return (k && typeof k.public_key === 'string' ? k.public_key : '').trim();
@@ -209,7 +280,9 @@ const cardPagarmeApiBaseUrl = computed(() => {
     return u !== '' ? u.replace(/\/$/, '') : 'https://api.pagar.me/core/v5';
 });
 const showBillingAddressBlock = computed(
-    () => form.payment_method === 'boleto' || (form.payment_method === 'card' && isCardGatewayPagarme.value)
+    () =>
+        form.payment_method === 'boleto' ||
+        (['card', 'apple_pay', 'google_pay'].includes(form.payment_method) && isCardGatewayPagarme.value)
 );
 
 const pagarmeTokenizeFormId = CHECKOUT_PAGARME_TOKENIZE_FORM_ID;
@@ -260,7 +333,7 @@ const form = useForm({
 });
 
 watch(
-    () => props.availablePaymentMethods,
+    () => checkoutPaymentMethodsForDevice.value,
     (list) => {
         const methods = Array.isArray(list) ? list : [];
         if (methods.length > 0 && (!form.payment_method || !methods.some((m) => m.id === form.payment_method))) {
@@ -470,6 +543,12 @@ watch(
             }
         } else if (method === 'pix' || method === 'boleto') {
             showEditForm.value = true;
+        } else if (method === 'card' || method === 'apple_pay' || method === 'google_pay') {
+            if ((form.email || '').trim().length > 0 && (form.email || '').includes('@')) {
+                showEditForm.value = false;
+            } else {
+                showEditForm.value = true;
+            }
         } else if ((form.email || '').trim().length > 0 && (form.email || '').includes('@')) {
             showEditForm.value = false;
         }
@@ -479,7 +558,7 @@ watch(
     () => Object.keys(form.errors || {}).length,
     (count) => {
         if (count > 0 && (form.payment_method === 'pix' || form.payment_method === 'pix_auto' || form.payment_method === 'boleto'
-            || (form.payment_method === 'card' && isCardGatewayPagarme.value))) {
+            || (['card', 'apple_pay', 'google_pay'].includes(form.payment_method) && isCardGatewayPagarme.value))) {
             showEditForm.value = true;
         }
     }
@@ -818,8 +897,282 @@ watch(
     { immediate: true }
 );
 
+const cajupaySdkHint = ref('');
+const cajupaySdkController = ref(null);
+const cajupayPendingOrderId = ref(null);
+const cajupayPendingNonce = ref(null);
+/** Wallet enviada ao SDK (método de pagamento no checkout). */
+const cajupaySdkWallet = computed(() => {
+    if (form.payment_method === 'apple_pay') return 'apple_pay';
+    if (form.payment_method === 'google_pay') return 'google_pay';
+    return 'card';
+});
+
+/** Pré-carrega o SDK CajuPay no fluxo cartão/carteiras; não altera `payment_method` (probeWallet costuma retornar indisponível fora do contexto ideal e não deve trocar a escolha do comprador). */
+async function refreshCajupayWalletProbe() {
+    if (!isCajupayCheckoutUi.value) {
+        return;
+    }
+    try {
+        await loadCajupaySdkScript();
+    } catch (_) {
+        /* opcional */
+    }
+}
+
+watch(
+    () => [form.payment_method, isCardGatewayCajupay.value],
+    () => {
+        if (isCajupayCheckoutUi.value) {
+            void refreshCajupayWalletProbe();
+        }
+    },
+    { immediate: true }
+);
+
+function destroyCajupaySdk() {
+    try {
+        const c = cajupaySdkController.value;
+        if (c && typeof c.destroy === 'function') {
+            c.destroy();
+        }
+    } catch (_) {}
+    cajupaySdkController.value = null;
+    cajupaySdkHint.value = '';
+    cajupayPendingOrderId.value = null;
+    cajupayPendingNonce.value = null;
+}
+
+watch(
+    () => [form.payment_method, isCardGatewayCajupay.value],
+    () => {
+        if (!isCajupayCheckoutUi.value) {
+            destroyCajupaySdk();
+        }
+    }
+);
+
+function loadCajupaySdkScript() {
+    return new Promise((resolve, reject) => {
+        if (typeof window !== 'undefined' && window.CajuPaySDK) {
+            resolve();
+            return;
+        }
+        const existing = document.querySelector('script[data-cajupay-sdk="1"]');
+        if (existing) {
+            if (window.CajuPaySDK) {
+                resolve();
+                return;
+            }
+            existing.addEventListener('load', () => resolve());
+            existing.addEventListener('error', () => reject(new Error('CajuPay SDK')));
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = 'https://cdn.cajupay.com.br/sdk/v1/cajupay-sdk.min.js';
+        script.async = true;
+        script.dataset.cajupaySdk = '1';
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Falha ao carregar CajuPay SDK.'));
+        document.head.appendChild(script);
+    });
+}
+
+function defaultMethodForCajupayWallet(w) {
+    const map = { card: 'card', apple_pay: 'apple_pay', google_pay: 'google_pay' };
+    return map[w] || 'card';
+}
+
+async function pollCajupayOrderStatus(orderId, nonce) {
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+        const { data } = await axios.get('/checkout/cajupay/session-status', {
+            params: { order_id: orderId, cajupay_sdk_nonce: nonce },
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
+            withCredentials: true,
+        });
+        if (data?.order_status === 'completed') return { ok: true, orderId };
+        if (data?.payment_status === 'paid') return { ok: true, orderId };
+        if (data?.payment_status === 'cancelled') return { ok: false, orderId };
+        await new Promise((r) => { setTimeout(r, 2000); });
+    }
+    return { ok: false, orderId };
+}
+
+async function cajupayConfirmAndFinish() {
+    const orderId = cajupayPendingOrderId.value;
+    const nonce = cajupayPendingNonce.value;
+    const controller = cajupaySdkController.value;
+    if (!orderId || !nonce || !controller) {
+        cardFormError.value = 'Sessão de pagamento inválida. Recarregue a página.';
+        return;
+    }
+    cardTokenizing.value = true;
+    cardFormError.value = '';
+    try {
+        if (typeof controller.confirm === 'function') {
+            await controller.confirm();
+        }
+        const poll = await pollCajupayOrderStatus(orderId, nonce);
+        if (poll.ok) {
+            cardApproved.value = true;
+            emitPurchaseConfirmed(orderId, 'approved');
+            const next = 'login';
+            const url = `/checkout/obrigado?order_id=${encodeURIComponent(String(orderId))}&next=${next}`;
+            cardApprovedRedirectUrl.value = url;
+            destroyCajupaySdk();
+            setTimeout(() => router.visit(url), 800);
+        } else {
+            cardFormError.value = 'Pagamento não confirmado. Tente novamente ou use outro método.';
+            showCardRefusedModal.value = true;
+            cardRefusedMessage.value = cardFormError.value;
+        }
+    } catch (err) {
+        const msg = err?.response?.data?.message || err?.message || 'Erro ao confirmar pagamento.';
+        cardFormError.value = typeof msg === 'string' ? msg : 'Erro ao confirmar pagamento.';
+        showCardRefusedModal.value = true;
+        cardRefusedMessage.value = cardFormError.value;
+    } finally {
+        cardTokenizing.value = false;
+    }
+}
+
+async function submitCajupayCardFlow() {
+    if (cajupaySdkController.value && cajupayPendingOrderId.value && cajupayPendingNonce.value) {
+        await cajupayConfirmAndFinish();
+        return;
+    }
+    const email = (form.email || '').trim();
+    if (!email) {
+        cardFormError.value = 'Informe o e-mail.';
+        return;
+    }
+    if (showName.value && !(form.name || '').trim()) {
+        cardFormError.value = 'Informe o nome completo.';
+        return;
+    }
+    cardTokenizing.value = true;
+    cardFormError.value = '';
+    destroyCajupaySdk();
+    const payload = {
+        product_id: form.product_id,
+        payment_method: ['apple_pay', 'google_pay'].includes(form.payment_method) ? form.payment_method : 'card',
+        email: form.email,
+        name: showName.value ? form.name : '',
+        cpf: showCpf.value ? (form.cpf || '').replace(/\D/g, '') : '',
+        phone: showPhone.value ? form.country_code + phoneDigits.value : '',
+        coupon_code: (form.coupon_code || '').trim() || null,
+    };
+    if (payload.payment_method === 'card') {
+        payload.cajupay_wallet = cajupaySdkWallet.value;
+    }
+    if (props.productOfferId) payload.product_offer_id = props.productOfferId;
+    if (props.subscriptionPlanId) payload.subscription_plan_id = props.subscriptionPlanId;
+    if (props.checkoutSessionToken) payload.checkout_session_token = props.checkoutSessionToken;
+    if (props.displayCurrency) payload.display_currency = props.displayCurrency;
+    if (Array.isArray(props.orderBumpIds) && props.orderBumpIds.length > 0) {
+        payload.order_bump_ids = props.orderBumpIds.map((id) => (typeof id === 'number' ? id : parseInt(id, 10))).filter((n) => !Number.isNaN(n));
+    }
+    appendUtmsAndAffiliate(payload);
+    try {
+        const res = await axios.post('/checkout', payload, {
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
+            withCredentials: true,
+        });
+        const data = res?.data;
+        if (!data?.success || !data?.cajupay_sdk) {
+            cardFormError.value = data?.message || 'Não foi possível iniciar o pagamento.';
+            return;
+        }
+        const orderId = data.order_id;
+        const nonce = data.cajupay_sdk_nonce;
+        const sdkBase = (data.sdk_base_url || '').trim() || 'https://api.cajupay.com.br';
+        const sessRes = await axios.post('/checkout/cajupay/sdk-session', {
+            order_id: orderId,
+            cajupay_sdk_nonce: nonce,
+            cajupay_wallet: cajupaySdkWallet.value,
+        }, {
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': getCsrfToken() },
+            withCredentials: true,
+        });
+        const sess = sessRes?.data;
+        if (!sess?.token) {
+            cardFormError.value = sess?.message || 'Não foi possível criar a sessão de pagamento.';
+            return;
+        }
+        await loadCajupaySdkScript();
+        await nextTick();
+        if (typeof window === 'undefined' || !window.CajuPaySDK?.init) {
+            cardFormError.value = 'Formulário de pagamento indisponível. Recarregue a página.';
+            return;
+        }
+        const mountSelector = '#cajupay-method';
+        if (!document.querySelector(mountSelector)) {
+            cardFormError.value = 'Área do pagamento não encontrada.';
+            return;
+        }
+        const sdk = window.CajuPaySDK.init({ baseUrl: sdkBase });
+        const defaultMethod = defaultMethodForCajupayWallet(cajupaySdkWallet.value);
+        const docDigits = showCpf.value ? String(form.cpf || '').replace(/\D/g, '') : '';
+        const payer = {
+            name: (showName.value ? form.name : email).trim() || 'Cliente',
+            email: email || 'cliente@checkout.local',
+        };
+        if (docDigits.length >= 11) payer.document = docDigits;
+        const mountOpts = {
+            token: sess.token,
+            sessionToken: sess.token,
+            defaultMethod,
+            embeddedOnly: true,
+            preparePaymentUIOnMount: true,
+            initialPayer: payer,
+        };
+        const controller = await sdk.mountCheckout(mountSelector, mountOpts);
+        cajupaySdkController.value = controller;
+        cajupayPendingOrderId.value = orderId;
+        cajupayPendingNonce.value = nonce;
+
+        if (cajupaySdkWallet.value === 'card') {
+            try {
+                if (typeof controller.confirm === 'function') {
+                    await controller.confirm();
+                }
+            } catch (_) {
+                /* primeiro passo pode só montar o formulário */
+            }
+            cajupaySdkHint.value = 'Preencha o cartão acima e clique novamente em «Pagar com cartão» para confirmar.';
+            cardTokenizing.value = false;
+            return;
+        }
+        if (typeof controller.confirm === 'function') {
+            await controller.confirm();
+        }
+        const poll = await pollCajupayOrderStatus(orderId, nonce);
+        if (poll.ok) {
+            cardApproved.value = true;
+            emitPurchaseConfirmed(orderId, 'approved');
+            const url = `/checkout/obrigado?order_id=${encodeURIComponent(String(orderId))}&next=login`;
+            cardApprovedRedirectUrl.value = url;
+            destroyCajupaySdk();
+            setTimeout(() => router.visit(url), 800);
+        } else {
+            cardFormError.value = 'Pagamento não confirmado. Tente novamente.';
+            showCardRefusedModal.value = true;
+            cardRefusedMessage.value = cardFormError.value;
+        }
+    } catch (err) {
+        const msg = err?.response?.data?.message || err?.message || 'Não foi possível processar o pagamento.';
+        cardFormError.value = typeof msg === 'string' ? msg : 'Não foi possível processar o pagamento.';
+        showCardRefusedModal.value = true;
+        cardRefusedMessage.value = cardFormError.value;
+    } finally {
+        cardTokenizing.value = false;
+    }
+}
+
 onBeforeUnmount(() => {
     destroyMercadopagoBrick();
+    destroyCajupaySdk();
 });
 
 function closeRefusedModal() {
@@ -843,7 +1196,7 @@ function onRefusedOtherPaymentMethod(e) {
     }
     showCardRefusedModal.value = false;
     cardRefusedMessage.value = '';
-    const other = props.availablePaymentMethods.find((m) => m.id !== 'card');
+    const other = checkoutPaymentMethodsForDevice.value.find((m) => m.id !== 'card');
     if (other) form.payment_method = other.id;
 }
 
@@ -1228,7 +1581,7 @@ async function getEfiPaymentToken() {
 }
 
 function submit() {
-    const methods = Array.isArray(props.availablePaymentMethods) ? props.availablePaymentMethods : [];
+    const methods = checkoutPaymentMethodsForDevice.value;
     if (methods.length === 0) {
         form.setError('payment_method', 'Nenhum método de pagamento disponível.');
         return;
@@ -1240,9 +1593,13 @@ function submit() {
     }
     form.clearErrors('payment_method');
 
-    if (paymentMethod === 'card') {
+    const isCajupayWalletMethod =
+        isCardGatewayCajupay.value && (paymentMethod === 'apple_pay' || paymentMethod === 'google_pay');
+    const isCardLikeSubmit = paymentMethod === 'card' || isCajupayWalletMethod;
+
+    if (isCardLikeSubmit) {
         cardFormError.value = '';
-        if (isCardGatewayAsaas.value) {
+        if (paymentMethod === 'card' && isCardGatewayAsaas.value) {
             if (asaasCardStep.value === 1) {
                 asaasCardStep.value = 2;
                 return;
@@ -1321,6 +1678,10 @@ function submit() {
                     cardRefusedMessage.value = cardFormError.value;
                 })
                 .finally(() => { cardTokenizing.value = false; });
+            return;
+        }
+        if (isCardGatewayCajupay.value) {
+            void submitCajupayCardFlow();
             return;
         }
         if (isCardGatewayMercadopago.value) {
@@ -1857,7 +2218,7 @@ function submit() {
             <!-- Forma de pagamento (componentes por gateway em gateways/<slug>/) -->
             <CheckoutPaymentMethods
                 v-model="form.payment_method"
-                :available-payment-methods="availablePaymentMethods"
+                :available-payment-methods="checkoutPaymentMethodsForDevice"
                 :primary-color="primaryColor"
                 :t="t"
             />
@@ -1865,15 +2226,40 @@ function submit() {
 
             <!-- Formulário de cartão (Stripe Elements ou campos Efí) -->
             <div
-                v-if="form.payment_method === 'card'"
-                class="space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4"
+                v-if="isCardPaymentFamily"
+                :class="
+                    isCajupayCardOnly
+                        ? 'space-y-2'
+                        : 'space-y-4 rounded-xl border-2 border-gray-100 bg-gray-50/50 p-4'
+                "
                 data-checkout="form-card-panel"
             >
-                <div class="flex items-center gap-2 text-gray-700">
+                <div
+                    v-if="!isCajupayCardOnly"
+                    class="flex items-center gap-2 text-gray-700"
+                >
                     <span class="flex h-8 w-8 shrink-0 items-center justify-center">
-                        <img src="/images/gateways/card.png" alt="" class="h-6 w-6 object-contain" />
+                        <img
+                            v-if="form.payment_method === 'apple_pay'"
+                            src="/images/gateways/apple.png"
+                            alt=""
+                            class="h-6 w-6 object-contain"
+                        />
+                        <img
+                            v-else-if="form.payment_method === 'google_pay'"
+                            src="/images/gateways/gpay.png"
+                            alt=""
+                            class="h-6 w-6 object-contain"
+                        />
+                        <img v-else src="/images/gateways/card.png" alt="" class="h-6 w-6 object-contain" />
                     </span>
-                    <span class="text-sm font-medium">{{ t('checkout.dados_cartao') || 'Dados do cartão' }}</span>
+                    <span class="text-sm font-medium">{{
+                        form.payment_method === 'apple_pay'
+                            ? 'Apple Pay'
+                            : form.payment_method === 'google_pay'
+                              ? 'Google Pay'
+                              : t('checkout.dados_cartao') || 'Dados do cartão'
+                    }}</span>
                 </div>
                 <p v-if="cardFormError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">
                     {{ cardFormError }}
@@ -1893,7 +2279,7 @@ function submit() {
                 <!-- Asaas: 2 etapas (cartão + endereço com CEP) -->
                 <div v-else-if="isCardGatewayAsaas" class="space-y-4">
                     <AsaasCard
-                        :method="availablePaymentMethods?.find((m) => m.id === 'card') || { id: 'card', label: 'Cartão' }"
+                        :method="checkoutPaymentMethodsForDevice.find((m) => m.id === 'card') || { id: 'card', label: 'Cartão' }"
                         :selected="true"
                         :primary-color="primaryColor"
                         :card-data="asaasCardData"
@@ -2053,8 +2439,18 @@ function submit() {
                         </div>
                     </template>
                 </div>
+                <!-- Cartão / Apple Pay / Google Pay (SDK embeddedOnly) -->
+                <div v-else-if="isCardGatewayCajupay">
+                    <template v-if="form.payment_method === 'card'">
+                        <div id="cajupay-method" class="min-h-[120px]" />
+                    </template>
+                    <div v-else class="space-y-4">
+                        <div id="cajupay-method" class="min-h-[120px] rounded-xl border-2 border-gray-100 bg-white p-3" />
+                        <p v-if="cajupaySdkHint" class="text-sm text-gray-600">{{ cajupaySdkHint }}</p>
+                    </div>
+                </div>
                 <!-- Efí: campos manuais para tokenização payment-token-efi -->
-                <div v-else class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div v-else-if="isCardGatewayEfi" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div class="relative sm:col-span-2">
                         <label for="card-holder" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.card_holder') || 'Nome no cartão' }}</label>
                         <div class="relative">
@@ -2150,7 +2546,7 @@ function submit() {
                 </div>
                 <!-- Parcelas (Efí e Asaas; Stripe e MP Brick têm seu próprio) -->
                 <div
-                    v-if="form.payment_method === 'card' && cardInstallmentsEnabled && !isCardGatewayStripe && !isCardGatewayMercadopago && !isCardGatewayAsaas"
+                    v-if="form.payment_method === 'card' && cardInstallmentsEnabled && !isCardGatewayStripe && !isCardGatewayMercadopago && !isCardGatewayAsaas && !isCardGatewayCajupay"
                     class="mt-4"
                     data-checkout="form-installments"
                 >
@@ -2181,7 +2577,7 @@ function submit() {
                 <div class="flex items-center gap-2 text-gray-700">
                     <MapPin class="h-5 w-5 shrink-0 text-gray-500" aria-hidden="true" />
                     <span class="text-sm font-medium">
-                        {{ form.payment_method === 'card'
+                        {{ ['card', 'apple_pay', 'google_pay'].includes(form.payment_method)
                             ? tf('checkout.endereco_cobranca', 'Endereço de cobrança')
                             : tf('checkout.endereco_boleto', 'Endereço') }}
                     </span>
@@ -2190,7 +2586,7 @@ function submit() {
                 <div v-if="!boletoAddressFetched" class="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-2">
                     <div class="min-w-0 flex-1">
                         <label for="checkout-address-cep" class="mb-2 block text-sm font-medium text-gray-700">
-                            {{ form.payment_method === 'card' ? 'CEP' : t('checkout.endereco_boleto_cep') }}
+                            {{ ['card', 'apple_pay', 'google_pay'].includes(form.payment_method) ? 'CEP' : t('checkout.endereco_boleto_cep') }}
                         </label>
                         <div class="relative">
                             <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -2283,7 +2679,7 @@ function submit() {
 
             <p v-if="form.errors.product_id" class="text-sm font-medium text-red-600">{{ form.errors.product_id }}</p>
             <button
-                v-if="form.payment_method !== 'card' || !isCardGatewayMercadopago"
+                v-if="!isCardPaymentFamily || !isCardGatewayMercadopago"
                 type="submit"
                 data-checkout="form-submit"
                 class="flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-lg shadow-black/10 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70"
@@ -2294,9 +2690,21 @@ function submit() {
                 <Check v-else-if="cardApproved" class="h-5 w-5" />
                 <ScanQrCode v-else-if="form.payment_method === 'pix' || form.payment_method === 'pix_auto'" class="h-5 w-5" />
                 <CreditCard v-else-if="form.payment_method === 'card'" class="h-5 w-5" />
+                <img
+                    v-else-if="form.payment_method === 'apple_pay'"
+                    src="/images/gateways/apple.png"
+                    alt=""
+                    class="h-5 w-5 object-contain"
+                />
+                <img
+                    v-else-if="form.payment_method === 'google_pay'"
+                    src="/images/gateways/gpay.png"
+                    alt=""
+                    class="h-5 w-5 object-contain"
+                />
                 <FileText v-else-if="form.payment_method === 'boleto'" class="h-5 w-5" />
                 <ShoppingBag v-else class="h-5 w-5" />
-                {{ cardApproved ? 'Aprovado!' : (form.processing || cardTokenizing) ? t('checkout.processing') : (form.payment_method === 'pix' ? t('checkout.gerar_pix') : form.payment_method === 'pix_auto' ? (t('checkout.gerar_pix_auto') || 'Gerar PIX (renovação automática)') : form.payment_method === 'card' ? (isCardGatewayAsaas && asaasCardStep === 1 ? 'Continuar' : (t('checkout.pagar_cartao') || 'Pagar com cartão')) : form.payment_method === 'boleto' ? (t('checkout.gerar_boleto') || 'Gerar boleto') : t('checkout.submit_button')) }}
+                {{ cardApproved ? 'Aprovado!' : (form.processing || cardTokenizing) ? t('checkout.processing') : primarySubmitButtonLabel }}
             </button>
         </form>
         <!-- Form vazio: tokenizecard.js; campos cartão Pagar.me associam-se via atributo HTML form="" -->
@@ -2387,7 +2795,7 @@ function submit() {
                                 Tentar com outro cartão
                             </button>
                             <button
-                                v-if="availablePaymentMethods.some(m => m.id !== 'card')"
+                                v-if="checkoutPaymentMethodsForDevice.some(m => m.id !== 'card')"
                                 type="button"
                                 class="flex-1 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2"
                                 @click.prevent.stop="onRefusedOtherPaymentMethod($event)"

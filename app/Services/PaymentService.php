@@ -386,7 +386,15 @@ class PaymentService
         ];
 
         foreach ($methodConfig as $methodKey => $meta) {
-            if (($enabled[$methodKey] ?? true) === false) {
+            $includeCardRow = true;
+            $includeWalletRows = false;
+            if ($methodKey === 'card') {
+                $includeCardRow = ($enabled['card'] ?? true) !== false;
+                $includeWalletRows = (($enabled['apple_pay'] ?? true) !== false) || (($enabled['google_pay'] ?? true) !== false);
+                if (! $includeCardRow && ! $includeWalletRows) {
+                    continue;
+                }
+            } elseif (($enabled[$methodKey] ?? true) === false) {
                 continue;
             }
             if ($methodKey === 'pix_auto') {
@@ -411,12 +419,41 @@ class PaymentService
                 if (! $gateway || ! in_array($methodKey, $gateway['methods'] ?? [], true)) {
                     continue;
                 }
-                $methods[] = [
-                    'id' => $meta['id'],
-                    'label' => $meta['label'],
-                    'gateway_slug' => $slug,
-                    'gateway_name' => $gateway['name'] ?? $slug,
-                ];
+                if ($methodKey === 'card') {
+                    if ($includeCardRow) {
+                        $methods[] = [
+                            'id' => $meta['id'],
+                            'label' => $meta['label'],
+                            'gateway_slug' => $slug,
+                            'gateway_name' => $gateway['name'] ?? $slug,
+                        ];
+                    }
+                    if ($slug === 'cajupay') {
+                        if (($enabled['apple_pay'] ?? true) !== false) {
+                            $methods[] = [
+                                'id' => 'apple_pay',
+                                'label' => 'Apple Pay',
+                                'gateway_slug' => 'cajupay',
+                                'gateway_name' => 'Apple Pay',
+                            ];
+                        }
+                        if (($enabled['google_pay'] ?? true) !== false) {
+                            $methods[] = [
+                                'id' => 'google_pay',
+                                'label' => 'Google Pay',
+                                'gateway_slug' => 'cajupay',
+                                'gateway_name' => 'Google Pay',
+                            ];
+                        }
+                    }
+                } else {
+                    $methods[] = [
+                        'id' => $meta['id'],
+                        'label' => $meta['label'],
+                        'gateway_slug' => $slug,
+                        'gateway_name' => $gateway['name'] ?? $slug,
+                    ];
+                }
                 break;
             }
         }
@@ -445,7 +482,7 @@ class PaymentService
             'pix_auto' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['pix_auto'] ?? $defaultOrder['pix_auto'] ?? []),
         ];
         $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
-        $out = ['pix' => false, 'card' => false, 'boleto' => false, 'pix_auto' => false];
+        $out = ['pix' => false, 'card' => false, 'boleto' => false, 'pix_auto' => false, 'apple_pay' => false, 'google_pay' => false];
         foreach (['pix', 'card', 'boleto', 'pix_auto'] as $methodKey) {
             if ($methodKey === 'pix_auto' && $plan === null) {
                 continue;
@@ -462,6 +499,21 @@ class PaymentService
                     break;
                 }
             }
+        }
+        $firstCardSlug = null;
+        foreach ($order['card'] ?? [] as $slug) {
+            if (! $credentialBySlug->get($slug)) {
+                continue;
+            }
+            $gateway = GatewayRegistry::get($slug);
+            if ($gateway && in_array('card', $gateway['methods'] ?? [], true)) {
+                $firstCardSlug = $slug;
+                break;
+            }
+        }
+        if ($firstCardSlug === 'cajupay') {
+            $out['apple_pay'] = true;
+            $out['google_pay'] = true;
         }
 
         return $out;

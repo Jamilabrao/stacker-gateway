@@ -5,6 +5,7 @@ import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import MemberAreaVideoPlayer from '@/components/MemberAreaVideoPlayer.vue';
 import { formatLessonDescription } from '@/lib/utils';
+import { sanitizeHtmlAllowlist } from '@/lib/sanitizeHtml';
 import { Link as LinkIcon, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 
 defineOptions({ layout: MemberAreaAppLayout });
@@ -22,6 +23,12 @@ const props = defineProps({
     comments_require_approval: { type: Boolean, default: true },
     lesson_comments: { type: Array, default: () => [] },
 });
+
+function safeLessonHtml(html) {
+    return sanitizeHtmlAllowlist(html, {
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed'],
+    });
+}
 
 function normalizePdfFiles(lesson) {
     const list = Array.isArray(lesson?.content_files) ? lesson.content_files : [];
@@ -215,7 +222,7 @@ function scrollCarousel(sectionId, direction) {
                     </template>
                     <div v-else-if="current_lesson.type === 'pdf' && current_lesson.content_text" class="prose prose-invert max-w-none border-t border-zinc-700 p-6" v-html="formatLessonDescription(current_lesson.content_text)" />
                     <template v-else-if="current_lesson.type === 'text' && current_lesson.content_text">
-                        <div class="prose prose-invert max-w-none p-6" v-html="current_lesson.content_text" />
+                        <div class="prose prose-invert max-w-none p-6" v-html="safeLessonHtml(current_lesson.content_text)" />
                     </template>
                     <template v-else>
                         <div class="p-8 text-center text-zinc-500">Conteúdo não disponível.</div>

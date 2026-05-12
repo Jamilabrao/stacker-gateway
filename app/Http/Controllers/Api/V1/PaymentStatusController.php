@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\ApiApplication;
 use App\Models\Order;
+use App\Services\ApiPixAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,6 +16,9 @@ class PaymentStatusController extends Controller
         $app = $request->attributes->get('api_application');
         if (! $app instanceof ApiApplication) {
             abort(500, 'API application not resolved');
+        }
+        if (! ApiPixAccess::effectiveForTenant($app->tenant_id)) {
+            return response()->json(['message' => 'API PIX disabled for this tenant.'], 403);
         }
 
         $orderModel = Order::where('id', $order)

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { sanitizeHtmlAllowlist } from '@/lib/sanitizeHtml';
 
 const props = defineProps({
   logoUrl: { type: String, default: '' },
@@ -25,7 +26,7 @@ function replacePlaceholders(text) {
 }
 
 const previewSubject = computed(() => replacePlaceholders(props.subject));
-const previewBodyHtml = computed(() => replacePlaceholders(props.bodyHtml));
+const previewBodyHtml = computed(() => sanitizeHtmlAllowlist(replacePlaceholders(props.bodyHtml)));
 </script>
 
 <template>

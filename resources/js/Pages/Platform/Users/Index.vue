@@ -24,16 +24,37 @@ const deletingId = ref(null);
 function defaultFeeOverrides() {
     return {
         pix: { percent: '', fixed: '' },
+        api_pix: { percent: '', fixed: '' },
         card: { percent: '', fixed: '' },
+        apple_pay: { percent: '', fixed: '' },
+        google_pay: { percent: '', fixed: '' },
         boleto: { percent: '', fixed: '' },
         withdrawal: { percent: '', fixed: '' },
     };
 }
 
+const feeOverrideRows = [
+    { key: 'pix', label: 'PIX (checkout)' },
+    { key: 'api_pix', label: 'PIX (API)' },
+    { key: 'card', label: 'Cartão' },
+    { key: 'apple_pay', label: 'Apple Pay' },
+    { key: 'google_pay', label: 'Google Pay' },
+    { key: 'boleto', label: 'Boleto' },
+    { key: 'withdrawal', label: 'Saque' },
+];
+
+const settlementOverrideRows = [
+    { key: 'pix', label: 'PIX' },
+    { key: 'card', label: 'Cartão' },
+    { key: 'apple_pay', label: 'Apple Pay' },
+    { key: 'google_pay', label: 'Google Pay' },
+    { key: 'boleto', label: 'Boleto' },
+];
+
 function mergeFeeOverrides(raw) {
     const d = defaultFeeOverrides();
     if (!raw || typeof raw !== 'object') return d;
-    for (const k of ['pix', 'card', 'boleto', 'withdrawal']) {
+    for (const k of ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal']) {
         if (raw[k] && typeof raw[k] === 'object') {
             if (raw[k].percent != null && raw[k].percent !== '') d[k].percent = raw[k].percent;
             if (raw[k].fixed != null && raw[k].fixed !== '') d[k].fixed = raw[k].fixed;
@@ -46,6 +67,8 @@ function defaultSettlementOverrides() {
     return {
         pix: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
         card: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
+        apple_pay: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
+        google_pay: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
         boleto: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
     };
 }
@@ -53,7 +76,7 @@ function defaultSettlementOverrides() {
 function mergeSettlementOverrides(raw) {
     const d = defaultSettlementOverrides();
     if (!raw || typeof raw !== 'object') return d;
-    for (const k of ['pix', 'card', 'boleto']) {
+    for (const k of ['pix', 'card', 'apple_pay', 'google_pay', 'boleto']) {
         if (raw[k] && typeof raw[k] === 'object') {
             if (raw[k].days_to_available != null && raw[k].days_to_available !== '') {
                 d[k].days_to_available = raw[k].days_to_available;
@@ -431,16 +454,17 @@ function formatBlockUntilForInput(iso) {
                     <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
                         <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Taxas (opcional)</p>
                         <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Sobrescreve os padrões da plataforma em Financeiro → Taxas. Deixe em branco para usar só a
-                            plataforma.
+                            Sobrescreve os padrões em Financeiro → Taxas. Só o PIX tem taxa separada para API (REST ou link de checkout pela API); cartão e boleto usam as linhas Cartão / Boleto. Deixe em branco para herdar.
                         </p>
                         <div class="space-y-3 text-sm">
-                            <div v-for="row in ['pix', 'card', 'boleto', 'withdrawal']" :key="row" class="grid gap-2 sm:grid-cols-[100px_1fr_1fr] sm:items-center">
-                                <span class="font-medium capitalize text-zinc-700 dark:text-zinc-300">{{
-                                    row === 'withdrawal' ? 'Saque' : row === 'pix' ? 'PIX' : row === 'card' ? 'Cartão' : 'Boleto'
-                                }}</span>
+                            <div
+                                v-for="row in feeOverrideRows"
+                                :key="row.key"
+                                class="grid gap-2 sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] sm:items-center"
+                            >
+                                <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
                                 <input
-                                    v-model="editForm.merchant_fees[row].percent"
+                                    v-model="editForm.merchant_fees[row.key].percent"
                                     type="number"
                                     min="0"
                                     max="100"
@@ -449,7 +473,7 @@ function formatBlockUntilForInput(iso) {
                                     class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
                                 />
                                 <input
-                                    v-model="editForm.merchant_fees[row].fixed"
+                                    v-model="editForm.merchant_fees[row.key].fixed"
                                     type="number"
                                     min="0"
                                     step="0.01"
@@ -466,15 +490,13 @@ function formatBlockUntilForInput(iso) {
                         </p>
                         <div class="space-y-3 text-sm">
                             <div
-                                v-for="row in ['pix', 'card', 'boleto']"
-                                :key="'set-' + row"
+                                v-for="row in settlementOverrideRows"
+                                :key="'set-' + row.key"
                                 class="grid gap-2 sm:grid-cols-[100px_1fr_1fr_1fr] sm:items-center"
                             >
-                                <span class="font-medium capitalize text-zinc-700 dark:text-zinc-300">{{
-                                    row === 'pix' ? 'PIX' : row === 'card' ? 'Cartão' : 'Boleto'
-                                }}</span>
+                                <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
                                 <input
-                                    v-model="editForm.merchant_settlement_overrides[row].days_to_available"
+                                    v-model="editForm.merchant_settlement_overrides[row.key].days_to_available"
                                     type="number"
                                     min="0"
                                     max="365"
@@ -483,7 +505,7 @@ function formatBlockUntilForInput(iso) {
                                     class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
                                 />
                                 <input
-                                    v-model="editForm.merchant_settlement_overrides[row].reserve_percent"
+                                    v-model="editForm.merchant_settlement_overrides[row.key].reserve_percent"
                                     type="number"
                                     min="0"
                                     max="100"
@@ -492,7 +514,7 @@ function formatBlockUntilForInput(iso) {
                                     class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
                                 />
                                 <input
-                                    v-model="editForm.merchant_settlement_overrides[row].reserve_hold_days"
+                                    v-model="editForm.merchant_settlement_overrides[row.key].reserve_hold_days"
                                     type="number"
                                     min="0"
                                     max="365"

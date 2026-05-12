@@ -1,10 +1,13 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
+import { usePage } from '@inertiajs/vue3';
 import { ArrowLeft } from 'lucide-vue-next';
 
 defineProps({
     showBack: { type: Boolean, default: true },
 });
+
+const page = usePage();
 </script>
 
 <template>
@@ -13,7 +16,7 @@ defineProps({
             <div class="mx-auto flex h-14 max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6">
                 <div class="flex min-w-0 items-center gap-3">
                     <Link
-                        v-if="showBack"
+                        v-if="showBack && !page.props.publicMode"
                         href="/aplicacoes-api"
                         class="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-400 transition hover:border-teal-500/30 hover:bg-white/10 hover:text-white"
                     >
@@ -22,7 +25,7 @@ defineProps({
                     </Link>
                     <span class="hidden text-zinc-600 sm:inline">|</span>
                     <h1 class="truncate text-sm font-medium tracking-tight text-zinc-400 sm:text-base">
-                        Documentação da API de pagamentos
+                        {{ page.props.pageTitle || 'Documentação da API PIX (Gateway)' }}
                     </h1>
                 </div>
             </div>

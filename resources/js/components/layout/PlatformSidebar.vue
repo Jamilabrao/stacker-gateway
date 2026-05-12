@@ -17,6 +17,8 @@ import {
     Trophy,
     BadgeCheck,
     Package,
+    Puzzle,
+    Plug,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 
@@ -43,7 +45,12 @@ const headerIconImgClass = computed(() => {
     return expanded ? 'h-9 w-9 shrink-0 object-contain' : 'h-8 w-8 shrink-0 object-contain';
 });
 
-const navItems = [
+const iconMap = {
+    Puzzle,
+    Plug,
+};
+
+const navItemsCore = [
     { name: 'Dashboard', href: '/plataforma/dashboard', icon: LayoutDashboard },
     { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
     { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
@@ -53,10 +60,32 @@ const navItems = [
     { name: 'Saques', href: '/plataforma/saques', icon: Banknote },
     { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet },
     { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
+    { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
     { name: 'App', href: '/plataforma/app', icon: Smartphone },
     { name: 'Conquistas', href: '/plataforma/conquistas', icon: Trophy },
     { name: 'E-mail Marketing', href: '/plataforma/email-marketing', icon: Mail },
 ];
+
+const pluginNavItems = computed(() => {
+    const raw = page.props.pluginNavItems ?? [];
+    return raw.map((item) => ({
+        name: item.name,
+        href: item.href,
+        icon: item.icon && iconMap[item.icon] ? iconMap[item.icon] : Puzzle,
+    }));
+});
+
+const navItems = computed(() => [...navItemsCore, ...pluginNavItems.value]);
+
+function isNavItemActive(href) {
+    if (href.includes('?')) {
+        const url = page.url.split('#')[0];
+
+        return url === href;
+    }
+
+    return isActive(href);
+}
 
 function isActive(href) {
     const url = page.url.split('?')[0];
@@ -172,7 +201,7 @@ const linkInactive =
                 :key="item.href"
                 :href="item.href"
                 class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
-                :class="isActive(item.href) ? linkActive : linkInactive"
+                :class="isNavItemActive(item.href) ? linkActive : linkInactive"
                 @click="isMobile ? toggleSidebar() : null"
             >
                 <component :is="item.icon" class="h-5 w-5 shrink-0" />

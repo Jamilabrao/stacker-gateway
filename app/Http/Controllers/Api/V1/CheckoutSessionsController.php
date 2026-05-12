@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\ProductOffer;
 use App\Models\SubscriptionPlan;
 use App\Support\ApiHostedCheckoutPricing;
+use App\Services\ApiPixAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -20,6 +21,9 @@ class CheckoutSessionsController extends Controller
         $app = $request->attributes->get('api_application');
         if (! $app instanceof ApiApplication) {
             abort(500, 'API application not resolved');
+        }
+        if (! ApiPixAccess::effectiveForTenant($app->tenant_id)) {
+            return response()->json(['message' => 'API PIX disabled for this tenant.'], 403);
         }
 
         $validated = $request->validate([

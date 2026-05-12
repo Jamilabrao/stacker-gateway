@@ -23,6 +23,7 @@ import {
     ChevronDown,
 } from 'lucide-vue-next';
 import Checkbox from '@/components/ui/Checkbox.vue';
+import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
@@ -937,7 +938,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                           ? 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700'
                           : 'cursor-not-allowed text-zinc-400 dark:text-zinc-500',
                 ]"
-                v-html="link.label"
+                v-text="htmlToText(link.label)"
                 @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
             />
         </nav>

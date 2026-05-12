@@ -13,6 +13,7 @@ import {
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import { useI18n } from '@/composables/useI18n';
+import { sanitizeHtmlAllowlist } from '@/lib/sanitizeHtml';
 
 const props = defineProps({
     open: { type: Boolean, default: false },
@@ -100,6 +101,12 @@ watch(
         }
     }
 );
+
+function safePluginSectionHtml(html) {
+    return sanitizeHtmlAllowlist(html, {
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed'],
+    });
+}
 </script>
 
 <template>
@@ -306,7 +313,7 @@ watch(
                         <!-- Área para plugins -->
                         <div v-if="pluginFormSections?.length" class="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
                             <template v-for="(section, idx) in pluginFormSections" :key="idx">
-                                <div v-if="section.html" v-html="section.html" />
+                                <div v-if="section.html" v-html="safePluginSectionHtml(section.html)" />
                                 <div v-else-if="section.slot" class="text-sm text-zinc-500">
                                     {{ section.slot }}
                                 </div>

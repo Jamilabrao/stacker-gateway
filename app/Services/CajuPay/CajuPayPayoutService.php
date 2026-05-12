@@ -59,7 +59,18 @@ class CajuPayPayoutService
 
         $http = $this->httpForCredentials($credentials);
 
-        $idempotencyKey = Str::limit('getfy-withdrawal-'.$withdrawal->id, 200, '');
+        // CajuPay exige que a mesma Idempotency-Key seja reutilizada apenas com o MESMO payload.
+        // Como chave/titular/taxas podem mudar entre tentativas, incluímos assinatura do payload.
+        $idempotencyKey = Str::limit(
+            'getfy-withdrawal-'.$withdrawal->id.'-'.substr(sha1(json_encode([
+                'amount_cents' => $amountCents,
+                'pix_key_type' => $pixKeyType,
+                'pix_key' => $pixKey,
+                'key_owner_document' => $keyOwnerDocument,
+            ])), 0, 12),
+            200,
+            ''
+        );
 
         $keyOwnerDocument = BrazilianDocumentDigits::onlyDigits((string) $keyOwnerDocument);
         if ($keyOwnerDocument === null || ! BrazilianDocumentDigits::isValidCpfOrCnpjLength($keyOwnerDocument)) {
@@ -119,6 +130,13 @@ class CajuPayPayoutService
         $decoded = $response->json();
         if (! is_array($decoded)) {
             $decoded = json_decode((string) $response->body(), true);
+        }
+        if (is_array($decoded) && (($decoded['error'] ?? '') === 'idempotency_key_reuse_mismatch')) {
+            return [
+                'ok' => false,
+                'error' => 'O provedor recusou a tentativa por conflito de idempotência (dados do saque mudaram entre tentativas). Tente novamente em alguns segundos.',
+                'status' => $response->status(),
+            ];
         }
         if (is_array($decoded) && (($decoded['error'] ?? '') === 'insufficient_funds')) {
             $userMessage = is_string($decoded['user_message'] ?? null) ? trim($decoded['user_message']) : '';

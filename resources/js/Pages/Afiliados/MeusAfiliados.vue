@@ -5,6 +5,7 @@ import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import { useI18n } from '@/composables/useI18n';
 import { Search, Package, Ban, CheckCircle2, XCircle } from 'lucide-vue-next';
+import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
@@ -271,12 +272,12 @@ function statusLabel(status) {
                             : 'border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200',
                     ]"
                 >
-                    <span v-html="link.label" />
+                    <span v-text="htmlToText(link.label)" />
                 </Link>
                 <span
                     v-else
                     class="inline-flex min-w-[2.25rem] cursor-default items-center justify-center rounded-lg px-3 py-1.5 text-sm text-zinc-400"
-                    v-html="link.label"
+                    v-text="htmlToText(link.label)"
                 />
             </template>
         </nav>

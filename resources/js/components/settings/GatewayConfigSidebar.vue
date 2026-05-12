@@ -32,6 +32,8 @@ const testMessage = ref(null);
 const testSuccess = ref(null);
 const credentialValues = ref({});
 const certificateFile = ref(null);
+/** Arquivos extras (ex.: OnlyUp mTLS) por campo `credential_keys.key` */
+const extraFileUploads = ref({});
 const webhookCopied = ref(false);
 const disconnecting = ref(false);
 
@@ -74,8 +76,15 @@ watch(
                         initial[key] = v != null && v !== '' ? String(v) : '';
                     }
                 }
+                if (
+                    data?.slug === 'onlyup' &&
+                    (!initial.webhook_header_name || String(initial.webhook_header_name).trim() === '')
+                ) {
+                    initial.webhook_header_name = 'x-onlyup-webhook-token';
+                }
                 credentialValues.value = { ...initial };
                 certificateFile.value = null;
+                extraFileUploads.value = {};
             } catch {
                 gateway.value = null;
             } finally {
@@ -106,6 +115,29 @@ function buildTestPayload() {
     return payload;
 }
 
+function extraFileFieldDefs() {
+    const keys = gateway.value?.credential_keys || [];
+    const certKey = gateway.value?.certificate_key;
+    return keys.filter((k) => (k.type || 'text') === 'file' && k.key !== certKey);
+}
+
+function extraFilesReadyForTest() {
+    const ffc = gateway.value?.file_fields_configured || {};
+    for (const k of extraFileFieldDefs()) {
+        if (extraFileUploads.value[k.key]) continue;
+        if (!ffc[k.key]) return false;
+    }
+    return true;
+}
+
+function gatewayUsesMultipartCredentialSave() {
+    return extraFileFieldDefs().length > 0;
+}
+
+function setExtraFileField(key, file) {
+    extraFileUploads.value = { ...extraFileUploads.value, [key]: file || null };
+}
+
 async function testConnection() {
     if (!gateway.value?.slug) return;
     const keys = gateway.value.credential_keys || [];
@@ -123,6 +155,11 @@ async function testConnection() {
     }
     if (certificateKey && !gateway.value.certificate_configured && !certificateFile.value) {
         testMessage.value = 'Envie e salve o certificado P12 antes de testar.';
+        testSuccess.value = false;
+        return;
+    }
+    if (gatewayUsesMultipartCredentialSave() && !extraFilesReadyForTest()) {
+        testMessage.value = 'Envie e salve todos os arquivos de certificado obrigatórios antes de testar.';
         testSuccess.value = false;
         return;
     }
@@ -154,41 +191,73 @@ async function save() {
         const keys = gateway.value.credential_keys || [];
         const certificateKey = gateway.value.certificate_key;
 
-        // 1) Salva sempre as credenciais (sem arquivo) em JSON
-        const payload = {};
-        for (const k of keys) {
-            if (k.key === certificateKey) continue;
-            const v = credentialValues.value[k.key];
-            if (k.type === 'boolean') {
-                payload[k.key] = v === true || v === '1' || v === 'true';
-            } else {
-                payload[k.key] = v != null ? String(v).trim() : '';
-            }
-        }
-        const { data } = await axios.put(
-            `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
-            payload,
-            { headers: { 'X-XSRF-TOKEN': getCsrfToken(), 'Content-Type': 'application/json', Accept: 'application/json' } }
-        );
-
-        // 2) Se tiver certificado, envia em chamada separada
-        if (certificateKey && certificateFile.value) {
+        if (gatewayUsesMultipartCredentialSave()) {
             const form = new FormData();
-            form.append(certificateKey, certificateFile.value);
-            await axios.post(
-                `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}/certificate`,
+            for (const k of keys) {
+                if (k.key === certificateKey || (k.type || 'text') === 'file') continue;
+                const v = credentialValues.value[k.key];
+                if (k.type === 'boolean') {
+                    form.append(k.key, v === true || v === '1' || v === 'true' ? '1' : '0');
+                } else {
+                    form.append(k.key, v != null ? String(v).trim() : '');
+                }
+            }
+            for (const fk of extraFileFieldDefs()) {
+                const f = extraFileUploads.value[fk.key];
+                if (f) form.append(fk.key, f);
+            }
+            const { data } = await axios.put(
+                `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
                 form,
-                { headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' } }
+                {
+                    headers: {
+                        'X-XSRF-TOKEN': getCsrfToken(),
+                        Accept: 'application/json',
+                    },
+                }
             );
-        }
+            testSuccess.value = true;
+            testMessage.value = data?.message || 'Credenciais salvas.';
+            extraFileUploads.value = {};
+            emit('saved');
+            setTimeout(() => emit('close'), 1500);
+        } else {
+            // 1) Salva sempre as credenciais (sem arquivo) em JSON
+            const payload = {};
+            for (const k of keys) {
+                if (k.key === certificateKey) continue;
+                const v = credentialValues.value[k.key];
+                if (k.type === 'boolean') {
+                    payload[k.key] = v === true || v === '1' || v === 'true';
+                } else {
+                    payload[k.key] = v != null ? String(v).trim() : '';
+                }
+            }
+            const { data } = await axios.put(
+                `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
+                payload,
+                { headers: { 'X-XSRF-TOKEN': getCsrfToken(), 'Content-Type': 'application/json', Accept: 'application/json' } }
+            );
 
-        certificateFile.value = null;
-        testSuccess.value = true;
-        testMessage.value = data?.message || 'Credenciais salvas.';
-        emit('saved');
-        setTimeout(() => {
-            emit('close');
-        }, 1500);
+            // 2) Se tiver certificado, envia em chamada separada
+            if (certificateKey && certificateFile.value) {
+                const form = new FormData();
+                form.append(certificateKey, certificateFile.value);
+                await axios.post(
+                    `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}/certificate`,
+                    form,
+                    { headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' } }
+                );
+            }
+
+            certificateFile.value = null;
+            testSuccess.value = true;
+            testMessage.value = data?.message || 'Credenciais salvas.';
+            emit('saved');
+            setTimeout(() => {
+                emit('close');
+            }, 1500);
+        }
     } catch (err) {
         testSuccess.value = false;
         const res = err.response?.data;
@@ -331,6 +400,12 @@ const canTestConnection = computed(() => {
                                 {{ webhookCopied ? 'Copiado!' : 'Copiar' }}
                             </button>
                         </div>
+                        <p
+                            v-if="gateway.webhook_help"
+                            class="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400"
+                        >
+                            {{ gateway.webhook_help }}
+                        </p>
                     </div>
 
                     <h3
@@ -350,20 +425,37 @@ const canTestConnection = computed(() => {
                                 {{ field.label }}
                             </label>
                             <template v-if="field.type === 'file'">
-                                <input
-                                    type="file"
-                                    accept=".p12"
-                                    class="block w-full text-sm text-zinc-600 file:mr-4 file:rounded-lg file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-white file:transition dark:text-zinc-400"
-                                    @change="certificateFile = $event.target.files?.[0] || null"
-                                />
-                                <p
-                                    v-if="gateway.certificate_configured && !certificateFile"
-                                    class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
-                                >
-                                    <span v-if="gateway.certificate_filename" class="font-medium text-zinc-700 dark:text-zinc-300">Em uso: {{ gateway.certificate_filename }}</span>
-                                    <template v-else>Certificado já enviado.</template>
-                                    <span> Envie novamente para substituir.</span>
-                                </p>
+                                <template v-if="field.key === gateway.certificate_key">
+                                    <input
+                                        type="file"
+                                        accept=".p12"
+                                        class="block w-full text-sm text-zinc-600 file:mr-4 file:rounded-lg file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-white file:transition dark:text-zinc-400"
+                                        @change="certificateFile = $event.target.files?.[0] || null"
+                                    />
+                                    <p
+                                        v-if="gateway.certificate_configured && !certificateFile"
+                                        class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
+                                    >
+                                        <span v-if="gateway.certificate_filename" class="font-medium text-zinc-700 dark:text-zinc-300">Em uso: {{ gateway.certificate_filename }}</span>
+                                        <template v-else>Certificado já enviado.</template>
+                                        <span> Envie novamente para substituir.</span>
+                                    </p>
+                                </template>
+                                <template v-else>
+                                    <input
+                                        type="file"
+                                        accept=".crt,.pem,.key"
+                                        class="block w-full text-sm text-zinc-600 file:mr-4 file:rounded-lg file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-white file:transition dark:text-zinc-400"
+                                        @change="setExtraFileField(field.key, $event.target.files?.[0] || null)"
+                                    />
+                                    <p
+                                        v-if="gateway.file_fields_configured?.[field.key] && !extraFileUploads[field.key]"
+                                        class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
+                                    >
+                                        <span class="font-medium text-zinc-700 dark:text-zinc-300">Arquivo em uso.</span>
+                                        <span> Envie novamente para substituir.</span>
+                                    </p>
+                                </template>
                             </template>
                             <template v-else-if="field.type === 'boolean'">
                                 <label class="flex cursor-pointer items-center gap-2">

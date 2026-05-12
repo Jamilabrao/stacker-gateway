@@ -76,7 +76,10 @@ class MerchantWithdrawalService
                 throw ValidationException::withMessages(['amount' => $msg]);
             }
 
-            $wallet->{$col} = round($available - $amount, 2);
+            // Debita do saldo bruto da carteira; `effectiveAvailableForWithdrawal` pode descontar bloqueios administrativos,
+            // mas o valor bloqueado deve permanecer em `available_*` até ser liberado/alterado pela plataforma.
+            $rawBucket = (float) ($wallet->{$col} ?? 0);
+            $wallet->{$col} = round($rawBucket - $amount, 2);
             self::syncAggregateBalance($wallet);
             $wallet->save();
 

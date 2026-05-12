@@ -1,33 +1,13 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
-import GatewayRedundancySidebar from '@/components/produtos/GatewayRedundancySidebar.vue';
-import { ChevronDown, Settings2, Palette } from 'lucide-vue-next';
+import { KeyRound, Palette } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutInfoprodutor });
-
-const props = defineProps({
-    gateways_by_method: { type: Object, default: () => ({}) },
-    default_payment_gateways: { type: Object, default: () => ({}) },
-});
-
-const pg = props.default_payment_gateways || {};
 const form = useForm({
     name: '',
-    payment_gateways: {
-        pix: pg.pix ?? '',
-        pix_redundancy: Array.isArray(pg.pix_redundancy) ? pg.pix_redundancy : [],
-        card: pg.card ?? '',
-        card_redundancy: Array.isArray(pg.card_redundancy) ? pg.card_redundancy : [],
-        boleto: pg.boleto ?? '',
-        boleto_redundancy: Array.isArray(pg.boleto_redundancy) ? pg.boleto_redundancy : [],
-        pix_auto: pg.pix_auto ?? '',
-        pix_auto_redundancy: Array.isArray(pg.pix_auto_redundancy) ? pg.pix_auto_redundancy : [],
-        crypto: pg.crypto ?? '',
-        crypto_redundancy: Array.isArray(pg.crypto_redundancy) ? pg.crypto_redundancy : [],
-    },
     webhook_url: '',
     default_return_url: '',
     webhook_secret: '',
@@ -35,27 +15,7 @@ const form = useForm({
     is_active: true,
     checkout_sidebar_bg: '',
 });
-
-function gatewayOptions(method) {
-    const list = props.gateways_by_method?.[method] ?? [];
-    return [
-        { value: '', label: 'Nenhum' },
-        ...list.map((g) => ({ value: g.slug, label: g.name })),
-    ];
-}
-
-const METHOD_LABELS = { pix: 'PIX', card: 'Cartão', boleto: 'Boleto', pix_auto: 'PIX automático', crypto: 'Criptomoeda' };
-const redundancySidebarOpen = ref(false);
-const redundancySidebarMethod = ref(null);
-
-function openRedundancySidebar(method) {
-    redundancySidebarMethod.value = method;
-    redundancySidebarOpen.value = true;
-}
-
-function canShowRedundancy(slug) {
-    return slug !== '' && slug != null;
-}
+const docsUrl = computed(() => '/docs/api-pagamentos');
 
 function submit() {
     form.post('/aplicacoes-api');
@@ -67,7 +27,7 @@ function submit() {
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Nova aplicação API</h1>
             <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Configure os gateways que esta aplicação poderá usar para processar pagamentos.
+                Crie uma aplicação para integrar plataformas externas com a API PIX.
             </p>
         </div>
 
@@ -108,34 +68,15 @@ function submit() {
 
             <div class="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50 p-4">
                 <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
-                    <Settings2 class="h-4 w-4" />
-                    Gateways por método de pagamento
+                    <KeyRound class="h-4 w-4" />
+                    Adquirente (gateway)
                 </h2>
                 <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                    Selecione o gateway principal e a ordem de redundância para cada método.
+                    Esta integração não escolhe provedor ou canal de pagamento por requisição; a conta segue as regras configuradas no painel.
                 </p>
-                <div class="mt-4 space-y-3">
-                    <template v-for="method in ['pix', 'card', 'boleto', 'pix_auto', 'crypto']" :key="method">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class="w-24 text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ METHOD_LABELS[method] || method }}</span>
-                            <select
-                                v-model="form.payment_gateways[method]"
-                                class="rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2 text-sm min-w-[160px]"
-                            >
-                                <option v-for="opt in gatewayOptions(method)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                            </select>
-                            <Button
-                                v-if="canShowRedundancy(form.payment_gateways[method])"
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                @click="openRedundancySidebar(method)"
-                            >
-                                Redundância
-                            </Button>
-                        </div>
-                    </template>
-                </div>
+                <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    Consulte a documentação em <a :href="docsUrl" class="underline" target="_blank" rel="noopener noreferrer">{{ docsUrl }}</a>.
+                </p>
             </div>
 
             <div>
@@ -155,7 +96,7 @@ function submit() {
             <div>
                 <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Webhook secret (opcional)</label>
                 <input v-model="form.webhook_secret" type="password" autocomplete="off" class="mt-1 block w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2" placeholder="Secret para validar assinatura HMAC" />
-                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Usado para assinar o body do webhook (X-Getfy-Signature). Recomendado para produção.</p>
+                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Usado para assinar o body do webhook (header X-Webhook-Signature). Recomendado para produção.</p>
                 <p v-if="form.errors.webhook_secret" class="mt-1 text-sm text-red-600">{{ form.errors.webhook_secret }}</p>
             </div>
 
@@ -175,17 +116,5 @@ function submit() {
                 <Button as="a" href="/aplicacoes-api" variant="outline">Cancelar</Button>
             </div>
         </form>
-
-        <GatewayRedundancySidebar
-            :open="redundancySidebarOpen"
-            :method="redundancySidebarMethod"
-            :method-label="METHOD_LABELS[redundancySidebarMethod] || redundancySidebarMethod"
-            :primary-slug="redundancySidebarMethod ? (form.payment_gateways[redundancySidebarMethod] || '') : ''"
-            :gateways="gateways_by_method[redundancySidebarMethod] || []"
-            :model-value="redundancySidebarMethod ? (form.payment_gateways[redundancySidebarMethod + '_redundancy'] || []) : []"
-            @update:model-value="(val) => redundancySidebarMethod && (form.payment_gateways[redundancySidebarMethod + '_redundancy'] = val)"
-            @save="(val) => { if (redundancySidebarMethod) { form.payment_gateways[redundancySidebarMethod + '_redundancy'] = val; } redundancySidebarOpen = false; }"
-            @close="redundancySidebarOpen = false"
-        />
     </div>
 </template>

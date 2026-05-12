@@ -5,6 +5,7 @@ import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import { useI18n } from '@/composables/useI18n';
 import { Search, X, LayoutGrid, Flame } from 'lucide-vue-next';
+import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutInfoprodutor });
 
@@ -224,7 +225,7 @@ function copyLink(url) {
                 :href="link.url || undefined"
                 class="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm dark:border-zinc-600"
                 :class="link.active ? 'bg-[var(--color-primary)] text-white border-transparent' : 'text-zinc-700 dark:text-zinc-300'"
-                v-html="link.label"
+                v-text="htmlToText(link.label)"
             />
         </div>
 

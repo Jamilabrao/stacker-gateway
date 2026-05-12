@@ -237,7 +237,7 @@ class UsersController extends Controller
         }
 
         $out = [];
-        foreach (['pix', 'card', 'boleto', 'withdrawal'] as $key) {
+        foreach (['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'] as $key) {
             $block = $raw[$key] ?? null;
             if (! is_array($block)) {
                 continue;
@@ -279,7 +279,7 @@ class UsersController extends Controller
         }
 
         $out = [];
-        foreach (['pix', 'card', 'boleto'] as $key) {
+        foreach (\App\Services\EffectiveSettlementRules::SETTLEMENT_METHOD_KEYS as $key) {
             $block = $raw[$key] ?? null;
             if (! is_array($block)) {
                 continue;

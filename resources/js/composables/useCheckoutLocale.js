@@ -1,16 +1,73 @@
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, isRef } from 'vue';
 
-const LOCALE_KEY = 'checkout_locale';
-const CURRENCY_KEY = 'checkout_currency';
+/** Preferência explícita do comprador (não grava mais sugestão automática nas chaves antigas). */
+const LOCALE_MANUAL_KEY = 'checkout_locale_v2';
+const CURRENCY_MANUAL_KEY = 'checkout_currency_v2';
+
 const SUPPORTED_LOCALES = ['pt_BR', 'en', 'es'];
+
+/** Regiões ISO (language tag) que usamos para EUR no fallback do navegador. */
+const EUR_REGIONS = new Set([
+    'AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PT', 'SI', 'SK',
+]);
+
+function u(v) {
+    return isRef(v) ? v.value : v;
+}
+
+function readLs(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
+function writeLs(key, val) {
+    try {
+        if (val) localStorage.setItem(key, val);
+    } catch (_) {}
+}
+
+function normalizeLocale(s) {
+    const v = String(s || '').trim();
+    return SUPPORTED_LOCALES.includes(v) ? v : 'pt_BR';
+}
+
+/** Quando o servidor não tem país (localhost, falha de GeoIP), infere idioma pelo navegador. */
+function inferLocaleFromNavigator() {
+    if (typeof navigator === 'undefined') return null;
+    const raw = (navigator.language || '').trim();
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    if (lower.startsWith('pt')) return 'pt_BR';
+    if (lower.startsWith('es')) return 'es';
+    if (lower.startsWith('en')) return 'en';
+    return null;
+}
+
+/** Fallback de moeda pelo `navigator.language` (ex.: pt-BR → BRL, de-DE → EUR). */
+function inferCurrencyFromNavigator() {
+    if (typeof navigator === 'undefined') return null;
+    const tag = (navigator.language || '').trim();
+    const m = tag.match(/^([a-z]{2})-([A-Z]{2})/i);
+    const lang = (m?.[1] || tag.slice(0, 2)).toLowerCase();
+    const region = (m?.[2] || '').toUpperCase();
+    if (region === 'BR' || lang === 'pt') return 'BRL';
+    if (region && EUR_REGIONS.has(region)) return 'EUR';
+    if (region) return 'USD';
+    if (lang === 'es' || lang === 'en') return 'USD';
+    return null;
+}
 
 /**
  * @param {Object} options
- * @param {Record<string, Record<string, string>>} options.translations - checkout_translations
- * @param {Array<{ code: string, symbol: string, label: string, rate_to_brl: number }>} options.currencies
- * @param {string} [options.suggestedLocale] - suggested_locale from backend
- * @param {string} [options.suggestedCurrency] - suggested_currency from backend
- * @param {string} [options.storageKey] - e.g. checkout_slug for localStorage keys
+ * @param {Record<string, Record<string, string>>|import('vue').Ref} options.translations
+ * @param {Array<{ code: string, symbol: string, label: string, rate_to_brl: number }>|import('vue').Ref} options.currencies
+ * @param {string|import('vue').Ref} [options.suggestedLocale]
+ * @param {string|import('vue').Ref} [options.suggestedCurrency]
+ * @param {string|null|import('vue').Ref} [options.suggestedCountryCode]
+ * @param {string} [options.storageKey]
  */
 export function useCheckoutLocale(options = {}) {
     const {
@@ -18,72 +75,124 @@ export function useCheckoutLocale(options = {}) {
         currencies = [],
         suggestedLocale = 'pt_BR',
         suggestedCurrency = 'BRL',
+        suggestedCountryCode = null,
         storageKey = 'default',
     } = options;
 
-    const localeStorageKey = `${LOCALE_KEY}_${storageKey}`;
-    const currencyStorageKey = `${CURRENCY_KEY}_${storageKey}`;
+    const sk = storageKey || 'default';
+    const manualLocaleKey = `${LOCALE_MANUAL_KEY}_${sk}`;
+    const manualCurrencyKey = `${CURRENCY_MANUAL_KEY}_${sk}`;
 
-    function getStoredLocale() {
-        try {
-            const v = localStorage.getItem(localeStorageKey);
-            return SUPPORTED_LOCALES.includes(v) ? v : null;
-        } catch {
-            return null;
+    function currencyCodes() {
+        const arr = Array.isArray(u(currencies)) ? u(currencies) : [];
+        return arr.map((c) => c?.code).filter(Boolean);
+    }
+
+    function pickCurrencyCode(suggested) {
+        const codes = currencyCodes();
+        if (!codes.length) return 'BRL';
+        const s = String(suggested || 'BRL').trim().toUpperCase();
+        if (codes.includes(s)) return s;
+        if (codes.includes('BRL')) return 'BRL';
+        return codes[0];
+    }
+
+    function readManualLocale() {
+        const m = readLs(manualLocaleKey);
+        return m && SUPPORTED_LOCALES.includes(m) ? m : null;
+    }
+
+    function readManualCurrency() {
+        const codes = currencyCodes();
+        const m = readLs(manualCurrencyKey);
+        return m && codes.includes(m) ? m : null;
+    }
+
+    const userChoseLocale = ref(!!readManualLocale());
+    const userChoseCurrency = ref(!!readManualCurrency());
+
+    function effectiveSuggestedLocale() {
+        const server = normalizeLocale(u(suggestedLocale));
+        const country = u(suggestedCountryCode);
+        if (country) return server;
+        return inferLocaleFromNavigator() || server;
+    }
+
+    function effectiveSuggestedCurrency() {
+        const server = String(u(suggestedCurrency) || 'BRL').trim().toUpperCase();
+        const country = u(suggestedCountryCode);
+        if (country) return pickCurrencyCode(server);
+        return pickCurrencyCode(inferCurrencyFromNavigator() || server);
+    }
+
+    function resolveLocale() {
+        if (userChoseLocale.value) {
+            const m = readManualLocale();
+            return m ? normalizeLocale(m) : normalizeLocale(effectiveSuggestedLocale());
+        }
+        return normalizeLocale(effectiveSuggestedLocale());
+    }
+
+    function resolveCurrency() {
+        if (userChoseCurrency.value) {
+            const m = readManualCurrency();
+            return m ? pickCurrencyCode(m) : pickCurrencyCode(effectiveSuggestedCurrency());
+        }
+        return pickCurrencyCode(effectiveSuggestedCurrency());
+    }
+
+    const locale = ref(resolveLocale());
+    const currency = ref(resolveCurrency());
+
+    function syncFromSuggestions() {
+        if (!userChoseLocale.value) {
+            locale.value = normalizeLocale(effectiveSuggestedLocale());
+        }
+        if (!userChoseCurrency.value) {
+            currency.value = pickCurrencyCode(effectiveSuggestedCurrency());
         }
     }
 
-    function getStoredCurrency() {
-        try {
-            const v = localStorage.getItem(currencyStorageKey);
-            const codes = currencies.map((c) => c.code);
-            return v && codes.includes(v) ? v : null;
-        } catch {
-            return null;
+    watch(
+        () => [
+            u(suggestedLocale),
+            u(suggestedCurrency),
+            u(suggestedCountryCode),
+            currencyCodes().join(','),
+        ],
+        () => {
+            syncFromSuggestions();
         }
-    }
-
-    const locale = ref(getStoredLocale() || suggestedLocale || 'pt_BR');
-    const currency = ref(getStoredCurrency() || suggestedCurrency || 'BRL');
-
-    watch(
-        locale,
-        (v) => {
-            try {
-                if (v) localStorage.setItem(localeStorageKey, v);
-            } catch (_) {}
-        },
-        { immediate: true }
-    );
-    watch(
-        currency,
-        (v) => {
-            try {
-                if (v) localStorage.setItem(currencyStorageKey, v);
-            } catch (_) {}
-        },
-        { immediate: true }
     );
 
     function setLocale(v) {
-        if (SUPPORTED_LOCALES.includes(v)) locale.value = v;
+        if (!SUPPORTED_LOCALES.includes(v)) return;
+        userChoseLocale.value = true;
+        locale.value = v;
+        writeLs(manualLocaleKey, v);
     }
 
     function setCurrency(v) {
-        const codes = currencies.map((c) => c.code);
-        if (codes.includes(v)) currency.value = v;
+        const codes = currencyCodes();
+        if (!codes.includes(v)) return;
+        userChoseCurrency.value = true;
+        currency.value = v;
+        writeLs(manualCurrencyKey, v);
     }
 
     function t(key) {
         const loc = locale.value || 'pt_BR';
-        const byLocale = translations[loc] || translations.pt_BR || {};
+        const pool = u(translations);
+        const byLocale = pool[loc] || pool.pt_BR || {};
         return byLocale[key] != null ? byLocale[key] : key;
     }
 
-    const currencyList = computed(() => (Array.isArray(currencies) ? currencies : []));
+    const currencyList = computed(() => (Array.isArray(u(currencies)) ? u(currencies) : []));
 
     const currentCurrencyObj = computed(
-        () => currencyList.value.find((c) => c.code === currency.value) || currencyList.value[0] || { code: 'BRL', symbol: 'R$', label: 'Real', rate_to_brl: 1 }
+        () =>
+            currencyList.value.find((c) => c.code === currency.value) ||
+            currencyList.value[0] || { code: 'BRL', symbol: 'R$', label: 'Real', rate_to_brl: 1 }
     );
 
     /** Converte preço em BRL para a moeda selecionada (price_brl * rate_to_brl). */

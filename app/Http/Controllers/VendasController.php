@@ -277,13 +277,18 @@ class VendasController extends Controller
      */
     private function paymentMethodForFees(Order $order): string
     {
-        $method = $order->payment_method;
-        if ($method === null || $method === '') {
-            $meta = $order->metadata ?? [];
-            $method = is_array($meta) ? ($meta['checkout_payment_method'] ?? null) : null;
-        }
+        return EffectiveMerchantFees::feeMethodForOrder($order);
+    }
 
-        return (string) ($method ?: 'pix');
+    private function orderSourceForFees(Order $order): ?string
+    {
+        $meta = $order->metadata ?? [];
+        if (! is_array($meta)) {
+            return null;
+        }
+        $s = $meta['source'] ?? null;
+
+        return is_string($s) && $s !== '' ? $s : null;
     }
 
     /**
@@ -298,7 +303,12 @@ class VendasController extends Controller
         if ($tenantId < 1) {
             return ['gross' => $gross, 'fee' => 0.0, 'net' => $gross];
         }
-        $calc = EffectiveMerchantFees::calculateSaleFee($tenantId, $this->paymentMethodForFees($order), $gross);
+        $calc = EffectiveMerchantFees::calculateSaleFee(
+            $tenantId,
+            $this->paymentMethodForFees($order),
+            $gross,
+            $this->orderSourceForFees($order)
+        );
 
         return [
             'gross' => $gross,

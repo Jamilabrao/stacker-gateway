@@ -438,7 +438,7 @@ class CheckoutController extends Controller
         $firstPixGateway = $paymentMethodForRules === 'pix'
             ? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'pix', $product)
             : null;
-        $firstCardGatewayForRules = $paymentMethodForRules === 'card'
+        $firstCardGatewayForRules = in_array($paymentMethodForRules, ['card', 'apple_pay', 'google_pay'], true)
             ? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'card', $product)
             : null;
         $requireCpf = (($customerFields['cpf'] ?? false) && $displayCurrency === 'BRL')
@@ -452,7 +452,7 @@ class CheckoutController extends Controller
             'subscription_plan_id' => ['nullable', 'exists:subscription_plans,id'],
             'order_bump_ids' => ['nullable', 'array'],
             'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
-            'payment_method' => ['required', 'string', 'in:pix,card,boleto,pix_auto'],
+            'payment_method' => ['required', 'string', 'in:pix,card,boleto,pix_auto,apple_pay,google_pay'],
             'checkout_session_token' => ['nullable', 'string', 'max:64'],
             'idempotency_key' => ['nullable', 'string', 'max:128'],
             'display_currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
@@ -466,7 +466,11 @@ class CheckoutController extends Controller
         foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
             $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
         }
-        if ($request->input('payment_method') === 'card') {
+        // Meta cookies/user agent para melhorar match na Conversion API (CAPI)
+        $rules['fbp'] = ['nullable', 'string', 'max:512'];
+        $rules['fbc'] = ['nullable', 'string', 'max:512'];
+        $rules['user_agent'] = ['nullable', 'string', 'max:2048'];
+        if (in_array($request->input('payment_method'), ['card', 'apple_pay', 'google_pay'], true)) {
             $firstCardGateway = $firstCardGatewayForRules ?? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'card', $product);
             if ($firstCardGateway === 'asaas') {
                 $rules['payment_token'] = ['nullable', 'string', 'max:10000'];
@@ -489,6 +493,9 @@ class CheckoutController extends Controller
                 $rules['address_neighborhood'] = ['required', 'string', 'max:255'];
                 $rules['address_city'] = ['required', 'string', 'max:255'];
                 $rules['address_state'] = ['required', 'string', 'max:2'];
+            } elseif ($firstCardGateway === 'cajupay') {
+                $rules['payment_token'] = ['nullable', 'string', 'max:10000'];
+                $rules['cajupay_wallet'] = ['nullable', 'string', 'in:card,apple_pay,google_pay'];
             } else {
                 $rules['payment_token'] = ['required', 'string', 'max:10000'];
             }
@@ -642,6 +649,19 @@ class CheckoutController extends Controller
         if ($product->type === Product::TYPE_AREA_MEMBROS && $plainPassword !== null) {
             Cache::put('access_password.'.$user->id.'.'.$product->id, $plainPassword, now()->addHours(2));
             $orderMetadata['access_password_temp'] = encrypt($plainPassword);
+        }
+
+        $fbp = isset($validated['fbp']) && is_string($validated['fbp']) ? trim($validated['fbp']) : '';
+        $fbc = isset($validated['fbc']) && is_string($validated['fbc']) ? trim($validated['fbc']) : '';
+        $ua = isset($validated['user_agent']) && is_string($validated['user_agent']) ? trim($validated['user_agent']) : '';
+        if ($fbp !== '') {
+            $orderMetadata['fbp'] = $fbp;
+        }
+        if ($fbc !== '') {
+            $orderMetadata['fbc'] = $fbc;
+        }
+        if ($ua !== '') {
+            $orderMetadata['user_agent'] = $ua;
         }
 
         $orderPayload = [
@@ -1063,16 +1083,80 @@ class CheckoutController extends Controller
             return back()->withErrors(['payment_method' => 'Gateway PIX automático não suportado.']);
         }
 
-        if ($paymentMethod === 'card') {
+        if (in_array($paymentMethod, ['card', 'apple_pay', 'google_pay'], true)) {
+            $initialCheckoutPm = match ($paymentMethod) {
+                'apple_pay' => 'apple_pay',
+                'google_pay' => 'google_pay',
+                default => 'card',
+            };
             $order = $createOrderAndItems(array_merge($orderPayload, [
                 'status' => 'pending',
                 'gateway' => null,
                 'gateway_id' => null,
                 'payment_method' => 'card',
-                'metadata' => array_merge($orderMetadata, ['checkout_payment_method' => 'card']),
+                'metadata' => array_merge($orderMetadata, ['checkout_payment_method' => $initialCheckoutPm]),
             ]));
             $order->load('orderItems');
             event(new OrderPending($order));
+            $paymentServiceCard = app(PaymentService::class);
+            $firstCardGwForSdk = $paymentServiceCard->getFirstAvailableGatewayForMethod($product->tenant_id, 'card', $product);
+            if ($firstCardGwForSdk === 'cajupay') {
+                $nonce = Str::random(40);
+                $wallet = match ($paymentMethod) {
+                    'apple_pay' => 'apple_pay',
+                    'google_pay' => 'google_pay',
+                    default => isset($validated['cajupay_wallet']) && is_string($validated['cajupay_wallet'])
+                        ? strtolower(trim($validated['cajupay_wallet']))
+                        : 'card',
+                };
+                if (! in_array($wallet, ['card', 'apple_pay', 'google_pay'], true)) {
+                    $wallet = 'card';
+                }
+                $pme = Product::resolvedPaymentMethodsEnabled($product, $offer, $plan);
+                if ($wallet === 'apple_pay' && empty($pme['apple_pay'])) {
+                    $wallet = 'card';
+                }
+                if ($wallet === 'google_pay' && empty($pme['google_pay'])) {
+                    $wallet = 'card';
+                }
+                $meta = array_merge(is_array($order->metadata) ? $order->metadata : [], [
+                    'checkout_payment_method' => $wallet === 'card' ? 'card' : $wallet,
+                    'cajupay_sdk_nonce' => $nonce,
+                    'cajupay_wallet' => $wallet,
+                ]);
+                $order->update(['metadata' => $meta]);
+                $updateCheckoutSession($order);
+                $wantsJsonCaju = $request->expectsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest';
+                if ($wantsJsonCaju) {
+                    $payloadCaju = [
+                        'success' => true,
+                        'payment_method' => 'card',
+                        'order_id' => $order->id,
+                        'status' => 'pending',
+                        'message' => 'Conclua o pagamento para finalizar a compra.',
+                        'cajupay_sdk' => true,
+                        'cajupay_sdk_nonce' => $nonce,
+                        'cajupay_wallet' => $wallet,
+                        'sdk_base_url' => rtrim((string) config('services.cajupay.base_url', 'https://api.cajupay.com.br'), '/'),
+                        'redirect_url' => null,
+                    ];
+
+                    return $this->idempotencyReturn($idempotencyKey, response()->json($payloadCaju));
+                }
+                if ($checkoutSlug !== '') {
+                    return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.show', ['slug' => $checkoutSlug])->with([
+                        'success' => 'Pedido criado. Conclua o pagamento na próxima etapa.',
+                        'cajupay_sdk_pending' => [
+                            'order_id' => $order->id,
+                            'cajupay_sdk_nonce' => $nonce,
+                            'cajupay_wallet' => $wallet,
+                            'sdk_base_url' => rtrim((string) config('services.cajupay.base_url', 'https://api.cajupay.com.br'), '/'),
+                        ],
+                    ]));
+                }
+
+                return $this->idempotencyReturn($idempotencyKey, back()->with('success', 'Pedido criado. Use o checkout JSON para concluir o pagamento.'));
+            }
             $card = CheckoutCardContract::fromRequest($validated);
             if (isset($validated['card_holder_name'], $validated['card_number'], $validated['card_expiry_month'], $validated['card_expiry_year'], $validated['card_ccv'])) {
                 $card['card_holder_name'] = trim((string) $validated['card_holder_name']);

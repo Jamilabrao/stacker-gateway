@@ -159,6 +159,8 @@ class Product extends Model
                 'card' => true,
                 'boleto' => true,
                 'pix_auto' => true,
+                'apple_pay' => true,
+                'google_pay' => true,
             ],
             'stripe_link_enabled' => true,
             'deliverable_link' => '',
@@ -264,6 +266,32 @@ class Product extends Model
     {
         $stored = is_array($value) ? $value : (is_string($value) ? json_decode($value, true) : []);
         return array_replace_recursive(static::defaultCheckoutConfig(), $stored ?? []);
+    }
+
+    /**
+     * Flags `payment_methods_enabled` efetivas no checkout (produto + oferta/plano), alinhado ao {@see CheckoutController::show}.
+     *
+     * @return array<string, bool>
+     */
+    public static function resolvedPaymentMethodsEnabled(self $product, ?ProductOffer $offer = null, ?SubscriptionPlan $plan = null): array
+    {
+        $defaults = static::defaultCheckoutConfig();
+        /** @var array<string, bool> $basePm */
+        $basePm = is_array($defaults['payment_methods_enabled'] ?? null)
+            ? $defaults['payment_methods_enabled']
+            : [];
+        $cfg = array_replace_recursive($defaults, is_array($product->checkout_config) ? $product->checkout_config : []);
+        if ($offer !== null && $offer->checkout_config !== null && is_array($offer->checkout_config) && $offer->checkout_config !== []) {
+            $cfg = array_replace_recursive($cfg, $offer->checkout_config);
+        } elseif ($plan !== null && $plan->checkout_config !== null && is_array($plan->checkout_config) && $plan->checkout_config !== []) {
+            $cfg = array_replace_recursive($cfg, $plan->checkout_config);
+        }
+        $pm = $cfg['payment_methods_enabled'] ?? [];
+        if (! is_array($pm)) {
+            return $basePm;
+        }
+
+        return array_merge($basePm, $pm);
     }
 
     /**

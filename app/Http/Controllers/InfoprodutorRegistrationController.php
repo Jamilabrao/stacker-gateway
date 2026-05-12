@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\PlatformEmailNotifications;
 use App\Support\BrazilianDocuments;
 use App\Support\DockerSetupState;
+use App\Support\HtmlSanitizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -211,6 +212,21 @@ class InfoprodutorRegistrationController extends Controller
             'birth_date.before' => 'É necessário ter pelo menos 18 anos.',
         ]);
 
+        // Campos de texto puro: previne XSS armazenado (endereços, nomes, etc.)
+        foreach ([
+            'name' => 255,
+            'company_name' => 255,
+            'address_street' => 255,
+            'address_number' => 32,
+            'address_complement' => 120,
+            'address_neighborhood' => 120,
+            'address_city' => 120,
+        ] as $k => $max) {
+            if (array_key_exists($k, $validated)) {
+                $validated[$k] = HtmlSanitizer::plainText($validated[$k], $max) ?: null;
+            }
+        }
+
         $docDigits = BrazilianDocuments::digits($validated['document']);
         if ($validated['person_type'] === 'pf') {
             if (! BrazilianDocuments::isValidCpf($docDigits)) {
@@ -248,23 +264,23 @@ class InfoprodutorRegistrationController extends Controller
         }
 
         $user = User::create([
-            'name' => $validated['name'],
+            'name' => (string) ($validated['name'] ?? ''),
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role' => User::ROLE_INFOPRODUTOR,
             'person_type' => $validated['person_type'],
             'document' => $docDigits,
             'birth_date' => $validated['birth_date'],
-            'company_name' => $validated['person_type'] === 'pj' ? trim((string) $validated['company_name']) : null,
+            'company_name' => $validated['person_type'] === 'pj' ? ($validated['company_name'] ?? null) : null,
             'legal_representative_cpf' => $validated['person_type'] === 'pj'
                 ? BrazilianDocuments::digits((string) $validated['legal_representative_cpf'])
                 : null,
             'address_zip' => $validated['address_zip'],
-            'address_street' => $validated['address_street'],
-            'address_number' => $validated['address_number'],
+            'address_street' => $validated['address_street'] ?? '',
+            'address_number' => $validated['address_number'] ?? '',
             'address_complement' => $validated['address_complement'] ?? null,
-            'address_neighborhood' => $validated['address_neighborhood'],
-            'address_city' => $validated['address_city'],
+            'address_neighborhood' => $validated['address_neighborhood'] ?? '',
+            'address_city' => $validated['address_city'] ?? '',
             'address_state' => strtoupper($validated['address_state']),
             'monthly_revenue_range' => $validated['monthly_revenue_range'],
             'kyc_status' => User::KYC_NOT_SUBMITTED,
@@ -343,6 +359,20 @@ class InfoprodutorRegistrationController extends Controller
             'birth_date.before' => 'É necessário ter pelo menos 18 anos.',
         ]);
 
+        foreach ([
+            'name' => 255,
+            'company_name' => 255,
+            'address_street' => 255,
+            'address_number' => 32,
+            'address_complement' => 120,
+            'address_neighborhood' => 120,
+            'address_city' => 120,
+        ] as $k => $max) {
+            if (array_key_exists($k, $validated)) {
+                $validated[$k] = HtmlSanitizer::plainText($validated[$k], $max) ?: null;
+            }
+        }
+
         $docDigits = BrazilianDocuments::digits($validated['document']);
         if ($validated['person_type'] === 'pf') {
             if (! BrazilianDocuments::isValidCpf($docDigits)) {
@@ -380,23 +410,23 @@ class InfoprodutorRegistrationController extends Controller
         }
 
         $user->update([
-            'name' => $validated['name'],
+            'name' => (string) ($validated['name'] ?? ''),
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role' => User::ROLE_INFOPRODUTOR,
             'person_type' => $validated['person_type'],
             'document' => $docDigits,
             'birth_date' => $validated['birth_date'],
-            'company_name' => $validated['person_type'] === 'pj' ? trim((string) $validated['company_name']) : null,
+            'company_name' => $validated['person_type'] === 'pj' ? ($validated['company_name'] ?? null) : null,
             'legal_representative_cpf' => $validated['person_type'] === 'pj'
                 ? BrazilianDocuments::digits((string) $validated['legal_representative_cpf'])
                 : null,
             'address_zip' => $validated['address_zip'],
-            'address_street' => $validated['address_street'],
-            'address_number' => $validated['address_number'],
+            'address_street' => $validated['address_street'] ?? '',
+            'address_number' => $validated['address_number'] ?? '',
             'address_complement' => $validated['address_complement'] ?? null,
-            'address_neighborhood' => $validated['address_neighborhood'],
-            'address_city' => $validated['address_city'],
+            'address_neighborhood' => $validated['address_neighborhood'] ?? '',
+            'address_city' => $validated['address_city'] ?? '',
             'address_state' => strtoupper($validated['address_state']),
             'monthly_revenue_range' => $validated['monthly_revenue_range'],
             'kyc_status' => User::KYC_NOT_SUBMITTED,

@@ -5,6 +5,7 @@ import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import VendasTabs from '@/components/vendas/VendasTabs.vue';
 import { Repeat, Users, TrendingUp } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
+import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
@@ -250,7 +251,7 @@ function statusBadgeLabel(status) {
                               ? 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700'
                               : 'cursor-not-allowed text-zinc-400 dark:text-zinc-500',
                     ]"
-                    v-html="link.label"
+                    v-text="htmlToText(link.label)"
                     @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
                 />
             </nav>

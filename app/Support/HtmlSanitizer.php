@@ -44,4 +44,49 @@ class HtmlSanitizer
             $html
         );
     }
+
+    /**
+     * Sanitiza texto puro (sem HTML) para armazenar em campos comuns (nome, endereço, etc.).
+     * Remove tags, caracteres de controlo e normaliza espaços.
+     */
+    public static function plainText(?string $text, int $maxLen = 255): string
+    {
+        if ($text === null || $text === '') {
+            return '';
+        }
+
+        $s = strip_tags($text);
+        $s = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', (string) $s) ?? '';
+        $s = preg_replace('/\s+/u', ' ', (string) $s) ?? '';
+        $s = trim($s);
+
+        if ($maxLen > 0 && mb_strlen($s) > $maxLen) {
+            $s = mb_substr($s, 0, $maxLen);
+        }
+
+        return $s;
+    }
+
+    /**
+     * Texto puro preservando quebras de linha (ex.: observações). Remove tags e caracteres de controlo.
+     */
+    public static function plainTextMultiline(?string $text, int $maxLen = 2000): string
+    {
+        if ($text === null || $text === '') {
+            return '';
+        }
+
+        $s = strip_tags($text);
+        $s = str_replace(["\r\n", "\r"], "\n", (string) $s);
+        $s = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', (string) $s) ?? '';
+        // Normaliza múltiplas linhas vazias
+        $s = preg_replace("/\n{3,}/", "\n\n", (string) $s) ?? '';
+        $s = trim($s);
+
+        if ($maxLen > 0 && mb_strlen($s) > $maxLen) {
+            $s = mb_substr($s, 0, $maxLen);
+        }
+
+        return $s;
+    }
 }

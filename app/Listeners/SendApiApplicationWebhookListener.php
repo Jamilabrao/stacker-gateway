@@ -3,6 +3,7 @@
 namespace App\Listeners;
 
 use App\Events\OrderCompleted;
+use App\Events\OrderCancelled;
 use App\Events\OrderPending;
 use App\Events\OrderRefunded;
 use App\Jobs\SendApiApplicationWebhookJob;
@@ -43,12 +44,22 @@ class SendApiApplicationWebhookListener
         dispatch(new SendApiApplicationWebhookJob($order->id, 'order.refunded'));
     }
 
+    public function handleOrderCancelled(OrderCancelled $event): void
+    {
+        $order = $event->order;
+        if ($order->api_application_id === null) {
+            return;
+        }
+        dispatch(new SendApiApplicationWebhookJob($order->id, 'order.cancelled'));
+    }
+
     public function subscribe($events): array
     {
         return [
             OrderCompleted::class => 'handleOrderCompleted',
             OrderPending::class => 'handleOrderPending',
             OrderRefunded::class => 'handleOrderRefunded',
+            OrderCancelled::class => 'handleOrderCancelled',
         ];
     }
 

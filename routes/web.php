@@ -110,6 +110,7 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/webhooks/gateways/pushinpay', [\App\Http\Controllers\Webhooks\PushinPayWebhookController::class, 'handle'])->name('webhooks.pushinpay');
     Route::post('/webhooks/gateways/asaas', [\App\Http\Controllers\Webhooks\AsaasWebhookController::class, 'handle'])->name('webhooks.asaas');
     Route::post('/webhooks/gateways/pagarme', [\App\Http\Controllers\Webhooks\PagarmeWebhookController::class, 'handle'])->name('webhooks.pagarme');
+    Route::post('/webhooks/gateways/cajupay/checkout', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay.checkout');
     // Dispatcher genérico para gateways de plugins (webhook_handler na definição do gateway)
     Route::post('/webhooks/gateways/{slug}', \App\Http\Controllers\Webhooks\GenericGatewayWebhookController::class)
         ->where('slug', '[a-z0-9_-]+')
@@ -139,6 +140,12 @@ Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'p
 Route::get('/checkout/boleto', [\App\Http\Controllers\CheckoutController::class, 'boletoPage'])->name('checkout.boleto');
 Route::get('/checkout/order-status', [\App\Http\Controllers\CheckoutController::class, 'orderStatus'])->name('checkout.order-status')->middleware('throttle:30,1');
 Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])->name('checkout.process')->middleware('throttle:10,1');
+Route::post('/checkout/cajupay/sdk-session', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'createSession'])
+    ->name('checkout.cajupay.sdk-session')
+    ->middleware('throttle:30,1');
+Route::get('/checkout/cajupay/session-status', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'sessionStatus'])
+    ->name('checkout.cajupay.session-status')
+    ->middleware('throttle:60,1');
 // Pagar.me tokenizecard: se o submit HTML não for cancelado, evita POST na rota GET /c/{slug} (405).
 Route::post('/checkout/pagarme-tokenize-sink', fn () => response()->noContent())
     ->name('checkout.pagarme-tokenize-sink')
@@ -566,10 +573,12 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::put('/aplicacoes-api/{apiApplication}', [\App\Http\Controllers\ApiApplicationsController::class, 'update'])->name('api-applications.update');
         Route::delete('/aplicacoes-api/{apiApplication}', [\App\Http\Controllers\ApiApplicationsController::class, 'destroy'])->name('api-applications.destroy');
         Route::post('/aplicacoes-api/{apiApplication}/regenerate-key', [\App\Http\Controllers\ApiApplicationsController::class, 'regenerateKey'])->name('api-applications.regenerate-key');
+        Route::post('/aplicacoes-api/{apiApplication}/reveal-secret', [\App\Http\Controllers\ApiApplicationsController::class, 'revealSecret'])
+            ->middleware('throttle:30,1')
+            ->name('api-applications.reveal-secret');
+        Route::post('/aplicacoes-api/toggle', [\App\Http\Controllers\ApiApplicationsController::class, 'updateApiPixToggle'])->name('api-applications.toggle');
         Route::post('/aplicacoes-api/{apiApplication}/logo', [\App\Http\Controllers\ApiApplicationsController::class, 'uploadLogo'])->name('api-applications.logo.upload');
         Route::delete('/aplicacoes-api/{apiApplication}/logo', [\App\Http\Controllers\ApiApplicationsController::class, 'removeLogo'])->name('api-applications.logo.remove');
-        Route::get('/docs/api-pagamentos', [\App\Http\Controllers\ApiDocsController::class, '__invoke'])->name('api-docs.pagamentos');
-        Route::get('/docs/api-pagamentos/testar', [\App\Http\Controllers\ApiDocsController::class, 'testar'])->name('api-docs.pagamentos.testar');
     });
     Route::middleware('team.permission:integracoes.view')->group(function () {
         Route::post('/integracoes/plugins/{slug}/enable', [\App\Http\Controllers\IntegrationsController::class, 'enablePlugin'])->name('integrations.plugins.enable');
@@ -599,6 +608,9 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
     });
 
 });
+
+Route::get('/docs/api-pagamentos', [\App\Http\Controllers\ApiDocsController::class, '__invoke'])->name('api-docs.pagamentos');
+Route::get('/docs/api-pagamentos/testar', [\App\Http\Controllers\ApiDocsController::class, 'testar'])->name('api-docs.pagamentos.testar');
 
 // URLs antigas do painel do vendedor → painel da plataforma (operador)
 Route::middleware(['auth'])->group(function () {
@@ -640,7 +652,7 @@ Route::prefix('m/{slug}')->where(['slug' => '[a-zA-Z0-9]{6,16}'])->middleware('m
     Route::post('login-without-password', [\App\Http\Controllers\MemberAreaLoginController::class, 'loginWithoutPassword'])->name('member-area.login.without-password')->middleware(['guest', 'throttle:5,1']);
     Route::get('esqueci-senha', [\App\Http\Controllers\MemberAreaForgotPasswordController::class, 'showLinkRequestForm'])->name('member-area.password.request')->middleware('guest');
     Route::post('esqueci-senha', [\App\Http\Controllers\MemberAreaForgotPasswordController::class, 'sendResetLinkEmail'])->name('member-area.password.email')->middleware(['guest', 'throttle:6,1']);
-    Route::get('access', [\App\Http\Controllers\MemberAreaLoginController::class, 'magicAccess'])->name('member-area.magic-access')->middleware('signed');
+    Route::get('access', [\App\Http\Controllers\MemberAreaLoginController::class, 'magicAccess'])->name('member-area.magic-access')->middleware('member.area.magic-access');
 
     Route::middleware(['member.area.access'])->group(function () {
         Route::get('/', [\App\Http\Controllers\MemberAreaAppController::class, 'show'])->name('member-area-app.show');
@@ -678,7 +690,7 @@ Route::middleware(['web', 'member.area.resolve.by.host'])->group(function () {
 
         return response()->file($path, ['Content-Type' => 'application/javascript']);
     })->name('member-area-app.sw.host');
-    Route::get('access', [\App\Http\Controllers\MemberAreaLoginController::class, 'magicAccessHost'])->name('member-area.magic-access.host')->middleware('signed');
+    Route::get('access', [\App\Http\Controllers\MemberAreaLoginController::class, 'magicAccessHost'])->name('member-area.magic-access.host')->middleware('member.area.magic-access');
     // Login da área de membros por host: não registramos GET/POST /login aqui para não sobrescrever
     // o login da plataforma. O Auth\LoginController delega para MemberAreaLoginController quando
     // o host for de área de membros (subdomínio ou domínio próprio).

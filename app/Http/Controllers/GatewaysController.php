@@ -74,9 +74,33 @@ class GatewaysController extends Controller
         }
 
         $webhookUrl = null;
+        $webhookHelp = null;
         if ($slug === 'pushinpay') {
             $webhookRoute = $gateway['webhook_route'] ?? 'webhooks.' . $slug;
             $webhookUrl = Route::has($webhookRoute) ? route($webhookRoute) : null;
+        } elseif ($slug === 'onlyup' && Route::has('webhooks.gateway')) {
+            $webhookUrl = route('webhooks.gateway', ['slug' => 'onlyup']);
+        } elseif ($slug === 'cajupay' && Route::has('webhooks.cajupay.checkout')) {
+            $publicBase = trim((string) (config('getfy.webhook_public_url') ?? ''));
+            $webhookUrl = $publicBase !== ''
+                ? rtrim($publicBase, '/').'/webhooks/gateways/cajupay/checkout'
+                : route('webhooks.cajupay.checkout');
+            $webhookHelp = 'No painel CajuPay (Webhooks), cadastre esta URL HTTPS e marque os eventos: checkout.payment.paid, checkout.payment.failed, checkout.payment.refunded, checkout.payment.disputed. Guarde o signing_secret (cwhsec_…) no campo abaixo — ele só aparece uma vez ao criar o endpoint.';
+        }
+
+        $fileFieldsConfigured = [];
+        foreach ($credentialKeys as $keyDef) {
+            $keyDef = is_array($keyDef) ? $keyDef : (array) $keyDef;
+            if (($keyDef['type'] ?? '') !== 'file') {
+                continue;
+            }
+            $k = $keyDef['key'] ?? '';
+            $certKey = $gateway['certificate_key'] ?? null;
+            if ($k === '' || ($certKey !== null && $k === $certKey)) {
+                continue;
+            }
+            $pathKey = $k.'_path';
+            $fileFieldsConfigured[$k] = ! empty($decrypted[$pathKey] ?? '');
         }
 
         $usesOauth = ! empty($gateway['oauth']);
@@ -111,12 +135,14 @@ class GatewaysController extends Controller
             'certificate_configured' => $certificateConfigured,
             'certificate_filename' => $certificateFilename && is_string($certificateFilename) ? $certificateFilename : null,
             'webhook_url' => $webhookUrl,
+            'webhook_help' => $webhookHelp,
             'uses_oauth' => $usesOauth,
             'oauth_client_configured' => $oauthClientConfigured,
             'oauth_start_url' => $oauthStartUrl,
             'oauth_disconnect_url' => $oauthDisconnectUrl,
             'oauth_callback_url' => $oauthCallbackUrl,
             'oauth_connected' => $oauthConnected,
+            'file_fields_configured' => $fileFieldsConfigured,
         ];
 
         return response()->json($payload)->header('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -140,7 +166,7 @@ class GatewaysController extends Controller
                 continue;
             }
             if ($type === 'file') {
-                $rules[$key] = ['nullable', 'file', 'max:512'];
+                $rules[$key] = ['nullable', 'file', 'max:4096'];
                 continue;
             }
             if ($type === 'boolean') {
@@ -166,6 +192,9 @@ class GatewaysController extends Controller
             $key = $keyDef['key'] ?? '';
             $type = $keyDef['type'] ?? 'text';
             if ($key === '' || $key === $certificateKey) {
+                continue;
+            }
+            if ($type === 'file') {
                 continue;
             }
             $v = array_key_exists($key, $validated) ? $validated[$key] : $request->input($key);
@@ -202,6 +231,33 @@ class GatewaysController extends Controller
                 $absolutePath = Storage::path($path);
                 $credentials['certificate_path'] = $absolutePath;
                 $credentials['certificate_filename'] = $file->getClientOriginalName();
+            }
+        }
+
+        $certDir = 'gateway_certs/'.($tenantId ?? 'global');
+        foreach ($credentialKeys as $keyDef) {
+            $keyDef = is_array($keyDef) ? $keyDef : (array) $keyDef;
+            $key = $keyDef['key'] ?? '';
+            $type = $keyDef['type'] ?? 'text';
+            if ($key === '' || $type !== 'file' || $key === $certificateKey) {
+                continue;
+            }
+            $pathKey = $key.'_path';
+            $nameKey = $key.'_filename';
+            if ($request->hasFile($key)) {
+                $file = $request->file($key);
+                if ($file && $file->isValid()) {
+                    $ext = strtolower($file->getClientOriginalExtension() ?: 'pem');
+                    $safeKey = preg_replace('/[^a-z0-9_-]/i', '_', $key) ?: 'file';
+                    $path = $file->storeAs($certDir, $slug.'_'.$safeKey.'_'.time().'.'.$ext, 'local');
+                    $credentials[$pathKey] = Storage::path($path);
+                    $credentials[$nameKey] = $file->getClientOriginalName();
+                }
+            } elseif (! empty($existingCredentials[$pathKey])) {
+                $credentials[$pathKey] = $existingCredentials[$pathKey];
+                if (! empty($existingCredentials[$nameKey])) {
+                    $credentials[$nameKey] = $existingCredentials[$nameKey];
+                }
             }
         }
 
@@ -281,6 +337,22 @@ class GatewaysController extends Controller
                 'success' => false,
                 'message' => 'Envie e salve o certificado P12 antes de testar a conexão.',
             ], 422);
+        }
+
+        foreach ($credentialKeys as $keyDef) {
+            $keyDef = is_array($keyDef) ? $keyDef : (array) $keyDef;
+            $key = $keyDef['key'] ?? '';
+            $type = $keyDef['type'] ?? 'text';
+            if ($key === '' || $type !== 'file' || $key === $certificateKey) {
+                continue;
+            }
+            $pathKey = $key.'_path';
+            if (empty($credentials[$pathKey])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Envie e salve todos os arquivos de certificado obrigatórios antes de testar a conexão.',
+                ], 422);
+            }
         }
 
         $driver = GatewayRegistry::driver($slug);

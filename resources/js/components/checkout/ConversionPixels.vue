@@ -353,6 +353,7 @@ function fireInitiateCheckout(value, currency = 'BRL', checkoutKey = '') {
     const p = props.pixels || {};
     const { value: num, currency: normalizedCurrency } = normalizedPurchasePayload(value, currency, '');
     const key = (checkoutKey || '').trim();
+    const eventID = key ? `chk:${key}` : undefined;
 
     if (p.meta?.enabled && window.fbq) {
         const payload = {
@@ -365,7 +366,8 @@ function fireInitiateCheckout(value, currency = 'BRL', checkoutKey = '') {
         };
         getMetaEntries(p).forEach((entry) => {
             if (!entry.pixel_id) return;
-            window.fbq('track', 'InitiateCheckout', payload);
+            // eventID ajuda dedupe com CAPI (quando implementado)
+            window.fbq('track', 'InitiateCheckout', payload, eventID ? { eventID } : undefined);
         });
     }
 }
@@ -373,6 +375,8 @@ function fireInitiateCheckout(value, currency = 'BRL', checkoutKey = '') {
 function firePurchase(value, currency = 'BRL', orderId = '', isOrderBump = false, triggerType = 'approved') {
     const p = props.pixels || {};
     const { value: num, currency: normalizedCurrency, orderId: normalizedOrderId } = normalizedPurchasePayload(value, currency, orderId);
+    const eventID = normalizedOrderId ? `order:${normalizedOrderId}` : undefined;
+    let firedAny = false;
 
     if (p.meta?.enabled && window.fbq) {
         const purchasePayload = {
@@ -385,13 +389,15 @@ function firePurchase(value, currency = 'BRL', orderId = '', isOrderBump = false
         };
         getMetaEntries(p).forEach((entry) => {
             if (!entry.pixel_id || !shouldFireForEntry(entry, triggerType, isOrderBump)) return;
-            window.fbq('track', 'Purchase', purchasePayload);
+            window.fbq('track', 'Purchase', purchasePayload, eventID ? { eventID } : undefined);
+            firedAny = true;
         });
     }
     if (p.tiktok?.enabled && window.ttq?.track) {
         getTiktokEntries(p).forEach((entry) => {
             if (!entry.pixel_id || !shouldFireForEntry(entry, triggerType, isOrderBump)) return;
             window.ttq.track('CompletePayment', { value: num, currency: normalizedCurrency, content_id: normalizedOrderId });
+            firedAny = true;
         });
     }
     if (p.google_ads?.enabled && window.gtag) {
@@ -404,6 +410,7 @@ function firePurchase(value, currency = 'BRL', orderId = '', isOrderBump = false
                 currency: normalizedCurrency,
                 transaction_id: normalizedOrderId,
             });
+            firedAny = true;
         });
     }
     if (p.google_analytics?.enabled && window.gtag) {
@@ -415,8 +422,11 @@ function firePurchase(value, currency = 'BRL', orderId = '', isOrderBump = false
                 currency: normalizedCurrency,
                 transaction_id: normalizedOrderId,
             });
+            firedAny = true;
         });
     }
+
+    return firedAny;
 }
 
 /** Só no mesmo carregamento: evita corrida entre @ready e onMounted; não usar sessionStorage (F5 deve disparar de novo). */
@@ -476,15 +486,17 @@ defineExpose({
         const dedupeKey = oid ? `px:purchase_sent:${oid}` : '';
         if (dedupeKey && safeStorageGet(dedupeKey) === '1') return;
         const p = props.pixels || {};
-        if (p.meta?.enabled) {
-            const metaEntries = getMetaEntries(p);
-            if (metaEntries.length) {
-                injectMetaLibAndInit(metaEntries);
-            }
+        const metaEntries = p.meta?.enabled ? getMetaEntries(p) : [];
+        if (metaEntries.length) {
+            injectMetaLibAndInit(metaEntries);
+            // Evita corrida: fbq pode existir mas pixel ainda não ter sido initado.
+            await waitForMeta(4200);
+            await waitForMetaPixelInit(metaEntries, 4200);
         }
+
         await waitForTrackers(2200);
-        firePurchase(value, currency, orderId, isOrderBump, triggerType);
-        if (dedupeKey) safeStorageSet(dedupeKey, '1');
+        const fired = firePurchase(value, currency, orderId, isOrderBump, triggerType);
+        if (dedupeKey && fired) safeStorageSet(dedupeKey, '1');
         if (settleDelayMs > 0) {
             await sleep(settleDelayMs);
         }
