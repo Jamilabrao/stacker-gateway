@@ -902,8 +902,9 @@ watch(
     { immediate: true }
 );
 
-const cajupaySdkHint = ref('');
 const cajupayMountRef = ref(null);
+/** Cartão CajuPay: true enquanto cria pedido/sessão ou 1.º clique em Pagar antes do token (prefetch / bootstrap). */
+const cajupayCardBootstrapLoading = ref(false);
 const cajupaySessionToken = ref('');
 const cajupayApiBaseUrl = ref('');
 const cajupayPendingOrderId = ref(null);
@@ -925,6 +926,11 @@ const cajupayInitialPayer = computed(() => {
     if (docDigits.length >= 11) payer.document = docDigits;
     return payer;
 });
+
+const showCajupayCardLoading = computed(() => isCardGatewayCajupay.value
+    && form.payment_method === 'card'
+    && !cajupaySessionToken.value
+    && (cajupayCardBootstrapLoading.value || cardTokenizing.value));
 
 /** Fase 1: no-op — a Order já existe no Getfy antes do SDK; estender se wallets exigirem passo extra. */
 async function cajupayBeforeWalletPrimeNoop() {}
@@ -954,7 +960,7 @@ watch(
 function destroyCajupaySdk() {
     cajupaySessionToken.value = '';
     cajupayApiBaseUrl.value = '';
-    cajupaySdkHint.value = '';
+    cajupayCardBootstrapLoading.value = false;
     cajupayPendingOrderId.value = null;
     cajupayPendingNonce.value = null;
 }
@@ -1106,10 +1112,9 @@ watch(
             if (showName.value && !(form.name || '').trim()) {
                 return;
             }
-            void startCajupaySdkBootstrap(false).then((ok) => {
-                if (ok && isCardGatewayCajupay.value && form.payment_method === 'card') {
-                    cajupaySdkHint.value = 'Preencha o cartão acima e clique em «Pagar com cartão» para finalizar.';
-                }
+            cajupayCardBootstrapLoading.value = true;
+            startCajupaySdkBootstrap(false).finally(() => {
+                cajupayCardBootstrapLoading.value = false;
             });
         }, 350);
     },
@@ -1353,7 +1358,6 @@ async function submitCajupayCardFlow() {
 
         if (cajupaySdkWallet.value === 'card') {
             await nextTick();
-            cajupaySdkHint.value = 'Preencha o cartão acima e clique em «Pagar com cartão» para finalizar.';
             return;
         }
 
@@ -2640,7 +2644,15 @@ function submit() {
                 </div>
                 <!-- Cartão / Apple Pay / Google Pay (CajuPay SDK, embeddedOnly) -->
                 <div v-else-if="isCardGatewayCajupay" class="space-y-2">
+                    <div
+                        v-if="showCajupayCardLoading"
+                        class="flex min-h-[120px] items-center justify-center gap-2 rounded-xl border-2 border-gray-100 bg-white px-4 py-6 text-sm text-gray-600"
+                    >
+                        <Loader2 class="h-5 w-5 shrink-0 animate-spin text-gray-400" aria-hidden="true" />
+                        <span>Carregando pagamento…</span>
+                    </div>
                     <CajuPaySdkMount
+                        v-if="cajupaySessionToken || !showCajupayCardLoading"
                         ref="cajupayMountRef"
                         :payment-method="cajupaySdkWallet"
                         :session-token="cajupaySessionToken"
@@ -2649,7 +2661,6 @@ function submit() {
                         :before-wallet-prime="cajupayBeforeWalletPrimeNoop"
                         container-id="cajupay-method"
                     />
-                    <p v-if="cajupaySdkHint" class="text-sm text-gray-600">{{ cajupaySdkHint }}</p>
                     <p
                         v-if="hidePrimarySubmitForCajupayWallet && cardTokenizing && !cardApproved"
                         class="text-sm text-gray-500"

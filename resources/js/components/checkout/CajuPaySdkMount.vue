@@ -14,7 +14,6 @@ const props = defineProps({
 });
 
 const error = ref('');
-const loading = ref(false);
 const controller = ref(null);
 const mountedToken = ref('');
 const cardFieldReady = ref(false);
@@ -52,7 +51,6 @@ async function tryMount() {
         return;
     }
     error.value = '';
-    loading.value = true;
     if (controller.value) destroyController();
     try {
         await new Promise((r) => { setTimeout(r, 0); });
@@ -79,8 +77,6 @@ async function tryMount() {
     } catch (e) {
         error.value = e?.message || 'Não foi possível carregar o checkout CajuPay.';
         controller.value = null;
-    } finally {
-        loading.value = false;
     }
 }
 
@@ -201,7 +197,6 @@ defineExpose({
 <template>
     <div class="space-y-2">
         <div :id="containerId" />
-        <div v-if="loading" class="text-xs text-gray-500">Carregando checkout CajuPay…</div>
         <div v-if="error" class="text-xs text-red-600">{{ error }}</div>
     </div>
 </template>
