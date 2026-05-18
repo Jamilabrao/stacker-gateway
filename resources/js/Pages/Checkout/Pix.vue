@@ -6,6 +6,9 @@ import QrcodeVue from 'qrcode.vue';
 import { Clock, Copy, Check, Building2, QrCode, CircleDollarSign } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
+import { sendPurchasePixelAck } from '@/composables/usePurchasePixelAck';
+
+const POLL_INTERVAL_MS = 2500;
 
 defineOptions({ layout: null });
 
@@ -75,6 +78,30 @@ const hasCustomerInfo = computed(
     () => (props.customer_name || '') !== '' || (props.customer_email || '') !== '' || (props.customer_phone || '') !== ''
 );
 
+async function onPaymentCompleted(redirectUrl) {
+    sendPurchasePixelAck({
+        orderId: props.order_id,
+        token: props.token,
+        triggerType: 'pix',
+    });
+    if (conversionPixelsRef.value?.firePurchaseReliable) {
+        await conversionPixelsRef.value.firePurchaseReliable(
+            props.amount,
+            'BRL',
+            String(props.order_id),
+            false,
+            'pix',
+            500
+        );
+    }
+    const url = redirectUrl || props.redirect_after_purchase || '/area-membros';
+    if (url.startsWith('http') || url.startsWith('//')) {
+        window.location.href = url;
+    } else {
+        router.visit(url);
+    }
+}
+
 async function checkOrderStatus() {
     try {
         const { data } = await axios.get('/checkout/order-status', { params: { token: props.token } });
@@ -85,15 +112,7 @@ async function checkOrderStatus() {
                 clearInterval(pollInterval);
                 pollInterval = null;
             }
-            if (conversionPixelsRef.value?.firePurchase) {
-                await conversionPixelsRef.value.firePurchaseReliable?.(props.amount, 'BRL', String(props.order_id), false, 'pix', 500);
-            }
-            const url = data.redirect_url || props.redirect_after_purchase || '/area-membros';
-            if (url.startsWith('http') || url.startsWith('//')) {
-                window.location.href = url;
-            } else {
-                router.visit(url);
-            }
+            await onPaymentCompleted(data.redirect_url);
         }
         return data;
     } catch {
@@ -139,7 +158,7 @@ onMounted(() => {
     pollInterval = setInterval(() => {
         if (status.value === 'completed') return;
         checkOrderStatus();
-    }, 5000);
+    }, POLL_INTERVAL_MS);
 });
 
 onUnmounted(() => {

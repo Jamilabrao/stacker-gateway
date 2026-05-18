@@ -30,6 +30,7 @@ import {
     Trash2,
     Repeat2,
     Cog,
+    Truck,
 } from 'lucide-vue-next';
 import axios from 'axios';
 import EmailTemplatePreview from '@/components/produtos/EmailTemplatePreview.vue';
@@ -98,6 +99,7 @@ const props = defineProps({
         type: Object,
         default: () => ({ pix: false, card: false, boleto: false, pix_auto: false, apple_pay: false, google_pay: false }),
     },
+    shipping_stores: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -168,7 +170,19 @@ const form = useForm({
     refund_policy_days: [7, 14, 30].includes(Number(props.produto.refund_policy_days))
         ? Number(props.produto.refund_policy_days)
         : 7,
+    shipping_store_id: props.produto.shipping_store_id ?? null,
+    physical_free_shipping: Boolean(props.produto.physical_config?.free_shipping),
 });
+
+watch(
+    () => form.type,
+    (t) => {
+        if (t === 'produto_fisico') {
+            form.billing_type = 'one_time';
+            form.currency = 'BRL';
+        }
+    }
+);
 
 const coproducerForm = useForm({
     email: '',
@@ -1003,6 +1017,7 @@ const typeIcons = {
     area_membros_externa: Users,
     link: Link2,
     link_pagamento: CreditCard,
+    produto_fisico: Truck,
 };
 
 function submit() {
@@ -1040,6 +1055,10 @@ function submit() {
             fd.append('email_template[body_html]', form.email_template.body_html || '');
         }
         fd.append('deliverable_link', form.deliverable_link || '');
+        if (form.type === 'produto_fisico') {
+            if (form.shipping_store_id) fd.append('shipping_store_id', String(form.shipping_store_id));
+            fd.append('physical_free_shipping', form.physical_free_shipping ? '1' : '0');
+        }
         if (form.refund_enabled) {
             fd.append('refund_policy_days', String(form.refund_policy_days ?? 7));
         } else {
@@ -1054,6 +1073,12 @@ function submit() {
                 data.base_interval = data.base_interval || 'monthly';
             }
             data.refund_policy_days = data.refund_enabled ? Number(data.refund_policy_days || 7) : null;
+            if (data.type === 'produto_fisico') {
+                data.physical_free_shipping = !!data.physical_free_shipping;
+            } else {
+                data.shipping_store_id = null;
+                data.physical_free_shipping = false;
+            }
             return data;
         }).put(url);
     }
@@ -1618,6 +1643,46 @@ function submit() {
                     </div>
                 </section>
 
+                <section
+                    v-if="form.type === 'produto_fisico'"
+                    class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95"
+                >
+                    <div class="border-b border-zinc-200/80 bg-zinc-50/80 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/50">
+                        <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Frete e entrega</h2>
+                        <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
+                            Vincule uma loja cadastrada em
+                            <Link href="/frete" class="text-[var(--color-primary)] hover:underline">Taxas e frete</Link>
+                            e defina se este produto tem frete grátis.
+                        </p>
+                    </div>
+                    <div class="space-y-4 p-6">
+                        <div>
+                            <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Loja de expedição</label>
+                            <select
+                                v-model="form.shipping_store_id"
+                                class="w-full max-w-md rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            >
+                                <option :value="null">Selecione uma loja</option>
+                                <option
+                                    v-for="s in shipping_stores"
+                                    :key="s.id"
+                                    :value="s.id"
+                                    :disabled="!s.is_active"
+                                >
+                                    {{ s.name }}{{ s.is_active ? '' : ' (inativa)' }}
+                                </option>
+                            </select>
+                            <p v-if="shipping_stores.length === 0" class="mt-1 text-xs text-amber-600">
+                                Cadastre uma loja em Taxas e frete antes de publicar o produto.
+                            </p>
+                        </div>
+                        <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                            <Checkbox v-model:checked="form.physical_free_shipping" />
+                            Frete grátis para este produto
+                        </label>
+                    </div>
+                </section>
+
                 <!-- Área de membros externa (Cademí) -->
                 <section
                     v-if="form.type === 'area_membros_externa'"
@@ -1946,11 +2011,13 @@ function submit() {
                                     <div>
                                         <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Access Token (CAPI)</label>
                                         <input v-model="item.access_token" type="password" placeholder="Token para Conversions API" :class="inputClass" autocomplete="off" />
-                                        <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Usado para enviar eventos server-side (CAPI).</p>
+                                        <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                            Obrigatório para Purchase via servidor (CAPI). Recomendado para conversões estáveis mesmo se o comprador fechar a aba após pagar.
+                                        </p>
                                     </div>
                                     <div class="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                                        <Checkbox v-model="item.fire_purchase_on_pix" label="Disparar evento Purchase ao gerar PIX?" />
-                                        <Checkbox v-model="item.fire_purchase_on_boleto" label="Disparar evento Purchase ao gerar Boleto?" />
+                                        <Checkbox v-model="item.fire_purchase_on_pix" label="Disparar Purchase no navegador quando o pagamento PIX for confirmado" />
+                                        <Checkbox v-model="item.fire_purchase_on_boleto" label="Disparar Purchase no navegador quando o boleto for pago" />
                                         <Checkbox v-model="item.disable_order_bump_events" label="Desativar eventos de order bumps?" />
                                     </div>
                                 </div>
@@ -1986,8 +2053,8 @@ function submit() {
                                         <input v-model="item.access_token" type="password" placeholder="Token do TikTok Events API" :class="inputClass" autocomplete="off" />
                                     </div>
                                     <div class="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                                        <Checkbox v-model="item.fire_purchase_on_pix" label="Disparar evento Purchase ao gerar PIX?" />
-                                        <Checkbox v-model="item.fire_purchase_on_boleto" label="Disparar evento Purchase ao gerar Boleto?" />
+                                        <Checkbox v-model="item.fire_purchase_on_pix" label="Disparar Purchase no navegador quando o pagamento PIX for confirmado" />
+                                        <Checkbox v-model="item.fire_purchase_on_boleto" label="Disparar Purchase no navegador quando o boleto for pago" />
                                         <Checkbox v-model="item.disable_order_bump_events" label="Desativar eventos de order bumps?" />
                                     </div>
                                 </div>

@@ -25,6 +25,7 @@ import {
     GraduationCap,
     UserPlus,
     RotateCcw,
+    Truck,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 import ConquistasWidget from '@/components/layout/ConquistasWidget.vue';
@@ -97,6 +98,7 @@ const navItems = computed(() => {
             href: '/produtos/vitrine-afiliacao',
             icon: Store,
         });
+        items.push({ name: t('sidebar.shipping', 'Taxas e frete'), href: '/frete', icon: Truck });
         items.push({ name: t('sidebar.coupons', 'Cupons'), href: '/produtos/cupons', icon: TicketPercent });
         items.push({ name: t('sidebar.students', 'Alunos'), href: '/produtos/alunos', icon: GraduationCap });
         items.push({ name: t('sidebar.affiliates_menu', 'Afiliados'), href: '/afiliados', icon: UserPlus });
@@ -125,6 +127,7 @@ const navItems = computed(() => {
 function isActive(href) {
     const url = page.url.split('?')[0];
     if (href === '/reembolsos') return url === '/reembolsos' || url.startsWith('/reembolsos/');
+    if (href === '/frete') return url === '/frete' || url.startsWith('/frete/');
     if (href === '/dashboard') return url === '/dashboard' || url === '/';
     if (href === '/produtos/vitrine-afiliacao') {
         return url === '/produtos/vitrine-afiliacao' || url.startsWith('/produtos/vitrine-afiliacao/');

@@ -14,7 +14,8 @@ class Order extends Model
         'public_reference',
         'tenant_id', 'user_id', 'product_id', 'product_offer_id', 'subscription_plan_id',
         'api_application_id', 'api_checkout_session_id',
-        'status', 'amount', 'email', 'cpf', 'phone', 'customer_ip', 'coupon_code',
+        'status', 'amount', 'shipping_amount', 'shipping_store_id', 'shipping_rule_id', 'shipping_address',
+        'email', 'cpf', 'phone', 'customer_ip', 'coupon_code',
         'gateway', 'gateway_id', 'payment_method', 'approved_manually', 'metadata', 'period_start', 'period_end', 'is_renewal',
     ];
 
@@ -22,6 +23,8 @@ class Order extends Model
     {
         return [
             'amount' => 'decimal:2',
+            'shipping_amount' => 'decimal:2',
+            'shipping_address' => 'array',
             'metadata' => 'array',
             'period_start' => 'date',
             'period_end' => 'date',
@@ -186,13 +189,23 @@ class Order extends Model
     public function grantPurchasedProductAccessToBuyer(): void
     {
         $this->loadMissing('orderItems.product', 'product');
-        if ($this->product) {
+        if ($this->product && $this->product->type !== Product::TYPE_PRODUTO_FISICO) {
             $this->product->users()->syncWithoutDetaching([$this->user_id]);
         }
         foreach ($this->orderItems as $item) {
-            if ($item->product) {
+            if ($item->product && $item->product->type !== Product::TYPE_PRODUTO_FISICO) {
                 $item->product->users()->syncWithoutDetaching([$this->user_id]);
             }
         }
+    }
+
+    public function shippingStore(): BelongsTo
+    {
+        return $this->belongsTo(ShippingStore::class, 'shipping_store_id');
+    }
+
+    public function shippingRule(): BelongsTo
+    {
+        return $this->belongsTo(ShippingRule::class, 'shipping_rule_id');
     }
 }

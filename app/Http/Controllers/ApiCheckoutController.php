@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\PaymentService;
 use App\Services\PushinPayPixRecorrenteService;
+use App\Services\Shipping\CheckoutShippingHelper;
 use App\Services\StorageService;
 use App\Support\FakeConsumerData;
 use Illuminate\Http\RedirectResponse;
@@ -338,7 +339,27 @@ class ApiCheckoutController extends Controller
             }
         }
 
-        $order = Order::create([
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        $shippingResolved = null;
+        $orderMetadata = array_merge($session->metadata ?? [], [
+            'source' => 'api_checkout_pro',
+            'checkout_payment_method' => $method,
+        ]);
+        if ($product && $shippingHelper->productRequiresShipping($product)) {
+            if (strtoupper((string) ($session->currency ?? 'BRL')) !== 'BRL') {
+                return redirect()->back()->with('error', 'Produtos físicos estão disponíveis apenas em BRL.');
+            }
+            $addrValidated = $request->validate($shippingHelper->shippingAddressValidationRules());
+            try {
+                $shippingResolved = $shippingHelper->resolveForCheckout($product, $addrValidated);
+                $amount = round($amount + $shippingResolved['shipping_amount'], 2);
+                $orderMetadata = array_merge($orderMetadata, $shippingResolved['metadata_shipping']);
+            } catch (\RuntimeException $e) {
+                return redirect()->back()->with('error', $e->getMessage());
+            }
+        }
+
+        $orderPayload = [
             'tenant_id' => $tenantId,
             'user_id' => $user->id,
             'product_id' => $product?->id,
@@ -356,14 +377,19 @@ class ApiCheckoutController extends Controller
             'gateway' => null,
             'gateway_id' => null,
             'payment_method' => $method,
-            'metadata' => array_merge($session->metadata ?? [], [
-                'source' => 'api_checkout_pro',
-                'checkout_payment_method' => $method,
-            ]),
+            'metadata' => $orderMetadata,
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
             'is_renewal' => false,
-        ]);
+        ];
+        if ($shippingResolved !== null) {
+            $orderPayload['shipping_amount'] = $shippingResolved['shipping_amount'];
+            $orderPayload['shipping_store_id'] = $shippingResolved['shipping_store_id'];
+            $orderPayload['shipping_rule_id'] = $shippingResolved['shipping_rule_id'];
+            $orderPayload['shipping_address'] = $shippingResolved['shipping_address'];
+        }
+
+        $order = Order::create($orderPayload);
 
         if ($product) {
             OrderItem::create([

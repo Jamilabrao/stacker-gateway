@@ -29,6 +29,8 @@ use App\Services\EfiPixRecorrenteService;
 use App\Services\GeoIp;
 use App\Services\PaymentService;
 use App\Services\PushinPayPixRecorrenteService;
+use App\Services\Shipping\CheckoutShippingHelper;
+use App\Services\Shipping\ShippingQuoteService;
 use App\Services\StorageService;
 use App\Support\CheckoutCardContract;
 use App\Support\CheckoutTranslations;
@@ -408,6 +410,69 @@ class CheckoutController extends Controller
         ]);
     }
 
+    /**
+     * ACK leve: browser registrou tentativa de Purchase antes do redirect (diagnóstico).
+     */
+    public function purchasePixelAck(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_id' => ['required', 'integer', 'min:1'],
+            'token' => ['nullable', 'string', 'max:64'],
+            'trigger_type' => ['nullable', 'string', 'in:approved,pix,boleto'],
+        ]);
+
+        $order = Order::find($validated['order_id']);
+        if (! $order) {
+            return response()->json(['ok' => false], 404);
+        }
+
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $meta['browser_purchase_ack_at'] = now()->toIso8601String();
+        $meta['browser_purchase_ack_trigger'] = $validated['trigger_type'] ?? 'approved';
+        if (! empty($validated['token'])) {
+            $meta['browser_purchase_ack_token'] = $validated['token'];
+        }
+        $order->update(['metadata' => $meta]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function shippingQuote(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'product_id' => ['required', 'exists:products,id'],
+            'product_offer_id' => ['nullable', 'integer'],
+            'subscription_plan_id' => ['nullable', 'integer'],
+            'cep' => ['required', 'string', 'max:9'],
+            'order_bump_ids' => ['nullable', 'array'],
+            'order_bump_ids.*' => ['integer'],
+            'coupon_code' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        $product = Product::findOrFail($validated['product_id']);
+        if (! $product->isPhysical()) {
+            return response()->json([
+                'shipping_amount' => 0,
+                'free_shipping' => true,
+                'product_subtotal_brl' => 0,
+                'total_with_shipping' => 0,
+            ]);
+        }
+
+        try {
+            $quote = app(ShippingQuoteService::class)->quote($product, $validated['cep']);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $subtotal = $this->computeCheckoutProductSubtotalBrl($product, $validated);
+
+        return response()->json(array_merge($quote->toArray(), [
+            'product_subtotal_brl' => round($subtotal, 2),
+            'total_with_shipping' => round($subtotal + $quote->shippingAmount, 2),
+        ]));
+    }
+
     public function process(Request $request): RedirectResponse|JsonResponse
     {
         $product = Product::findOrFail($request->input('product_id'));
@@ -509,6 +574,17 @@ class CheckoutController extends Controller
             $rules['address_city'] = ['required', 'string', 'max:255'];
             $rules['address_state'] = ['required', 'string', 'max:2'];
         }
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        if ($shippingHelper->productRequiresShipping($product)) {
+            $rules = $shippingHelper->appendAddressRulesIfNeeded($product, $rules, $displayCurrency);
+            $rules['shipping_cep'] = ['required', 'string', 'max:9'];
+            $rules['shipping_street'] = ['required', 'string', 'max:255'];
+            $rules['shipping_number'] = ['required', 'string', 'max:32'];
+            $rules['shipping_complement'] = ['nullable', 'string', 'max:120'];
+            $rules['shipping_neighborhood'] = ['required', 'string', 'max:120'];
+            $rules['shipping_city'] = ['required', 'string', 'max:120'];
+            $rules['shipping_state'] = ['required', 'string', 'size:2'];
+        }
         $validated = $request->validate($rules);
         $idempotencyKey = isset($validated['idempotency_key']) && trim((string) $validated['idempotency_key']) !== ''
             ? trim((string) $validated['idempotency_key'])
@@ -592,6 +668,20 @@ class CheckoutController extends Controller
             }
         }
         $totalAmount = $amount + $bumpAmountTotal;
+
+        $shippingResolved = null;
+        if ($shippingHelper->productRequiresShipping($product)) {
+            try {
+                $shippingResolved = $shippingHelper->resolveForCheckout($product, $validated);
+                $totalAmount = round($totalAmount + $shippingResolved['shipping_amount'], 2);
+            } catch (\RuntimeException $e) {
+                if ($request->expectsJson()) {
+                    return response()->json(['message' => $e->getMessage()], 422);
+                }
+
+                return back()->with('error', $e->getMessage())->withInput();
+            }
+        }
 
         $periodStart = null;
         $periodEnd = null;
@@ -682,6 +772,15 @@ class CheckoutController extends Controller
             'metadata' => $orderMetadata,
         ];
 
+        if ($shippingResolved !== null) {
+            $orderPayload['shipping_amount'] = $shippingResolved['shipping_amount'];
+            $orderPayload['shipping_store_id'] = $shippingResolved['shipping_store_id'];
+            $orderPayload['shipping_rule_id'] = $shippingResolved['shipping_rule_id'];
+            $orderPayload['shipping_address'] = $shippingResolved['shipping_address'];
+            $orderPayload['metadata'] = array_merge($orderMetadata, $shippingResolved['metadata_shipping']);
+            $orderMetadata = $orderPayload['metadata'];
+        }
+
         $createOrderAndItems = function (array $payload) use ($product, $amount, $productOfferId, $subscriptionPlanId, $selectedBumps) {
             $order = Order::create($payload);
             OrderItem::create([
@@ -708,9 +807,14 @@ class CheckoutController extends Controller
         };
 
         $grantAccessForOrder = function (Order $order) {
-            $order->product->users()->syncWithoutDetaching([$order->user_id]);
+            $order->loadMissing('product', 'orderItems.product');
+            if ($order->product && $order->product->type !== Product::TYPE_PRODUTO_FISICO) {
+                $order->product->users()->syncWithoutDetaching([$order->user_id]);
+            }
             foreach ($order->orderItems as $item) {
-                $item->product->users()->syncWithoutDetaching([$order->user_id]);
+                if ($item->product && $item->product->type !== Product::TYPE_PRODUTO_FISICO) {
+                    $item->product->users()->syncWithoutDetaching([$order->user_id]);
+                }
             }
         };
 
@@ -1488,10 +1592,13 @@ class CheckoutController extends Controller
 
         $conversionPixels = AffiliateConversionPixels::forOrder($order);
 
+        $amount = (float) $order->amount;
+
         return Inertia::render('Checkout/Boleto', [
             'token' => $token,
             'order_id' => $orderId,
-            'amount_formatted' => $stored['amount_formatted'] ?? 'R$ 0,00',
+            'amount' => $amount,
+            'amount_formatted' => $stored['amount_formatted'] ?? ('R$ '.number_format($amount, 2, ',', '.')),
             'expire_at' => $stored['expire_at'] ?? null,
             'barcode' => $stored['barcode'] ?? '',
             'pdf_url' => $stored['pdf_url'] ?? null,
@@ -1533,6 +1640,10 @@ class CheckoutController extends Controller
         $rules['fbp'] = ['nullable', 'string', 'max:512'];
         $rules['fbc'] = ['nullable', 'string', 'max:512'];
         $rules['user_agent'] = ['nullable', 'string', 'max:2048'];
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        if ($shippingHelper->productRequiresShipping($product)) {
+            $rules = $shippingHelper->appendAddressRulesIfNeeded($product, $rules);
+        }
         $validated = $request->validate($rules);
 
         try {
@@ -1605,6 +1716,7 @@ class CheckoutController extends Controller
             'base_amount' => (float) $context['base_amount'],
             'checkout_session_token' => $validated['checkout_session_token'] ?? null,
             'display_currency' => $validated['display_currency'] ?? 'BRL',
+            'shipping_amount' => (float) ($context['shipping_amount'] ?? 0),
             'cajupay_token' => $sessionResult['token'],
             'checkout_session_id' => $sessionResult['checkout_session_id'],
             'tenant_id' => $product->tenant_id,
@@ -1640,6 +1752,16 @@ class CheckoutController extends Controller
         ];
         foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
             $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
+        }
+        $draftKey = 'cajupay_draft.'.$request->input('polling_token');
+        $draftPreview = is_string($draftKey) ? Cache::get('cajupay_draft.'.$request->input('polling_token')) : null;
+        $draftProductId = is_array($draftPreview) ? ($draftPreview['product_id'] ?? null) : null;
+        $draftProduct = $draftProductId
+            ? Product::where('id', $draftProductId)->availableForPurchase()->first()
+            : null;
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        if ($draftProduct && $shippingHelper->productRequiresShipping($draftProduct)) {
+            $rules = $shippingHelper->appendAddressRulesIfNeeded($draftProduct, $rules);
         }
         $validated = $request->validate($rules);
 
@@ -1829,6 +1951,16 @@ class CheckoutController extends Controller
             $checkoutSlug = (string) ($product->checkout_slug ?? '');
         }
 
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        $shippingResolved = null;
+        if ($shippingHelper->productRequiresShipping($product)) {
+            if (strtoupper((string) ($validated['display_currency'] ?? 'BRL')) !== 'BRL') {
+                throw new \RuntimeException('Produtos físicos estão disponíveis apenas em BRL.');
+            }
+            $shippingResolved = $shippingHelper->resolveForCheckout($product, $validated);
+            $totalAmount = round($totalAmount + $shippingResolved['shipping_amount'], 2);
+        }
+
         return [
             'offer' => $offer,
             'plan' => $plan,
@@ -1839,6 +1971,8 @@ class CheckoutController extends Controller
             'checkout_slug' => $checkoutSlug,
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
+            'shipping_amount' => $shippingResolved['shipping_amount'] ?? 0.0,
+            'shipping_resolved' => $shippingResolved,
         ];
     }
 
@@ -1930,7 +2064,17 @@ class CheckoutController extends Controller
         $cpfDigits = preg_replace('/\D/', '', (string) ($validated['cpf'] ?? '')) ?: null;
         $phone = ($validated['phone'] ?? null) ?: null;
 
-        $order = Order::create([
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        $shippingResolved = null;
+        if ($shippingHelper->productRequiresShipping($product)) {
+            $shippingResolved = $shippingHelper->resolveForCheckout($product, $validated);
+            $draftShipping = (float) ($draft['shipping_amount'] ?? 0);
+            if (abs($shippingResolved['shipping_amount'] - $draftShipping) > 0.009) {
+                throw new \RuntimeException('O frete foi atualizado. Recarregue a página e tente novamente.');
+            }
+        }
+
+        $orderPayload = [
             'tenant_id' => $tenantId,
             'user_id' => $user->id,
             'product_id' => $product->id,
@@ -1950,7 +2094,16 @@ class CheckoutController extends Controller
             'gateway' => 'cajupay',
             'gateway_id' => $draft['checkout_session_id'] ?? null,
             'payment_method' => 'card',
-        ]);
+        ];
+        if ($shippingResolved !== null) {
+            $orderPayload['shipping_amount'] = $shippingResolved['shipping_amount'];
+            $orderPayload['shipping_store_id'] = $shippingResolved['shipping_store_id'];
+            $orderPayload['shipping_rule_id'] = $shippingResolved['shipping_rule_id'];
+            $orderPayload['shipping_address'] = $shippingResolved['shipping_address'];
+            $orderPayload['metadata'] = array_merge($orderMetadata, $shippingResolved['metadata_shipping']);
+        }
+
+        $order = Order::create($orderPayload);
 
         OrderItem::create([
             'order_id' => $order->id,
@@ -2134,7 +2287,54 @@ class CheckoutController extends Controller
             'previous_price' => $previousPrice,
             'product_offer_id' => $offer?->id,
             'subscription_plan_id' => $plan?->id,
+            'requires_shipping' => $product->requiresShippingAddress(),
+            'free_shipping' => $product->hasFreeShipping(),
+            'shipping_store_id' => $product->shipping_store_id,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function computeCheckoutProductSubtotalBrl(Product $product, array $validated): float
+    {
+        $offer = null;
+        $plan = null;
+        if (! empty($validated['product_offer_id'])) {
+            $offer = ProductOffer::where('id', $validated['product_offer_id'])->where('product_id', $product->id)->first();
+        }
+        if (! empty($validated['subscription_plan_id'])) {
+            $plan = SubscriptionPlan::where('id', $validated['subscription_plan_id'])->where('product_id', $product->id)->first();
+        }
+        $amount = (float) $product->price;
+        if ($offer) {
+            $amount = (float) $offer->price;
+        } elseif ($plan) {
+            $amount = (float) $plan->price;
+        }
+        $couponCode = isset($validated['coupon_code']) && trim((string) ($validated['coupon_code'] ?? '')) !== ''
+            ? trim((string) $validated['coupon_code'])
+            : null;
+        if ($couponCode !== null) {
+            $coupon = Coupon::forTenant($product->tenant_id)
+                ->where('code', $couponCode)
+                ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
+                ->first();
+            if ($coupon) {
+                $applied = $coupon->applyTo($product, $amount);
+                if ($applied !== null) {
+                    $amount = $applied['final_price'];
+                }
+            }
+        }
+        $orderBumpIds = array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])));
+        $bumpTotal = 0.0;
+        if ($orderBumpIds !== []) {
+            $bumpTotal = (float) ProductOrderBump::where('product_id', $product->id)->whereIn('id', $orderBumpIds)->get()
+                ->sum(fn (ProductOrderBump $b) => $b->getEffectiveAmountBrl());
+        }
+
+        return round($amount + $bumpTotal, 2);
     }
 
     /**

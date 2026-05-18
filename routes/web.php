@@ -139,6 +139,8 @@ Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'
 Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'pixPage'])->name('checkout.pix');
 Route::get('/checkout/boleto', [\App\Http\Controllers\CheckoutController::class, 'boletoPage'])->name('checkout.boleto');
 Route::get('/checkout/order-status', [\App\Http\Controllers\CheckoutController::class, 'orderStatus'])->name('checkout.order-status')->middleware('throttle:30,1');
+Route::post('/checkout/shipping-quote', [\App\Http\Controllers\CheckoutController::class, 'shippingQuote'])->name('checkout.shipping-quote')->middleware('throttle:60,1');
+Route::post('/checkout/pixel/purchase-ack', [\App\Http\Controllers\CheckoutController::class, 'purchasePixelAck'])->name('checkout.pixel.purchase-ack')->middleware('throttle:120,1');
 Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])->name('checkout.process')->middleware('throttle:30,1');
 Route::post('/checkout/cajupay/session', [\App\Http\Controllers\CheckoutController::class, 'cajupaySession'])
     ->name('checkout.cajupay.session')
@@ -458,6 +460,15 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/afiliados/enrollments/{enrollment}/revoke', [\App\Http\Controllers\AffiliateManagementController::class, 'revoke'])
             ->name('afiliados.enrollments.revoke')
             ->middleware('throttle:60,1');
+        Route::get('/frete', [\App\Http\Controllers\ShippingController::class, 'index'])->name('frete.index');
+        Route::post('/frete/lojas', [\App\Http\Controllers\ShippingController::class, 'storeStore'])->name('frete.stores.store');
+        Route::put('/frete/lojas/{store}', [\App\Http\Controllers\ShippingController::class, 'updateStore'])->name('frete.stores.update');
+        Route::delete('/frete/lojas/{store}', [\App\Http\Controllers\ShippingController::class, 'destroyStore'])->name('frete.stores.destroy');
+        Route::get('/frete/lojas/{store}/regras', [\App\Http\Controllers\ShippingController::class, 'rules'])->name('frete.rules.index');
+        Route::post('/frete/lojas/{store}/regras', [\App\Http\Controllers\ShippingController::class, 'storeRule'])->name('frete.rules.store');
+        Route::put('/frete/lojas/{store}/regras/{rule}', [\App\Http\Controllers\ShippingController::class, 'updateRule'])->name('frete.rules.update');
+        Route::delete('/frete/lojas/{store}/regras/{rule}', [\App\Http\Controllers\ShippingController::class, 'destroyRule'])->name('frete.rules.destroy');
+        Route::post('/frete/lojas/{store}/regras/reorder', [\App\Http\Controllers\ShippingController::class, 'reorderRules'])->name('frete.rules.reorder');
         Route::get('/produtos', [\App\Http\Controllers\ProdutosController::class, 'index'])->name('produtos.index');
         Route::get('/produtos/afiliados', [\App\Http\Controllers\AffiliateProductPanelController::class, 'index'])->name('produtos.afiliados.index');
         Route::get('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'show'])->name('produtos.painel-afiliado.show');

@@ -11,6 +11,7 @@ use App\Events\ProductUpdated;
 use App\Models\CademiIntegration;
 use App\Models\GatewayCredential;
 use App\Models\Product;
+use App\Models\ShippingStore;
 use App\Models\ProductAffiliateEnrollment;
 use App\Models\ProductCoproducer;
 use App\Models\ProductOffer;
@@ -36,6 +37,7 @@ class ProdutosController extends Controller
         Product::TYPE_AREA_MEMBROS_EXTERNA,
         Product::TYPE_LINK,
         Product::TYPE_LINK_PAGAMENTO,
+        Product::TYPE_PRODUTO_FISICO,
     ];
 
     private const BILLING_TYPES = [
@@ -136,6 +138,7 @@ class ProdutosController extends Controller
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['refund_policy_days'] = 7;
+        $this->assertPhysicalProductRules($validated['type'] ?? '', $validated['billing_type'] ?? '');
 
         $product = new Product($validated);
         $beforeEvent = new ProductBeforeSave($product, $validated, true);
@@ -388,6 +391,17 @@ class ProdutosController extends Controller
             ->values()
             ->all();
 
+        $shippingStores = ShippingStore::forTenant($tenantId)
+            ->orderBy('name')
+            ->get(['id', 'name', 'is_active'])
+            ->map(fn (ShippingStore $s) => [
+                'id' => $s->id,
+                'name' => $s->name,
+                'is_active' => $s->is_active,
+            ])
+            ->values()
+            ->all();
+
         return Inertia::render('Produtos/Edit', [
             'produto' => $produtoArray,
             'productTypes' => $productTypes,
@@ -396,6 +410,7 @@ class ProdutosController extends Controller
             'checkout_gateway_ui' => $checkoutGatewayUi,
             'global_payment_methods_available' => $globalPaymentMethodsAvailable,
             'cademi_integrations' => $cademiIntegrations,
+            'shipping_stores' => $shippingStores,
             'layoutContentFlushLeft' => true,
             'pageTitleBadge' => $produto->name,
         ]);
@@ -530,7 +545,11 @@ class ProdutosController extends Controller
             'deliverable_link' => ['nullable', 'string', 'url', 'max:500'],
             'base_interval' => ['nullable', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
             'refund_policy_days' => ['nullable', 'integer', 'in:7,14,30'],
+            'shipping_store_id' => ['nullable', 'integer', 'exists:shipping_stores,id'],
+            'physical_free_shipping' => ['nullable', 'boolean'],
         ]);
+
+        $this->assertPhysicalProductRules($validated['type'] ?? '', $validated['billing_type'] ?? '');
 
         // Texto puro (evita XSS armazenado em nome/descrição/template)
         $validated['name'] = HtmlSanitizer::plainText($validated['name'] ?? '', 255);
@@ -576,6 +595,27 @@ class ProdutosController extends Controller
         unset($validated['conversion_pixels']);
         $baseInterval = $validated['base_interval'] ?? null;
         unset($validated['base_interval']);
+        $physicalFreeShipping = $request->boolean('physical_free_shipping');
+        $shippingStoreId = $validated['shipping_store_id'] ?? null;
+        unset($validated['physical_free_shipping'], $validated['shipping_store_id']);
+
+        if (($validated['type'] ?? $produto->type) === Product::TYPE_PRODUTO_FISICO) {
+            if ($shippingStoreId !== null) {
+                $storeOk = ShippingStore::forTenant(auth()->user()->tenant_id)
+                    ->where('id', $shippingStoreId)
+                    ->where('is_active', true)
+                    ->exists();
+                if (! $storeOk) {
+                    return back()->with('error', 'Loja de frete inválida ou inativa.')->withInput();
+                }
+            }
+            $validated['shipping_store_id'] = $shippingStoreId;
+            $validated['physical_config'] = ['free_shipping' => $physicalFreeShipping];
+        } else {
+            $validated['shipping_store_id'] = null;
+            $validated['physical_config'] = null;
+        }
+
         $produto->update($validated);
 
         if ($produto->billing_type === Product::BILLING_SUBSCRIPTION && $baseInterval !== null) {
@@ -1082,7 +1122,16 @@ class ProdutosController extends Controller
             'price_usd' => $priceUsd,
             'is_active' => $p->is_active,
             'conversion_pixels' => $p->conversion_pixels,
+            'shipping_store_id' => $p->shipping_store_id,
+            'physical_config' => $p->physical_config ?? ['free_shipping' => false],
         ];
+    }
+
+    private function assertPhysicalProductRules(string $type, string $billingType): void
+    {
+        if ($type === Product::TYPE_PRODUTO_FISICO && $billingType === Product::BILLING_SUBSCRIPTION) {
+            abort(422, 'Produto físico não pode ser vendido como assinatura.');
+        }
     }
 
     /**

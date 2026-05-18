@@ -100,6 +100,34 @@ const notificationsApiBasePath = computed(() => {
     return window.location.pathname.startsWith('/m/') ? basePath.value : '';
 });
 
+function usesPathSlugPrefix() {
+    if (typeof window !== 'undefined') {
+        return window.location.pathname.startsWith('/m/');
+    }
+    const bu = props.value?.base_url;
+    return Boolean(bu && typeof bu === 'string' && bu.includes('/m/'));
+}
+
+/** Monta href interno da área (path /m/slug vs domínio próprio na raiz). */
+function resolveMemberAreaHref(link, openExternal = false) {
+    if (!link) {
+        return usesPathSlugPrefix() ? basePath.value : '/';
+    }
+    if (openExternal || /^https?:\/\//i.test(String(link))) {
+        return link;
+    }
+    let path = String(link).startsWith('/') ? String(link) : `/${link}`;
+    const prefix = basePath.value;
+    if (prefix && (path === prefix || path.startsWith(`${prefix}/`))) {
+        path = path.slice(prefix.length) || '/';
+    }
+    return usesPathSlugPrefix() ? `${prefix}${path}` : path;
+}
+
+const memberAreaHomeHref = computed(() => resolveMemberAreaHref('/'));
+const communityHref = computed(() => resolveMemberAreaHref('/comunidade'));
+const certificadoHref = computed(() => resolveMemberAreaHref('/certificado'));
+
 const initials = computed(() => {
     if (!user.value?.name) return '?';
     const parts = String(user.value.name).trim().split(/\s+/);
@@ -470,7 +498,7 @@ watch(
             :style="{ color: 'var(--ma-text)' }"
         >
             <div class="flex min-w-0 shrink items-center gap-4 md:gap-6">
-                <Link :href="basePath" class="flex shrink-0 items-center gap-4" @click="closeMobileMenu">
+                <Link :href="memberAreaHomeHref" class="flex shrink-0 items-center gap-4" @click="closeMobileMenu">
                     <img
                         v-if="headerLogo"
                         :src="headerLogo"
@@ -485,8 +513,8 @@ watch(
                 <nav class="hidden items-center gap-1 md:flex">
                     <template v-for="item in sidebarItems" :key="item.title">
                         <a
-                            v-if="item.open_external"
-                            :href="item.link"
+                            v-if="item.open_external || /^https?:\/\//i.test(item.link || '')"
+                            :href="resolveMemberAreaHref(item.link, true)"
                             target="_blank"
                             rel="noopener"
                             class="rounded-lg px-3 py-2 text-sm font-medium text-white/90 drop-shadow hover:bg-white/10"
@@ -495,7 +523,7 @@ watch(
                         </a>
                         <Link
                             v-else
-                            :href="item.link.startsWith('/') ? basePath + item.link : basePath + '/' + item.link"
+                            :href="resolveMemberAreaHref(item.link, item.open_external)"
                             class="rounded-lg px-3 py-2 text-sm font-medium text-white/90 drop-shadow hover:bg-white/10"
                         >
                             {{ item.title }}
@@ -503,7 +531,7 @@ watch(
                     </template>
                     <Link
                         v-if="config?.community_enabled"
-                        :href="`${basePath}/comunidade`"
+                        :href="communityHref"
                         class="rounded-lg px-3 py-2 text-sm font-medium text-white/90 drop-shadow hover:bg-white/10"
                     >
                         Comunidade
@@ -637,7 +665,7 @@ watch(
                         </button>
                         <Link
                             v-if="certificateEnabled"
-                            :href="`${basePath}/certificado`"
+                            :href="certificadoHref"
                             class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                             role="menuitem"
                             @click="accountMenuOpen = false"
@@ -688,8 +716,8 @@ watch(
                     <nav class="flex flex-col gap-1 px-4 py-2">
                         <template v-for="item in sidebarItems" :key="item.title">
                             <a
-                                v-if="item.open_external"
-                                :href="item.link"
+                                v-if="item.open_external || /^https?:\/\//i.test(item.link || '')"
+                                :href="resolveMemberAreaHref(item.link, true)"
                                 target="_blank"
                                 rel="noopener"
                                 class="rounded-lg px-4 py-3 text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white"
@@ -699,7 +727,7 @@ watch(
                             </a>
                             <Link
                                 v-else
-                                :href="item.link.startsWith('/') ? basePath + item.link : basePath + '/' + item.link"
+                                :href="resolveMemberAreaHref(item.link, item.open_external)"
                                 class="rounded-lg px-4 py-3 text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white"
                                 @click="closeMobileMenu"
                             >
@@ -708,7 +736,7 @@ watch(
                         </template>
                         <Link
                             v-if="config?.community_enabled"
-                            :href="`${basePath}/comunidade`"
+                            :href="communityHref"
                             class="rounded-lg px-4 py-3 text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white"
                             @click="closeMobileMenu"
                         >
@@ -755,7 +783,7 @@ watch(
                             </button>
                             <Link
                                 v-if="certificateEnabled"
-                                :href="`${basePath}/certificado`"
+                                :href="certificadoHref"
                                 class="flex w-full items-center gap-2 rounded-lg px-4 py-3 text-left text-sm font-medium text-zinc-300 hover:bg-zinc-800"
                                 @click="closeMobileMenu"
                             >

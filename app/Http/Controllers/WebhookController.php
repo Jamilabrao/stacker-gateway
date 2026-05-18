@@ -192,6 +192,38 @@ class WebhookController extends Controller
             ];
         }
 
+        if ($eventSlug === 'carrinho_abandonado') {
+            $payload = [
+                'checkoutSession' => [
+                    'id' => 99901,
+                    'tenant_id' => $webhook->tenant_id,
+                    'product_id' => 'produto-exemplo',
+                    'checkout_slug' => 'exemplo-checkout',
+                    'step' => 'form_filled',
+                    'email' => 'exemplo@email.com',
+                    'name' => 'Cliente Exemplo',
+                    'customer_ip' => '127.0.0.1',
+                    'utm_source' => 'facebook',
+                    'utm_medium' => 'cpc',
+                    'utm_campaign' => 'teste',
+                    'created_at' => now()->toIso8601String(),
+                    'updated_at' => now()->toIso8601String(),
+                    'product' => [
+                        'id' => 'produto-exemplo',
+                        'name' => 'Produto Exemplo',
+                        'checkout_slug' => 'exemplo-checkout',
+                    ],
+                ],
+                'customer' => [
+                    'name' => 'Cliente Exemplo',
+                    'email' => 'exemplo@email.com',
+                    'phone' => '',
+                    'cpf' => '',
+                ],
+                'checkout_link' => rtrim(config('app.url'), '/').'/c/exemplo-checkout',
+            ];
+        }
+
         $body = [
             'event' => $eventSlug,
             'event_label' => $eventLabel,

@@ -79,7 +79,9 @@ class WebhookEventSubscriber
                 'count' => $webhooks->count(),
             ]);
 
-            $payload = $this->serializeEventPayload($event);
+            $payload = $event instanceof CartAbandoned
+                ? $this->buildCartAbandonedPayload($event)
+                : $this->serializeEventPayload($event);
             $payload = $this->enrichPayload($event, $payload);
             $dispatchSync = $this->shouldDispatchSync($eventClass);
 
@@ -254,6 +256,50 @@ class WebhookEventSubscriber
         }
 
         return null;
+    }
+
+    /**
+     * Payload enxuto para integrações (evita checkout_config/member_area_config no product).
+     *
+     * @return array<string, mixed>
+     */
+    private function buildCartAbandonedPayload(CartAbandoned $event): array
+    {
+        $session = $event->checkoutSession;
+        $session->loadMissing('product:id,name,checkout_slug');
+
+        $product = $session->product;
+
+        return [
+            'checkoutSession' => [
+                'id' => $session->id,
+                'tenant_id' => $session->tenant_id,
+                'product_id' => $session->product_id,
+                'product_offer_id' => $session->product_offer_id,
+                'subscription_plan_id' => $session->subscription_plan_id,
+                'checkout_slug' => $session->checkout_slug,
+                'session_token' => $session->session_token,
+                'step' => $session->step,
+                'email' => $session->email,
+                'name' => $session->name,
+                'customer_ip' => $session->customer_ip,
+                'order_id' => $session->order_id,
+                'utm_source' => $session->utm_source,
+                'utm_medium' => $session->utm_medium,
+                'utm_campaign' => $session->utm_campaign,
+                'utm_content' => $session->utm_content,
+                'utm_term' => $session->utm_term,
+                'sck' => $session->sck,
+                'src' => $session->src,
+                'created_at' => $session->created_at?->toIso8601String(),
+                'updated_at' => $session->updated_at?->toIso8601String(),
+                'product' => $product ? [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'checkout_slug' => $product->checkout_slug,
+                ] : null,
+            ],
+        ];
     }
 
     /**

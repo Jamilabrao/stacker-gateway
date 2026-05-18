@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Events\OrderCompleted;
 use App\Jobs\MetaConversionsSendPurchaseJob;
+use App\Services\MetaPurchaseTrackingDiagnostics;
 use Illuminate\Contracts\Events\Dispatcher;
 
 class MetaConversionsEventSubscriber
@@ -21,7 +22,9 @@ class MetaConversionsEventSubscriber
     public function handleOrderCompleted(OrderCompleted $event): void
     {
         // CAPI deve ser server-side e idempotente (job checa metadata).
-        MetaConversionsSendPurchaseJob::dispatch($event->order->id);
+        $orderId = (int) $event->order->id;
+        MetaConversionsSendPurchaseJob::dispatch($orderId);
+        app(MetaPurchaseTrackingDiagnostics::class)->logQueueHintOnDispatch($orderId);
     }
 }
 

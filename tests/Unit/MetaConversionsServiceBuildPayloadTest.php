@@ -57,6 +57,10 @@ class MetaConversionsServiceBuildPayloadTest extends TestCase
             $evt = $data['data'][0] ?? null;
             $this->assertSame('Purchase', $evt['event_name'] ?? null);
             $this->assertSame('order:999', $evt['event_id'] ?? null);
+            $ud = $evt['user_data'] ?? [];
+            $this->assertSame('fb.1.1234567890.1111111111', $ud['fbp'] ?? null);
+            $this->assertSame('fb.1.1234567890.AbCdEfGhIj', $ud['fbc'] ?? null);
+
             return true;
         });
     }

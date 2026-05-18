@@ -9,6 +9,7 @@ import {
     CreditCard,
     ChevronRight,
     X,
+    Truck,
 } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -34,6 +35,7 @@ const typeIcons = {
     area_membros: Users,
     link: Link,
     link_pagamento: CreditCard,
+    produto_fisico: Truck,
 };
 
 const form = useForm({

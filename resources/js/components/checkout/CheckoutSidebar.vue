@@ -26,6 +26,8 @@ const props = defineProps({
     selectedOrderBumps: { type: Array, default: () => [] },
     /** Soma dos valores em BRL dos bumps selecionados */
     orderBumpsTotalBrl: { type: Number, default: 0 },
+    shippingAmountBrl: { type: Number, default: 0 },
+    requiresShipping: { type: Boolean, default: false },
     t: { type: Function, default: (k) => k },
     displayCurrency: { type: String, default: 'BRL' },
     priceInCurrency: { type: Function, default: (v) => v },
@@ -49,7 +51,10 @@ const mainProductPriceBrl = computed(() => {
     if (applied != null && applied.final_price != null) return Number(applied.final_price);
     return Number(props.product?.price_brl ?? props.product?.price ?? 0);
 });
-const totalPriceBrl = computed(() => mainProductPriceBrl.value + (Number(props.orderBumpsTotalBrl) || 0));
+const totalPriceBrl = computed(() => {
+    const shipping = props.requiresShipping ? Number(props.shippingAmountBrl) || 0 : 0;
+    return mainProductPriceBrl.value + (Number(props.orderBumpsTotalBrl) || 0) + shipping;
+});
 const totalPrice = computed(() => props.priceInCurrency(totalPriceBrl.value));
 const discountAmountBrl = computed(() =>
     props.appliedCoupon?.discount_amount != null ? Number(props.appliedCoupon.discount_amount) : 0
@@ -94,6 +99,10 @@ const productPriceDisplay = computed(() => props.priceInCurrency(productPriceBrl
                 <div v-if="discountAmountBrl > 0" class="flex justify-between gap-3 text-sm text-emerald-600">
                     <span class="font-medium">{{ t('checkout.discount_coupon') }}</span>
                     <span class="font-semibold">-{{ formatPrice(discountAmount, displayCurrency) }}</span>
+                </div>
+                <div v-if="requiresShipping && shippingAmountBrl > 0" class="flex justify-between gap-3 text-sm">
+                    <span class="font-medium text-gray-600">Frete</span>
+                    <span class="shrink-0 font-semibold text-gray-900">{{ formatPrice(priceInCurrency(shippingAmountBrl), 'BRL') }}</span>
                 </div>
             </div>
             <hr class="my-5 border-0 border-t border-gray-100" />

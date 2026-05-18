@@ -13,6 +13,7 @@ import SalesNotification from '@/components/checkout/SalesNotification.vue';
 import SupportButton from '@/components/checkout/SupportButton.vue';
 import ExitPopup from '@/components/checkout/ExitPopup.vue';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
+import { sendPurchasePixelAck } from '@/composables/usePurchasePixelAck';
 
 defineOptions({ layout: null });
 
@@ -166,9 +167,23 @@ const orderBumpsTotalBrl = computed(() =>
     selectedOrderBumpsList.value.reduce((sum, b) => sum + (Number(b.amount_brl) || 0), 0)
 );
 
+const shippingAmountBrl = ref(0);
+function onShippingAmountUpdate(amount) {
+    shippingAmountBrl.value = Number(amount) || 0;
+}
+const requiresShipping = computed(() => Boolean(props.product?.requires_shipping));
+watch(
+    requiresShipping,
+    (needs) => {
+        if (needs && displayCurrency.value !== 'BRL') {
+            setCurrency('BRL');
+        }
+    },
+    { immediate: true }
+);
 const checkoutTotalBrl = computed(() => {
     const base = appliedCoupon.value?.final_price ?? props.product?.price_brl ?? props.product?.price ?? 0;
-    return Number(base) + orderBumpsTotalBrl.value;
+    return Number(base) + orderBumpsTotalBrl.value + (requiresShipping.value ? shippingAmountBrl.value : 0);
 });
 
 const conversionPixels = computed(() => props.conversion_pixels || {});
@@ -307,18 +322,30 @@ onMounted(async () => {
                             :card-mercadopago-sandbox="card_mercadopago_sandbox"
                             :card-gateway-keys="card_gateway_keys || {}"
                             :checkout-total-brl="checkoutTotalBrl"
+                            :requires-shipping="requiresShipping"
+                            :product-subtotal-brl="
+                                appliedCoupon?.final_price ?? product?.price_brl ?? product?.price ?? 0
+                            "
+                            @update:shipping-amount="onShippingAmountUpdate"
                             @coupon-applied="onCouponApplied"
                             @coupon-cleared="onCouponCleared"
                             @purchase-confirmed="
-                                (e) =>
-                                    conversionPixelsRef?.firePurchaseReliable?.(
+                                async (e) => {
+                                    if (e?.orderId) {
+                                        sendPurchasePixelAck({
+                                            orderId: e.orderId,
+                                            triggerType: e?.triggerType ?? 'approved',
+                                        });
+                                    }
+                                    await conversionPixelsRef?.firePurchaseReliable?.(
                                         e?.value ?? checkoutTotalBrl,
                                         e?.currency ?? 'BRL',
                                         e?.orderId ?? '',
                                         false,
                                         e?.triggerType ?? 'approved',
                                         350
-                                    )
+                                    );
+                                }
                             "
                         />
                     </div>
@@ -332,6 +359,8 @@ onMounted(async () => {
                     :applied-coupon="appliedCoupon"
                     :selected-order-bumps="selectedOrderBumpsList"
                     :order-bumps-total-brl="orderBumpsTotalBrl"
+                    :requires-shipping="requiresShipping"
+                    :shipping-amount-brl="shippingAmountBrl"
                     :t="t"
                     :display-currency="displayCurrency"
                     :price-in-currency="priceInCurrency"

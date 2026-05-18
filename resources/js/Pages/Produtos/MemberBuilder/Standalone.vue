@@ -266,14 +266,24 @@ const headerItems = computed({
     set: () => {},
 });
 
+function normalizeHeaderMenuItem(item) {
+    if (!item || typeof item !== 'object') return;
+    const link = String(item.link ?? '').trim();
+    if (/^https?:\/\//i.test(link)) {
+        item.open_external = true;
+    }
+}
+
 function addHeaderItem() {
     if (!configForm.member_area_config.sidebar) configForm.member_area_config.sidebar = { collapsible: false, items: [] };
     if (!Array.isArray(configForm.member_area_config.sidebar.items)) configForm.member_area_config.sidebar.items = [];
-    configForm.member_area_config.sidebar.items.push({
+    const entry = {
         title: 'Novo menu',
         link: '/',
         open_external: false,
-    });
+    };
+    normalizeHeaderMenuItem(entry);
+    configForm.member_area_config.sidebar.items.push(entry);
     saveConfig();
 }
 
@@ -927,6 +937,9 @@ async function saveConfig() {
     processing.value = true;
     try {
         const cleanedConfig = JSON.parse(JSON.stringify(configForm.member_area_config));
+        if (cleanedConfig.sidebar?.items && Array.isArray(cleanedConfig.sidebar.items)) {
+            cleanedConfig.sidebar.items.forEach((item) => normalizeHeaderMenuItem(item));
+        }
         if (cleanedConfig.gamification && Array.isArray(cleanedConfig.gamification.achievements)) {
             cleanedConfig.gamification.achievements.forEach((a) => { delete a._editing; });
         }
@@ -1884,8 +1897,8 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                     </div>
                                     <div>
                                         <label class="mb-0.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Link</label>
-                                        <input v-model="item.link" type="text" :class="inputClass" placeholder="Ex: / ou /modulos ou https://..." />
-                                        <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Interno: use / ou /modulos. Externo: URL completa.</p>
+                                        <input v-model="item.link" type="text" :class="inputClass" placeholder="Ex: /, /loja, /comunidade ou https://..." />
+                                        <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Rotas internas: /, /loja, /comunidade, /certificado. URL completa abre em nova aba.</p>
                                     </div>
                                     <div class="flex items-center gap-2">
                                         <input

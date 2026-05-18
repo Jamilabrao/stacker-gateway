@@ -6,6 +6,7 @@ use App\Mail\AccessGrantedMail;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Support\EmailLogoHtml;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -53,6 +54,10 @@ class AccessEmailService
             return false;
         }
 
+        if ($product->type === Product::TYPE_PRODUTO_FISICO) {
+            return $this->sendPhysicalProductConfirmationEmail($order, $product, $force);
+        }
+
         $config = $product->checkout_config ?? [];
         $template = array_merge(Product::defaultEmailTemplate(), $config['email_template'] ?? []);
         $subject = (string) ($template['subject'] ?? 'Seu acesso');
@@ -73,8 +78,8 @@ class AccessEmailService
         }
 
         $customerName = $order->user?->name ?? explode('@', $customerEmail)[0] ?? 'Cliente';
-        $linkAcesso = $order->user && $product->type === Product::TYPE_AREA_MEMBROS
-            ? $this->resolveMemberAreaMagicLink($product, $order->user)
+        $linkAcesso = $product->type === Product::TYPE_AREA_MEMBROS
+            ? $this->resolvePlatformLoginLink()
             : $this->resolveLinkAcesso($product);
 
         if (config('app.debug') && $product->type === Product::TYPE_AREA_MEMBROS) {
@@ -303,7 +308,7 @@ class AccessEmailService
 
         $customerName = $user->name ?: explode('@', $customerEmail)[0] ?? 'Cliente';
         $linkAcesso = $product->type === Product::TYPE_AREA_MEMBROS
-            ? $this->resolveMemberAreaMagicLink($product, $user)
+            ? $this->resolvePlatformLoginLink()
             : $this->resolveLinkAcesso($product);
 
         $replace = [
@@ -351,12 +356,9 @@ class AccessEmailService
         return '';
     }
 
-    private function resolveMemberAreaMagicLink(Product $product, User $user): string
+    private function resolvePlatformLoginLink(): string
     {
-        $base = rtrim($this->memberAreaResolver->baseUrlForProduct($product), '/');
-        $token = $this->memberAreaMagicAccessToken->mint($product, $user);
-
-        return $base.'/access?'.http_build_query(['m' => $token]);
+        return url('/login');
     }
 
     private function prependLogoToBody(string $logoUrl, string $bodyHtml): string
@@ -366,20 +368,14 @@ class AccessEmailService
             return $bodyHtml;
         }
         // Fundo branco explícito: clientes (ex.: Outlook) e pré-visualizações escuras tratam alpha como preto.
-        $img = '<div data-email-logo="1" style="text-align:center;margin-bottom:20px">'
-            .'<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;background-color:#ffffff">'
-            .'<tr><td bgcolor="#ffffff" style="padding:12px 16px;background-color:#ffffff;border-radius:8px">'
-            .'<img src="'.e($logoUrl).'" alt="Logo" width="240" style="max-height:60px;max-width:240px;width:auto;height:auto;display:block;margin:0 auto;border:0;outline:none;text-decoration:none" />'
-            .'</td></tr></table></div>';
-
-        return $img.$bodyHtml;
+        return EmailLogoHtml::wrap($logoUrl).$bodyHtml;
     }
 
     private function appendMemberAreaPasswordCredentialsBlock(string $bodyHtml, string $email, string $password): string
     {
         $block = '<div style="margin:24px 0 0;padding:20px;background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;">'
             .'<p style="margin:0 0 10px;font-size:14px;line-height:1.5;color:#92400e;"><strong>Guarde seus dados de acesso</strong></p>'
-            .'<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">O botão de acesso acima entra automaticamente na sua conta. Se você sair ou usar outro aparelho, faça login na área de membros com:</p>'
+            .'<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">Use o botão acima para fazer login. Após entrar, você verá todos os seus produtos em Minha área. Se preferir, faça login com:</p>'
             .'<p style="margin:0 0 10px;font-size:14px;color:#0f172a;"><strong>E-mail:</strong> '.e($email).'</p>'
             .'<p style="margin:0;font-size:15px;color:#0f172a;font-family:Consolas,\'Courier New\',monospace;font-weight:600;letter-spacing:0.02em;word-break:break-all;"><strong>Senha:</strong> '.e($password).'</p>'
             .'</div>';
@@ -395,5 +391,77 @@ class AccessEmailService
     private function buildExternalMemberAreaPendingBody(string $customerName, string $productName): string
     {
         return '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;"><tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid #e2e8f0;"><h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">Olá, '.e($customerName).'!</h1></td></tr><tr><td style="padding:28px 32px;"><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Seu pagamento de <strong>'.e($productName).'</strong> foi confirmado.</p><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Este produto é entregue em uma <strong>área de membros externa</strong>. Em instantes você receberá o acesso.</p><p style="margin:0;font-size:14px;line-height:1.6;color:#64748b;">Se você não receber o acesso em alguns minutos, entre em contato com o suporte do vendedor.</p></td></tr><tr><td style="padding:20px 32px;background:#f1f5f9;border-radius:0 0 12px 12px;"><p style="margin:0;font-size:13px;color:#64748b;">Qualquer dúvida, responda este e-mail.</p></td></tr></table></td></tr></table>';
+    }
+
+    private function sendPhysicalProductConfirmationEmail(Order $order, Product $product, bool $force): bool
+    {
+        $customerEmail = $order->email ?: $order->user?->email;
+        if (! $customerEmail || ! filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
+            return false;
+        }
+
+        $customerName = $order->user?->name ?? explode('@', $customerEmail)[0] ?? 'Cliente';
+        $tenantIdForMail = $order->tenant_id ?? $product->tenant_id;
+        $cacheKey = 'access_email_sent.'.$order->id;
+        if (! $force && Cache::has($cacheKey)) {
+            return true;
+        }
+
+        $subject = 'Pedido confirmado — '.$product->name;
+        $bodyHtml = $this->buildPhysicalProductConfirmationBody($order, $customerName, $product->name);
+        $brandingLogo = BrandingEmailData::forTenant($tenantIdForMail)['logo_url'] ?? null;
+        if (is_string($brandingLogo) && $brandingLogo !== '') {
+            $bodyHtml = $this->prependLogoToBody($brandingLogo, $bodyHtml);
+        }
+
+        $template = array_merge(Product::defaultEmailTemplate(), ($product->checkout_config ?? [])['email_template'] ?? []);
+
+        try {
+            $sent = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template);
+            if ($sent) {
+                Cache::put($cacheKey, true, now()->addHours(1));
+            }
+
+            return $sent;
+        } catch (\Throwable $e) {
+            Log::error('AccessEmailService: falha no e-mail de produto físico.', [
+                'order_id' => $order->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    private function buildPhysicalProductConfirmationBody(Order $order, string $customerName, string $productName): string
+    {
+        $addr = is_array($order->shipping_address) ? $order->shipping_address : [];
+        $lines = array_filter([
+            isset($addr['street'], $addr['number']) ? e($addr['street']).', '.e($addr['number']) : null,
+            ! empty($addr['complement']) ? e((string) $addr['complement']) : null,
+            ! empty($addr['neighborhood']) ? e((string) $addr['neighborhood']) : null,
+            isset($addr['city'], $addr['state']) ? e($addr['city']).' — '.e($addr['state']) : null,
+            ! empty($addr['zip']) ? 'CEP '.e((string) $addr['zip']) : null,
+        ]);
+        $addressBlock = $lines !== []
+            ? '<p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#334155;">'.implode('<br>', $lines).'</p>'
+            : '<p style="margin:0;font-size:14px;color:#64748b;">Endereço registrado no pedido.</p>';
+
+        $shippingAmount = (float) ($order->shipping_amount ?? 0);
+        $shippingLine = $shippingAmount > 0
+            ? '<p style="margin:0 0 12px;font-size:14px;color:#334155;"><strong>Frete:</strong> R$ '.number_format($shippingAmount, 2, ',', '.').'</p>'
+            : '<p style="margin:0 0 12px;font-size:14px;color:#334155;"><strong>Frete:</strong> grátis</p>';
+
+        $meta = $order->metadata ?? [];
+        $deliveryHint = '';
+        $min = $meta['delivery_days_min'] ?? null;
+        $max = $meta['delivery_days_max'] ?? null;
+        if ($min !== null) {
+            $deliveryHint = '<p style="margin:0;font-size:13px;color:#64748b;">Prazo estimado: '.(int) $min
+                .($max !== null && (int) $max !== (int) $min ? '–'.(int) $max : '')
+                .' dias úteis após a confirmação do pagamento.</p>';
+        }
+
+        return '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;"><tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid #e2e8f0;"><h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">Olá, '.e($customerName).'!</h1></td></tr><tr><td style="padding:28px 32px;"><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Recebemos o pagamento do seu pedido <strong>'.e($productName).'</strong>.</p><p style="margin:0 0 12px;font-size:15px;font-weight:600;color:#0f172a;">Endereço de entrega</p>'.$addressBlock.$shippingLine.$deliveryHint.'<p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#64748b;">Você receberá atualizações sobre o envio pelo e-mail informado na compra.</p></td></tr><tr><td style="padding:20px 32px;background:#f1f5f9;border-radius:0 0 12px 12px;"><p style="margin:0;font-size:13px;color:#64748b;">Qualquer dúvida, responda este e-mail.</p></td></tr></table></td></tr></table>';
     }
 }

@@ -154,6 +154,8 @@ const props = defineProps({
     cardInstallmentsEnabled: { type: Boolean, default: false },
     cardMaxInstallments: { type: Number, default: 1 },
     checkoutTotalBrl: { type: Number, default: 0 },
+    requiresShipping: { type: Boolean, default: false },
+    productSubtotalBrl: { type: Number, default: 0 },
     /** Public Key Mercado Pago para Payment Brick (cartão). */
     cardMercadopagoPublicKey: { type: String, default: '' },
     /** Se o gateway Mercado Pago está em sandbox. */
@@ -213,7 +215,46 @@ function appendUtmsAndAffiliate(payload) {
     return payload;
 }
 
-const emit = defineEmits(['coupon-applied', 'coupon-cleared', 'update:orderBumpIds', 'purchase-confirmed']);
+const emit = defineEmits(['coupon-applied', 'coupon-cleared', 'update:orderBumpIds', 'purchase-confirmed', 'update:shippingAmount']);
+
+const shippingQuoteLoading = ref(false);
+const shippingQuoteError = ref('');
+const shippingAmountLocal = ref(0);
+const shippingDeliveryHint = ref('');
+
+async function fetchShippingQuote() {
+    if (!props.requiresShipping) return;
+    const cep = (form.address_zipcode || form.shipping_cep || '').replace(/\D/g, '');
+    if (cep.length < 8) return;
+    shippingQuoteLoading.value = true;
+    shippingQuoteError.value = '';
+    try {
+        const { data } = await axios.post(
+            '/checkout/shipping-quote',
+            appendUtmsAndAffiliate({
+                product_id: props.productId,
+                product_offer_id: props.productOfferId,
+                subscription_plan_id: props.subscriptionPlanId,
+                cep,
+                order_bump_ids: props.orderBumpIds,
+                coupon_code: form.coupon_code || '',
+            }),
+            { headers: { Accept: 'application/json', 'X-XSRF-TOKEN': getCsrfToken() } }
+        );
+        shippingAmountLocal.value = Number(data.shipping_amount) || 0;
+        const min = data.delivery_days_min;
+        const max = data.delivery_days_max;
+        shippingDeliveryHint.value =
+            min != null ? `Entrega estimada: ${min}${max != null && max !== min ? `–${max}` : ''} dias úteis` : '';
+        emit('update:shippingAmount', shippingAmountLocal.value);
+    } catch (e) {
+        shippingQuoteError.value = e?.response?.data?.message || 'Não foi possível calcular o frete.';
+        shippingAmountLocal.value = 0;
+        emit('update:shippingAmount', 0);
+    } finally {
+        shippingQuoteLoading.value = false;
+    }
+}
 
 function emitPurchaseConfirmed(orderId, triggerType = 'approved') {
     const oid = orderId !== null && orderId !== undefined ? String(orderId) : '';
@@ -293,10 +334,15 @@ const cardPagarmeApiBaseUrl = computed(() => {
     const u = k && typeof k.api_base_url === 'string' ? k.api_base_url.trim() : '';
     return u !== '' ? u.replace(/\/$/, '') : 'https://api.pagar.me/core/v5';
 });
+/** Endereço de entrega (produto físico) — exibido antes da forma de pagamento. */
+const showDeliveryAddressBlock = computed(() => props.requiresShipping);
+
+/** Cobrança/boleto/Pagar.me — após escolher o método (não duplica o bloco de entrega). */
 const showBillingAddressBlock = computed(
     () =>
-        form.payment_method === 'boleto' ||
-        (['card', 'apple_pay', 'google_pay'].includes(form.payment_method) && isCardGatewayPagarme.value)
+        !props.requiresShipping &&
+        (form.payment_method === 'boleto' ||
+            (['card', 'apple_pay', 'google_pay'].includes(form.payment_method) && isCardGatewayPagarme.value))
 );
 
 const pagarmeTokenizeFormId = CHECKOUT_PAGARME_TOKENIZE_FORM_ID;
@@ -344,6 +390,13 @@ const form = useForm({
     address_neighborhood: '',
     address_city: '',
     address_state: '',
+    shipping_cep: '',
+    shipping_street: '',
+    shipping_number: '',
+    shipping_complement: '',
+    shipping_neighborhood: '',
+    shipping_city: '',
+    shipping_state: '',
 });
 
 watch(
@@ -661,6 +714,13 @@ async function fetchAddressByCep() {
         }
 
         if (data.logradouro) form.address_street = data.logradouro;
+        if (props.requiresShipping) {
+            form.shipping_street = data.logradouro;
+            form.shipping_neighborhood = data.bairro || form.shipping_neighborhood;
+            form.shipping_city = data.localidade || form.shipping_city;
+            form.shipping_state = data.uf || form.shipping_state;
+            await fetchShippingQuote();
+        }
         if (data.bairro) form.address_neighborhood = data.bairro;
         if (data.localidade) form.address_city = data.localidade;
         if (data.uf) form.address_state = data.uf;
@@ -1968,6 +2028,15 @@ function submit() {
         payload.address_city = (form.address_city || '').trim();
         payload.address_state = (form.address_state || '').trim().slice(0, 2).toUpperCase();
     }
+    if (props.requiresShipping) {
+        payload.shipping_cep = (form.address_zipcode || '').replace(/\D/g, '').slice(0, 8);
+        payload.shipping_street = (form.address_street || '').trim();
+        payload.shipping_number = (form.address_number || '').trim();
+        payload.shipping_complement = (form.address_complement || '').trim();
+        payload.shipping_neighborhood = (form.address_neighborhood || '').trim();
+        payload.shipping_city = (form.address_city || '').trim();
+        payload.shipping_state = (form.address_state || '').trim().slice(0, 2).toUpperCase();
+    }
     appendUtmsAndAffiliate(payload);
     form.transform(() => payload).post('/checkout');
 }
@@ -2297,6 +2366,121 @@ function submit() {
                 class="mt-8"
                 @update:selected-ids="emit('update:orderBumpIds', $event)"
             />
+
+            <!-- Endereço de entrega (produto físico) — antes da forma de pagamento -->
+            <div
+                v-if="showDeliveryAddressBlock"
+                class="mt-8 space-y-4 rounded-xl border-2 border-emerald-100 bg-emerald-50/40 p-4"
+                data-checkout="form-delivery-address"
+            >
+                <div class="flex items-center gap-2 text-gray-700">
+                    <MapPin class="h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />
+                    <span class="text-sm font-medium">Endereço de entrega</span>
+                </div>
+                <div class="text-sm text-gray-600">
+                    <p v-if="shippingQuoteLoading">Calculando frete…</p>
+                    <p v-else-if="shippingQuoteError" class="font-medium text-red-600">{{ shippingQuoteError }}</p>
+                    <p v-else-if="shippingAmountLocal > 0">
+                        Frete: <strong>{{ formatPrice(shippingAmountLocal, 'BRL') }}</strong>
+                        <span v-if="shippingDeliveryHint" class="block text-xs text-gray-500">{{ shippingDeliveryHint }}</span>
+                    </p>
+                    <p v-else class="text-xs text-gray-500">Informe o CEP para calcular o frete.</p>
+                </div>
+                <div v-if="!boletoAddressFetched" class="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-2">
+                    <div class="min-w-0 flex-1">
+                        <label for="checkout-delivery-cep" class="mb-2 block text-sm font-medium text-gray-700">CEP</label>
+                        <div class="relative">
+                            <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                                <MapPin class="h-5 w-5" aria-hidden="true" />
+                            </span>
+                            <input
+                                id="checkout-delivery-cep"
+                                :value="form.address_zipcode"
+                                type="text"
+                                inputmode="numeric"
+                                maxlength="9"
+                                :class="inputClassWithIcon"
+                                placeholder="00000-000"
+                                @input="onAddressCepInput"
+                                @blur="fetchAddressByCep"
+                            />
+                        </div>
+                        <p v-if="form.errors.address_zipcode" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.address_zipcode }}</p>
+                        <p v-else-if="addressCepError" class="mt-1.5 text-sm font-medium text-red-600">{{ addressCepError }}</p>
+                    </div>
+                    <button
+                        type="button"
+                        :disabled="addressCepLoading || (form.address_zipcode || '').replace(/\D/g, '').length < 8"
+                        class="shrink-0 self-start rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-50 sm:h-[3.25rem] sm:self-end"
+                        @click="fetchAddressByCep"
+                    >
+                        <Loader2 v-if="addressCepLoading" class="h-5 w-5 animate-spin" />
+                        <span v-else>{{ t('checkout.endereco_boleto_buscar') }}</span>
+                    </button>
+                </div>
+                <div v-if="!boletoAddressFetched" class="pt-1">
+                    <button
+                        type="button"
+                        class="text-xs font-medium text-gray-600 underline decoration-gray-300 underline-offset-2 hover:text-gray-800"
+                        @click="boletoManualAddress = !boletoManualAddress"
+                    >
+                        {{ boletoManualAddress ? 'Ocultar preenchimento manual' : 'Preencher endereço manualmente' }}
+                    </button>
+                </div>
+                <div v-if="!boletoAddressFetched && boletoManualAddress" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="sm:col-span-2">
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Rua</label>
+                        <input v-model="form.address_street" type="text" :class="inputClass" placeholder="Rua" />
+                    </div>
+                    <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Número</label>
+                        <input v-model="form.address_number" type="text" :class="inputClass" placeholder="Nº" />
+                        <p v-if="form.errors.address_number" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.address_number }}</p>
+                    </div>
+                    <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Complemento</label>
+                        <input v-model="form.address_complement" type="text" :class="inputClass" placeholder="Apto, bloco…" />
+                    </div>
+                    <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Bairro</label>
+                        <input v-model="form.address_neighborhood" type="text" :class="inputClass" placeholder="Bairro" />
+                    </div>
+                    <div>
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Cidade</label>
+                        <input v-model="form.address_city" type="text" :class="inputClass" placeholder="Cidade" />
+                    </div>
+                    <div class="max-w-[12rem]">
+                        <label class="mb-2 block text-sm font-medium text-gray-700">UF</label>
+                        <input v-model="form.address_state" type="text" maxlength="2" :class="inputClass" placeholder="UF" />
+                    </div>
+                    <p v-if="form.errors.address_street || form.errors.address_neighborhood || form.errors.address_city || form.errors.address_state" class="sm:col-span-2 text-sm font-medium text-red-600">
+                        {{ form.errors.address_street || form.errors.address_neighborhood || form.errors.address_city || form.errors.address_state }}
+                    </p>
+                </div>
+                <template v-else>
+                    <p class="text-xs font-medium text-gray-500">
+                        {{ [form.address_street, form.address_neighborhood, [form.address_city, form.address_state].filter(Boolean).join(' - ')].filter(Boolean).join(', ') }}
+                    </p>
+                    <div class="max-w-[12rem]">
+                        <label for="checkout-delivery-number" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.endereco_boleto_numero') }}</label>
+                        <input
+                            id="checkout-delivery-number"
+                            v-model="form.address_number"
+                            type="text"
+                            :class="inputClassWithIcon"
+                            placeholder="Nº"
+                        />
+                        <p v-if="form.errors.address_number" class="mt-1.5 text-sm font-medium text-red-600">{{ form.errors.address_number }}</p>
+                    </div>
+                    <div class="max-w-md">
+                        <label class="mb-2 block text-sm font-medium text-gray-700">Complemento</label>
+                        <input v-model="form.address_complement" type="text" :class="inputClass" placeholder="Apto, bloco… (opcional)" />
+                    </div>
+                    <p v-if="form.errors.address_street || form.errors.address_neighborhood || form.errors.address_city || form.errors.address_state" class="text-sm font-medium text-red-600">
+                        {{ form.errors.address_street || form.errors.address_neighborhood || form.errors.address_city || form.errors.address_state }}
+                    </p>
+                </template>
+            </div>
 
             <!-- Forma de pagamento (componentes por gateway em gateways/<slug>/) -->
             <CheckoutPaymentMethods
@@ -2702,6 +2886,14 @@ function submit() {
                             ? tf('checkout.endereco_cobranca', 'Endereço de cobrança')
                             : tf('checkout.endereco_boleto', 'Endereço') }}
                     </span>
+                </div>
+                <div v-if="props.requiresShipping" class="text-sm text-gray-600">
+                    <p v-if="shippingQuoteLoading">Calculando frete…</p>
+                    <p v-else-if="shippingQuoteError" class="font-medium text-red-600">{{ shippingQuoteError }}</p>
+                    <p v-else-if="shippingAmountLocal > 0">
+                        Frete: <strong>{{ formatPrice(shippingAmountLocal, 'BRL') }}</strong>
+                        <span v-if="shippingDeliveryHint" class="block text-xs text-gray-500">{{ shippingDeliveryHint }}</span>
+                    </p>
                 </div>
                 <!-- 1) Só CEP + Buscar -->
                 <div v-if="!boletoAddressFetched" class="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-2">

@@ -1,8 +1,7 @@
 <x-mail::message>
 {{-- Logo --}}
 @if (! empty($logoUrl))
-<img src="{{ $logoUrl }}" alt="{{ config('app.name') }}" style="max-width: 200px; margin-bottom: 1.5rem; display: block;">
-
+{!! \App\Support\EmailLogoHtml::wrap($logoUrl) !!}
 @endif
 {{-- Greeting --}}
 @if (! empty($greeting))

@@ -76,6 +76,39 @@ function itemLabel(item) {
         'Item';
     return isBump ? `${baseName} (Bump)` : baseName;
 }
+
+const hasShipping = computed(() => {
+    const v = props.venda;
+    if (!v) return false;
+    return Number(v.shipping_amount ?? 0) > 0 || (v.shipping_address && Object.keys(v.shipping_address).length > 0);
+});
+
+const shippingAddressLines = computed(() => {
+    const addr = props.venda?.shipping_address;
+    if (!addr || typeof addr !== 'object') return [];
+    const lines = [];
+    if (addr.street) {
+        let line = addr.street;
+        if (addr.number) line += `, ${addr.number}`;
+        lines.push(line);
+    }
+    if (addr.complement) lines.push(addr.complement);
+    if (addr.neighborhood) lines.push(addr.neighborhood);
+    if (addr.city || addr.state) {
+        lines.push([addr.city, addr.state].filter(Boolean).join(' — '));
+    }
+    if (addr.zip) lines.push(`CEP ${addr.zip}`);
+    return lines;
+});
+
+const shippingDeliveryLabel = computed(() => {
+    const meta = props.venda?.metadata ?? {};
+    const min = meta.delivery_days_min;
+    const max = meta.delivery_days_max;
+    if (min == null) return '';
+    if (max != null && max !== min) return `${min}–${max} dias úteis`;
+    return `${min} dias úteis`;
+});
 </script>
 
 <template>
@@ -189,6 +222,25 @@ function itemLabel(item) {
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Produto</p>
                                 <p class="text-sm text-zinc-900 dark:text-white">{{ venda.product_display_name ?? venda.product?.name ?? '–' }}</p>
+                            </div>
+                            <div
+                                v-if="hasShipping"
+                                class="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-3 dark:border-emerald-900 dark:bg-emerald-950/30"
+                            >
+                                <p class="text-xs font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Entrega</p>
+                                <p v-if="Number(venda.shipping_amount) > 0" class="text-sm text-zinc-900 dark:text-white">
+                                    Frete: {{ formatBRL(venda.shipping_amount) }}
+                                </p>
+                                <p v-else class="text-sm text-zinc-900 dark:text-white">Frete grátis</p>
+                                <p v-if="shippingDeliveryLabel" class="text-xs text-zinc-600 dark:text-zinc-400">
+                                    Prazo estimado: {{ shippingDeliveryLabel }}
+                                </p>
+                                <p v-if="venda.metadata?.shipping_label" class="text-xs text-zinc-500">
+                                    Regra: {{ venda.metadata.shipping_label }}
+                                </p>
+                                <div v-if="shippingAddressLines.length" class="text-sm text-zinc-700 dark:text-zinc-300">
+                                    <p v-for="(line, i) in shippingAddressLines" :key="i">{{ line }}</p>
+                                </div>
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Método de pagamento</p>

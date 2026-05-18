@@ -21,6 +21,7 @@ class Product extends Model
     public const TYPE_AREA_MEMBROS_EXTERNA = 'area_membros_externa';
     public const TYPE_LINK = 'link';
     public const TYPE_LINK_PAGAMENTO = 'link_pagamento';
+    public const TYPE_PRODUTO_FISICO = 'produto_fisico';
 
     public const BILLING_ONE_TIME = 'one_time';
     public const BILLING_SUBSCRIPTION = 'subscription';
@@ -49,6 +50,8 @@ class Product extends Model
         'affiliate_support_email',
         'affiliate_showcase_description',
         'refund_policy_days',
+        'shipping_store_id',
+        'physical_config',
     ];
 
     protected function casts(): array
@@ -65,7 +68,33 @@ class Product extends Model
             'affiliate_manual_approval' => 'boolean',
             'affiliate_show_in_showcase' => 'boolean',
             'refund_policy_days' => 'integer',
+            'physical_config' => 'array',
         ];
+    }
+
+    public function shippingStore(): BelongsTo
+    {
+        return $this->belongsTo(ShippingStore::class, 'shipping_store_id');
+    }
+
+    public function isPhysical(): bool
+    {
+        return $this->type === self::TYPE_PRODUTO_FISICO;
+    }
+
+    public function requiresShippingAddress(): bool
+    {
+        return $this->isPhysical();
+    }
+
+    public function hasFreeShipping(): bool
+    {
+        if (! $this->isPhysical()) {
+            return false;
+        }
+        $config = is_array($this->physical_config) ? $this->physical_config : [];
+
+        return filter_var($config['free_shipping'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 
     protected static function booted(): void
@@ -258,7 +287,7 @@ class Product extends Model
             'logo_url' => '',
             'from_name' => '',
             'subject' => 'Seu acesso a {nome_produto}',
-            'body_html' => '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;"><tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid #e2e8f0;"><h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">Olá, {nome_cliente}!</h1></td></tr><tr><td style="padding:28px 32px;"><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Obrigado por adquirir <strong>{nome_produto}</strong>.</p><p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#334155;">Clique no botão abaixo para acessar seu conteúdo agora:</p><p style="margin:0 0 24px;text-align:center;"><a href="{link_acesso}" style="display:inline-block;padding:14px 32px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;border-radius:8px;">Acessar agora</a></p><p style="margin:0 0 24px;font-size:14px;line-height:1.5;color:#64748b;">Ou copie e cole no navegador:<br/><a href="{link_acesso}" style="color:#0ea5e9;word-break:break-all;">{link_acesso}</a></p><div style="margin:28px 0 0;padding:20px;background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;"><p style="margin:0 0 10px;font-size:14px;line-height:1.5;color:#92400e;"><strong>Guarde seus dados de acesso</strong></p><p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">O botão acima entra automaticamente na sua conta. Se você sair ou usar outro aparelho, faça login na área de membros com:</p><p style="margin:0 0 10px;font-size:14px;color:#0f172a;"><strong>E-mail:</strong> {email_cliente}</p><p style="margin:0;font-size:15px;color:#0f172a;font-family:Consolas,\'Courier New\',monospace;font-weight:600;letter-spacing:0.02em;word-break:break-all;"><strong>Senha:</strong> {senha}</p></div></td></tr><tr><td style="padding:20px 32px;background:#f1f5f9;border-radius:0 0 12px 12px;"><p style="margin:0;font-size:13px;color:#64748b;">Qualquer dúvida, responda este e-mail.</p></td></tr></table></td></tr></table>',
+            'body_html' => '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;"><tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid #e2e8f0;"><h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">Olá, {nome_cliente}!</h1></td></tr><tr><td style="padding:28px 32px;"><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Obrigado por adquirir <strong>{nome_produto}</strong>.</p><p style="margin:0 0 24px;font-size:16px;line-height:1.6;color:#334155;">Clique no botão abaixo para fazer login e ver todos os seus produtos em Minha área:</p><p style="margin:0 0 24px;text-align:center;"><a href="{link_acesso}" style="display:inline-block;padding:14px 32px;background:#0ea5e9;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;border-radius:8px;">Fazer login</a></p><p style="margin:0 0 24px;font-size:14px;line-height:1.5;color:#64748b;">Ou copie e cole no navegador:<br/><a href="{link_acesso}" style="color:#0ea5e9;word-break:break-all;">{link_acesso}</a></p><div style="margin:28px 0 0;padding:20px;background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;"><p style="margin:0 0 10px;font-size:14px;line-height:1.5;color:#92400e;"><strong>Guarde seus dados de acesso</strong></p><p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">Após o login você verá todos os cursos comprados. Use:</p><p style="margin:0 0 10px;font-size:14px;color:#0f172a;"><strong>E-mail:</strong> {email_cliente}</p><p style="margin:0;font-size:15px;color:#0f172a;font-family:Consolas,\'Courier New\',monospace;font-weight:600;letter-spacing:0.02em;word-break:break-all;"><strong>Senha:</strong> {senha}</p></div></td></tr><tr><td style="padding:20px 32px;background:#f1f5f9;border-radius:0 0 12px 12px;"><p style="margin:0;font-size:13px;color:#64748b;">Qualquer dúvida, responda este e-mail.</p></td></tr></table></td></tr></table>',
         ];
     }
 
@@ -720,6 +749,11 @@ class Product extends Model
             self::TYPE_LINK_PAGAMENTO => [
                 'label' => 'Somente link de pagamento',
                 'description' => 'Apenas gera link de checkout, sem entrega automática.',
+                'available' => true,
+            ],
+            self::TYPE_PRODUTO_FISICO => [
+                'label' => 'Produto físico',
+                'description' => 'Envio por correio/transportadora. Configure frete e endereço de entrega no checkout.',
                 'available' => true,
             ],
         ];

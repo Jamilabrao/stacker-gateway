@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\BuyerAccountService;
 use App\Services\ApiPixAccess;
 use App\Services\PaymentService;
+use App\Services\Shipping\CheckoutShippingHelper;
 use App\Support\FakeConsumerData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -153,7 +154,19 @@ class PaymentsController extends Controller
 
         $metadata['checkout_payment_method'] = $paymentMethod;
 
-        $order = Order::create([
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        $shippingResolved = null;
+        if ($product !== null && $shippingHelper->productRequiresShipping($product)) {
+            if (strtoupper($currency) !== 'BRL') {
+                abort(422, 'Produtos físicos estão disponíveis apenas em BRL.');
+            }
+            $addrValidated = $request->validate($shippingHelper->shippingAddressValidationRules());
+            $shippingResolved = $shippingHelper->resolveForCheckout($product, $addrValidated);
+            $orderAmount = round($orderAmount + $shippingResolved['shipping_amount'], 2);
+            $metadata = array_merge($metadata, $shippingResolved['metadata_shipping']);
+        }
+
+        $orderPayload = [
             'tenant_id' => $tenantId,
             'user_id' => $userConsumer['user']->id,
             'product_id' => $product?->id,
@@ -175,7 +188,15 @@ class PaymentsController extends Controller
             'period_start' => $periodStart,
             'period_end' => $periodEnd,
             'is_renewal' => false,
-        ]);
+        ];
+        if ($shippingResolved !== null) {
+            $orderPayload['shipping_amount'] = $shippingResolved['shipping_amount'];
+            $orderPayload['shipping_store_id'] = $shippingResolved['shipping_store_id'];
+            $orderPayload['shipping_rule_id'] = $shippingResolved['shipping_rule_id'];
+            $orderPayload['shipping_address'] = $shippingResolved['shipping_address'];
+        }
+
+        $order = Order::create($orderPayload);
 
         if ($product !== null) {
             OrderItem::create([
