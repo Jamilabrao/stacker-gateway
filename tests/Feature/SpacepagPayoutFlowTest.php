@@ -42,12 +42,15 @@ class SpacepagPayoutFlowTest extends TestCase
             'payout_external_id' => 'tx-webhook-1',
         ]);
 
-        $response = $this->postJson('/webhooks/gateways/spacepag', [
+        $secret = 'spacepag-whsec-test';
+        $this->seedInboundWebhookSecret('spacepag', $secret, null);
+
+        $response = $this->postSignedGatewayWebhook('/webhooks/gateways/spacepag', [
             'event' => 'payment.paid',
             'status' => 'paid',
             'transaction_id' => 'tx-webhook-1',
             'external_id' => 'getfy-withdrawal-'.$w->id,
-        ]);
+        ], $secret);
 
         $response->assertOk()->assertJson(['received' => true]);
 
@@ -76,12 +79,15 @@ class SpacepagPayoutFlowTest extends TestCase
             'payout_external_id' => '999888777',
         ]);
 
-        $response = $this->postJson('/webhooks/gateways/spacepag', [
+        $secret = 'spacepag-whsec-test';
+        $this->seedInboundWebhookSecret('spacepag', $secret, null);
+
+        $response = $this->postSignedGatewayWebhook('/webhooks/gateways/spacepag', [
             'event' => 'payment.paid',
             'status' => 'paid',
             'transaction_id' => 999888777,
             'external_id' => 'getfy-withdrawal-'.$w->id,
-        ]);
+        ], $secret);
 
         $response->assertOk()->assertJson(['received' => true]);
         $this->assertSame('paid', $w->fresh()->status);
@@ -109,13 +115,16 @@ class SpacepagPayoutFlowTest extends TestCase
             'payout_external_id' => 'tx-no-event-1',
         ]);
 
-        $response = $this->postJson('/webhooks/gateways/spacepag', [
+        $secret = 'spacepag-whsec-test';
+        $this->seedInboundWebhookSecret('spacepag', $secret, null);
+
+        $response = $this->postSignedGatewayWebhook('/webhooks/gateways/spacepag', [
             'status' => 'paid',
             'transaction_id' => 'tx-no-event-1',
             'external_id' => 'getfy-withdrawal-'.$w->id,
             'payment' => ['amount' => 50, 'liquid' => 50],
             'receiver' => ['name' => 'X', 'document' => '123', 'email' => 'a@b.co'],
-        ]);
+        ], $secret);
 
         $response->assertOk()->assertJson(['received' => true]);
         $this->assertSame('paid', $w->fresh()->status);

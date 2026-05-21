@@ -6,6 +6,7 @@ use App\Events\BoletoGenerated;
 use App\Events\OrderCompleted;
 use App\Events\PixGenerated;
 use App\Listeners\CreditTenantWalletOnOrderCompleted;
+use App\Listeners\IncrementCouponUsageOnOrderCompleted;
 use App\Listeners\SendAccessEmailOnOrderCompleted;
 use App\Listeners\SendPanelPushOnBoletoGenerated;
 use App\Listeners\SendPanelPushOnOrderCompleted;
@@ -17,13 +18,19 @@ use App\Listeners\UtmifyEventSubscriber;
 use App\Listeners\SendApiApplicationWebhookListener;
 use App\Listeners\WebhookEventSubscriber;
 use App\Support\DockerSetupState;
-use App\Services\BrandingEmailData;
+use App\Mail\PasswordResetMail;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use Illuminate\Notifications\Messages\MailMessage;
+use App\Models\Order;
+use App\Models\Product;
+use App\Models\RefundRequest;
+use App\Policies\OrderPolicy;
+use App\Policies\ProductPolicy;
+use App\Policies\RefundRequestPolicy;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
@@ -44,6 +51,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Gate::policy(Order::class, OrderPolicy::class);
+        Gate::policy(Product::class, ProductPolicy::class);
+        Gate::policy(RefundRequest::class, RefundRequestPolicy::class);
+
         $this->ensureRuntimeDirectories();
         $this->fallbackRedisToDatabase();
         $this->fallbackInvalidQueueConnectionToSync();
@@ -51,6 +62,12 @@ class AppServiceProvider extends ServiceProvider
         if (DockerSetupState::isDocker() && class_exists(\Illuminate\Support\Facades\Vite::class)) {
             \Illuminate\Support\Facades\Vite::useHotFile(storage_path('framework/vite.hot'));
         }
+
+        RateLimiter::for('login', function (Request $request) {
+            $email = strtolower(trim((string) $request->input('email', '')));
+
+            return Limit::perMinute(10)->by($request->ip().'|'.$email);
+        });
 
         RateLimiter::for('api', function (Request $request) {
             $publicKey = trim((string) $request->header('X-Public-Key', ''));
@@ -66,11 +83,66 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        $checkoutLimits = config('getfy.checkout_security.rate_limits', []);
+
+        RateLimiter::for('checkout-pay', function (Request $request) use ($checkoutLimits) {
+            return Limit::perMinute((int) ($checkoutLimits['pay_per_minute'] ?? 10))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('checkout-pix', function (Request $request) use ($checkoutLimits) {
+            $method = strtolower((string) $request->input('payment_method', ''));
+            if ($method !== 'pix') {
+                return Limit::none();
+            }
+
+            return Limit::perMinute((int) ($checkoutLimits['pix_per_minute'] ?? 3))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('checkout-pix-email', function (Request $request) use ($checkoutLimits) {
+            $method = strtolower((string) $request->input('payment_method', ''));
+            if ($method !== 'pix') {
+                return Limit::none();
+            }
+            $email = strtolower(trim((string) $request->input('email', '')));
+            if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return Limit::none();
+            }
+
+            return Limit::perMinutes(10, (int) ($checkoutLimits['pix_email_per_ten_minutes'] ?? 3))
+                ->by('pix-email:'.sha1($email));
+        });
+
+        RateLimiter::for('checkout-cajupay-session', function (Request $request) use ($checkoutLimits) {
+            return Limit::perMinute((int) ($checkoutLimits['cajupay_session_per_minute'] ?? 15))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('checkout-track', function (Request $request) use ($checkoutLimits) {
+            $token = trim((string) $request->input('session_token', ''));
+            $key = $token !== '' ? 'track:'.$token : 'track-ip:'.$request->ip();
+
+            return Limit::perMinute((int) ($checkoutLimits['track_per_minute'] ?? 30))
+                ->by($key);
+        });
+
+        RateLimiter::for('checkout-coupon', function (Request $request) use ($checkoutLimits) {
+            return Limit::perMinute((int) ($checkoutLimits['coupon_per_minute'] ?? 20))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('checkout-shipping-quote', function (Request $request) use ($checkoutLimits) {
+            return Limit::perMinute((int) ($checkoutLimits['shipping_quote_per_minute'] ?? 30))
+                ->by($request->ip());
+        });
+
         Queue::after(function (): void {
             Cache::put('queue_heartbeat', now()->toIso8601String(), now()->addMinutes(5));
         });
 
         Event::listen(OrderCompleted::class, CreditTenantWalletOnOrderCompleted::class);
+        Event::listen(OrderCompleted::class, IncrementCouponUsageOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, SendAccessEmailOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, SendPanelPushOnOrderCompleted::class);
         Event::listen(PixGenerated::class, SendPanelPushOnPixGenerated::class);
@@ -84,7 +156,6 @@ class AppServiceProvider extends ServiceProvider
 
         ResetPassword::toMailUsing(function (object $notifiable, string $token) {
             $tenantId = property_exists($notifiable, 'tenant_id') ? ($notifiable->tenant_id ?? null) : null;
-            $logoUrl = BrandingEmailData::forTenant(is_int($tenantId) ? $tenantId : null)['logo_url'] ?? null;
             $params = [
                 'token' => $token,
                 'email' => $notifiable->getEmailForPasswordReset(),
@@ -94,16 +165,9 @@ class AppServiceProvider extends ServiceProvider
                 $params['redirect'] = $redirect;
             }
             $url = url(route('password.reset', $params, false));
-            $expire = config('auth.passwords.'.config('auth.defaults.passwords').'.expire');
+            $expire = (int) config('auth.passwords.'.config('auth.defaults.passwords').'.expire');
 
-            return (new MailMessage)
-                ->markdown('notifications::email', ['logoUrl' => $logoUrl])
-                ->subject('Redefinição de senha')
-                ->greeting('Olá!')
-                ->line('Você está recebendo este e-mail porque recebemos uma solicitação de redefinição de senha da sua conta.')
-                ->action('Redefinir senha', $url)
-                ->line('Este link expira em '.$expire.' minutos.')
-                ->line('Se você não solicitou a redefinição de senha, nenhuma ação é necessária.');
+            return new PasswordResetMail($url, $expire, is_int($tenantId) ? $tenantId : null);
         });
     }
 

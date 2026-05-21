@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Facades\DB;
 
 class Coupon extends Model
 {
@@ -30,11 +31,51 @@ class Coupon extends Model
         return [
             'value' => 'decimal:2',
             'min_amount' => 'decimal:2',
+            'max_uses' => 'integer',
             'used_count' => 'integer',
             'valid_from' => 'datetime',
             'valid_until' => 'datetime',
             'is_active' => 'boolean',
         ];
+    }
+
+    /**
+     * Cupom sem produtos na pivot = válido para qualquer produto do tenant (ou product_id legado).
+     */
+    public function appliesToProduct(Product $product): bool
+    {
+        if ((int) $this->tenant_id !== (int) $product->tenant_id) {
+            return false;
+        }
+
+        if ($this->products()->where('products.id', $product->id)->exists()) {
+            return true;
+        }
+
+        if ($this->products()->exists()) {
+            return false;
+        }
+
+        if ($this->product_id !== null) {
+            return (int) $this->product_id === (int) $product->id;
+        }
+
+        return true;
+    }
+
+    /**
+     * Recalcula used_count a partir de pedidos concluídos (útil após migração ou correção).
+     */
+    public function syncUsedCountFromCompletedOrders(): void
+    {
+        $count = DB::table('orders')
+            ->where('tenant_id', $this->tenant_id)
+            ->where('status', 'completed')
+            ->whereNotNull('coupon_code')
+            ->whereRaw('LOWER(TRIM(coupon_code)) = ?', [strtolower(trim($this->code))])
+            ->count();
+
+        $this->forceFill(['used_count' => $count])->saveQuietly();
     }
 
     public function product(): BelongsTo
@@ -77,8 +118,7 @@ class Coupon extends Model
         if ($this->min_amount !== null && $price < (float) $this->min_amount) {
             return null;
         }
-        $linked = $this->products()->where('products.id', $product->id)->exists();
-        if (! $linked) {
+        if (! $this->appliesToProduct($product)) {
             return null;
         }
 

@@ -60,7 +60,12 @@ const configForm = useForm({
             ...props.produto.member_area_config?.login,
         },
         pwa: { name: '', short_name: '', theme_color: '#0ea5e9', push_enabled: false, ...props.produto.member_area_config?.pwa },
-        certificate: { ...props.produto.member_area_config?.certificate },
+        certificate: {
+            release_mode: 'completion_percent',
+            completion_percent: 100,
+            days_after_access: 0,
+            ...props.produto.member_area_config?.certificate,
+        },
         community_enabled: props.produto.member_area_config?.community_enabled ?? false,
         gamification: { enabled: false, achievements: [], ...props.produto.member_area_config?.gamification },
     },
@@ -463,8 +468,20 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                     <div class="space-y-4">
                         <Toggle v-model="configForm.member_area_config.certificate.enabled" label="Habilitar certificado" />
                         <div>
+                            <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Liberar certificado quando</label>
+                            <select v-model="configForm.member_area_config.certificate.release_mode" :class="inputClass">
+                                <option value="completion_percent">Atingir % de conclusão do curso</option>
+                                <option value="days_after_access">Após X dias de acesso ao curso</option>
+                                <option value="both">% de conclusão e dias de acesso</option>
+                            </select>
+                        </div>
+                        <div v-if="configForm.member_area_config.certificate.release_mode !== 'days_after_access'">
                             <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">% conclusão mínima</label>
                             <input v-model.number="configForm.member_area_config.certificate.completion_percent" type="number" min="0" max="100" :class="inputClass" />
+                        </div>
+                        <div v-if="configForm.member_area_config.certificate.release_mode !== 'completion_percent'">
+                            <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Dias após o acesso ao curso</label>
+                            <input v-model.number="configForm.member_area_config.certificate.days_after_access" type="number" min="0" max="3650" :class="inputClass" />
                         </div>
                         <div>
                             <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Assinatura</label>

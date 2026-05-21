@@ -10,6 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         $driver = Schema::getConnection()->getDriverName();
+        // PostgreSQL/SQLite: ver migration 2026_05_21_120000_ensure_api_fields_on_orders_table
         if ($driver !== 'mysql' && $driver !== 'mariadb') {
             return;
         }

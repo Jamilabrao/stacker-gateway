@@ -12,7 +12,7 @@ const props = defineProps({
 const SAMPLE = {
   nome_cliente: 'Maria Silva',
   nome_produto: 'Meu Curso',
-  link_acesso: 'https://exemplo.com/m/xxxxx',
+  link_acesso: 'https://exemplo.com/login',
   email_cliente: 'maria@exemplo.com',
 };
 

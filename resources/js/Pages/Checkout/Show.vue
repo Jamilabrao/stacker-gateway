@@ -54,6 +54,7 @@ const props = defineProps({
     subscription_plan: { type: Object, default: null },
     /** Definido no servidor quando a URL traz `?preview=1` (preview no iframe do Builder). */
     checkout_builder_preview: { type: Boolean, default: false },
+    turnstile: { type: Object, default: () => ({ enabled: false, site_key: '', mode: 'pix_boleto' }) },
     /** Código de afiliado (`?ref=`) propagado ao checkout. */
     affiliate_ref: { type: String, default: '' },
 });
@@ -301,6 +302,8 @@ onMounted(async () => {
                             :subscription-plan-id="product.subscription_plan_id ?? null"
                             :affiliate-ref="affiliate_ref || ''"
                             :checkout-session-token="checkout_session_token || ''"
+                            :turnstile="turnstile || {}"
+                            :checkout-builder-preview="checkout_builder_preview"
                             :order-bumps="order_bumps || []"
                             v-model:order-bump-ids="selectedOrderBumpIds"
                             :primary-color="primaryColor"
@@ -334,6 +337,7 @@ onMounted(async () => {
                                     if (e?.orderId) {
                                         sendPurchasePixelAck({
                                             orderId: e.orderId,
+                                            checkoutSessionToken: checkout_session_token || '',
                                             triggerType: e?.triggerType ?? 'approved',
                                         });
                                     }

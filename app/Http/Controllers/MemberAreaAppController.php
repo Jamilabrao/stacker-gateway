@@ -42,7 +42,7 @@ class MemberAreaAppController extends Controller
         $user = $request->user();
         $accessStartAt = $this->userAccessStartAt($product, $user);
         $now = now();
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $sections = $product->memberSections()->with(['modules.lessons', 'modules.relatedProduct'])->orderBy('position')->get();
         $progressPercent = $this->progressService->completionPercent($product, $user);
         $continueWatching = $this->getContinueWatching($product, $user);
@@ -90,7 +90,7 @@ class MemberAreaAppController extends Controller
 
         return Inertia::render('MemberAreaApp/Modulos', [
             'product' => $this->productToArray($product),
-            'config' => $product->member_area_config,
+            'config' => $this->memberAreaConfigForApp($product),
             'sections' => $sections->map(fn (MemberSection $s) => [
                 'id' => $s->id,
                 'title' => $s->title,
@@ -98,7 +98,7 @@ class MemberAreaAppController extends Controller
                 'modules' => $s->modules->map(fn ($m) => [
                     'id' => $m->id,
                     'title' => $m->title,
-                    'thumbnail' => $m->thumbnail,
+                    'thumbnail' => $this->moduleThumbnailUrl($product, $m->thumbnail),
                     'show_title_on_cover' => $m->show_title_on_cover ?? true,
                     ...$this->moduleLockPayload($m, $accessStartAt, $now),
                     'lessons' => $m->lessons->map(fn (MemberLesson $l) => [
@@ -194,13 +194,13 @@ class MemberAreaAppController extends Controller
             'modules' => $s->modules->map(fn ($m) => [
                 'id' => $m->id,
                 'title' => $m->title,
-                'thumbnail' => $m->thumbnail,
+                'thumbnail' => $this->moduleThumbnailUrl($product, $m->thumbnail),
                 'show_title_on_cover' => $m->show_title_on_cover ?? true,
                 ...$this->moduleLockPayload($m, $accessStartAt, $now),
             ])->values()->all(),
         ])->values()->all();
 
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $commentsEnabled = (bool) ($config['comments_enabled'] ?? false);
         $commentsRequireApproval = (bool) ($config['comments_require_approval'] ?? true);
         $lessonComments = [];
@@ -227,7 +227,7 @@ class MemberAreaAppController extends Controller
 
         return Inertia::render('MemberAreaApp/ModuleContent', [
             'product' => $this->productToArray($product),
-            'config' => $product->member_area_config,
+            'config' => $this->memberAreaConfigForApp($product),
             'base_url' => $this->baseUrlForRequest($product, $request),
             'slug' => $slug,
             'module' => [
@@ -292,7 +292,7 @@ class MemberAreaAppController extends Controller
         if ($lessonPayload['watermark_enabled']) {
             $lessonPayload['student'] = $this->getStudentWatermarkData($user, $product);
         }
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $commentsEnabled = (bool) ($config['comments_enabled'] ?? false);
         $commentsRequireApproval = (bool) ($config['comments_require_approval'] ?? true);
         $lessonComments = [];
@@ -319,7 +319,7 @@ class MemberAreaAppController extends Controller
 
         return Inertia::render('MemberAreaApp/Lesson', [
             'product' => $this->productToArray($product),
-            'config' => $product->member_area_config,
+            'config' => $this->memberAreaConfigForApp($product),
             'lesson' => $lessonPayload,
             'base_url' => $this->baseUrlForRequest($product, $request),
             'slug' => $slug,
@@ -361,7 +361,7 @@ class MemberAreaAppController extends Controller
         if ($lesson->product_id !== $product->id) {
             abort(404);
         }
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         if (empty($config['comments_enabled'])) {
             abort(403, 'Comentários desativados para este produto.');
         }
@@ -412,7 +412,7 @@ class MemberAreaAppController extends Controller
 
         return Inertia::render('MemberAreaApp/Loja', [
             'product' => $this->productToArray($product),
-            'config' => $product->member_area_config,
+            'config' => $this->memberAreaConfigForApp($product),
             'items' => $items,
             'base_url' => $this->baseUrlForRequest($product, $request),
             'slug' => $slug,
@@ -435,7 +435,7 @@ class MemberAreaAppController extends Controller
 
         return Inertia::render('MemberAreaApp/Comunidade', [
             'product' => $this->productToArray($product),
-            'config' => $product->member_area_config,
+            'config' => $this->memberAreaConfigForApp($product),
             'pages' => $pages->map(fn ($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
@@ -453,7 +453,7 @@ class MemberAreaAppController extends Controller
     {
         $product = $this->getProduct($request);
         $user = $request->user();
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $pages = $product->memberCommunityPages()->orderBy('position')->get();
         $page = $pages->firstWhere('slug', $pageSlug);
         if (! $page) {
@@ -549,7 +549,7 @@ class MemberAreaAppController extends Controller
             abort(404);
         }
         $user = $request->user();
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $canDeleteAny = $user->canAccessPanel() && $user->tenant_id === $product->tenant_id;
         $usersCanDeleteOwn = (bool) ($config['community_users_can_delete_own_posts'] ?? true);
         $isAuthor = $post->user_id === $user->id;
@@ -631,7 +631,7 @@ class MemberAreaAppController extends Controller
     {
         $product = $this->getProduct($request);
         $user = $request->user();
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $certConfig = $config['certificate'] ?? [];
 
         if (empty($certConfig['enabled'])) {
@@ -639,13 +639,14 @@ class MemberAreaAppController extends Controller
                 ->with('error', 'O certificado não está habilitado para este curso.');
         }
 
-        $progressPercent = $this->progressService->completionPercent($product, $user);
-        $requiredPercent = (int) ($certConfig['completion_percent'] ?? 100);
+        $eligibility = $this->progressService->certificateEligibility($product, $user);
+        $progressPercent = $eligibility['progress_percent'];
+        $requiredPercent = $eligibility['required_percent'];
         $issued = MemberCertificateIssued::where('user_id', $user->id)
             ->where('product_id', $product->id)
             ->first();
 
-        if ($progressPercent >= $requiredPercent && ! $issued) {
+        if ($eligibility['eligible'] && ! $issued) {
             $issued = $this->progressService->issueCertificate($product, $user);
         }
 
@@ -679,11 +680,21 @@ class MemberAreaAppController extends Controller
 
         return Inertia::render('MemberAreaApp/Certificado', [
             'product' => $this->productToArray($product),
-            'config' => $product->member_area_config,
+            'config' => $this->memberAreaConfigForApp($product),
             'recipient_name' => $user->name,
             'certificate_available' => $certificateAvailable,
             'progress_percent' => $progressPercent,
             'completion_required_percent' => $requiredPercent,
+            'certificate_release' => [
+                'mode' => $eligibility['release_mode'],
+                'required_percent' => $eligibility['required_percent'],
+                'percent_met' => $eligibility['percent_met'],
+                'days_after_access' => $eligibility['days_after_access'],
+                'days_elapsed' => $eligibility['days_elapsed'],
+                'days_remaining' => $eligibility['days_remaining'],
+                'days_met' => $eligibility['days_met'],
+                'unlocks_at' => $eligibility['unlocks_at'],
+            ],
             'certificate' => $certificatePayload,
             'base_url' => $this->baseUrlForRequest($product, $request),
             'slug' => $slug,
@@ -695,7 +706,7 @@ class MemberAreaAppController extends Controller
     public function pushSubscribe(Request $request, string $slug): JsonResponse
     {
         $product = $this->getProduct($request);
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $pwa = $config['pwa'] ?? [];
         if (! ((bool) ($pwa['push_enabled'] ?? false))) {
             return response()->json(['message' => 'Notificações push não estão habilitadas para esta área.'], 403);
@@ -755,7 +766,7 @@ class MemberAreaAppController extends Controller
     /** @return array{push_enabled: bool, vapid_public: string|null} */
     private function pushProps(Product $product): array
     {
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $pwa = $config['pwa'] ?? [];
         $pushEnabled = (bool) ($pwa['push_enabled'] ?? false);
 
@@ -768,7 +779,7 @@ class MemberAreaAppController extends Controller
     /** @return array{gamification_achievements: array} */
     private function gamificationProps(Product $product, User $user): array
     {
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $gamification = $config['gamification'] ?? [];
         if (empty($gamification['enabled'])) {
             return ['gamification_achievements' => []];
@@ -781,7 +792,7 @@ class MemberAreaAppController extends Controller
 
     private function productToArray(Product $product): array
     {
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $logos = $config['logos'] ?? [];
 
         return [
@@ -826,7 +837,7 @@ class MemberAreaAppController extends Controller
             $module = $lesson->module;
             $moduleThumbnail = null;
             if ($module && $module->thumbnail) {
-                $moduleThumbnail = str_starts_with($module->thumbnail, 'http') ? $module->thumbnail : (new StorageService($product->tenant_id))->url($module->thumbnail);
+                $moduleThumbnail = $this->moduleThumbnailUrl($product, $module->thumbnail);
             }
             $items[] = [
                 'lesson_id' => $lesson->id,
@@ -848,7 +859,7 @@ class MemberAreaAppController extends Controller
             return [
                 'id' => $m->id,
                 'title' => $m->title,
-                'thumbnail' => $m->thumbnail,
+                'thumbnail' => $this->moduleThumbnailUrl($product, $m->thumbnail),
                 'show_title_on_cover' => $m->show_title_on_cover ?? true,
                 ...$this->moduleLockPayload($m, $accessStartAt, $now),
                 'lessons' => $m->lessons->map(fn (MemberLesson $l) => [
@@ -871,7 +882,7 @@ class MemberAreaAppController extends Controller
             return [
                 'id' => $m->id,
                 'title' => $m->title,
-                'thumbnail' => $m->thumbnail,
+                'thumbnail' => $this->moduleThumbnailUrl($product, $m->thumbnail),
                 'show_title_on_cover' => $m->show_title_on_cover ?? true,
                 'related_product_id' => $m->related_product_id,
                 'access_type' => $m->access_type,
@@ -1017,7 +1028,7 @@ class MemberAreaAppController extends Controller
         }
         $slug = $slug ?? $request->route('slug') ?? $request->attributes->get('member_area_slug');
         $baseUrl = rtrim($this->baseUrlForRequest($product, $request), '/');
-        $config = $product->member_area_config;
+        $config = $this->memberAreaConfigForApp($product);
         $pwa = $config['pwa'] ?? [];
         $logos = $config['logos'] ?? [];
         $name = $pwa['name'] ?: $product->name;
@@ -1082,5 +1093,26 @@ class MemberAreaAppController extends Controller
         }
 
         return $this->resolver->baseUrlForProduct($product);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function memberAreaConfigForApp(Product $product): array
+    {
+        $resolved = (new StorageService($product->tenant_id))->resolveMediaUrlsInConfig($product->member_area_config ?? []);
+
+        return is_array($resolved) ? $resolved : [];
+    }
+
+    private function moduleThumbnailUrl(Product $product, ?string $thumbnail): ?string
+    {
+        if ($thumbnail === null || trim($thumbnail) === '') {
+            return null;
+        }
+
+        $url = (new StorageService($product->tenant_id))->resolvePublicUrl($thumbnail);
+
+        return $url !== '' ? $url : null;
     }
 }

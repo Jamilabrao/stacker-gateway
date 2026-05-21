@@ -167,10 +167,16 @@ class UpsellController extends Controller
                     $accessLink = $accessEmailService->getAccessLinkForOrder($order);
                     if ($accessLink !== '') {
                         $redirectUrl = $accessLink;
-                        $redirectLabel = $order->product->type === Product::TYPE_LINK
-                            ? 'Acessar conteúdo'
-                            : 'Acessar área de membros';
-                        $subtitle = 'Seu pedido foi registrado. Acesse o conteúdo pelo link abaixo.';
+                        if ($order->product->type === Product::TYPE_LINK) {
+                            $redirectLabel = 'Acessar conteúdo';
+                            $subtitle = 'Seu pedido foi registrado. Acesse o conteúdo pelo link abaixo.';
+                        } elseif ($order->product->type === Product::TYPE_AREA_MEMBROS) {
+                            $redirectLabel = 'Fazer login';
+                            $subtitle = 'Seu pedido foi registrado. Faça login para ver todos os seus produtos em Minha área.';
+                        } else {
+                            $redirectLabel = 'Acessar';
+                            $subtitle = 'Seu pedido foi registrado. Acesse pelo link abaixo.';
+                        }
                     }
                 }
             }

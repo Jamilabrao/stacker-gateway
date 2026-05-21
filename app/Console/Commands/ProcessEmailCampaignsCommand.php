@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Jobs\SendCampaignEmailJob;
 use App\Models\EmailCampaign;
 use App\Services\EmailCampaignRecipientsService;
+use App\Services\TenantMailConfigService;
+use App\Support\QueueSyncDispatch;
 use Illuminate\Console\Command;
 
 class ProcessEmailCampaignsCommand extends Command
@@ -29,12 +31,22 @@ class ProcessEmailCampaignsCommand extends Command
             }
 
             foreach ($recipients as $r) {
-                SendCampaignEmailJob::dispatch(
+                $job = new SendCampaignEmailJob(
                     $campaign->id,
                     $r['email'],
                     $r['user_id'] ?? null,
                     $r['name'] ?? $r['email']
                 );
+                if (QueueSyncDispatch::shouldRunSynchronously()) {
+                    $job->handle(app(TenantMailConfigService::class));
+                } else {
+                    SendCampaignEmailJob::dispatch(
+                        $campaign->id,
+                        $r['email'],
+                        $r['user_id'] ?? null,
+                        $r['name'] ?? $r['email']
+                    );
+                }
             }
         }
 

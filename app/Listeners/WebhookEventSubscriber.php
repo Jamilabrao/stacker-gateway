@@ -19,6 +19,7 @@ use App\Models\Webhook;
 use App\Models\Order;
 use App\Models\CheckoutSession;
 use App\Models\Subscription;
+use App\Support\WebhookCustomerPayload;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
@@ -282,6 +283,8 @@ class WebhookEventSubscriber
                 'step' => $session->step,
                 'email' => $session->email,
                 'name' => $session->name,
+                'cpf' => $session->cpf,
+                'phone' => $session->phone,
                 'customer_ip' => $session->customer_ip,
                 'order_id' => $session->order_id,
                 'utm_source' => $session->utm_source,
@@ -349,12 +352,7 @@ class WebhookEventSubscriber
             || $event instanceof BoletoGenerated) {
             $order = $event->order;
             $order->loadMissing(['user', 'product', 'productOffer', 'subscriptionPlan']);
-            $extra['customer'] = [
-                'name' => $order->user?->name ?? '',
-                'email' => $order->email ?? '',
-                'phone' => $order->phone ?? '',
-                'cpf' => $order->cpf ?? '',
-            ];
+            $extra['customer'] = WebhookCustomerPayload::fromOrder($order);
             $slug = $order->getCheckoutSlug();
             $extra['checkout_link'] = $slug ? URL::route('checkout.show', ['slug' => $slug]) : '';
         }
@@ -370,12 +368,7 @@ class WebhookEventSubscriber
         if ($event instanceof CartAbandoned) {
             $session = $event->checkoutSession;
             $session->loadMissing('product');
-            $extra['customer'] = [
-                'name' => $session->name ?? '',
-                'email' => $session->email ?? '',
-                'phone' => '',
-                'cpf' => '',
-            ];
+            $extra['customer'] = WebhookCustomerPayload::fromCheckoutSession($session);
             $slug = $session->checkout_slug ?? $session->product?->checkout_slug ?? '';
             $extra['checkout_link'] = $slug ? URL::route('checkout.show', ['slug' => $slug]) : '';
         }
@@ -384,13 +377,10 @@ class WebhookEventSubscriber
             || $event instanceof SubscriptionCancelled || $event instanceof SubscriptionPastDue) {
             $subscription = $event->subscription;
             $subscription->loadMissing(['user', 'product', 'subscriptionPlan']);
-            $user = $subscription->user;
-            $extra['customer'] = [
-                'name' => $user?->name ?? '',
-                'email' => $user?->email ?? '',
-                'phone' => '',
-                'cpf' => '',
-            ];
+            $extra['customer'] = WebhookCustomerPayload::fromUser(
+                $subscription->user,
+                $subscription->user?->email
+            );
             $slug = $subscription->subscriptionPlan?->checkout_slug
                 ?? $subscription->product?->checkout_slug
                 ?? '';

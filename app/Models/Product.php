@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -12,6 +13,8 @@ use Illuminate\Support\Str;
 
 class Product extends Model
 {
+    use SoftDeletes;
+
     protected $keyType = 'string';
 
     public $incrementing = false;
@@ -84,7 +87,7 @@ class Product extends Model
 
     public function requiresShippingAddress(): bool
     {
-        return $this->isPhysical();
+        return \App\Services\PhysicalProductAccess::globalEnabled() && $this->isPhysical();
     }
 
     public function hasFreeShipping(): bool
@@ -119,7 +122,7 @@ class Product extends Model
     {
         do {
             $slug = Str::lower(Str::random(7));
-        } while (static::where('checkout_slug', $slug)->exists());
+        } while (static::withTrashed()->where('checkout_slug', $slug)->exists());
 
         return $slug;
     }
@@ -534,7 +537,9 @@ class Product extends Model
             'certificate' => [
                 'enabled' => false,
                 'title' => '',
+                'release_mode' => 'completion_percent',
                 'completion_percent' => 100,
+                'days_after_access' => 0,
                 'template_url' => null,
                 'signature_text' => '',
                 'font_family' => 'sans-serif',

@@ -98,7 +98,9 @@ const navItems = computed(() => {
             href: '/produtos/vitrine-afiliacao',
             icon: Store,
         });
-        items.push({ name: t('sidebar.shipping', 'Taxas e frete'), href: '/frete', icon: Truck });
+        if (page.props.physical_products_enabled_effective) {
+            items.push({ name: t('sidebar.shipping', 'Taxas e frete'), href: '/frete', icon: Truck });
+        }
         items.push({ name: t('sidebar.coupons', 'Cupons'), href: '/produtos/cupons', icon: TicketPercent });
         items.push({ name: t('sidebar.students', 'Alunos'), href: '/produtos/alunos', icon: GraduationCap });
         items.push({ name: t('sidebar.affiliates_menu', 'Afiliados'), href: '/afiliados', icon: UserPlus });

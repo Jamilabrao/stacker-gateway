@@ -36,6 +36,7 @@ class ProcessPaymentWebhookReconfirmationTest extends TestCase
     public function test_cancel_applied_when_policy_accept_and_api_unavailable(): void
     {
         Config::set('webhooks.reconfirm_fail_policy.default', 'accept');
+        Config::set('webhooks.reconfirm_fail_policy.spacepag', 'accept');
 
         $user = User::factory()->create(['tenant_id' => 1]);
         $product = $this->createTestProduct(['name' => 'P2']);
@@ -84,6 +85,7 @@ class ProcessPaymentWebhookReconfirmationTest extends TestCase
         $merged = require config_path('webhooks.php');
 
         $this->assertSame('reject', $merged['reconfirm_fail_policy']['mercadopago']);
-        $this->assertSame('accept', $merged['reconfirm_fail_policy']['default']);
+        $this->assertSame('reject', $merged['reconfirm_fail_policy']['default']);
+        $this->assertSame('reject', $merged['reconfirm_fail_policy']['spacepag']);
     }
 }

@@ -32,7 +32,7 @@ class RunScheduleFallback
         }
 
         $user = $request->user();
-        if (! $user || ! $user->canAccessPanel()) {
+        if (! $user || (! $user->canAccessPanel() && ! $user->canAccessPlatformPanel())) {
             return;
         }
 

@@ -20,6 +20,7 @@ class HtmlSanitizer
         $html = strip_tags($html, self::ALLOWED_TAGS);
         $html = self::removeEventHandlers($html);
         $html = self::removeJavascriptUrls($html);
+        $html = self::removeDataUrls($html);
 
         return $html;
     }
@@ -38,9 +39,25 @@ class HtmlSanitizer
 
     private static function removeJavascriptUrls(string $html): string
     {
-        return (string) preg_replace(
+        $html = (string) preg_replace(
             '/href\s*=\s*["\']\s*javascript\s*:[^"\']*["\']/i',
             'href="#"',
+            $html
+        );
+        $html = (string) preg_replace(
+            '/src\s*=\s*["\']\s*javascript\s*:[^"\']*["\']/i',
+            'src=""',
+            $html
+        );
+
+        return $html;
+    }
+
+    private static function removeDataUrls(string $html): string
+    {
+        return (string) preg_replace(
+            '/\b(src|href)\s*=\s*["\']\s*data\s*:[^"\']*["\']/i',
+            '$1=""',
             $html
         );
     }

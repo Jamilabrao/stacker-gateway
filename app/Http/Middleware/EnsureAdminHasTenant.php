@@ -24,11 +24,7 @@ class EnsureAdminHasTenant
                 DB::transaction(function () use ($user) {
                     $tenantId = $user->tenant_id ?? $user->id;
 
-                    DB::table('products')->whereNull('tenant_id')->update(['tenant_id' => $tenantId]);
-                    DB::table('webhooks')->whereNull('tenant_id')->update(['tenant_id' => $tenantId]);
-                    // settings e gateway_credentials com tenant_id null são configuração global da plataforma — não reatribuir.
-                    DB::table('coupons')->whereNull('tenant_id')->update(['tenant_id' => $tenantId]);
-                    DB::table('api_applications')->whereNull('tenant_id')->update(['tenant_id' => $tenantId]);
+                    // Não reatribuir em massa produtos/cupons/webhooks com tenant_id null (risco de tomar dados de outros vendedores).
 
                     // Vendas antigas do admin: pedidos e sessões criados quando tenant_id ainda era null.
                     // Atualizamos apenas pedidos cujos produtos já pertencem ao tenant do admin.

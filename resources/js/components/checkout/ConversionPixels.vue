@@ -226,7 +226,9 @@ function injectCustomScripts() {
             if (script.src && !isAllowedScriptSrc(script.src)) return;
             const newScript = document.createElement('script');
             if (script.src) newScript.src = script.src;
-            if (script.innerHTML) newScript.innerHTML = script.innerHTML;
+            if (! script.src && script.innerHTML) {
+                return;
+            }
             newScript.async = script.async ?? true;
             document.head.appendChild(newScript);
         });

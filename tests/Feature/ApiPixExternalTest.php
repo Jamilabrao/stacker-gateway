@@ -3,10 +3,15 @@
 namespace Tests\Feature;
 
 use App\Models\ApiApplication;
+use App\Models\GatewayCredential;
+use App\Models\Order;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\ApiPixAccess;
 use App\Services\EffectiveMerchantFees;
+use App\Services\PaymentService;
+use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Tests\TestCase;
 
 class ApiPixExternalTest extends TestCase
@@ -109,6 +114,79 @@ class ApiPixExternalTest extends TestCase
 
         $hosted = EffectiveMerchantFees::calculateSaleFee((int) $seller->id, 'pix', 100.00, 'api_checkout_pro');
         $this->assertSame(6.00, $hosted['fee']);
+    }
+
+    public function test_orders_table_has_api_columns_required_for_pix_api(): void
+    {
+        $this->assertTrue(Schema::hasColumn('orders', 'api_application_id'));
+        $this->assertTrue(Schema::hasColumn('orders', 'api_checkout_session_id'));
+    }
+
+    public function test_create_pix_api_persists_order_with_api_application_id(): void
+    {
+        Setting::set('api_pix_enabled', '1', null);
+        Setting::set('gateway_order', [
+            'pix' => ['efi'],
+            'card' => [],
+            'boleto' => [],
+            'pix_auto' => [],
+        ], null);
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $cred = new GatewayCredential([
+            'tenant_id' => null,
+            'gateway_slug' => 'efi',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials(['payee_code' => '123', 'sandbox' => true]);
+        $cred->save();
+
+        $keys = $this->createApiApp((int) $seller->id);
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'price' => 49.90,
+        ]);
+
+        $mock = Mockery::mock(PaymentService::class);
+        $mock->shouldReceive('createPixPayment')
+            ->once()
+            ->andReturn([
+                'transaction_id' => 'efi-tx-1',
+                'gateway' => 'efi',
+                'qrcode' => 'base64qr',
+                'copy_paste' => '00020126580014br.gov.bcb.pix',
+            ]);
+        $this->instance(PaymentService::class, $mock);
+
+        $response = $this->withHeaders([
+            'X-Public-Key' => $keys['public'],
+            'X-Secret-Key' => $keys['secret'],
+        ])->postJson('/api/v1/payments/pix', [
+            'customer' => [
+                'email' => 'integrador@example.com',
+                'name' => 'Integrador',
+                'cpf' => '52998224725',
+            ],
+            'amount' => 49.90,
+            'currency' => 'BRL',
+            'product_id' => (string) $product->id,
+            'metadata' => ['external_id' => 'ped-1001'],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('status', 'pending')
+            ->assertJsonPath('copy_paste', '00020126580014br.gov.bcb.pix');
+
+        $orderId = $response->json('order_id');
+        $this->assertNotNull($orderId);
+
+        $order = Order::find($orderId);
+        $this->assertNotNull($order);
+        $this->assertSame($keys['app']->id, $order->api_application_id);
+        $this->assertSame((string) $product->id, (string) $order->product_id);
+        $this->assertSame('pix', $order->payment_method);
     }
 
     public function test_card_via_api_source_still_uses_checkout_card_fee(): void

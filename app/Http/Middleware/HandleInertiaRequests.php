@@ -12,6 +12,7 @@ use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Services\PlatformI18nService;
 use App\Services\ApiPixAccess;
+use App\Services\PhysicalProductAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
@@ -189,6 +190,9 @@ class HandleInertiaRequests extends Middleware
             'customer_panel' => $customerPanel,
             'api_pix_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? ApiPixAccess::effectiveForTenant($tenantId)
+                : false,
+            'physical_products_enabled_effective' => $user && $user->canAccessSellerPanel()
+                ? PhysicalProductAccess::globalEnabled()
                 : false,
         ];
 

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\User;
+use App\Services\MemberAreaMagicAccessToken;
+use App\Services\StorageService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -12,6 +14,10 @@ use Inertia\Response;
 
 class MemberAreaLoginController extends Controller
 {
+    public function __construct(
+        protected MemberAreaMagicAccessToken $magicTokens
+    ) {}
+
     public function showLoginForm(Request $request, string $slug): Response|RedirectResponse
     {
         $product = $request->route('product') ?? $request->attributes->get('member_area_product');
@@ -22,7 +28,7 @@ class MemberAreaLoginController extends Controller
         if (Auth::check() && $product->hasMemberAreaAccess(Auth::user())) {
             return redirect()->route('member-area-app.show', ['slug' => $slug]);
         }
-        $config = $product->member_area_config;
+        $config = (new StorageService($product->tenant_id))->resolveMediaUrlsInConfig($product->member_area_config ?? []) ?? [];
         $loginConfig = $config['login'] ?? [];
         return Inertia::render('MemberAreaApp/Login', [
             'slug' => $slug,
@@ -111,6 +117,11 @@ class MemberAreaLoginController extends Controller
         }
         Auth::login($user);
         $request->session()->regenerate();
+        $magicToken = $request->query('m');
+        if (is_string($magicToken) && $magicToken !== '') {
+            $this->magicTokens->consume($magicToken, $product);
+        }
+
         return redirect()->intended(route('member-area-app.show', ['slug' => $slug]));
     }
 
@@ -132,6 +143,11 @@ class MemberAreaLoginController extends Controller
         }
         Auth::login($user);
         $request->session()->regenerate();
+        $magicToken = $request->query('m');
+        if (is_string($magicToken) && $magicToken !== '') {
+            $this->magicTokens->consume($magicToken, $product);
+        }
+
         return redirect()->to('/');
     }
 }

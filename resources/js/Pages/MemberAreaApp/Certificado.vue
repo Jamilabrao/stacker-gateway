@@ -14,6 +14,38 @@ const props = defineProps({
     certificate_available: { type: Boolean, default: false },
     progress_percent: { type: Number, default: 0 },
     completion_required_percent: { type: Number, default: 100 },
+    certificate_release: { type: Object, default: () => ({}) },
+});
+
+const release = computed(() => props.certificate_release || {});
+
+const certificateBlockedMessage = computed(() => {
+    const mode = release.value.mode || 'completion_percent';
+    const pct = props.progress_percent ?? 0;
+    const req = props.completion_required_percent ?? 100;
+    const daysNeed = release.value.days_after_access ?? 0;
+    const daysLeft = release.value.days_remaining ?? 0;
+    const daysElapsed = release.value.days_elapsed ?? 0;
+
+    if (mode === 'days_after_access') {
+        if (daysLeft > 0) {
+            return `O certificado será liberado em ${daysLeft} dia(s) (${daysElapsed}/${daysNeed} dias de acesso).`;
+        }
+        return 'Aguarde o prazo de acesso ao curso para liberar o certificado.';
+    }
+    if (mode === 'both') {
+        const parts = [];
+        if (!release.value.percent_met) {
+            parts.push(`conclusão: ${pct}% de ${req}%`);
+        }
+        if (!release.value.days_met && daysLeft > 0) {
+            parts.push(`acesso: faltam ${daysLeft} dia(s) (${daysElapsed}/${daysNeed})`);
+        }
+        if (parts.length) {
+            return `Complete os requisitos — ${parts.join(' · ')}.`;
+        }
+    }
+    return `Complete ${req}% do curso para liberar. Seu progresso: ${pct}%.`;
 });
 
 const printFormatOverride = ref(null);
@@ -143,7 +175,7 @@ onUnmounted(() => {
                     </svg>
                     <p class="text-lg font-semibold text-white">Certificado bloqueado</p>
                     <p class="max-w-xs text-sm text-zinc-300">
-                        Complete <strong>{{ completion_required_percent }}%</strong> do curso para liberar. Seu progresso: <strong>{{ progress_percent }}%</strong>.
+                        {{ certificateBlockedMessage }}
                     </p>
                 </div>
             </div>

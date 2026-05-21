@@ -44,6 +44,7 @@ class FinancialController extends Controller
             'api_pix_enabled' => ApiPixAccess::globalEnabled(),
             'payout_gateway_preference' => PlatformPayoutGateway::preference(),
             'payout_gateway_active' => PlatformPayoutGateway::activeSlug(),
+            'gateway_webhook_security_warnings' => $this->gatewayWebhookSecurityWarnings($tenantId),
         ]);
     }
 

@@ -16,7 +16,10 @@ class WithdrawalRequiresBalanceTest extends TestCase
         }
 
         $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
-        $seller->forceFill(['tenant_id' => $seller->id])->save();
+        $seller->forceFill([
+            'tenant_id' => $seller->id,
+            'kyc_status' => User::KYC_APPROVED,
+        ])->save();
 
         TenantWallet::query()->firstOrCreate(
             ['tenant_id' => $seller->id],
@@ -53,7 +56,10 @@ class WithdrawalRequiresBalanceTest extends TestCase
         }
 
         $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
-        $seller->forceFill(['tenant_id' => $seller->id])->save();
+        $seller->forceFill([
+            'tenant_id' => $seller->id,
+            'kyc_status' => User::KYC_APPROVED,
+        ])->save();
 
         TenantWallet::query()->firstOrCreate(
             ['tenant_id' => $seller->id],

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
 use App\Models\GatewayCredential;
 use App\Models\Order;
+use App\Services\CajuPay\CajuPayCheckoutCompletionService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -57,52 +57,70 @@ class CajuPayCheckoutWebhookController extends Controller
 
         $order = $this->findOrderForWebhook($checkoutSessionId, $chargeId);
         if ($order === null) {
-            Log::info('CajuPayCheckoutWebhook: order not found', [
-                'checkout_session_id' => $checkoutSessionId,
-                'charge_id' => $chargeId,
-                'type' => $type,
-            ]);
+            if ($type === 'checkout.payment.paid' && $checkoutSessionId !== '' && $chargeId !== '') {
+                app(CajuPayCheckoutCompletionService::class)->storePendingPaidWebhook(
+                    $checkoutSessionId,
+                    $chargeId,
+                    array_merge($payload, ['webhook_source' => 'cajupay_checkout_webhook'])
+                );
+                Log::info('CajuPayCheckoutWebhook: paid guardado até confirm-order', [
+                    'checkout_session_id' => $checkoutSessionId,
+                    'charge_id' => $chargeId,
+                ]);
+            } else {
+                Log::info('CajuPayCheckoutWebhook: order not found', [
+                    'checkout_session_id' => $checkoutSessionId,
+                    'charge_id' => $chargeId,
+                    'type' => $type,
+                ]);
+            }
 
             return response('ok', 200);
         }
 
-        if ($type === 'checkout.payment.paid') {
+        $completion = app(CajuPayCheckoutCompletionService::class);
+
+        if ($type === 'checkout.payment.paid' || $type === 'card.payment.succeeded') {
             if ($chargeId === '') {
                 return response('ok', 200);
             }
-            $order->update([
-                'gateway' => 'cajupay',
-                'gateway_id' => $chargeId,
-            ]);
-            ProcessPaymentWebhook::dispatchSync('cajupay', $chargeId, 'checkout.payment.paid', 'paid', $payload);
+            $completion->applyPaid($order, $chargeId, array_merge($payload, [
+                'webhook_source' => 'cajupay_checkout_webhook',
+            ]));
 
             return response('ok', 200);
         }
 
-        if ($type === 'checkout.payment.failed') {
+        if ($type === 'checkout.payment.failed' || $type === 'card.payment.failed') {
             $ref = $chargeId !== '' ? $chargeId : $checkoutSessionId;
             if ($ref === '') {
                 return response('ok', 200);
             }
-            ProcessPaymentWebhook::dispatchSync('cajupay', $ref, 'checkout.payment.failed', 'rejected', $payload);
+            \App\Jobs\ProcessPaymentWebhook::dispatchSync('cajupay', $ref, 'checkout.payment.failed', 'rejected', array_merge($payload, [
+                'webhook_source' => 'cajupay_checkout_webhook',
+            ]));
 
             return response('ok', 200);
         }
 
-        if ($type === 'checkout.payment.refunded') {
+        if ($type === 'checkout.payment.refunded' || $type === 'card.payment.refunded') {
             if ($chargeId === '') {
                 return response('ok', 200);
             }
-            ProcessPaymentWebhook::dispatchSync('cajupay', $chargeId, 'checkout.payment.refunded', 'refunded', $payload);
+            \App\Jobs\ProcessPaymentWebhook::dispatchSync('cajupay', $chargeId, 'checkout.payment.refunded', 'refunded', array_merge($payload, [
+                'webhook_source' => 'cajupay_checkout_webhook',
+            ]));
 
             return response('ok', 200);
         }
 
-        if ($type === 'checkout.payment.disputed') {
+        if ($type === 'checkout.payment.disputed' || $type === 'card.payment.disputed') {
             if ($chargeId === '') {
                 return response('ok', 200);
             }
-            ProcessPaymentWebhook::dispatchSync('cajupay', $chargeId, 'checkout.payment.disputed', 'disputed', $payload);
+            \App\Jobs\ProcessPaymentWebhook::dispatchSync('cajupay', $chargeId, 'checkout.payment.disputed', 'disputed', array_merge($payload, [
+                'webhook_source' => 'cajupay_checkout_webhook',
+            ]));
 
             return response('ok', 200);
         }
@@ -166,6 +184,13 @@ class CajuPayCheckoutWebhookController extends Controller
         if ($checkoutSessionId !== '') {
             $bySession = Order::query()
                 ->where('metadata->cajupay_checkout_session_id', $checkoutSessionId)
+                ->first();
+            if ($bySession !== null) {
+                return $bySession;
+            }
+            $bySession = Order::query()
+                ->where('gateway', 'cajupay')
+                ->where('gateway_id', $checkoutSessionId)
                 ->first();
             if ($bySession !== null) {
                 return $bySession;

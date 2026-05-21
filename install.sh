@@ -156,7 +156,17 @@ if [ -f ".docker/stack.env" ]; then
   fi
 fi
 
-$SUDO chmod +x docker/up.sh >/dev/null 2>&1 || true
+$SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/ensure-upload-limits.sh >/dev/null 2>&1 || true
+
+echo ""
+echo "=== Limites de upload (PHP / Member Builder) ==="
+$SUDO sh docker/ensure-upload-limits.sh
+
+if [ -f docker/build-frontend.sh ]; then
+  echo ""
+  echo "=== Build do frontend ==="
+  $SUDO sh docker/build-frontend.sh
+fi
 
 if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$HTTP_PORT$"; then
   echo "Aviso: porta $HTTP_PORT parece estar em uso. Se o compose falhar, mude GETFY_HTTP_PORT." >&2
@@ -165,6 +175,8 @@ fi
 $SUDO env \
   GETFY_APP_URL="${GETFY_APP_URL:-}" \
   GETFY_WEBHOOK_PUBLIC_URL="${GETFY_WEBHOOK_PUBLIC_URL:-}" \
+  GETFY_APP_ENV=production \
+  GETFY_APP_DEBUG=false \
   sh docker/up.sh
 
 IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"

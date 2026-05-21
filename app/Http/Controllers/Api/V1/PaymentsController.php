@@ -19,6 +19,7 @@ use App\Services\ApiPixAccess;
 use App\Services\PaymentService;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Support\FakeConsumerData;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -196,7 +197,17 @@ class PaymentsController extends Controller
             $orderPayload['shipping_address'] = $shippingResolved['shipping_address'];
         }
 
-        $order = Order::create($orderPayload);
+        try {
+            $order = Order::create($orderPayload);
+        } catch (QueryException $e) {
+            if (str_contains($e->getMessage(), 'api_application_id')) {
+                report($e);
+
+                abort(503, 'API PIX indisponível: execute as migrações do banco no servidor (php artisan migrate).');
+            }
+
+            throw $e;
+        }
 
         if ($product !== null) {
             OrderItem::create([

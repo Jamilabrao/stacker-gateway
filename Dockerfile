@@ -10,6 +10,8 @@ RUN pecl install redis \
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install gd pdo_pgsql zip exif intl opcache pcntl bcmath
 
+COPY docker/php/uploads.ini /usr/local/etc/php/conf.d/99-uploads.ini
+
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html

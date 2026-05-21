@@ -17,6 +17,7 @@ const conversionPixelsRef = ref(null);
 const props = defineProps({
     token: { type: String, required: true },
     order_id: { type: Number, required: true },
+    checkout_session_token: { type: String, default: '' },
     qrcode: { type: String, default: null },
     copy_paste: { type: String, default: '' },
     amount_formatted: { type: String, default: 'R$ 0,00' },
@@ -81,6 +82,7 @@ const hasCustomerInfo = computed(
 async function onPaymentCompleted(redirectUrl) {
     sendPurchasePixelAck({
         orderId: props.order_id,
+        checkoutSessionToken: props.checkout_session_token || '',
         token: props.token,
         triggerType: 'pix',
     });

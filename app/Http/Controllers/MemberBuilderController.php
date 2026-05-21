@@ -24,6 +24,7 @@ use App\Services\GamificationService;
 use App\Services\MemberProgressService;
 use App\Services\TeamAccessService;
 use App\Support\MemberAreaPwaIconUrls;
+use App\Support\UploadLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -117,7 +118,8 @@ class MemberBuilderController extends Controller
             }
         }
 
-        $memberAreaConfigForFront = $produto->member_area_config;
+        $memberStorage = new StorageService($produto->tenant_id);
+        $memberAreaConfigForFront = $memberStorage->resolveMediaUrlsInConfig($produto->member_area_config) ?? [];
         if (isset($memberAreaConfigForFront['pwa'])) {
             unset($memberAreaConfigForFront['pwa']['vapid_private']);
         }
@@ -172,12 +174,12 @@ class MemberBuilderController extends Controller
                 'position' => $s->position,
                 'cover_mode' => $s->cover_mode ?? 'vertical',
                 'section_type' => $s->section_type ?? 'courses',
-                'modules' => $s->modules->map(function (MemberModule $m) {
+                'modules' => $s->modules->map(function (MemberModule $m) use ($memberStorage) {
                     $base = [
                         'id' => $m->id,
                         'title' => $m->title,
                         'position' => $m->position,
-                        'thumbnail' => $m->thumbnail,
+                        'thumbnail' => $m->thumbnail ? $memberStorage->resolvePublicUrl($m->thumbnail) : null,
                         'show_title_on_cover' => $m->show_title_on_cover ?? true,
                         'release_after_days' => $m->release_after_days,
                         'release_at_date' => $m->release_at_date?->format('Y-m-d'),
@@ -283,6 +285,7 @@ class MemberBuilderController extends Controller
             'app_url' => rtrim(config('app.url'), '/'),
             'dns_target_host' => $dnsTargetHost,
             'dns_target_ip' => $dnsTargetIp,
+            'upload_limits' => UploadLimits::memberBuilderForFrontend(),
         ]);
     }
 
@@ -350,7 +353,7 @@ class MemberBuilderController extends Controller
         // sidebar.items: substituir por completo (array_replace_recursive mantém índices antigos ao remover itens)
         if (isset($incoming['sidebar']['items']) && is_array($incoming['sidebar']['items'])) {
             $config['sidebar'] = $config['sidebar'] ?? [];
-            $config['sidebar']['items'] = array_values($incoming['sidebar']['items']);
+            $config['sidebar']['items'] = $this->normalizeSidebarMenuItems($incoming['sidebar']['items']);
         }
         // gamification.achievements: substituir por completo
         if (isset($incoming['gamification']['achievements']) && is_array($incoming['gamification']['achievements'])) {
@@ -439,12 +442,15 @@ class MemberBuilderController extends Controller
     public function uploadImage(Request $request, Product $produto): JsonResponse
     {
         $this->authorizeProduct($produto);
+        $maxKb = UploadLimits::memberBuilderImageMaxKb();
+        $maxMb = UploadLimits::memberBuilderImageMaxMb();
+        UploadLimits::assertUploadedFileIsValid($request->file('file'), $maxMb);
         $request->validate([
-            'file' => ['required', 'file', 'image', 'max:4096'],
+            'file' => ['required', 'file', 'image', 'max:'.$maxKb],
         ], [
             'file.required' => 'Nenhum arquivo enviado.',
             'file.image' => 'O arquivo deve ser uma imagem (JPG, PNG, GIF ou WebP).',
-            'file.max' => 'A imagem deve ter no máximo 4 MB.',
+            'file.max' => "A imagem deve ter no máximo {$maxMb} MB.",
         ]);
         $storage = app(StorageService::class);
         $path = $storage->putFile('member-area/' . $produto->id, $request->file('file'));
@@ -454,13 +460,15 @@ class MemberBuilderController extends Controller
     public function uploadPdf(Request $request, Product $produto): JsonResponse
     {
         $this->authorizeProduct($produto);
+        $maxKb = UploadLimits::memberBuilderPdfMaxKb();
+        $maxMb = UploadLimits::memberBuilderPdfMaxMb();
+        UploadLimits::assertUploadedFileIsValid($request->file('file'), $maxMb);
         $request->validate([
-            // max is in KB (Laravel): 30 MB = 30720 KB
-            'file' => ['required', 'file', 'mimetypes:application/pdf', 'max:30720'],
+            'file' => ['required', 'file', 'mimetypes:application/pdf', 'max:'.$maxKb],
         ], [
             'file.required' => 'Nenhum arquivo enviado.',
             'file.mimetypes' => 'O arquivo deve ser um material em formato PDF.',
-            'file.max' => 'O material deve ter no máximo 30 MB.',
+            'file.max' => "O PDF deve ter no máximo {$maxMb} MB.",
         ]);
         $file = $request->file('file');
         $name = $file->getClientOriginalName();
@@ -476,12 +484,15 @@ class MemberBuilderController extends Controller
         if ($produto->type !== Product::TYPE_AREA_MEMBROS) {
             abort(403);
         }
+        $maxKb = UploadLimits::memberBuilderBadgeMaxKb();
+        $maxMb = UploadLimits::memberBuilderBadgeMaxMb();
+        UploadLimits::assertUploadedFileIsValid($request->file('file'), $maxMb);
         $request->validate([
-            'file' => ['required', 'file', 'image', 'max:2048'],
+            'file' => ['required', 'file', 'image', 'max:'.$maxKb],
         ], [
             'file.required' => 'Nenhum arquivo enviado.',
             'file.image' => 'O arquivo deve ser uma imagem (JPG, PNG, GIF ou WebP).',
-            'file.max' => 'A imagem da badge deve ter no máximo 2 MB.',
+            'file.max' => "A imagem da badge deve ter no máximo {$maxMb} MB.",
         ]);
         $storage = app(StorageService::class);
         $path = $storage->putFile('member-area-gamification/' . $produto->id . '/badges', $request->file('file'));
@@ -596,6 +607,9 @@ class MemberBuilderController extends Controller
                 return back()->with('error', 'Não é possível referenciar o próprio produto.');
             }
             $max = MemberModule::where('member_section_id', $section->id)->max('position') ?? 0;
+            $thumbPath = array_key_exists('thumbnail', $validated)
+                ? (new StorageService($produto->tenant_id))->toStoragePath($validated['thumbnail'])
+                : null;
             $module = MemberModule::create([
                 'member_section_id' => $section->id,
                 'product_id' => $produto->id,
@@ -603,7 +617,7 @@ class MemberBuilderController extends Controller
                 'position' => $max + 1,
                 'related_product_id' => $validated['related_product_id'],
                 'access_type' => $validated['access_type'],
-                'thumbnail' => $validated['thumbnail'] ?? null,
+                'thumbnail' => $thumbPath,
                 'show_title_on_cover' => $validated['show_title_on_cover'] ?? true,
             ]);
         } else {
@@ -615,23 +629,27 @@ class MemberBuilderController extends Controller
                 'show_title_on_cover' => ['nullable', 'boolean'],
             ]);
             $max = MemberModule::where('member_section_id', $section->id)->max('position') ?? 0;
+            $thumbPath = array_key_exists('thumbnail', $validated)
+                ? (new StorageService($produto->tenant_id))->toStoragePath($validated['thumbnail'])
+                : null;
             $module = MemberModule::create([
                 'member_section_id' => $section->id,
                 'product_id' => $produto->id,
                 'title' => $validated['title'],
                 'position' => $max + 1,
                 'external_url' => $validated['external_url'],
-                'thumbnail' => $validated['thumbnail'] ?? null,
+                'thumbnail' => $thumbPath,
                 'show_title_on_cover' => $validated['show_title_on_cover'] ?? true,
             ]);
         }
 
         if ($request->expectsJson()) {
+            $thumbStorage = new StorageService($produto->tenant_id);
             $payload = [
                 'id' => $module->id,
                 'title' => $module->title,
                 'position' => $module->position,
-                'thumbnail' => $module->thumbnail,
+                'thumbnail' => $module->thumbnail ? $thumbStorage->resolvePublicUrl($module->thumbnail) : null,
                 'show_title_on_cover' => $module->show_title_on_cover ?? true,
                 'release_after_days' => $module->release_after_days,
                 'release_at_date' => $module->release_at_date?->format('Y-m-d'),
@@ -727,6 +745,9 @@ class MemberBuilderController extends Controller
                 'show_title_on_cover' => ['sometimes', 'boolean'],
             ]);
         }
+        if (array_key_exists('thumbnail', $validated)) {
+            $validated['thumbnail'] = (new StorageService($produto->tenant_id))->toStoragePath($validated['thumbnail']);
+        }
         $module->update($validated);
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Módulo atualizado.']);
@@ -793,7 +814,9 @@ class MemberBuilderController extends Controller
             'content_files' => $validated['type'] === 'pdf' ? ($contentFiles !== [] ? $contentFiles : null) : null,
             'release_after_days' => $validated['release_after_days'] ?? null,
             'release_at_date' => $validated['release_at_date'] ?? null,
-            'content_text' => $validated['content_text'] ?? null,
+            'content_text' => isset($validated['content_text'])
+                ? \App\Support\HtmlSanitizer::sanitize($validated['content_text'])
+                : null,
             'duration_seconds' => $validated['duration_seconds'] ?? null,
             'is_free' => $request->boolean('is_free', false),
             'watermark_enabled' => $request->boolean('watermark_enabled', false),
@@ -861,6 +884,9 @@ class MemberBuilderController extends Controller
             if (array_key_exists('content_files', $validated)) {
                 $validated['content_files'] = null;
             }
+        }
+        if (array_key_exists('content_text', $validated)) {
+            $validated['content_text'] = \App\Support\HtmlSanitizer::sanitize($validated['content_text']);
         }
         $lesson->update($validated);
         if ($request->expectsJson()) {
@@ -1404,5 +1430,42 @@ class MemberBuilderController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * @param  array<int, mixed>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeSidebarMenuItems(array $items): array
+    {
+        $normalized = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $link = trim((string) ($item['link'] ?? ''));
+            if ($link !== '' && preg_match('#^https?://#i', $link)) {
+                $parsed = parse_url($link);
+                $path = $parsed['path'] ?? '/';
+                $query = isset($parsed['query']) ? '?'.$parsed['query'] : '';
+                $fragment = isset($parsed['fragment']) ? '#'.$parsed['fragment'] : '';
+                $link = $path.$query.$fragment;
+            }
+            if ($link === '') {
+                $link = '/';
+            } elseif (! str_starts_with($link, '/')) {
+                $link = '/'.$link;
+            }
+            if (preg_match('#^/m/[a-zA-Z0-9-]+#', $link)) {
+                $link = preg_replace('#^/m/[a-zA-Z0-9-]+#', '', $link) ?: '/';
+                if ($link !== '/' && ! str_starts_with($link, '/')) {
+                    $link = '/'.$link;
+                }
+            }
+            $item['link'] = $link;
+            $normalized[] = $item;
+        }
+
+        return array_values($normalized);
     }
 }

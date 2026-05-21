@@ -4,6 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="color-scheme" content="light only">
+    <meta name="supported-color-schemes" content="light">
     <title>{{ $branding['app_name'] ?? config('app.name') }}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
@@ -15,9 +17,9 @@
                         <td style="padding:0;background-color:{{ $branding['theme_primary'] ?? '#4f46e5' }};height:4px;"></td>
                     </tr>
                     <tr>
-                        <td style="padding:28px 32px 8px 32px;text-align:center;">
+                        <td style="padding:28px 32px 8px 32px;text-align:center;background-color:#ffffff;">
                             @if(!empty($branding['logo_url']))
-                                <img src="{{ $branding['logo_url'] }}" alt="{{ $branding['app_name'] }}" width="180" style="max-width:180px;height:auto;display:block;margin:0 auto 16px auto;border:0;">
+                                {!! \App\Support\EmailLogoHtml::wrap($branding['logo_url']) !!}
                             @else
                                 <p style="margin:0 0 8px 0;font-size:20px;font-weight:700;color:#18181b;letter-spacing:-0.02em;">{{ $branding['app_name'] }}</p>
                             @endif

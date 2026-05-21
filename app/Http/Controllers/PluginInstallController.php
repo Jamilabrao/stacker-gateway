@@ -60,8 +60,13 @@ class PluginInstallController extends Controller
         } else {
             $downloadUrl = $request->input('download_url');
             if ($downloadUrl && is_string($downloadUrl)) {
+                try {
+                    \App\Support\WebhookUrlValidator::assertAllowed($downloadUrl);
+                } catch (\InvalidArgumentException $e) {
+                    return $this->pluginsIndexRedirect(['error' => 'Link de download inválido: '.$e->getMessage()]);
+                }
                 $storeBase = $store->getBaseUrl();
-                if ($storeBase === '' || (! str_starts_with($downloadUrl, $storeBase . '/') && ! str_starts_with($downloadUrl, $storeBase . '?'))) {
+                if ($storeBase !== '' && ! str_starts_with($downloadUrl, $storeBase . '/') && ! str_starts_with($downloadUrl, $storeBase . '?')) {
                     return $this->pluginsIndexRedirect(['error' => 'Link de download inválido.']);
                 }
                 $download = ['download_url' => $downloadUrl, 'expires_at' => ''];

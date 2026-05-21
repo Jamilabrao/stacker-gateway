@@ -19,8 +19,12 @@ Route::get('/storage/{path}', \App\Http\Controllers\StorageServeController::clas
     ->name('storage.serve');
 
 // Instalador: fallback quando o servidor envia /install para o Laravel (ex: document root diferente de public/)
-Route::any('/install', [\App\Http\Controllers\InstallServeController::class, '__invoke'])->defaults('path', null);
-Route::any('/install/{path}', [\App\Http\Controllers\InstallServeController::class, '__invoke'])->where('path', '.+');
+Route::any('/install', [\App\Http\Controllers\InstallServeController::class, '__invoke'])
+    ->defaults('path', null)
+    ->middleware(['installer.access', 'throttle:30,1']);
+Route::any('/install/{path}', [\App\Http\Controllers\InstallServeController::class, '__invoke'])
+    ->where('path', '.+')
+    ->middleware(['installer.access', 'throttle:30,1']);
 
 Route::get('/docker-setup', [\App\Http\Controllers\DockerSetupController::class, 'show'])->name('docker-setup');
 Route::post('/docker-setup', [\App\Http\Controllers\DockerSetupController::class, 'store'])->middleware('throttle:10,1');
@@ -111,6 +115,8 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/webhooks/gateways/asaas', [\App\Http\Controllers\Webhooks\AsaasWebhookController::class, 'handle'])->name('webhooks.asaas');
     Route::post('/webhooks/gateways/pagarme', [\App\Http\Controllers\Webhooks\PagarmeWebhookController::class, 'handle'])->name('webhooks.pagarme');
     Route::post('/webhooks/gateways/cajupay/checkout', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay.checkout');
+    Route::post('/webhooks/gateways/cajupay', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay');
+    Route::post('/checkout/cajupay/webhook', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay.checkout-alias');
     // Dispatcher genérico para gateways de plugins (webhook_handler na definição do gateway)
     Route::post('/webhooks/gateways/{slug}', \App\Http\Controllers\Webhooks\GenericGatewayWebhookController::class)
         ->where('slug', '[a-z0-9_-]+')
@@ -123,11 +129,15 @@ Route::get('/plugins/{slug}/assets/{path}', \App\Http\Controllers\PluginAssetCon
     ->name('plugins.asset');
 
 Route::get('/renovar/{token}', [\App\Http\Controllers\RenewalController::class, 'show'])->name('renewal.show')->where('token', '[a-zA-Z0-9]{32,64}');
-Route::post('/renovar', [\App\Http\Controllers\RenewalController::class, 'process'])->name('renewal.process')->middleware('throttle:30,1');
+Route::post('/renovar', [\App\Http\Controllers\RenewalController::class, 'process'])
+    ->name('renewal.process')
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email']);
 
 // Checkout Pro (API): página hospedada – dados do cliente na sessão
 Route::get('/api-checkout/{token}', [\App\Http\Controllers\ApiCheckoutController::class, 'show'])->name('api-checkout.show')->where('token', '[a-zA-Z0-9\-]{36,64}');
-Route::post('/api-checkout/pay', [\App\Http\Controllers\ApiCheckoutController::class, 'process'])->name('api-checkout.process')->middleware('throttle:30,1');
+Route::post('/api-checkout/pay', [\App\Http\Controllers\ApiCheckoutController::class, 'process'])
+    ->name('api-checkout.process')
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email']);
 Route::get('/api-checkout/card-confirm', [\App\Http\Controllers\ApiCheckoutController::class, 'cardConfirm'])->name('api-checkout.card-confirm');
 Route::get('/api-checkout/obrigado', [\App\Http\Controllers\ApiCheckoutController::class, 'thankYou'])->name('api-checkout.thank-you');
 
@@ -139,18 +149,25 @@ Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'
 Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'pixPage'])->name('checkout.pix');
 Route::get('/checkout/boleto', [\App\Http\Controllers\CheckoutController::class, 'boletoPage'])->name('checkout.boleto');
 Route::get('/checkout/order-status', [\App\Http\Controllers\CheckoutController::class, 'orderStatus'])->name('checkout.order-status')->middleware('throttle:30,1');
-Route::post('/checkout/shipping-quote', [\App\Http\Controllers\CheckoutController::class, 'shippingQuote'])->name('checkout.shipping-quote')->middleware('throttle:60,1');
+Route::post('/checkout/shipping-quote', [\App\Http\Controllers\CheckoutController::class, 'shippingQuote'])
+    ->name('checkout.shipping-quote')
+    ->middleware('throttle:checkout-shipping-quote');
 Route::post('/checkout/pixel/purchase-ack', [\App\Http\Controllers\CheckoutController::class, 'purchasePixelAck'])->name('checkout.pixel.purchase-ack')->middleware('throttle:120,1');
-Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])->name('checkout.process')->middleware('throttle:30,1');
+Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])
+    ->name('checkout.process')
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email']);
+Route::match(['get', 'post', 'put', 'patch', 'delete', 'options'], '/checkout/cajupay/sdk-api/{path?}', [\App\Http\Controllers\CajuPaySdkProxyController::class, '__invoke'])
+    ->where('path', '.*')
+    ->name('checkout.cajupay.sdk-api');
 Route::post('/checkout/cajupay/session', [\App\Http\Controllers\CheckoutController::class, 'cajupaySession'])
     ->name('checkout.cajupay.session')
-    ->middleware('throttle:30,1');
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-cajupay-session']);
 Route::post('/checkout/cajupay/confirm-order', [\App\Http\Controllers\CheckoutController::class, 'cajupayConfirmOrder'])
     ->name('checkout.cajupay.confirm-order')
-    ->middleware('throttle:30,1');
+    ->middleware('throttle:checkout-pay');
 Route::post('/checkout/cajupay/sdk-session', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'createSession'])
     ->name('checkout.cajupay.sdk-session')
-    ->middleware('throttle:30,1');
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-cajupay-session']);
 Route::get('/checkout/cajupay/session-status', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'sessionStatus'])
     ->name('checkout.cajupay.session-status')
     ->middleware('throttle:60,1');
@@ -158,8 +175,12 @@ Route::get('/checkout/cajupay/session-status', [\App\Http\Controllers\CajuPayChe
 Route::post('/checkout/pagarme-tokenize-sink', fn () => response()->noContent())
     ->name('checkout.pagarme-tokenize-sink')
     ->middleware('throttle:120,1');
-Route::post('/api/checkout/track', [\App\Http\Controllers\CheckoutTrackingController::class, 'track'])->name('checkout.track')->middleware('throttle:60,1');
-Route::post('/checkout/validate-coupon', [\App\Http\Controllers\CheckoutController::class, 'validateCoupon'])->name('checkout.validate-coupon')->middleware('throttle:30,1');
+Route::post('/api/checkout/track', [\App\Http\Controllers\CheckoutTrackingController::class, 'track'])
+    ->name('checkout.track')
+    ->middleware('throttle:checkout-track');
+Route::post('/checkout/validate-coupon', [\App\Http\Controllers\CheckoutController::class, 'validateCoupon'])
+    ->name('checkout.validate-coupon')
+    ->middleware('throttle:checkout-coupon');
 
 Route::get('/checkout/upsell', [\App\Http\Controllers\UpsellController::class, 'upsellPage'])->name('checkout.upsell');
 Route::get('/checkout/downsell', [\App\Http\Controllers\UpsellController::class, 'downsellPage'])->name('checkout.downsell');
@@ -182,7 +203,7 @@ Route::middleware('guest')->group(function () {
     Route::post('/criar-admin', [\App\Http\Controllers\CreateFirstAdminController::class, 'store'])->middleware('throttle:5,1');
     Route::get('/cadastro', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'create'])->name('cadastro');
     Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
-    Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:5,1');
+    Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:login');
     Route::get('/esqueci-senha', [ForgotPasswordController::class, 'showLinkRequestForm'])->name('password.request');
     Route::post('/esqueci-senha', [ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email')->middleware('throttle:6,1');
     Route::get('/redefinir-senha/{token}', [ResetPasswordController::class, 'showResetForm'])->name('password.reset');
@@ -197,7 +218,7 @@ Route::middleware('auth')->group(function () {
 Route::prefix('plataforma')->name('plataforma.')->group(function () {
     Route::middleware([\App\Http\Middleware\EnsureGuestPlatform::class])->group(function () {
         Route::get('/login', [\App\Http\Controllers\Platform\LoginController::class, 'showLoginForm'])->name('login');
-        Route::post('/login', [\App\Http\Controllers\Platform\LoginController::class, 'login'])->middleware('throttle:5,1');
+        Route::post('/login', [\App\Http\Controllers\Platform\LoginController::class, 'login'])->middleware('throttle:login');
     });
     Route::middleware(['auth', 'platform.admin'])->group(function () {
         Route::post('/logout', [\App\Http\Controllers\Platform\LoginController::class, 'logout'])->name('logout');
@@ -430,6 +451,8 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         ->name('reembolsos.reject');
 
     Route::get('/kyc', [\App\Http\Controllers\SellerKycController::class, 'show'])->name('kyc.upload');
+    Route::post('/kyc/document', [\App\Http\Controllers\SellerKycController::class, 'uploadDocument'])->middleware('throttle:30,1')->name('kyc.document');
+    Route::post('/kyc/finalize', [\App\Http\Controllers\SellerKycController::class, 'finalize'])->middleware('throttle:15,1')->name('kyc.finalize');
     Route::post('/kyc', [\App\Http\Controllers\SellerKycController::class, 'store'])->middleware('throttle:15,1')->name('kyc.store');
 
     Route::middleware('team.permission:financeiro.view')->group(function () {
@@ -460,15 +483,17 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/afiliados/enrollments/{enrollment}/revoke', [\App\Http\Controllers\AffiliateManagementController::class, 'revoke'])
             ->name('afiliados.enrollments.revoke')
             ->middleware('throttle:60,1');
-        Route::get('/frete', [\App\Http\Controllers\ShippingController::class, 'index'])->name('frete.index');
-        Route::post('/frete/lojas', [\App\Http\Controllers\ShippingController::class, 'storeStore'])->name('frete.stores.store');
-        Route::put('/frete/lojas/{store}', [\App\Http\Controllers\ShippingController::class, 'updateStore'])->name('frete.stores.update');
-        Route::delete('/frete/lojas/{store}', [\App\Http\Controllers\ShippingController::class, 'destroyStore'])->name('frete.stores.destroy');
-        Route::get('/frete/lojas/{store}/regras', [\App\Http\Controllers\ShippingController::class, 'rules'])->name('frete.rules.index');
-        Route::post('/frete/lojas/{store}/regras', [\App\Http\Controllers\ShippingController::class, 'storeRule'])->name('frete.rules.store');
-        Route::put('/frete/lojas/{store}/regras/{rule}', [\App\Http\Controllers\ShippingController::class, 'updateRule'])->name('frete.rules.update');
-        Route::delete('/frete/lojas/{store}/regras/{rule}', [\App\Http\Controllers\ShippingController::class, 'destroyRule'])->name('frete.rules.destroy');
-        Route::post('/frete/lojas/{store}/regras/reorder', [\App\Http\Controllers\ShippingController::class, 'reorderRules'])->name('frete.rules.reorder');
+        Route::middleware('physical.products')->group(function () {
+            Route::get('/frete', [\App\Http\Controllers\ShippingController::class, 'index'])->name('frete.index');
+            Route::post('/frete/lojas', [\App\Http\Controllers\ShippingController::class, 'storeStore'])->name('frete.stores.store');
+            Route::put('/frete/lojas/{store}', [\App\Http\Controllers\ShippingController::class, 'updateStore'])->name('frete.stores.update');
+            Route::delete('/frete/lojas/{store}', [\App\Http\Controllers\ShippingController::class, 'destroyStore'])->name('frete.stores.destroy');
+            Route::get('/frete/lojas/{store}/regras', [\App\Http\Controllers\ShippingController::class, 'rules'])->name('frete.rules.index');
+            Route::post('/frete/lojas/{store}/regras', [\App\Http\Controllers\ShippingController::class, 'storeRule'])->name('frete.rules.store');
+            Route::put('/frete/lojas/{store}/regras/{rule}', [\App\Http\Controllers\ShippingController::class, 'updateRule'])->name('frete.rules.update');
+            Route::delete('/frete/lojas/{store}/regras/{rule}', [\App\Http\Controllers\ShippingController::class, 'destroyRule'])->name('frete.rules.destroy');
+            Route::post('/frete/lojas/{store}/regras/reorder', [\App\Http\Controllers\ShippingController::class, 'reorderRules'])->name('frete.rules.reorder');
+        });
         Route::get('/produtos', [\App\Http\Controllers\ProdutosController::class, 'index'])->name('produtos.index');
         Route::get('/produtos/afiliados', [\App\Http\Controllers\AffiliateProductPanelController::class, 'index'])->name('produtos.afiliados.index');
         Route::get('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'show'])->name('produtos.painel-afiliado.show');
@@ -665,8 +690,8 @@ Route::prefix('m/{slug}')->where(['slug' => '[a-zA-Z0-9]{6,16}'])->middleware('m
         return response()->file($path, ['Content-Type' => 'application/javascript']);
     })->name('member-area-app.sw');
     Route::get('login', [\App\Http\Controllers\MemberAreaLoginController::class, 'showLoginForm'])->name('member-area.login')->middleware('guest');
-    Route::post('login', [\App\Http\Controllers\MemberAreaLoginController::class, 'login'])->name('member-area.login.post')->middleware(['guest', 'throttle:5,1']);
-    Route::post('login-without-password', [\App\Http\Controllers\MemberAreaLoginController::class, 'loginWithoutPassword'])->name('member-area.login.without-password')->middleware(['guest', 'throttle:5,1']);
+    Route::post('login', [\App\Http\Controllers\MemberAreaLoginController::class, 'login'])->name('member-area.login.post')->middleware(['guest', 'throttle:login']);
+    Route::post('login-without-password', [\App\Http\Controllers\MemberAreaLoginController::class, 'loginWithoutPassword'])->name('member-area.login.without-password')->middleware(['guest', 'throttle:login']);
     Route::get('esqueci-senha', [\App\Http\Controllers\MemberAreaForgotPasswordController::class, 'showLinkRequestForm'])->name('member-area.password.request')->middleware('guest');
     Route::post('esqueci-senha', [\App\Http\Controllers\MemberAreaForgotPasswordController::class, 'sendResetLinkEmail'])->name('member-area.password.email')->middleware(['guest', 'throttle:6,1']);
     Route::get('access', [\App\Http\Controllers\MemberAreaLoginController::class, 'magicAccess'])->name('member-area.magic-access')->middleware('member.area.magic-access');
@@ -721,7 +746,7 @@ Route::middleware(['web', 'member.area.resolve.by.host'])->group(function () {
             'request' => $request,
             'slug' => $slug,
         ]);
-    })->name('member-area.login.without-password.host')->middleware(['guest', 'throttle:5,1']);
+    })->name('member-area.login.without-password.host')->middleware(['guest', 'throttle:login']);
 
     Route::middleware(['member.area.access'])->group(function () {
         Route::get('modulos', [\App\Http\Controllers\MemberAreaAppController::class, 'modulos'])->name('member-area-app.modulos.host');

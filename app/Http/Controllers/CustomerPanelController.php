@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Services\MemberAreaResolver;
 use App\Services\RefundRequestService;
 use App\Services\StorageService;
@@ -25,38 +26,20 @@ class CustomerPanelController extends Controller
         $orders = Order::query()
             ->where('user_id', $user->id)
             ->where('status', 'completed')
-            ->with(['product'])
+            ->with(['product', 'orderItems.product'])
             ->orderByDesc('id')
             ->get();
 
-        $items = $orders->map(function (Order $order) use ($resolver) {
-            $product = $order->product;
-            $accessUrl = null;
-            if ($product) {
-                if ($product->type === \App\Models\Product::TYPE_AREA_MEMBROS && $product->checkout_slug) {
-                    $accessUrl = $resolver->baseUrlForProduct($product);
-                } elseif ($product->type === \App\Models\Product::TYPE_LINK) {
-                    $accessUrl = $product->checkout_config['deliverable_link'] ?? null;
+        $items = [];
+        foreach ($orders as $order) {
+            if ($order->orderItems->isNotEmpty()) {
+                foreach ($order->orderItems as $line) {
+                    $items[] = $this->purchaseRowFromOrder($order, $line->product, (float) $line->amount, (int) $line->position, $resolver);
                 }
+            } else {
+                $items[] = $this->purchaseRowFromOrder($order, $order->product, (float) $order->amount, 0, $resolver);
             }
-
-            $imageUrl = null;
-            if ($product?->image) {
-                $imageUrl = (new StorageService($product->tenant_id))->url($product->image);
-            }
-
-            return [
-                'order_id' => $order->id,
-                'public_reference' => $order->public_reference,
-                'amount' => (float) $order->amount,
-                'product_id' => $product?->id,
-                'product_name' => $product?->name ?? 'Produto',
-                'product_type' => $product?->type,
-                'product_image_url' => $imageUrl,
-                'access_url' => $accessUrl,
-                'can_request_refund' => RefundEligibility::canCustomerRequestRefund($order),
-            ];
-        })->values()->all();
+        }
 
         return Inertia::render('Cliente/Index', [
             'purchases' => $items,
@@ -90,5 +73,48 @@ class CustomerPanelController extends Controller
         }
 
         return back()->with('success', 'Solicitação de reembolso enviada ao vendedor.');
+    }
+
+    /**
+     * Uma linha em "Minhas compras" (produto principal ou order bump do mesmo pedido).
+     *
+     * @return array<string, mixed>
+     */
+    private function purchaseRowFromOrder(
+        Order $order,
+        ?Product $product,
+        float $lineAmount,
+        int $position,
+        MemberAreaResolver $resolver
+    ): array {
+        $accessUrl = null;
+        if ($product) {
+            if ($product->type === Product::TYPE_AREA_MEMBROS && $product->checkout_slug) {
+                $accessUrl = $resolver->baseUrlForProduct($product);
+            } elseif ($product->type === Product::TYPE_LINK) {
+                $accessUrl = $product->checkout_config['deliverable_link'] ?? null;
+            }
+        }
+
+        $imageUrl = null;
+        if ($product?->image) {
+            $imageUrl = (new StorageService($product->tenant_id))->url($product->image);
+        }
+
+        $productId = $product?->id ?? $order->product_id;
+
+        return [
+            'purchase_key' => $order->id.'-'.($productId ?? 'main').'-'.$position,
+            'order_id' => $order->id,
+            'public_reference' => $order->public_reference,
+            'amount' => $lineAmount,
+            'product_id' => $productId,
+            'product_name' => $product?->name ?? 'Produto',
+            'product_type' => $product?->type,
+            'product_image_url' => $imageUrl,
+            'access_url' => $accessUrl,
+            'is_order_bump' => $position > 0,
+            'can_request_refund' => $position === 0 && RefundEligibility::canCustomerRequestRefund($order),
+        ];
     }
 }

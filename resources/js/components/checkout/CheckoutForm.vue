@@ -8,6 +8,7 @@ import CheckoutOrderBumps from './CheckoutOrderBumps.vue';
 import CheckoutPaymentMethods from './CheckoutPaymentMethods.vue';
 import AsaasCard from './gateways/asaas/Card.vue';
 import CajuPaySdkMount from './CajuPaySdkMount.vue';
+import CheckoutTurnstile from './CheckoutTurnstile.vue';
 import {
     CHECKOUT_PAGARME_TOKENIZE_FORM_ID,
     PAGARME_TOKENIZE_FORM_ACTION,
@@ -17,8 +18,19 @@ import {
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
 import { loadCajuPaySdk } from '@/composables/useCajuPaySdk';
+import { isValidCpf } from '@/utils/brazilianDocuments.js';
 
 const STORAGE_KEY = 'checkout_draft';
+
+const checkoutIdempotencyKey = ref(
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `ck-${Date.now()}-${Math.random().toString(36).slice(2)}`
+);
+const checkoutSubmitting = ref(false);
+const honeypotWebsite = ref('');
+const turnstileToken = ref('');
+const turnstileRef = ref(null);
 
 /** Mesmas chaves que CheckoutSession::TRACKING_FIELD_KEYS (UTMfy + funis). */
 const TRACKING_PARAM_KEYS = [
@@ -162,6 +174,9 @@ const props = defineProps({
     cardMercadopagoSandbox: { type: Boolean, default: false },
     /** Chaves por gateway slug para gateways de plugin (checkout_payload_keys). Ex.: { 'meu-gateway': { publishable_key: '...' } } */
     cardGatewayKeys: { type: Object, default: () => ({}) },
+    /** Cloudflare Turnstile: { enabled, site_key, mode } */
+    turnstile: { type: Object, default: () => ({ enabled: false, site_key: '', mode: 'pix_boleto' }) },
+    checkoutBuilderPreview: { type: Boolean, default: false },
 });
 
 /** iPhone / iPod / iPad (inclui iPadOS com UA de desktop). */
@@ -399,6 +414,15 @@ const form = useForm({
     shipping_state: '',
 });
 
+const turnstileActive = computed(() => {
+    const cfg = props.turnstile || {};
+    if (!cfg.enabled || !cfg.site_key) return false;
+    const mode = cfg.mode || 'pix_boleto';
+    if (mode === 'disabled') return false;
+    if (mode === 'all_payments') return true;
+    return ['pix', 'boleto', 'pix_auto'].includes(form.payment_method);
+});
+
 watch(
     () => checkoutPaymentMethodsForDevice.value,
     (list) => {
@@ -564,12 +588,16 @@ function callTrackApi(step, email, name) {
     trackStepSent.value[step] = true;
     if (trackTimeout) clearTimeout(trackTimeout);
     trackTimeout = setTimeout(async () => {
+        const cpf = (form.cpf || '').replace(/\D/g, '');
+        const phone = (form.phone || '').trim();
         try {
             await axios.post('/api/checkout/track', {
                 session_token: props.checkoutSessionToken,
                 step,
                 email: email || undefined,
                 name: name || undefined,
+                cpf: cpf.length >= 11 ? cpf : undefined,
+                phone: phone !== '' ? phone : undefined,
             });
         } catch (_) {
             trackStepSent.value[step] = false;
@@ -578,7 +606,7 @@ function callTrackApi(step, email, name) {
     }, 500);
 }
 watch(
-    () => [form.email, form.name],
+    () => [form.email, form.name, form.cpf, form.phone],
     () => {
         const email = (form.email || '').trim();
         const name = (form.name || '').trim();
@@ -973,6 +1001,8 @@ watch(
 
 const cajupayMountRef = ref(null);
 const cajupaySessionToken = ref('');
+/** Base da API para o SDK (proxy same-origin em HTTP local; API direta em HTTPS). */
+const cajupaySdkBaseUrl = ref('');
 const cajupayPollingToken = ref('');
 const cajupayError = ref('');
 const cajupayPolling = ref(false);
@@ -994,6 +1024,7 @@ function stopCajuPayPolling() {
 
 function resetCajuPaySessionState() {
     cajupaySessionToken.value = '';
+    cajupaySdkBaseUrl.value = '';
     cajupayPollingToken.value = '';
     cajupayMethodsAvailable.value = [];
     cajupayOrderMaterialized.value = false;
@@ -1065,8 +1096,11 @@ function validateCajuPayCustomerFields() {
     if (showName.value && (form.name || '').trim().length < 2) {
         errors.name = 'Informe seu nome completo.';
     }
-    if (showCpf.value && (form.cpf || '').replace(/\D/g, '').length !== 11) {
-        errors.cpf = 'CPF inválido.';
+    if (showCpf.value) {
+        const cpfDigits = (form.cpf || '').replace(/\D/g, '');
+        if (cpfDigits.length !== 11 || !isValidCpf(cpfDigits)) {
+            errors.cpf = 'CPF inválido.';
+        }
     }
     if (showPhone.value && (phoneDigits.value || '').length < 8) {
         errors.phone = 'Telefone inválido.';
@@ -1103,6 +1137,7 @@ async function ensureCajuPaySession({ silent = false } = {}) {
             return null;
         }
         cajupaySessionToken.value = data.token;
+        cajupaySdkBaseUrl.value = typeof data.sdk_base_url === 'string' ? data.sdk_base_url.trim() : '';
         cajupayPollingToken.value = data.polling_token || '';
         cajupayMethodsAvailable.value = Array.isArray(data.methods_available) ? data.methods_available : [];
 
@@ -1171,6 +1206,8 @@ function startCajuPayPolling(token) {
 }
 
 watch(() => form.payment_method, () => {
+    turnstileToken.value = '';
+    turnstileRef.value?.reset?.();
     cajupayError.value = '';
     if (cajupaySessionToken.value) {
         resetCajuPaySessionState();
@@ -2004,6 +2041,18 @@ function submit() {
         return;
     }
 
+    if (!validateCajuPayCustomerFields()) {
+        return;
+    }
+    if (turnstileActive.value && !turnstileToken.value) {
+        form.setError('payment_method', 'Aguarde a verificação de segurança ou tente novamente.');
+        return;
+    }
+    if (checkoutSubmitting.value) {
+        return;
+    }
+    checkoutSubmitting.value = true;
+
     const payload = {
         product_id: form.product_id,
         payment_method: paymentMethod,
@@ -2012,6 +2061,9 @@ function submit() {
         cpf: showCpf.value ? (form.cpf || '').replace(/\D/g, '') : '',
         phone: showPhone.value ? form.country_code + phoneDigits.value : '',
         coupon_code: (form.coupon_code || '').trim() || null,
+        idempotency_key: checkoutIdempotencyKey.value,
+        website: honeypotWebsite.value,
+        turnstile_token: turnstileActive.value ? turnstileToken.value : '',
     };
     if (props.productOfferId) payload.product_offer_id = props.productOfferId;
     if (props.subscriptionPlanId) payload.subscription_plan_id = props.subscriptionPlanId;
@@ -2038,7 +2090,11 @@ function submit() {
         payload.shipping_state = (form.address_state || '').trim().slice(0, 2).toUpperCase();
     }
     appendUtmsAndAffiliate(payload);
-    form.transform(() => payload).post('/checkout');
+    form.transform(() => payload).post('/checkout', {
+        onFinish: () => {
+            checkoutSubmitting.value = false;
+        },
+    });
 }
 </script>
 
@@ -2078,6 +2134,17 @@ function submit() {
         </div>
         <form class="space-y-5" data-checkout="checkout-form-element" @submit.prevent="submit">
             <input v-model="form.product_id" type="hidden" />
+            <div class="absolute -left-[9999px] h-0 w-0 overflow-hidden" aria-hidden="true">
+                <label for="checkout-website-hp">Website</label>
+                <input
+                    id="checkout-website-hp"
+                    v-model="honeypotWebsite"
+                    type="text"
+                    name="website"
+                    tabindex="-1"
+                    autocomplete="off"
+                />
+            </div>
             <div
                 v-if="Object.keys(form.errors).length > 0"
                 class="rounded-xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm font-medium text-red-800"
@@ -2719,6 +2786,7 @@ function submit() {
                             ref="cajupayMountRef"
                             :payment-method="form.payment_method"
                             :session-token="cajupaySessionToken"
+                            :api-base-url="cajupaySdkBaseUrl"
                             :initial-payer="{ name: form.name, email: form.email, document: (form.cpf || '').replace(/\D/g, '') }"
                             :before-wallet-prime="beforeCajuPayWalletPrime"
                             container-id="cajupay-method"
@@ -2991,6 +3059,13 @@ function submit() {
             </div>
 
             <p v-if="form.errors.product_id" class="text-sm font-medium text-red-600">{{ form.errors.product_id }}</p>
+            <div v-if="turnstileActive" class="mb-3">
+                <CheckoutTurnstile
+                    ref="turnstileRef"
+                    :site-key="turnstile?.site_key || ''"
+                    v-model="turnstileToken"
+                />
+            </div>
             <button
                 v-if="(!isCardPaymentFamily || !isCardGatewayMercadopago) && !hidePrimarySubmitForCajupayWallet"
                 type="submit"

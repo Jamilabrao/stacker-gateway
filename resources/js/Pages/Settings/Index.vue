@@ -16,12 +16,15 @@ import {
     Tag,
     Palette,
     Images,
+    Truck,
+    Shield,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
 import BrandingTab from '@/Pages/Settings/Tabs/BrandingTab.vue';
 import DashboardBannersTab from '@/Pages/Settings/Tabs/DashboardBannersTab.vue';
 import LanguagesTab from '@/Pages/Settings/Tabs/LanguagesTab.vue';
+import SecurityTab from '@/Pages/Settings/Tabs/SecurityTab.vue';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -61,7 +64,7 @@ const props = defineProps({
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'idiomas', 'traducoes', 'moedas', 'cron', 'update'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'cron', 'update'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -140,6 +143,12 @@ const form = useForm({
     storage_s3_region: props.settings.storage_provider === 'r2' ? 'auto' : (props.settings.storage_s3_region ?? 'us-east-1'),
     storage_s3_endpoint: props.settings.storage_s3_endpoint ?? '',
     storage_s3_url: props.settings.storage_s3_url ?? '',
+    physical_products_enabled: Boolean(props.settings.physical_products_enabled),
+    checkout_turnstile_enabled: props.settings.checkout_turnstile_enabled ?? '0',
+    checkout_turnstile_site_key: props.settings.checkout_turnstile_site_key ?? '',
+    checkout_turnstile_secret_key: '',
+    checkout_turnstile_mode: props.settings.checkout_turnstile_mode ?? 'pix_boleto',
+    checkout_turnstile_secret_configured: Boolean(props.settings.checkout_turnstile_secret_configured),
 });
 
 const showCloudR2Override = ref(false);
@@ -162,6 +171,8 @@ const coreTabsStatic = [
     { id: 'idiomas', label: 'Idiomas', icon: Languages },
     { id: 'traducoes', label: 'Traduções', icon: Languages },
     { id: 'moedas', label: 'Moedas', icon: Banknote },
+    { id: 'recursos', label: 'Recursos', icon: Truck },
+    { id: 'seguranca', label: 'Segurança', icon: Shield },
     { id: 'cron', label: 'Cron', icon: Clock },
     { id: 'update', label: 'Versão', icon: Tag },
 ];
@@ -1063,6 +1074,38 @@ const selectClass =
                 </div>
             </Transition>
 
+            <!-- Aba Recursos -->
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'recursos'" class="space-y-6">
+                    <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+                        <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Produto físico e frete</h2>
+                        <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                            Quando desativado, infoprodutores não veem o tipo produto físico, o menu Taxas e frete nem campos de entrega no checkout.
+                        </p>
+                        <label class="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-600 dark:bg-zinc-800/80">
+                            <input
+                                v-model="form.physical_products_enabled"
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                            />
+                            <span>
+                                <span class="block text-sm font-medium text-zinc-900 dark:text-white">Habilitar produto físico na plataforma</span>
+                                <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
+                                    Inclui cadastro de lojas/regras de frete, tipo de produto físico e cálculo de frete no checkout.
+                                </span>
+                            </span>
+                        </label>
+                    </section>
+                </div>
+            </Transition>
+
             <div
                 class="flex items-center gap-3 pt-4 sm:pt-2 md:pt-4 sticky bottom-4 z-10 -mx-2 rounded-xl border border-zinc-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur sm:static sm:mx-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:shadow-none dark:border-zinc-700 dark:bg-zinc-800/95 sm:dark:bg-transparent sm:dark:border-0"
             >
@@ -1104,6 +1147,19 @@ const selectClass =
                 </p>
             </div>
         </template>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'seguranca'" class="w-full max-w-full space-y-6">
+                <SecurityTab :form="form" />
+            </div>
+        </Transition>
 
         <Transition
             enter-active-class="transition duration-200 ease-out"

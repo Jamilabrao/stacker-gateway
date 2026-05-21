@@ -47,6 +47,31 @@ class PaymentMethodsPerProductTest extends TestCase
         $this->assertNotContains('pix', $ids);
     }
 
+    public function test_boleto_unavailable_when_platform_order_has_no_boleto_gateways(): void
+    {
+        Setting::set('gateway_order', [
+            'pix' => ['efi'],
+            'card' => [],
+            'boleto' => [],
+            'pix_auto' => [],
+        ], null);
+
+        $product = $this->createTestProduct(['tenant_id' => 1]);
+
+        $cred = new GatewayCredential([
+            'tenant_id' => null,
+            'gateway_slug' => 'efi',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials(['payee_code' => '123', 'sandbox' => true]);
+        $cred->save();
+
+        $global = app(PaymentService::class)->globallyAvailablePaymentMethodKeys($product, null);
+
+        $this->assertTrue($global['pix']);
+        $this->assertFalse($global['boleto']);
+    }
+
     public function test_available_methods_includes_pix_when_enabled_on_product(): void
     {
         $product = $this->createTestProduct([

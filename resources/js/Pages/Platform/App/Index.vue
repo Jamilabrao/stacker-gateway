@@ -111,12 +111,21 @@ async function sendPush() {
     pushResult.value = null;
     try {
         const res = await window.axios.post('/plataforma/app/push/send', { ...pushForm });
+        if (res.data?.ok === false) {
+            error.value = res.data?.message || 'Não foi possível enviar o push.';
+            pushResult.value = res.data?.result ?? null;
+            return;
+        }
         pushResult.value = res.data?.result ?? null;
+        if (res.data?.message) {
+            error.value = res.data.message;
+        }
         pushForm.title = '';
         pushForm.body = '';
         pushForm.url = '';
     } catch (e) {
         error.value = e?.response?.data?.message || 'Erro ao enviar notificação push.';
+        pushResult.value = e?.response?.data?.result ?? null;
     } finally {
         sendingPush.value = false;
     }

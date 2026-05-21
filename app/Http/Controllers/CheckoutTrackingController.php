@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\CheckoutSession;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class CheckoutTrackingController extends Controller
 {
@@ -15,6 +17,8 @@ class CheckoutTrackingController extends Controller
             'step' => ['required', 'string', 'in:form_started,form_filled'],
             'email' => ['nullable', 'email'],
             'name' => ['nullable', 'string', 'max:255'],
+            'cpf' => ['nullable', 'string', 'max:14'],
+            'phone' => ['nullable', 'string', 'max:24'],
         ]);
 
         $session = CheckoutSession::where('session_token', $validated['session_token'])->first();
@@ -32,16 +36,46 @@ class CheckoutTrackingController extends Controller
             return response()->json(['success' => true]);
         }
 
+        try {
+            $this->applyTrackingUpdates($session, $validated, $step);
+        } catch (\Throwable $e) {
+            Log::warning('checkout.track failed', [
+                'session_id' => $session->id,
+                'step' => $step,
+                'message' => $e->getMessage(),
+            ]);
+
+            // Tracking é auxiliar (carrinho abandonado); não quebrar o checkout por falha aqui.
+            return response()->json(['success' => true]);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function applyTrackingUpdates(CheckoutSession $session, array $validated, string $step): void
+    {
         $updates = ['step' => $step];
+
         if (! empty($validated['email'])) {
             $updates['email'] = $validated['email'];
         }
         if (array_key_exists('name', $validated)) {
-            $updates['name'] = $validated['name'];
+            $name = $validated['name'];
+            $updates['name'] = is_string($name) && trim($name) !== '' ? trim($name) : null;
+        }
+        if (! empty($validated['cpf']) && Schema::hasColumn('checkout_sessions', 'cpf')) {
+            $digits = preg_replace('/\D/', '', (string) $validated['cpf']);
+            if ($digits !== '') {
+                $updates['cpf'] = $digits;
+            }
+        }
+        if (! empty($validated['phone']) && Schema::hasColumn('checkout_sessions', 'phone')) {
+            $updates['phone'] = trim((string) $validated['phone']);
         }
 
         $session->update($updates);
-
-        return response()->json(['success' => true]);
     }
 }

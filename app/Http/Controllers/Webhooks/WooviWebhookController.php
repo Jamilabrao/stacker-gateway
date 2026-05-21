@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessPaymentWebhook;
 use App\Models\Order;
+use App\Support\GatewayInboundWebhookAuth;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -54,6 +55,10 @@ class WooviWebhookController extends Controller
 
         if ($order === null) {
             return response()->json(['message' => 'Order not found'], 404);
+        }
+
+        if (! GatewayInboundWebhookAuth::verifyWoovi($request, $order->tenant_id)) {
+            return response()->json(['message' => 'Unauthorized'], 401);
         }
 
         $txForJob = (string) $order->gateway_id;

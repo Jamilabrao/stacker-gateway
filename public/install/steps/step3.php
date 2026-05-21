@@ -29,13 +29,7 @@ $db_password = $db['password'] ?? $db['db_password'] ?? '';
             class="mt-1.5 block w-full rounded-xl border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-4 py-3"
             placeholder="https://seudominio.com">
     </div>
-    <div>
-        <label for="app_env" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Ambiente</label>
-        <select id="app_env" name="app_env" class="mt-1.5 block w-full rounded-xl border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-4 py-3">
-            <option value="production">Produção</option>
-            <option value="local">Desenvolvimento</option>
-        </select>
-    </div>
+    <input type="hidden" name="app_env" value="production">
     <div>
         <label for="session_driver" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Sessão / Fila</label>
         <select id="session_driver" name="session_driver" class="mt-1.5 block w-full rounded-xl border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-4 py-3">

@@ -16,7 +16,6 @@ class AccessEmailService
     public function __construct(
         protected TenantMailConfigService $mailConfig,
         protected MemberAreaResolver $memberAreaResolver,
-        protected MemberAreaMagicAccessToken $memberAreaMagicAccessToken
     ) {}
 
     /**
@@ -78,9 +77,7 @@ class AccessEmailService
         }
 
         $customerName = $order->user?->name ?? explode('@', $customerEmail)[0] ?? 'Cliente';
-        $linkAcesso = $product->type === Product::TYPE_AREA_MEMBROS
-            ? $this->resolvePlatformLoginLink()
-            : $this->resolveLinkAcesso($product);
+        $linkAcesso = $this->resolveAccessLinkForProduct($product);
 
         if (config('app.debug') && $product->type === Product::TYPE_AREA_MEMBROS) {
             Log::debug('AccessEmailService: link_acesso', ['order_id' => $order->id, 'link' => $linkAcesso]);
@@ -280,6 +277,19 @@ class AccessEmailService
             return '';
         }
 
+        return $this->resolveAccessLinkForProduct($product);
+    }
+
+    /**
+     * Link usado no e-mail de acesso e na página de obrigado.
+     * Área de membros: login da plataforma (/login) para listar todos os produtos em /area-membros.
+     */
+    public function resolveAccessLinkForProduct(Product $product): string
+    {
+        if ($product->type === Product::TYPE_AREA_MEMBROS) {
+            return $this->resolvePlatformLoginLink();
+        }
+
         return $this->resolveLinkAcesso($product);
     }
 
@@ -307,9 +317,7 @@ class AccessEmailService
         }
 
         $customerName = $user->name ?: explode('@', $customerEmail)[0] ?? 'Cliente';
-        $linkAcesso = $product->type === Product::TYPE_AREA_MEMBROS
-            ? $this->resolvePlatformLoginLink()
-            : $this->resolveLinkAcesso($product);
+        $linkAcesso = $this->resolveAccessLinkForProduct($product);
 
         $replace = [
             '{nome_cliente}' => $customerName,

@@ -3,8 +3,10 @@
 namespace Tests\Feature\Meta;
 
 use App\Http\Middleware\EnsureInstalled;
+use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\User;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class PurchasePixelAckTest extends TestCase
@@ -16,6 +18,16 @@ class PurchasePixelAckTest extends TestCase
         User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
         $product = $this->createTestProduct();
 
+        $sessionToken = (string) Str::uuid();
+        CheckoutSession::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'checkout_slug' => 'ack-test',
+            'session_token' => $sessionToken,
+            'step' => CheckoutSession::STEP_CONVERTED,
+            'customer_ip' => '127.0.0.1',
+        ]);
+
         $order = Order::create([
             'tenant_id' => 1,
             'product_id' => $product->id,
@@ -26,11 +38,24 @@ class PurchasePixelAckTest extends TestCase
             'metadata' => [],
         ]);
 
-        $this->post('/checkout/pixel/purchase-ack', [
+        $this->postJson('/checkout/pixel/purchase-ack', [
             'order_id' => $order->id,
             'token' => 'abc',
             'trigger_type' => 'pix',
+        ])->assertStatus(422);
+
+        $this->postJson('/checkout/pixel/purchase-ack', [
+            'order_id' => $order->id,
+            'checkout_session_token' => $sessionToken,
+            'token' => 'abc',
+            'trigger_type' => 'pix',
         ])->assertOk()->assertJson(['ok' => true]);
+
+        $this->postJson('/checkout/pixel/purchase-ack', [
+            'order_id' => $order->id,
+            'checkout_session_token' => 'invalid-token',
+            'trigger_type' => 'pix',
+        ])->assertStatus(403);
 
         $order->refresh();
         $this->assertNotEmpty($order->metadata['browser_purchase_ack_at'] ?? null);

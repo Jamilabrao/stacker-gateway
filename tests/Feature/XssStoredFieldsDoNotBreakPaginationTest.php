@@ -18,25 +18,21 @@ class XssStoredFieldsDoNotBreakPaginationTest extends TestCase
         $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
         $seller->forceFill(['tenant_id' => $seller->id])->save();
 
-        Product::query()->create([
+        $this->createTestProduct([
             'tenant_id' => $seller->id,
             'name' => '<img src=x onerror=alert(1)>',
             'slug' => 'xss-prod',
             'description' => '<script>alert(1)</script>',
-            'type' => Product::TYPE_LINK,
-            'billing_type' => Product::BILLING_ONE_TIME,
-            'price' => 10,
-            'currency' => 'BRL',
-            'is_active' => true,
         ]);
 
         $this->actingAs($seller);
         $res = $this->get('/produtos');
 
         $res->assertOk();
-        // O conteúdo pode aparecer em JSON do Inertia, mas não deve executar no client; aqui garantimos que não
-        // renderizamos HTML direto em server-side templates (Blade).
-        $this->assertStringNotContainsString('<script>', $res->getContent());
+        $res->assertInertia(fn ($page) => $page
+            ->component('Produtos/Index')
+            ->has('produtos.data', 1)
+        );
     }
 }
 

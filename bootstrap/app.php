@@ -5,6 +5,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\PostTooLargeException;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Artisan;
@@ -17,7 +19,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->trustProxies(at: '*', headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_PREFIX | Request::HEADER_X_FORWARDED_AWS_ELB);
+        $trustedProxies = env('TRUSTED_PROXIES');
+        $proxyList = is_string($trustedProxies) && trim($trustedProxies) !== ''
+            ? array_map('trim', explode(',', trim($trustedProxies)))
+            : (env('APP_ENV', 'production') === 'local' ? '*' : null);
+        $middleware->trustProxies(
+            at: $proxyList,
+            headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_PREFIX | Request::HEADER_X_FORWARDED_AWS_ELB
+        );
 
         // Convites: painel da plataforma exige login em /plataforma/login
         $middleware->redirectGuestsTo(function (\Illuminate\Http\Request $request) {
@@ -59,9 +68,39 @@ return Application::configure(basePath: dirname(__DIR__))
             'seller.panel' => \App\Http\Middleware\EnsureSellerPanel::class,
             'platform.admin' => \App\Http\Middleware\EnsurePlatformAdmin::class,
             'customer.panel' => \App\Http\Middleware\EnsureCustomerPanel::class,
+            'physical.products' => \App\Http\Middleware\EnsurePhysicalProductsEnabled::class,
+            'installer.access' => \App\Http\Middleware\EnsureInstallerAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (PostTooLargeException $e, Request $request) {
+            $message = 'A requisição excedeu o limite do servidor. Envie um arquivo por vez (até 20 MB).';
+
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $message, 'errors' => ['upload' => [$message]]], 413);
+            }
+
+            if ($request->header('X-Inertia')) {
+                return redirect()->back()->with('error', $message);
+            }
+
+            return null;
+        });
+
+        $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
+            $message = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+
+            if ($request->header('X-Inertia')) {
+                return redirect()->back()->with('error', $message);
+            }
+
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $message], 429);
+            }
+
+            return redirect()->back()->with('error', $message);
+        });
+
         $exceptions->render(function (TokenMismatchException $e, Request $request) {
             if ($request->header('X-Inertia')) {
                 $login = ($request->is('plataforma') || $request->is('plataforma/*'))

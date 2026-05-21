@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Services\StorageService;
+use App\Models\User;
 use App\Services\TenantMailConfigService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -24,7 +27,7 @@ class MemberAreaForgotPasswordController extends Controller
         if (! $product instanceof Product || $product->type !== Product::TYPE_AREA_MEMBROS) {
             abort(404, 'Área de membros não encontrada.');
         }
-        $config = $product->member_area_config;
+        $config = (new StorageService($product->tenant_id))->resolveMediaUrlsInConfig($product->member_area_config ?? []) ?? [];
         $loginConfig = $config['login'] ?? [];
         return Inertia::render('MemberAreaApp/ForgotPassword', [
             'slug' => $slug,
@@ -50,8 +53,32 @@ class MemberAreaForgotPasswordController extends Controller
         $redirect = '/m/'.$slug.'/login';
         app()->instance('password_reset_redirect', $redirect);
 
-        $this->mailConfig->applyMailerConfigForTenant(null);
-        config(['mail.default' => 'smtp']);
+        $user = User::query()->where('email', $request->input('email'))->first();
+
+        try {
+            if ($this->mailConfig->isEmailConfigured($product->tenant_id)) {
+                $this->mailConfig->applyMailerConfigForTenant($product->tenant_id);
+            } else {
+                $this->mailConfig->applyForPasswordReset($user);
+            }
+            $this->mailConfig->assertSmtpHostIsConfigured();
+            config(['mail.default' => 'smtp']);
+            Mail::purge('smtp');
+        } catch (Throwable $e) {
+            Log::warning('MemberAreaForgotPassword: SMTP não aplicado.', [
+                'slug' => $slug,
+                'product_id' => $product->id,
+                'tenant_id' => $product->tenant_id,
+                'message' => $e->getMessage(),
+            ]);
+
+            $message = 'Não foi possível enviar o e-mail. O infoprodutor precisa configurar SMTP em Configurações → E-mail.';
+            if (config('app.debug')) {
+                $message .= ' Detalhe: '.$e->getMessage();
+            }
+
+            return back()->withErrors(['email' => [$message]])->onlyInput('email');
+        }
 
         try {
             $status = Password::sendResetLink(
@@ -61,14 +88,14 @@ class MemberAreaForgotPasswordController extends Controller
             Log::error('MemberAreaForgotPassword: falha ao enviar link de redefinição.', [
                 'slug' => $slug,
                 'email' => $request->input('email'),
+                'smtp_host' => config('mail.mailers.smtp.host'),
                 'message' => $e->getMessage(),
-                'exception' => $e::class,
-                'trace' => $e->getTraceAsString(),
             ]);
             $message = 'Não foi possível enviar o e-mail. Tente novamente mais tarde.';
             if (config('app.debug')) {
                 $message .= ' Detalhe: '.$e->getMessage();
             }
+
             return back()->withErrors(['email' => [$message]])->onlyInput('email');
         }
 

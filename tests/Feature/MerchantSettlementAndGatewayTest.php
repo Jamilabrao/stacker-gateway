@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\OrderCompleted;
+use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Setting;
 use App\Models\User;
@@ -69,6 +70,37 @@ class MerchantSettlementAndGatewayTest extends TestCase
 
         $this->assertNotEmpty($order);
         $this->assertSame('cajupay', $order[0], 'PIX deve seguir a ordem do Financeiro do tenant, não só a configuração global.');
+    }
+
+    public function test_checkout_payment_methods_follow_platform_gateway_order_not_only_default(): void
+    {
+        foreach (['cajupay' => ['public_key' => 'pk', 'secret_key' => 'sk'], 'mercadopago' => ['public_key' => 'pk', 'access_token' => 'TEST']] as $slug => $creds) {
+            $cred = GatewayCredential::query()->firstOrNew([
+                'tenant_id' => null,
+                'gateway_slug' => $slug,
+            ]);
+            $cred->is_connected = true;
+            $cred->setEncryptedCredentials($creds);
+            $cred->save();
+        }
+
+        Setting::set('gateway_order', [
+            'pix' => ['mercadopago', 'cajupay'],
+            'card' => ['mercadopago', 'cajupay'],
+            'boleto' => [],
+            'pix_auto' => [],
+        ], null);
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+        $product = $this->createTestProduct(['tenant_id' => $seller->id]);
+
+        $methods = app(PaymentService::class)->availablePaymentMethodsForCheckout($product);
+        $pix = collect($methods)->firstWhere('id', 'pix');
+        $card = collect($methods)->firstWhere('id', 'card');
+
+        $this->assertSame('mercadopago', $pix['gateway_slug'] ?? null);
+        $this->assertSame('mercadopago', $card['gateway_slug'] ?? null);
     }
 
     public function test_settlement_pending_created_when_delay_configured(): void

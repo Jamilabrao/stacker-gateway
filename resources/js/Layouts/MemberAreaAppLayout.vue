@@ -5,6 +5,7 @@ import PwaInstallPrompt from '@/components/member-area/PwaInstallPrompt.vue';
 import MemberAreaNotificationsPanel from '@/components/member-area/MemberAreaNotificationsPanel.vue';
 import Button from '@/components/ui/Button.vue';
 import { Bell, ChevronDown, User, X, Camera, Lock, CheckCircle, AlertCircle, Menu, Trophy } from 'lucide-vue-next';
+import { resolveMemberAreaHref as buildMemberAreaHref } from '@/utils/memberAreaHref';
 
 const page = usePage();
 const props = computed(() => page.props);
@@ -110,18 +111,31 @@ function usesPathSlugPrefix() {
 
 /** Monta href interno da área (path /m/slug vs domínio próprio na raiz). */
 function resolveMemberAreaHref(link, openExternal = false) {
-    if (!link) {
-        return usesPathSlugPrefix() ? basePath.value : '/';
+    return buildMemberAreaHref(link, {
+        usesPathPrefix: usesPathSlugPrefix(),
+        basePath: basePath.value,
+        baseUrl: baseUrl.value,
+        openExternal,
+    });
+}
+
+function isExternalMenuLink(item) {
+    if (item?.open_external) {
+        return true;
     }
-    if (openExternal || /^https?:\/\//i.test(String(link))) {
-        return link;
+    const link = String(item?.link ?? '').trim();
+    if (!/^https?:\/\//i.test(link)) {
+        return false;
     }
-    let path = String(link).startsWith('/') ? String(link) : `/${link}`;
-    const prefix = basePath.value;
-    if (prefix && (path === prefix || path.startsWith(`${prefix}/`))) {
-        path = path.slice(prefix.length) || '/';
+    try {
+        if (typeof window !== 'undefined') {
+            return new URL(link).origin !== window.location.origin;
+        }
+        const base = String(props.value?.base_url ?? '').replace(/\/$/, '');
+        return !base || !link.startsWith(base);
+    } catch {
+        return true;
     }
-    return usesPathSlugPrefix() ? `${prefix}${path}` : path;
 }
 
 const memberAreaHomeHref = computed(() => resolveMemberAreaHref('/'));
@@ -513,7 +527,7 @@ watch(
                 <nav class="hidden items-center gap-1 md:flex">
                     <template v-for="item in sidebarItems" :key="item.title">
                         <a
-                            v-if="item.open_external || /^https?:\/\//i.test(item.link || '')"
+                            v-if="isExternalMenuLink(item)"
                             :href="resolveMemberAreaHref(item.link, true)"
                             target="_blank"
                             rel="noopener"
@@ -523,7 +537,7 @@ watch(
                         </a>
                         <Link
                             v-else
-                            :href="resolveMemberAreaHref(item.link, item.open_external)"
+                            :href="resolveMemberAreaHref(item.link, false)"
                             class="rounded-lg px-3 py-2 text-sm font-medium text-white/90 drop-shadow hover:bg-white/10"
                         >
                             {{ item.title }}
@@ -716,7 +730,7 @@ watch(
                     <nav class="flex flex-col gap-1 px-4 py-2">
                         <template v-for="item in sidebarItems" :key="item.title">
                             <a
-                                v-if="item.open_external || /^https?:\/\//i.test(item.link || '')"
+                                v-if="isExternalMenuLink(item)"
                                 :href="resolveMemberAreaHref(item.link, true)"
                                 target="_blank"
                                 rel="noopener"
@@ -727,7 +741,7 @@ watch(
                             </a>
                             <Link
                                 v-else
-                                :href="resolveMemberAreaHref(item.link, item.open_external)"
+                                :href="resolveMemberAreaHref(item.link, false)"
                                 class="rounded-lg px-4 py-3 text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white"
                                 @click="closeMobileMenu"
                             >

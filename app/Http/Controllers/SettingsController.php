@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\PhysicalProductAccess;
 use App\Support\CheckoutTranslations;
+use App\Support\CheckoutTurnstileSettings;
 use App\Support\PlatformConfigContext;
 use App\Support\DockerSetupState;
 use Illuminate\Http\RedirectResponse;
@@ -110,6 +112,8 @@ class SettingsController extends Controller
                 'storage_s3_endpoint' => $cloudR2Managed ? '' : $storageS3Endpoint,
                 'storage_s3_url' => $cloudR2Managed ? '' : $storageS3Url,
                 'storage_cloud_r2_managed' => $cloudR2Managed,
+                'physical_products_enabled' => PhysicalProductAccess::globalEnabled(),
+                ...($tenantId === null ? CheckoutTurnstileSettings::forSettingsForm() : []),
             ],
         ]);
     }
@@ -151,9 +155,39 @@ class SettingsController extends Controller
             'storage_s3_region' => ['nullable', 'string', 'max:64'],
             'storage_s3_endpoint' => ['nullable', 'string', 'max:512'],
             'storage_s3_url' => ['nullable', 'string', 'max:512'],
+            'physical_products_enabled' => ['nullable', 'boolean'],
+            'checkout_turnstile_enabled' => ['nullable', 'boolean'],
+            'checkout_turnstile_site_key' => ['nullable', 'string', 'max:255'],
+            'checkout_turnstile_secret_key' => ['nullable', 'string', 'max:512'],
+            'checkout_turnstile_mode' => ['nullable', 'string', 'in:disabled,pix_boleto,all_payments'],
         ]);
 
         $tenantId = PlatformConfigContext::settingsTenantId();
+        if ($tenantId === null) {
+            if (array_key_exists('checkout_turnstile_enabled', $validated)) {
+                Setting::set(
+                    'checkout_turnstile_enabled',
+                    ($validated['checkout_turnstile_enabled'] ?? false) ? '1' : '0',
+                    null
+                );
+            }
+            if (array_key_exists('checkout_turnstile_site_key', $validated)) {
+                Setting::set('checkout_turnstile_site_key', trim((string) ($validated['checkout_turnstile_site_key'] ?? '')), null);
+            }
+            if (array_key_exists('checkout_turnstile_mode', $validated) && $validated['checkout_turnstile_mode'] !== null) {
+                Setting::set('checkout_turnstile_mode', (string) $validated['checkout_turnstile_mode'], null);
+            }
+            CheckoutTurnstileSettings::storeSecret($validated['checkout_turnstile_secret_key'] ?? null);
+        }
+
+        if ($tenantId === null && array_key_exists('physical_products_enabled', $validated)) {
+            Setting::set(
+                PhysicalProductAccess::SETTING_KEY,
+                ($validated['physical_products_enabled'] ?? false) ? '1' : '0',
+                null
+            );
+        }
+
         $emailKeys = [
             'smtp_host', 'smtp_port', 'smtp_username', 'smtp_encryption',
             'mail_from_address', 'mail_from_name', 'reply_to',

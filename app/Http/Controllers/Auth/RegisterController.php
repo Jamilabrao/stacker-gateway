@@ -14,11 +14,19 @@ class RegisterController extends Controller
 {
     public function showRegistrationForm(): Response
     {
+        if ($this->publicRegistrationBlocked()) {
+            abort(403, 'Cadastro público desabilitado. Use o painel da plataforma ou crie o administrador via CLI.');
+        }
+
         return Inertia::render('Auth/Register');
     }
 
     public function register(Request $request)
     {
+        if ($this->publicRegistrationBlocked()) {
+            abort(403, 'Cadastro público desabilitado.');
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
@@ -26,7 +34,7 @@ class RegisterController extends Controller
         ]);
 
         $role = User::ROLE_CLIENTE;
-        if (User::count() === 0) {
+        if (User::count() === 0 && filter_var(env('CREATE_FIRST_ADMIN', false), FILTER_VALIDATE_BOOLEAN)) {
             $role = User::ROLE_ADMIN;
         }
 
@@ -45,8 +53,15 @@ class RegisterController extends Controller
             return redirect()->intended('/dashboard');
         }
 
-        $this->forgetAreaMembrosHomeIntended($request);
+        return redirect()->intended('/area-membros');
+    }
 
-        return redirect()->intended('/painel-cliente');
+    private function publicRegistrationBlocked(): bool
+    {
+        if (filter_var(env('CREATE_FIRST_ADMIN', false), FILTER_VALIDATE_BOOLEAN)) {
+            return false;
+        }
+
+        return User::where('role', User::ROLE_ADMIN)->exists();
     }
 }

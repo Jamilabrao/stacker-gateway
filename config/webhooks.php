@@ -15,12 +15,13 @@ return [
     |
     */
     'reconfirm_fail_policy' => [
-        'default' => env('WEBHOOK_RECONFIRM_FAIL_POLICY', 'accept'),
+        'default' => env('WEBHOOK_RECONFIRM_FAIL_POLICY', 'reject'),
 
         'mercadopago' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_MERCADOPAGO', 'reject'),
-        'spacepag' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_SPACEPAG'),
-        'pushinpay' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_PUSHINPAY'),
-        'asaas' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_ASAAS'),
+        'spacepag' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_SPACEPAG', 'reject'),
+        'pushinpay' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_PUSHINPAY', 'reject'),
+        'asaas' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_ASAAS', 'reject'),
+        'woovi' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_WOOVI', 'reject'),
         'efi' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_EFI'),
         'stripe' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_STRIPE'),
         'onlyup' => env('WEBHOOK_RECONFIRM_FAIL_POLICY_ONLYUP', 'reject'),

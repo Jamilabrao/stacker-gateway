@@ -5,9 +5,11 @@ namespace Tests;
 use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Tests\Concerns\InteractsWithGatewayWebhooks;
 
 abstract class TestCase extends BaseTestCase
 {
+    use InteractsWithGatewayWebhooks;
     use RefreshDatabase;
 
     /**

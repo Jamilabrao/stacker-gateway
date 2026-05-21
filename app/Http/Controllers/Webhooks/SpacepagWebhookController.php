@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessPaymentWebhook;
-use App\Models\GatewayCredential;
 use App\Models\Order;
+use App\Support\GatewayInboundWebhookAuth;
 use App\Models\Withdrawal;
 use App\Services\MerchantWithdrawalService;
 use Illuminate\Http\JsonResponse;
@@ -36,7 +36,7 @@ class SpacepagWebhookController extends Controller
         $withdrawal = $this->findSpacepagWithdrawal($transactionId, $request);
         if ($withdrawal !== null) {
             $tenantId = (int) $withdrawal->tenant_id;
-            if (! $this->verifyWebhookSignature('spacepag', $tenantId, $request)) {
+            if (! GatewayInboundWebhookAuth::verifyHmacSha256Body($request, 'spacepag', $tenantId, 'X-Webhook-Signature', 'X-Signature')) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -61,7 +61,7 @@ class SpacepagWebhookController extends Controller
 
         $order = Order::where('gateway', 'spacepag')->where('gateway_id', $transactionId)->first();
         if ($order) {
-            if (! $this->verifyWebhookSignature('spacepag', $order->tenant_id, $request)) {
+            if (! GatewayInboundWebhookAuth::verifyHmacSha256Body($request, 'spacepag', $order->tenant_id, 'X-Webhook-Signature', 'X-Signature')) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -197,27 +197,4 @@ class SpacepagWebhookController extends Controller
         return null;
     }
 
-    /**
-     * Verifica HMAC quando o header está presente. Sem header, aceita (a Spacepag não documenta assinatura em todos os ambientes).
-     */
-    private function verifyWebhookSignature(string $gatewaySlug, ?int $tenantId, Request $request): bool
-    {
-        $credential = GatewayCredential::resolveForPayment($tenantId, $gatewaySlug)
-            ?? GatewayCredential::resolveForPayment(null, $gatewaySlug);
-        if (! $credential) {
-            return true;
-        }
-        $credentials = $credential->getDecryptedCredentials();
-        $secret = $credentials['webhook_secret'] ?? null;
-        if ($secret === null || $secret === '') {
-            return true;
-        }
-        $signature = $request->header('X-Webhook-Signature') ?? $request->header('X-Signature');
-        if (! is_string($signature) || $signature === '') {
-            return true;
-        }
-        $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), $secret);
-
-        return hash_equals($expected, $signature);
-    }
 }

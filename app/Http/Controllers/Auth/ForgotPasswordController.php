@@ -8,6 +8,7 @@ use App\Services\TenantMailConfigService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -32,15 +33,27 @@ class ForgotPasswordController extends Controller
 
         $user = User::query()->where('email', $request->input('email'))->first();
 
-        // Admin da plataforma (/plataforma): SMTP e remetente em Configurações globais (tenant_id null).
-        // applyMailerConfigForTenant(null) pega o primeiro infoprodutor com smtp_host — o e-mail não sai ou falha.
-        if ($user?->canAccessPlatformPanel()) {
-            $this->mailConfig->applyPlatformGlobalMailerConfig();
-            app()->instance('password_reset_redirect', '/plataforma/login');
-        } else {
-            $this->mailConfig->applyMailerConfigForTenant($user?->tenant_id);
+        try {
+            $this->mailConfig->applyForPasswordReset($user);
+            $this->mailConfig->assertSmtpHostIsConfigured();
+            config(['mail.default' => 'smtp']);
+            Mail::purge('smtp');
+
+            if ($user?->canAccessPlatformPanel()) {
+                app()->instance('password_reset_redirect', '/plataforma/login');
+            }
+        } catch (Throwable $e) {
+            Log::warning('ForgotPassword: SMTP não aplicado antes do envio.', [
+                'email' => $request->input('email'),
+                'user_id' => $user?->id,
+                'tenant_id' => $user?->tenant_id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return back()->withErrors([
+                'email' => [$this->mailErrorMessage($e)],
+            ])->onlyInput('email');
         }
-        config(['mail.default' => 'smtp']);
 
         try {
             $status = Password::sendResetLink(
@@ -49,22 +62,17 @@ class ForgotPasswordController extends Controller
         } catch (Throwable $e) {
             Log::error('ForgotPassword: falha ao enviar link de redefinição.', [
                 'email' => $request->input('email'),
+                'smtp_host' => config('mail.mailers.smtp.host'),
+                'smtp_port' => config('mail.mailers.smtp.port'),
                 'message' => $e->getMessage(),
                 'exception' => $e::class,
-                'trace' => $e->getTraceAsString(),
             ]);
 
-            $message = 'Não foi possível enviar o e-mail. Verifique as configurações de SMTP em Configurações > E-mail ou tente novamente mais tarde.';
-            if (config('app.debug')) {
-                $message .= ' Detalhe: '.$e->getMessage();
-            }
-
             return back()->withErrors([
-                'email' => [$message],
+                'email' => [$this->mailErrorMessage($e)],
             ])->onlyInput('email');
         }
 
-        // Não revelar se o e-mail existe ou não (evita enumeração de usuários)
         if ($status === Password::RESET_THROTTLED) {
             return back()->withErrors([
                 'email' => ['Por favor, aguarde um minuto antes de solicitar um novo link de redefinição de senha.'],
@@ -72,5 +80,15 @@ class ForgotPasswordController extends Controller
         }
 
         return back()->with('status', 'Se o e-mail estiver cadastrado, você receberá o link de redefinição em sua caixa de entrada.');
+    }
+
+    private function mailErrorMessage(Throwable $e): string
+    {
+        $message = 'Não foi possível enviar o e-mail. Verifique as configurações de SMTP em Configurações → E-mail ou tente novamente mais tarde.';
+        if (config('app.debug')) {
+            $message .= ' Detalhe: '.$e->getMessage();
+        }
+
+        return $message;
     }
 }

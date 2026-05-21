@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ApiApplication;
 use App\Models\Order;
+use App\Support\WebhookCustomerPayload;
 use App\Support\WebhookUrlValidator;
 use InvalidArgumentException;
 use Illuminate\Bus\Queueable;
@@ -63,6 +64,11 @@ class SendApiApplicationWebhookJob implements ShouldQueue
             'created_at' => $order->created_at?->toIso8601String(),
             'updated_at' => $order->updated_at?->toIso8601String(),
         ];
+
+        $customer = WebhookCustomerPayload::fromOrder($order);
+        if ($customer !== []) {
+            $payload['customer'] = $customer;
+        }
 
         $body = json_encode($payload);
         $headers = ['Content-Type' => 'application/json'];

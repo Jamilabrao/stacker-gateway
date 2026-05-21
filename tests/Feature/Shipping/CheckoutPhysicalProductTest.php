@@ -4,9 +4,11 @@ namespace Tests\Feature\Shipping;
 
 use App\Http\Middleware\EnsureInstalled;
 use App\Models\Product;
+use App\Models\Setting;
 use App\Models\ShippingRule;
 use App\Models\ShippingStore;
 use App\Models\User;
+use App\Services\PhysicalProductAccess;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -14,6 +16,8 @@ class CheckoutPhysicalProductTest extends TestCase
 {
     private function physicalProductSetup(): array
     {
+        Setting::set(PhysicalProductAccess::SETTING_KEY, '1', null);
+
         User::factory()->create([
             'role' => User::ROLE_INFOPRODUTOR,
             'tenant_id' => 1,

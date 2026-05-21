@@ -79,7 +79,22 @@ function close() {
 }
 
 function submit() {
-    form.post('/produtos', {
+    const fd = new FormData();
+    fd.append('name', form.name);
+    fd.append('description', form.description ?? '');
+    fd.append('type', form.type);
+    fd.append('billing_type', form.billing_type);
+    fd.append('price', String(form.price ?? ''));
+    fd.append('currency', form.currency);
+    fd.append('is_active', form.is_active ? '1' : '0');
+    if (form.deliverable_link) {
+        fd.append('deliverable_link', form.deliverable_link);
+    }
+    if (form.image instanceof File) {
+        fd.append('image', form.image);
+    }
+
+    form.transform(() => fd).post('/produtos', {
         forceFormData: true,
         onSuccess: () => {
             close();

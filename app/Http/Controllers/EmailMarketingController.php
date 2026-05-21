@@ -254,7 +254,22 @@ class EmailMarketingController extends Controller
             'total_recipients' => $total,
         ]);
 
-        return redirect()->route('plataforma.email-marketing.index')->with('success', 'Campanha iniciada. Os e-mails serão enviados em lotes de 30 por minuto.');
+        try {
+            Artisan::call('email-campaign:process');
+            $campaign->refresh();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return redirect()->route('plataforma.email-marketing.index')
+                ->with('error', 'Campanha iniciada, mas falhou ao processar o primeiro lote: '.$e->getMessage());
+        }
+
+        $sentNow = (int) $campaign->sent_count;
+        $message = $sentNow > 0
+            ? "Campanha iniciada. {$sentNow} e-mail(s) já enviado(s); o restante segue em lotes de 30 por minuto."
+            : 'Campanha iniciada. Os e-mails serão enviados em lotes de 30 por minuto (confira cron/fila na aba Configuração).';
+
+        return redirect()->route('plataforma.email-marketing.index')->with('success', $message);
     }
 
     /**

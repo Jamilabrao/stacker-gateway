@@ -79,7 +79,7 @@ function submitRefund() {
         >
             <article
                 v-for="row in purchases"
-                :key="row.order_id"
+                :key="row.purchase_key || row.order_id"
                 class="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm transition hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-700"
             >
                 <div class="relative h-20 w-full shrink-0 overflow-hidden bg-zinc-100 sm:h-24 dark:bg-zinc-800/80">
@@ -104,7 +104,9 @@ function submitRefund() {
                         >
                             {{ row.product_name }}
                         </h2>
-                        <p class="mt-0.5 text-[10px] text-zinc-500 sm:text-xs">#{{ row.public_reference }}</p>
+                        <p class="mt-0.5 text-[10px] text-zinc-500 sm:text-xs">
+                            #{{ row.public_reference }}<span v-if="row.is_order_bump" class="text-zinc-400"> · Order bump</span>
+                        </p>
                         <p class="mt-1 text-xs font-medium text-zinc-700 sm:text-sm dark:text-zinc-300">
                             {{ formatBRL(row.amount) }}
                         </p>

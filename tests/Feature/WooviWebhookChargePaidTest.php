@@ -29,9 +29,11 @@ class WooviWebhookChargePaidTest extends TestCase
             'gateway_slug' => 'woovi',
         ]);
         $cred->is_connected = true;
+        $wooviSecret = 'woovi-whsec-test';
         $cred->setEncryptedCredentials([
             'app_id' => 'test-app-id',
             'from_pix_key' => 'test@example.com',
+            'webhook_secret' => $wooviSecret,
         ]);
         $cred->save();
 
@@ -46,13 +48,13 @@ class WooviWebhookChargePaidTest extends TestCase
             'gateway_id' => 'woovi-charge-1',
         ]);
 
-        $response = $this->postJson('/webhooks/gateways/woovi', [
+        $response = $this->postSignedWooviWebhook([
             'event' => 'OPENPIX:CHARGE_COMPLETED',
             'charge' => [
                 'transactionID' => 'woovi-charge-1',
                 'status' => 'COMPLETED',
             ],
-        ]);
+        ], $wooviSecret);
 
         $response->assertOk()->assertJson(['received' => true]);
         $this->assertSame('completed', $order->fresh()->status);

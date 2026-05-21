@@ -21,6 +21,8 @@ use App\Services\PaymentService;
 use App\Services\PushinPayPixRecorrenteService;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Services\StorageService;
+use App\Services\Checkout\CheckoutAbuseGuard;
+use App\Support\CheckoutTurnstileSettings;
 use App\Support\FakeConsumerData;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -193,6 +195,7 @@ class ApiCheckoutController extends Controller
             'card_efi_sandbox' => $cardEfiSandbox,
             'card_pagarme_public_key' => $cardPagarmePublicKey,
             'card_pagarme_api_base_url' => rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/'),
+            'turnstile' => CheckoutTurnstileSettings::publicConfig(),
         ]);
     }
 
@@ -204,6 +207,9 @@ class ApiCheckoutController extends Controller
         $rules = [
             'session_token' => ['required', 'string', 'max:64'],
             'payment_method' => ['required', 'string', 'in:pix,pix_auto,boleto,card'],
+            'website' => ['nullable', 'string', 'max:255'],
+            '_hp' => ['nullable', 'string', 'max:255'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
         ];
         if ($request->input('payment_method') === 'pix_auto') {
             $rules['cpf'] = ['required', 'string', 'max:14'];
@@ -240,6 +246,38 @@ class ApiCheckoutController extends Controller
         if ($method === 'boleto' && empty($pg['boleto'])) {
             return redirect()->back()->with('error', 'Método de pagamento não disponível.');
         }
+
+        $productModel = null;
+        if ($session->product_id) {
+            $productModel = Product::where('id', $session->product_id)->where('tenant_id', $tenantId)->first();
+        } elseif ($session->subscription_plan_id) {
+            $plan = SubscriptionPlan::with('product')->find($session->subscription_plan_id);
+            if ($plan && $plan->product && (int) $plan->product->tenant_id === (int) $tenantId) {
+                $productModel = $plan->product;
+            }
+        } elseif ($session->product_offer_id) {
+            $offer = ProductOffer::with('product')->find($session->product_offer_id);
+            if ($offer && $offer->product && (int) $offer->product->tenant_id === (int) $tenantId) {
+                $productModel = $offer->product;
+            }
+        }
+
+        $checkoutGuard = app(CheckoutAbuseGuard::class);
+        if ($productModel) {
+            $fpPayload = [
+                'email' => strtolower(trim((string) (is_array($session->customer) ? ($session->customer['email'] ?? '') : ''))),
+                'product_id' => $productModel->id,
+                'payment_method' => $method,
+            ];
+            $fingerprintCached = $checkoutGuard->cachedResponseForFingerprint($request, $fpPayload);
+            if ($fingerprintCached instanceof RedirectResponse) {
+                return $fingerprintCached;
+            }
+            $checkoutGuard->assertCanProcessApiHosted($request, $productModel, $validated, $session);
+        } else {
+            $checkoutGuard->assertCanProcessApiAmountOnly($request, $validated, $session);
+        }
+
         $customer = is_array($session->customer) ? $session->customer : [];
         if ($method === 'card') {
             $cardGw = strtolower((string) ($pg['card'] ?? ''));

@@ -19,6 +19,7 @@ use App\Models\ProductOrderBump;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\PaymentService;
+use App\Services\PhysicalProductAccess;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Support\HtmlSanitizer;
@@ -31,14 +32,32 @@ use Inertia\Response;
 
 class ProdutosController extends Controller
 {
-    private const TYPES = [
-        Product::TYPE_APLICATIVO,
-        Product::TYPE_AREA_MEMBROS,
-        Product::TYPE_AREA_MEMBROS_EXTERNA,
-        Product::TYPE_LINK,
-        Product::TYPE_LINK_PAGAMENTO,
-        Product::TYPE_PRODUTO_FISICO,
-    ];
+    /**
+     * @return list<string>
+     */
+    private static function allowedProductTypes(?Product $existing = null): array
+    {
+        $types = [
+            Product::TYPE_APLICATIVO,
+            Product::TYPE_AREA_MEMBROS,
+            Product::TYPE_AREA_MEMBROS_EXTERNA,
+            Product::TYPE_LINK,
+            Product::TYPE_LINK_PAGAMENTO,
+            Product::TYPE_PRODUTO_FISICO,
+        ];
+
+        if (! PhysicalProductAccess::globalEnabled()) {
+            $types = array_values(array_filter(
+                $types,
+                fn (string $t) => $t !== Product::TYPE_PRODUTO_FISICO
+            ));
+            if ($existing !== null && $existing->isPhysical()) {
+                $types[] = Product::TYPE_PRODUTO_FISICO;
+            }
+        }
+
+        return array_values(array_unique($types));
+    }
 
     private const BILLING_TYPES = [
         Product::BILLING_ONE_TIME,
@@ -56,7 +75,7 @@ class ProdutosController extends Controller
         }
         $products = $query->paginate(20)->withQueryString()->through(fn (Product $p) => $this->productToArray($p, $rates));
 
-        $productTypes = collect(Product::typeConfig())->map(fn ($config, $value) => [
+        $productTypes = collect(PhysicalProductAccess::filterTypeConfig(Product::typeConfig()))->map(fn ($config, $value) => [
             'value' => $value,
             'label' => $config['label'],
             'description' => $config['description'],
@@ -118,7 +137,7 @@ class ProdutosController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
-            'type' => ['required', 'string', 'in:'.implode(',', self::TYPES)],
+            'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes())],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
@@ -174,7 +193,7 @@ class ProdutosController extends Controller
         $produto->load('users:id,name,email', 'offers', 'subscriptionPlans', 'orderBumps');
 
         $rates = config('products.rates', ['brl_eur' => 0.16, 'brl_usd' => 0.18]);
-        $productTypes = collect(Product::typeConfig())->map(fn ($config, $value) => [
+        $productTypes = collect(PhysicalProductAccess::filterTypeConfig(Product::typeConfig()))->map(fn ($config, $value) => [
             'value' => $value,
             'label' => $config['label'],
             'description' => $config['description'],
@@ -410,7 +429,7 @@ class ProdutosController extends Controller
             'checkout_gateway_ui' => $checkoutGatewayUi,
             'global_payment_methods_available' => $globalPaymentMethodsAvailable,
             'cademi_integrations' => $cademiIntegrations,
-            'shipping_stores' => $shippingStores,
+            'shipping_stores' => PhysicalProductAccess::globalEnabled() ? $shippingStores : [],
             'layoutContentFlushLeft' => true,
             'pageTitleBadge' => $produto->name,
         ]);
@@ -481,7 +500,7 @@ class ProdutosController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
-            'type' => ['required', 'string', 'in:'.implode(',', self::TYPES)],
+            'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes($produto))],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
@@ -704,6 +723,11 @@ class ProdutosController extends Controller
             }
             if (! empty($global['google_pay'])) {
                 $keysToCheck[] = 'google_pay';
+            }
+            foreach (array_keys($pm) as $k) {
+                if (empty($global[$k])) {
+                    $pm[$k] = false;
+                }
             }
             $anyGlobal = false;
             foreach ($keysToCheck as $k) {
@@ -1129,8 +1153,13 @@ class ProdutosController extends Controller
 
     private function assertPhysicalProductRules(string $type, string $billingType): void
     {
-        if ($type === Product::TYPE_PRODUTO_FISICO && $billingType === Product::BILLING_SUBSCRIPTION) {
-            abort(422, 'Produto físico não pode ser vendido como assinatura.');
+        if ($type === Product::TYPE_PRODUTO_FISICO) {
+            if (! PhysicalProductAccess::globalEnabled()) {
+                abort(422, 'Produto físico não está habilitado na plataforma.');
+            }
+            if ($billingType === Product::BILLING_SUBSCRIPTION) {
+                abort(422, 'Produto físico não pode ser vendido como assinatura.');
+            }
         }
     }
 

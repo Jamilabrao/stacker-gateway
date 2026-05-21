@@ -3,6 +3,8 @@
 namespace Tests\Feature\Shipping;
 
 use App\Http\Middleware\EnsureInstalled;
+use App\Http\Middleware\EnsurePhysicalProductsEnabled;
+use App\Models\Setting;
 use App\Models\ShippingStore;
 use App\Models\User;
 use Tests\TestCase;
@@ -11,8 +13,11 @@ class ShippingStoreControllerTest extends TestCase
 {
     public function test_seller_can_create_store_and_other_tenant_cannot_update(): void
     {
+        Setting::set('physical_products_enabled', '1', null);
+
         $this->withoutMiddleware([
             EnsureInstalled::class,
+            EnsurePhysicalProductsEnabled::class,
             \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
         ]);
 

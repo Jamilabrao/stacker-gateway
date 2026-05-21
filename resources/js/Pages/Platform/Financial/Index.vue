@@ -43,6 +43,7 @@ const props = defineProps({
     payout_gateway_preference: { type: String, default: 'auto' },
     /** Slug efetivo usado hoje (pode diferir do preferido se este não estiver conectado). */
     payout_gateway_active: { type: String, default: null },
+    gateway_webhook_security_warnings: { type: Array, default: () => [] },
 });
 
 const GATEWAYS_API_BASE = '/plataforma/financeiro/gateways';
@@ -320,6 +321,13 @@ function submitSettlement() {
             class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
         >
             {{ page.props.flash.error }}
+        </p>
+        <p
+            v-if="props.gateway_webhook_security_warnings?.length"
+            class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+        >
+            Segurança: configure o <strong>Webhook Secret</strong> nos gateways conectados
+            ({{ props.gateway_webhook_security_warnings.join(', ') }}) — sem isso, notificações de pagamento são rejeitadas.
         </p>
 
         <div class="w-full overflow-x-auto [-webkit-overflow-scrolling:touch]">

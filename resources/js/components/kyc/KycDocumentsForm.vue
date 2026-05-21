@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue';
-import { useForm } from '@inertiajs/vue3';
+import { computed, reactive, ref } from 'vue';
+import { router } from '@inertiajs/vue3';
+import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
-import { Upload, FileText, CheckCircle2, BadgeCheck } from 'lucide-vue-next';
+import { Upload, FileText, CheckCircle2, BadgeCheck, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps({
     person_type: { type: String, default: 'pf' },
@@ -14,32 +15,124 @@ const props = defineProps({
 
 const isPj = computed(() => props.person_type === 'pj');
 
-/** Aguardando análise — sem novo upload. */
 const isPendingReview = computed(() => props.kyc_status === 'pending_review');
-
-/** Aprovado pela plataforma — não exibe formulário de envio. */
 const isApproved = computed(() => props.kyc_status === 'approved');
-
-/** Qualquer estado final/visualização sem upload (pendente ou aprovado). */
 const isReadOnlyKyc = computed(() => isPendingReview.value || isApproved.value);
 
-const form = useForm({
-    rg_front: null,
-    rg_back: null,
-    company_document: null,
+const uploading = reactive({
+    rg_front: false,
+    rg_back: false,
+    company_document: false,
 });
 
-function onFile(field, event) {
-    const f = event.target.files?.[0];
-    form[field] = f || null;
+const uploaded = reactive({
+    rg_front: false,
+    rg_back: false,
+    company_document: false,
+});
+
+const fieldErrors = reactive({
+    rg_front: '',
+    rg_back: '',
+    company_document: '',
+});
+
+const finalizeProcessing = ref(false);
+const uploadError = ref('');
+
+const MAX_BYTES = 20 * 1024 * 1024;
+
+function parseAxiosError(err, field) {
+    const data = err?.response?.data;
+    if (data?.errors?.[field]?.[0]) {
+        return data.errors[field][0];
+    }
+    if (data?.errors?.upload?.[0]) {
+        return data.errors.upload[0];
+    }
+    if (data?.message) {
+        return data.message;
+    }
+    if (err?.response?.status === 413) {
+        return 'Arquivo grande demais para o servidor. Use até 20 MB por arquivo.';
+    }
+
+    return 'Não foi possível enviar o arquivo. Tente novamente.';
 }
 
-function submit() {
-    form.post('/kyc', {
-        forceFormData: true,
-        preserveScroll: true,
-        onSuccess: () => form.reset(),
-    });
+async function onFile(field, event) {
+    const f = event.target.files?.[0];
+    event.target.value = '';
+    fieldErrors[field] = '';
+    uploadError.value = '';
+
+    if (!f) {
+        return;
+    }
+
+    if (f.size > MAX_BYTES) {
+        fieldErrors[field] = 'O arquivo não pode ser maior que 20 MB.';
+        return;
+    }
+
+    uploading[field] = true;
+    uploaded[field] = false;
+
+    const fd = new FormData();
+    fd.append('field', field);
+    fd.append(field, f);
+
+    try {
+        await axios.post('/kyc/document', fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        uploaded[field] = true;
+    } catch (err) {
+        fieldErrors[field] = parseAxiosError(err, field);
+    } finally {
+        uploading[field] = false;
+    }
+}
+
+const canFinalize = computed(() => {
+    if (isReadOnlyKyc.value) {
+        return false;
+    }
+    if (!uploaded.rg_front || !uploaded.rg_back) {
+        return false;
+    }
+    if (isPj.value && !uploaded.company_document) {
+        return false;
+    }
+
+    return true;
+});
+
+function submitForReview() {
+    uploadError.value = '';
+    if (!canFinalize.value) {
+        uploadError.value = 'Envie todos os documentos (um por vez) antes de concluir.';
+        return;
+    }
+
+    finalizeProcessing.value = true;
+    router.post(
+        '/kyc/finalize',
+        {},
+        {
+            preserveScroll: true,
+            onError: (errors) => {
+                uploadError.value =
+                    errors?.upload ||
+                    errors?.finalize ||
+                    Object.values(errors || {})[0] ||
+                    'Não foi possível enviar para análise.';
+            },
+            onFinish: () => {
+                finalizeProcessing.value = false;
+            },
+        }
+    );
 }
 
 const inputFileClass =
@@ -54,7 +147,8 @@ const fileAccept =
         <div v-if="!embedded && !isReadOnlyKyc">
             <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">Verificação de identidade (KYC)</h1>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Envie <strong>imagem</strong> (foto legível) ou <strong>PDF</strong>, até 20 MB por arquivo. Aceitos: JPG, PNG, WebP, GIF, HEIC/HEIF (fotos de celular) ou PDF.
+                Envie <strong>um arquivo por vez</strong> (imagem ou PDF, até 20 MB). Depois clique em
+                <strong>Enviar para análise</strong>.
             </p>
         </div>
         <div v-else-if="!embedded && isReadOnlyKyc">
@@ -63,7 +157,7 @@ const fileAccept =
         <div v-else-if="embedded && !isReadOnlyKyc">
             <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Documentos para verificação</h3>
             <p class="mt-1 text-xs text-zinc-500">
-                Imagem ou PDF (JPG, PNG, WebP, GIF, HEIC/HEIF ou PDF), até 20 MB por arquivo.
+                Selecione cada arquivo separadamente (até 20 MB). Formatos: JPG, PNG, WebP, GIF, HEIC/HEIF ou PDF.
             </p>
         </div>
 
@@ -104,8 +198,12 @@ const fileAccept =
         <form
             v-else
             class="space-y-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40"
-            @submit.prevent="submit"
+            @submit.prevent="submitForReview"
         >
+            <p v-if="uploadError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                {{ uploadError }}
+            </p>
+
             <div>
                 <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
                     <Upload class="h-4 w-4 text-[var(--color-primary)]" />
@@ -115,13 +213,33 @@ const fileAccept =
                 <div class="mt-3 grid gap-4 sm:grid-cols-2">
                     <div>
                         <label class="block text-xs font-medium uppercase text-zinc-500">Frente</label>
-                        <input type="file" :accept="fileAccept" :class="inputFileClass" @change="onFile('rg_front', $event)" />
-                        <p v-if="form.errors.rg_front" class="mt-1 text-sm text-red-600">{{ form.errors.rg_front }}</p>
+                        <input
+                            type="file"
+                            :accept="fileAccept"
+                            :class="inputFileClass"
+                            :disabled="uploading.rg_front"
+                            @change="onFile('rg_front', $event)"
+                        />
+                        <p v-if="uploading.rg_front" class="mt-1 flex items-center gap-1 text-xs text-zinc-500">
+                            <Loader2 class="h-3 w-3 animate-spin" /> Enviando…
+                        </p>
+                        <p v-else-if="uploaded.rg_front" class="mt-1 text-xs text-emerald-600">Arquivo recebido</p>
+                        <p v-if="fieldErrors.rg_front" class="mt-1 text-sm text-red-600">{{ fieldErrors.rg_front }}</p>
                     </div>
                     <div>
                         <label class="block text-xs font-medium uppercase text-zinc-500">Verso</label>
-                        <input type="file" :accept="fileAccept" :class="inputFileClass" @change="onFile('rg_back', $event)" />
-                        <p v-if="form.errors.rg_back" class="mt-1 text-sm text-red-600">{{ form.errors.rg_back }}</p>
+                        <input
+                            type="file"
+                            :accept="fileAccept"
+                            :class="inputFileClass"
+                            :disabled="uploading.rg_back"
+                            @change="onFile('rg_back', $event)"
+                        />
+                        <p v-if="uploading.rg_back" class="mt-1 flex items-center gap-1 text-xs text-zinc-500">
+                            <Loader2 class="h-3 w-3 animate-spin" /> Enviando…
+                        </p>
+                        <p v-else-if="uploaded.rg_back" class="mt-1 text-xs text-emerald-600">Arquivo recebido</p>
+                        <p v-if="fieldErrors.rg_back" class="mt-1 text-sm text-red-600">{{ fieldErrors.rg_back }}</p>
                     </div>
                 </div>
             </div>
@@ -132,18 +250,28 @@ const fileAccept =
                     Empresa
                 </h2>
                 <p class="mt-1 text-xs text-zinc-500">
-                    Envie <strong>um arquivo</strong>: cartão CNPJ <strong>ou</strong> contrato social (o que preferir). Imagem ou PDF, mesmos formatos acima.
+                    Cartão CNPJ <strong>ou</strong> contrato social (imagem ou PDF).
                 </p>
                 <div class="mt-3 max-w-xl">
-                    <label class="block text-xs font-medium uppercase text-zinc-500">Documento da empresa (CNPJ ou contrato)</label>
-                    <input type="file" :accept="fileAccept" :class="inputFileClass" @change="onFile('company_document', $event)" />
-                    <p v-if="form.errors.company_document" class="mt-1 text-sm text-red-600">{{ form.errors.company_document }}</p>
+                    <label class="block text-xs font-medium uppercase text-zinc-500">Documento da empresa</label>
+                    <input
+                        type="file"
+                        :accept="fileAccept"
+                        :class="inputFileClass"
+                        :disabled="uploading.company_document"
+                        @change="onFile('company_document', $event)"
+                    />
+                    <p v-if="uploading.company_document" class="mt-1 flex items-center gap-1 text-xs text-zinc-500">
+                        <Loader2 class="h-3 w-3 animate-spin" /> Enviando…
+                    </p>
+                    <p v-else-if="uploaded.company_document" class="mt-1 text-xs text-emerald-600">Arquivo recebido</p>
+                    <p v-if="fieldErrors.company_document" class="mt-1 text-sm text-red-600">{{ fieldErrors.company_document }}</p>
                 </div>
             </div>
 
             <div class="flex flex-wrap justify-end gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
-                <Button type="submit" :disabled="form.processing">
-                    {{ form.processing ? 'Enviando…' : 'Enviar para análise' }}
+                <Button type="submit" :disabled="finalizeProcessing || !canFinalize">
+                    {{ finalizeProcessing ? 'Enviando…' : 'Enviar para análise' }}
                 </Button>
             </div>
         </form>

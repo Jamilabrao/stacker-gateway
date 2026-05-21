@@ -41,16 +41,6 @@ class StorageUrlNormalizer
         if (! isset($parsed['path']) || ! str_starts_with($parsed['path'], $this->storagePathPrefix)) {
             return $value;
         }
-        $parsedHost = ($parsed['scheme'] ?? '') . '://' . ($parsed['host'] ?? '');
-        if (isset($parsed['port'])) {
-            $parsedHost .= ':' . $parsed['port'];
-        }
-        $appParsed = parse_url($this->appHost);
-        $appHostNorm = ($appParsed['host'] ?? '');
-        $valueHostNorm = $parsed['host'] ?? '';
-        if (strtolower($valueHostNorm) !== strtolower($appHostNorm)) {
-            return $value;
-        }
         $path = substr($parsed['path'], strlen($this->storagePathPrefix));
 
         return ltrim($path, '/');
@@ -73,7 +63,12 @@ class StorageUrlNormalizer
         $appParsed = parse_url($this->appHost);
         $appHostNorm = strtolower($appParsed['host'] ?? '');
 
-        return $valueHostNorm === $appHostNorm;
+        if ($valueHostNorm === $appHostNorm) {
+            return true;
+        }
+
+        // Domínio antigo (ex.: após mudar APP_URL) — ainda é arquivo em /storage/ migrado para R2.
+        return $valueHostNorm !== '';
     }
 
     /**

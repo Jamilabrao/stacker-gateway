@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Services\CajuPay\CajuPaySdkCheckoutService;
 use App\Services\PaymentService;
+use App\Support\CajuPayBrowserSdk;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -80,7 +81,7 @@ class CajuPayCheckoutSdkController extends Controller
             'token' => $created['token'],
             'checkout_session_id' => $created['checkout_session_id'],
             'methods_available' => is_array($methods) ? $methods : null,
-            'sdk_base_url' => rtrim((string) config('services.cajupay.base_url', 'https://api.cajupay.com.br'), '/'),
+            'sdk_base_url' => CajuPayBrowserSdk::apiBaseUrlForBrowser($request),
         ]);
     }
 

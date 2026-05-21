@@ -39,7 +39,12 @@ class AccessEmailLoginLinkTest extends TestCase
 
         Mail::assertSent(AccessGrantedMail::class, function (AccessGrantedMail $mail) {
             return str_contains($mail->htmlBody, '/login')
-                && ! str_contains($mail->htmlBody, '/access?m=');
+                && ! str_contains($mail->htmlBody, '/access?m=')
+                && ! str_contains($mail->htmlBody, '/m/curso-teste');
         });
+
+        $link = $service->getAccessLinkForOrder($order->fresh());
+        $this->assertStringContainsString('/login', $link);
+        $this->assertStringNotContainsString('/m/', $link);
     }
 }

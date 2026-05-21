@@ -13,6 +13,7 @@ use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Subscription;
 use App\Services\CajuPay\CajuPaySdkCheckoutService;
+use App\Support\CajuPayCheckoutMetadata;
 use App\Services\EfiPixRecorrenteService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -79,7 +80,10 @@ class ProcessPaymentWebhook implements ShouldQueue
                 return;
             }
             $apiStatus = $this->fetchGatewayTransactionStatus($order);
-            if ($apiStatus !== 'paid' && $this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.paid') {
+            $trustedCajuCheckoutWebhook = $this->gatewaySlug === 'cajupay'
+                && $this->event === 'checkout.payment.paid'
+                && ($this->payload['webhook_source'] ?? '') !== '';
+            if ($apiStatus !== 'paid' && $trustedCajuCheckoutWebhook) {
                 $apiStatus = 'paid';
             }
             if ($apiStatus !== 'paid') {
@@ -200,6 +204,7 @@ class ProcessPaymentWebhook implements ShouldQueue
         return Order::query()
             ->where(function ($q) use ($tid) {
                 $q->where('metadata->cajupay_checkout_session_id', $tid)
+                    ->orWhere('metadata->cajupay_session_token', $tid)
                     ->orWhere('metadata->cajupay_sdk_token', $tid);
             })
             ->first();
@@ -240,10 +245,7 @@ class ProcessPaymentWebhook implements ShouldQueue
         }
 
         if ($this->gatewaySlug === 'cajupay') {
-            $meta = is_array($order->metadata) ? $order->metadata : [];
-            $publicToken = isset($meta['cajupay_sdk_token']) && is_string($meta['cajupay_sdk_token'])
-                ? trim($meta['cajupay_sdk_token'])
-                : '';
+            $publicToken = CajuPayCheckoutMetadata::publicSessionToken($order) ?? '';
             if ($publicToken !== '') {
                 $fromSdk = app(CajuPaySdkCheckoutService::class)->getPublicSessionStatus($publicToken, $credentials);
                 if ($fromSdk !== null) {

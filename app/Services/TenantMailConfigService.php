@@ -64,15 +64,15 @@ class TenantMailConfigService
             }
             return ['host' => $host, 'port' => $port, 'encryption' => $encryption, 'username' => $username, 'password' => $password];
         }
-        $host = $overrides['smtp_host'] ?? Setting::get('smtp_host', config('mail.mailers.smtp.host'), $tenantId);
-        $port = (int) ($overrides['smtp_port'] ?? Setting::get('smtp_port', config('mail.mailers.smtp.port'), $tenantId));
-        $encryption = $overrides['smtp_encryption'] ?? Setting::get('smtp_encryption', config('mail.mailers.smtp.encryption'), $tenantId);
+        $host = trim((string) ($overrides['smtp_host'] ?? Setting::get('smtp_host', '', $tenantId)));
+        $port = (int) ($overrides['smtp_port'] ?? Setting::get('smtp_port', '587', $tenantId));
+        $encryption = $overrides['smtp_encryption'] ?? Setting::get('smtp_encryption', 'tls', $tenantId);
         if ($encryption === '' || $encryption === null) {
             $encryption = null;
         } elseif (! in_array($encryption, ['tls', 'ssl'], true)) {
             $encryption = 'tls';
         }
-        $username = $overrides['smtp_username'] ?? Setting::get('smtp_username', config('mail.mailers.smtp.username'), $tenantId);
+        $username = $overrides['smtp_username'] ?? Setting::get('smtp_username', '', $tenantId);
         $password = $overrides['smtp_password'] ?? null;
         if ($password === null) {
             $encrypted = Setting::get('smtp_password', null, $tenantId);
@@ -140,6 +140,62 @@ class TenantMailConfigService
         $config = $this->getMailConfigForProvider(null, $overrides, $provider);
 
         $this->applySmtpConfigToLaravel($config, $tenantId, $provider, $overrides);
+    }
+
+    /**
+     * Aplica SMTP para redefinição de senha: tenant do usuário → SMTP global da plataforma → primeiro tenant com e-mail.
+     *
+     * @throws \RuntimeException quando nenhum provedor está configurado
+     */
+    public function applyForPasswordReset(?\App\Models\User $user): void
+    {
+        if ($user?->canAccessPlatformPanel()) {
+            if (! $this->isEmailConfigured(null)) {
+                throw new \RuntimeException('Configure o SMTP em Plataforma → Configurações → E-mail.');
+            }
+            $this->applyPlatformGlobalMailerConfig();
+
+            return;
+        }
+
+        $tenantId = $user?->tenant_id;
+        if ($tenantId !== null && $this->isEmailConfigured($tenantId)) {
+            $this->applyMailerConfigForTenant($tenantId);
+
+            return;
+        }
+
+        if ($this->isEmailConfigured(null)) {
+            $this->applyPlatformGlobalMailerConfig();
+
+            return;
+        }
+
+        $resolved = $this->resolveTenantIdForMail(null);
+        if ($resolved !== null && $this->isEmailConfigured($resolved)) {
+            $this->applyMailerConfigForTenant($resolved);
+
+            return;
+        }
+
+        throw new \RuntimeException(
+            'Nenhum servidor de e-mail configurado. Em Configurações → E-mail, preencha SMTP, Hostinger ou SendGrid e salve.'
+        );
+    }
+
+    /**
+     * Evita envio silencioso para 127.0.0.1:2525 (default do .env) quando o painel não tem host SMTP.
+     */
+    public function assertSmtpHostIsConfigured(): void
+    {
+        $host = trim((string) config('mail.mailers.smtp.host'));
+        $port = (int) config('mail.mailers.smtp.port');
+        $isLaravelDevDefault = ($host === '127.0.0.1' || $host === 'localhost') && $port === 2525;
+        if ($host === '' || $isLaravelDevDefault) {
+            throw new \RuntimeException(
+                'Servidor SMTP inválido ou não configurado. Verifique Configurações → E-mail (host, porta e senha).'
+            );
+        }
     }
 
     /**

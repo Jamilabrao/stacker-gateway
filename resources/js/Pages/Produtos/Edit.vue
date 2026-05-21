@@ -61,7 +61,7 @@ const DEFAULT_EMAIL_TEMPLATE = {
     logo_url: '',
     from_name: '',
     subject: 'Seu acesso a {nome_produto}',
-    body_html: '<p>Olá, {nome_cliente}!</p><p>Obrigado por adquirir <strong>{nome_produto}</strong>.</p><p>Use o link abaixo para acessar seu conteúdo:</p><p><a href="{link_acesso}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;">Acessar agora</a></p><p>Ou copie e cole no navegador: {link_acesso}</p><p>Qualquer dúvida, responda este e-mail.</p>',
+    body_html: '<p>Olá, {nome_cliente}!</p><p>Obrigado por adquirir <strong>{nome_produto}</strong>.</p><p>Clique no botão abaixo para fazer login e ver todos os seus produtos em Minha área:</p><p><a href="{link_acesso}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Fazer login</a></p><p style="font-size:14px;color:#64748b;">Ou copie e cole no navegador: {link_acesso}</p><p>Qualquer dúvida, responda este e-mail.</p>',
 };
 
 const PIXEL_TABS = computed(() => [
@@ -325,28 +325,25 @@ watch(maxAllowedInstallments, (maxAllowed) => {
     }
 }, { immediate: true });
 
-/** Cartões de método no checkout (mesmas imagens que DefaultMethodCard / checkout). */
+const paymentMethodMeta = {
+    pix: { label: 'PIX', hint: 'Pagamento instantâneo', visual: 'pix' },
+    card: { label: 'Cartão', hint: 'Crédito ou débito', visual: 'card' },
+    apple_pay: { label: 'Apple Pay', hint: 'Checkout: só iPhone/iPad (iOS)', visual: 'apple_pay' },
+    google_pay: { label: 'Google Pay', hint: 'Checkout: Android ou computador', visual: 'google_pay' },
+    boleto: { label: 'Boleto', hint: 'Compensação bancária', visual: 'boleto' },
+    pix_auto: { label: 'PIX automático', hint: 'Débito recorrente na assinatura', visual: 'pix_auto' },
+};
+
+/** Somente métodos com gateway ativo na plataforma (configuração admin + credencial conectada). */
 const paymentMethodCardsList = computed(() => {
-    const list = [
-        { key: 'pix', label: 'PIX', hint: 'Pagamento instantâneo', visual: 'pix' },
-        { key: 'card', label: 'Cartão', hint: 'Crédito ou débito', visual: 'card' },
-    ];
-    if (props.checkout_gateway_ui?.digital_wallets_at_checkout) {
-        list.push(
-            { key: 'apple_pay', label: 'Apple Pay', hint: 'Checkout: só iPhone/iPad (iOS)', visual: 'apple_pay' },
-            { key: 'google_pay', label: 'Google Pay', hint: 'Checkout: Android ou computador', visual: 'google_pay' }
-        );
-    }
-    list.push({ key: 'boleto', label: 'Boleto', hint: 'Compensação bancária', visual: 'boleto' });
+    const avail = props.global_payment_methods_available ?? {};
+    const order = ['pix', 'card', 'apple_pay', 'google_pay', 'boleto'];
     if (form.billing_type === 'subscription') {
-        list.push({
-            key: 'pix_auto',
-            label: 'PIX automático',
-            hint: 'Débito recorrente na assinatura',
-            visual: 'pix_auto',
-        });
+        order.push('pix_auto');
     }
-    return list;
+    return order
+        .filter((key) => avail[key] === true && paymentMethodMeta[key])
+        .map((key) => ({ key, ...paymentMethodMeta[key] }));
 });
 
 /** Grid compacto: mais colunas, cartões menores. */
@@ -1476,12 +1473,18 @@ function submit() {
                             Escolha quais formas de pagamento ficam <strong class="font-medium text-zinc-800 dark:text-zinc-200">ativas neste produto</strong>.
                         </p>
                         <p
-                            v-if="checkout_gateway_ui?.digital_wallets_at_checkout"
+                            v-if="paymentMethodCardsList.some((m) => m.key === 'apple_pay' || m.key === 'google_pay')"
                             class="text-[11px] leading-snug text-zinc-400 dark:text-zinc-500"
                         >
                             Apple Pay e Google Pay no checkout respeitam o aparelho: Apple Pay só em iOS; Google Pay em Android ou desktop (não aparece no iPhone/iPad).
                         </p>
-                        <div class="grid gap-2 sm:gap-2.5" :class="paymentMethodGridClass">
+                        <p
+                            v-if="paymentMethodCardsList.length === 0"
+                            class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-200"
+                        >
+                            Nenhuma forma de pagamento está ativa na plataforma. Conecte e ordene os gateways no painel da plataforma (Financeiro / Gateways).
+                        </p>
+                        <div v-else class="grid gap-2 sm:gap-2.5" :class="paymentMethodGridClass">
                             <div
                                 v-for="m in paymentMethodCardsList"
                                 :key="m.key"
@@ -1492,14 +1495,14 @@ function submit() {
                                     form.payment_methods_enabled[m.key]
                                         ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/[0.08] shadow-sm dark:bg-[var(--color-primary)]/15'
                                         : 'border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50/80 dark:border-zinc-600 dark:bg-zinc-800/40 dark:hover:border-zinc-500 dark:hover:bg-zinc-800/70',
-                                    !paymentMethodAvailable(m.key) ? 'cursor-not-allowed opacity-60 hover:border-zinc-200 dark:hover:border-zinc-600' : 'cursor-pointer',
+                                    'cursor-pointer',
                                 ]"
                                 @click="onPaymentCardContainerClick(m)"
                                 @keydown.enter.prevent="onPaymentCardContainerClick(m)"
                                 @keydown.space.prevent="onPaymentCardContainerClick(m)"
                             >
                                 <span
-                                    v-if="form.payment_methods_enabled[m.key] && paymentMethodAvailable(m.key)"
+                                    v-if="form.payment_methods_enabled[m.key]"
                                     class="absolute right-1.5 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow"
                                     aria-hidden="true"
                                 >
@@ -1561,18 +1564,11 @@ function submit() {
                                 <div class="border-t border-zinc-100/90 px-2 py-2 text-center dark:border-zinc-700/80">
                                     <span class="block text-xs font-semibold leading-tight text-zinc-900 dark:text-white">{{ m.label }}</span>
                                     <span class="mt-0.5 block text-[10px] leading-snug text-zinc-500 dark:text-zinc-400">{{ m.hint }}</span>
-                                    <span
-                                        v-if="!paymentMethodAvailable(m.key)"
-                                        class="mt-1 block text-[10px] font-medium leading-tight text-amber-600 dark:text-amber-400"
-                                    >
-                                        Indisponível na plataforma
-                                    </span>
                                 </div>
                                 <button
                                     v-if="
                                         m.key === 'card' &&
-                                        checkout_gateway_ui.card_show_installments &&
-                                        paymentMethodAvailable('card')
+                                        checkout_gateway_ui.card_show_installments
                                     "
                                     type="button"
                                     class="absolute left-1 top-1 z-20 rounded-full border border-zinc-200/90 bg-white p-1 text-zinc-500 shadow-sm transition hover:border-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-[var(--color-primary)] dark:hover:text-[var(--color-primary)]"
@@ -1644,7 +1640,7 @@ function submit() {
                 </section>
 
                 <section
-                    v-if="form.type === 'produto_fisico'"
+                    v-if="form.type === 'produto_fisico' && $page.props.physical_products_enabled_effective"
                     class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95"
                 >
                     <div class="border-b border-zinc-200/80 bg-zinc-50/80 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/50">

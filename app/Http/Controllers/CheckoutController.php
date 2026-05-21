@@ -28,24 +28,35 @@ use App\Services\BuyerAccountService;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\GeoIp;
 use App\Services\PaymentService;
+use App\Services\PhysicalProductAccess;
 use App\Services\PushinPayPixRecorrenteService;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Services\Shipping\ShippingQuoteService;
 use App\Services\StorageService;
+use App\Services\Checkout\CheckoutAbuseGuard;
+use App\Services\CouponCheckoutService;
+use App\Support\CajuPayBrowserSdk;
 use App\Support\CheckoutCardContract;
+use App\Support\CheckoutPaymentConsumer;
 use App\Support\CheckoutTranslations;
-use App\Support\FakeConsumerData;
+use App\Support\CheckoutTurnstileSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class CheckoutController extends Controller
 {
+    private ?Request $idempotencyRequest = null;
+
+    /** @var array<string, mixed>|null */
+    private ?array $idempotencyValidated = null;
+
     private function rollbackFailedOrder(Order $order, \Throwable $originalError): void
     {
         try {
@@ -352,6 +363,7 @@ class CheckoutController extends Controller
         $payload['checkout_builder_preview'] = $request->query('preview') === '1';
 
         $payload['affiliate_ref'] = $affiliateRef;
+        $payload['turnstile'] = CheckoutTurnstileSettings::publicConfig();
 
         return Inertia::render('Checkout/Show', $payload);
     }
@@ -372,10 +384,7 @@ class CheckoutController extends Controller
         if ($code === '') {
             return response()->json(['valid' => false, 'message' => 'Código do cupom é obrigatório.']);
         }
-        $coupon = Coupon::forTenant($product->tenant_id)
-            ->where('code', $code)
-            ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
-            ->first();
+        $coupon = app(CouponCheckoutService::class)->findForProduct($product, $code);
         if (! $coupon) {
             return response()->json(['valid' => false, 'message' => 'Cupom inválido ou não disponível para este produto.']);
         }
@@ -417,6 +426,7 @@ class CheckoutController extends Controller
     {
         $validated = $request->validate([
             'order_id' => ['required', 'integer', 'min:1'],
+            'checkout_session_token' => ['required', 'string', 'max:64'],
             'token' => ['nullable', 'string', 'max:64'],
             'trigger_type' => ['nullable', 'string', 'in:approved,pix,boleto'],
         ]);
@@ -424,6 +434,16 @@ class CheckoutController extends Controller
         $order = Order::find($validated['order_id']);
         if (! $order) {
             return response()->json(['ok' => false], 404);
+        }
+
+        $session = CheckoutSession::where('session_token', $validated['checkout_session_token'])
+            ->where('product_id', $order->product_id)
+            ->first();
+        if (! $session) {
+            return response()->json(['message' => 'Sessão de checkout inválida.'], 403);
+        }
+        if ($session->order_id !== null && (int) $session->order_id !== (int) $order->id) {
+            return response()->json(['message' => 'Pedido não pertence à sessão.'], 403);
         }
 
         $meta = is_array($order->metadata) ? $order->metadata : [];
@@ -450,7 +470,7 @@ class CheckoutController extends Controller
         ]);
 
         $product = Product::findOrFail($validated['product_id']);
-        if (! $product->isPhysical()) {
+        if (! PhysicalProductAccess::globalEnabled() || ! $product->isPhysical()) {
             return response()->json([
                 'shipping_amount' => 0,
                 'free_shipping' => true,
@@ -518,8 +538,11 @@ class CheckoutController extends Controller
             'order_bump_ids' => ['nullable', 'array'],
             'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
             'payment_method' => ['required', 'string', 'in:pix,card,boleto,pix_auto,apple_pay,google_pay'],
-            'checkout_session_token' => ['nullable', 'string', 'max:64'],
+            'checkout_session_token' => ['required', 'string', 'max:64'],
             'idempotency_key' => ['nullable', 'string', 'max:128'],
+            'website' => ['nullable', 'string', 'max:255'],
+            '_hp' => ['nullable', 'string', 'max:255'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
             'display_currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
             'email' => ['required', 'email'],
             'name' => [($customerFields['name'] ?? true) ? 'required' : 'nullable', 'string', 'max:255'],
@@ -586,6 +609,17 @@ class CheckoutController extends Controller
             $rules['shipping_state'] = ['required', 'string', 'size:2'];
         }
         $validated = $request->validate($rules);
+        $this->idempotencyRequest = $request;
+        $this->idempotencyValidated = $validated;
+
+        $checkoutGuard = app(CheckoutAbuseGuard::class);
+        $fingerprintCached = $checkoutGuard->cachedResponseForFingerprint($request, $validated);
+        if ($fingerprintCached !== null) {
+            return $fingerprintCached;
+        }
+
+        $checkoutGuard->assertCanProcess($request, $product, $validated, false);
+
         $idempotencyKey = isset($validated['idempotency_key']) && trim((string) $validated['idempotency_key']) !== ''
             ? trim((string) $validated['idempotency_key'])
             : null;
@@ -655,17 +689,19 @@ class CheckoutController extends Controller
         $totalAmount = $amount + $bumpAmountTotal;
 
         $couponCode = isset($validated['coupon_code']) && trim($validated['coupon_code'] ?? '') !== '' ? trim($validated['coupon_code']) : null;
-        if ($couponCode !== null) {
-            $coupon = Coupon::forTenant($product->tenant_id)
-                ->where('code', $couponCode)
-                ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
-                ->first();
-            if ($coupon) {
-                $applied = $coupon->applyTo($product, $amount);
-                if ($applied !== null) {
-                    $amount = $applied['final_price'];
-                }
+        try {
+            $couponApplied = app(CouponCheckoutService::class)->applyOptional($product, $couponCode, $amount);
+            $amount = $couponApplied['amount'];
+            $couponCode = $couponApplied['coupon_code'];
+        } catch (ValidationException $e) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => collect($e->errors())->flatten()->first() ?? 'Cupom inválido.',
+                    'errors' => $e->errors(),
+                ], 422);
             }
+
+            return back()->withErrors($e->errors())->withInput();
         }
         $totalAmount = $amount + $bumpAmountTotal;
 
@@ -849,16 +885,7 @@ class CheckoutController extends Controller
             event(new OrderPending($order));
             try {
                 $paymentService = app(PaymentService::class);
-                $fake = FakeConsumerData::getForGateway($order->id);
-                $rawDoc = preg_replace('/\D/', '', $validated['cpf'] ?? '');
-                $consumer = [
-                    'name' => trim((string) ($validated['name'] ?? '')) !== ''
-                        ? $validated['name']
-                        : $fake['name'],
-                    'document' => strlen($rawDoc) >= 11 ? $rawDoc : $fake['document'],
-                    'email' => $validated['email'],
-                    'phone' => trim((string) ($validated['phone'] ?? '')),
-                ];
+                $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
                 $pixResult = $paymentService->createPixPayment($order, $product, $consumer);
                 event(new PixGenerated($order, [
                     'qrcode' => $pixResult['qrcode'] ?? null,
@@ -871,6 +898,7 @@ class CheckoutController extends Controller
                 $pixToken = \Illuminate\Support\Str::random(32);
                 session()->put('pix_display.'.$pixToken, [
                     'order_id' => $order->id,
+                    'checkout_session_token' => $validated['checkout_session_token'] ?? null,
                     'qrcode' => $pixResult['qrcode'] ?? null,
                     'copy_paste' => $pixResult['copy_paste'] ?? null,
                     'amount' => $totalAmount,
@@ -947,13 +975,7 @@ class CheckoutController extends Controller
                 $order->load('orderItems');
                 event(new OrderPending($order));
 
-                $rawDoc = preg_replace('/\D/', '', $validated['cpf'] ?? '');
-                $fake = FakeConsumerData::getForGateway($order->id);
-                $consumer = [
-                    'name' => trim((string) ($validated['name'] ?? '')) !== '' ? $validated['name'] : $fake['name'],
-                    'document' => strlen($rawDoc) >= 11 ? $rawDoc : $fake['document'],
-                    'email' => $validated['email'],
-                ];
+                $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
 
                 try {
                     $webhookUrl = route('webhooks.pushinpay');
@@ -1002,6 +1024,7 @@ class CheckoutController extends Controller
                     $pixToken = Str::random(32);
                     session()->put('pix_display.'.$pixToken, [
                         'order_id' => $order->id,
+                        'checkout_session_token' => $validated['checkout_session_token'] ?? null,
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
                         'amount' => $totalAmount,
@@ -1059,13 +1082,7 @@ class CheckoutController extends Controller
                 $base = 'pixauto'.$order->id;
                 $txid = $base.Str::random(max(26 - strlen($base), 10));
                 $txid = substr($txid, 0, 35);
-                $rawDoc = preg_replace('/\D/', '', $validated['cpf'] ?? '');
-                $fake = FakeConsumerData::getForGateway($order->id);
-                $consumer = [
-                    'name' => trim((string) ($validated['name'] ?? '')) !== '' ? $validated['name'] : $fake['name'],
-                    'document' => strlen($rawDoc) >= 11 ? $rawDoc : $fake['document'],
-                    'email' => $validated['email'],
-                ];
+                $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
 
                 try {
                     $efiRecorrente = new EfiPixRecorrenteService($credentials);
@@ -1154,6 +1171,7 @@ class CheckoutController extends Controller
                     $pixToken = Str::random(32);
                     session()->put('pix_display.'.$pixToken, [
                         'order_id' => $order->id,
+                        'checkout_session_token' => $validated['checkout_session_token'] ?? null,
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
                         'amount' => $totalAmount,
@@ -1285,14 +1303,7 @@ class CheckoutController extends Controller
             if ($checkoutSlug !== '') {
                 $card['return_url'] = url()->route('checkout.show', ['slug' => $checkoutSlug]);
             }
-            $rawDoc = preg_replace('/\D/', '', $validated['cpf'] ?? '');
-            $fake = FakeConsumerData::getForGateway($order->id);
-            $consumer = [
-                'name' => trim((string) ($validated['name'] ?? '')) !== '' ? $validated['name'] : $fake['name'],
-                'document' => strlen($rawDoc) >= 11 ? $rawDoc : $fake['document'],
-                'email' => $validated['email'],
-                'phone' => $validated['phone'] ?? '',
-            ];
+            $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
             $zipCode = preg_replace('/\D/', '', $validated['address_zipcode'] ?? '');
             if (strlen($zipCode) >= 8) {
                 $consumer['address'] = [
@@ -1405,16 +1416,7 @@ class CheckoutController extends Controller
             event(new OrderPending($order));
             try {
                 $paymentService = app(PaymentService::class);
-                $fake = FakeConsumerData::getForGateway($order->id);
-                $rawDoc = preg_replace('/\D/', '', $validated['cpf'] ?? '');
-                $consumer = [
-                    'name' => trim((string) ($validated['name'] ?? '')) !== ''
-                        ? $validated['name']
-                        : $fake['name'],
-                    'document' => strlen($rawDoc) >= 11 ? $rawDoc : $fake['document'],
-                    'email' => $validated['email'],
-                    'phone' => $validated['phone'] ?? '',
-                ];
+                $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
                 $zipCode = preg_replace('/\D/', '', $validated['address_zipcode'] ?? '');
                 if (strlen($zipCode) >= 8) {
                     $consumer['address'] = [
@@ -1441,6 +1443,7 @@ class CheckoutController extends Controller
                 $amountFormatted = 'R$ '.number_format((float) ($boletoResult['amount'] ?? $totalAmount), 2, ',', '.');
                 session()->put('boleto_display.'.$boletoToken, [
                     'order_id' => $order->id,
+                    'checkout_session_token' => $validated['checkout_session_token'] ?? null,
                     'amount' => $boletoResult['amount'] ?? $totalAmount,
                     'amount_formatted' => $amountFormatted,
                     'expire_at' => $boletoResult['expire_at'] ?? null,
@@ -1544,9 +1547,12 @@ class CheckoutController extends Controller
 
         $conversionPixels = AffiliateConversionPixels::forOrder($order);
 
+        $checkoutSessionToken = (string) ($stored['checkout_session_token'] ?? CheckoutSession::where('order_id', $orderId)->orderByDesc('id')->value('session_token') ?? '');
+
         return Inertia::render('Checkout/Pix', [
             'token' => $token,
             'order_id' => $orderId,
+            'checkout_session_token' => $checkoutSessionToken,
             'qrcode' => $stored['qrcode'] ?? null,
             'copy_paste' => $stored['copy_paste'] ?? null,
             'amount' => $amount,
@@ -1594,9 +1600,12 @@ class CheckoutController extends Controller
 
         $amount = (float) $order->amount;
 
+        $checkoutSessionToken = (string) ($stored['checkout_session_token'] ?? CheckoutSession::where('order_id', $orderId)->orderByDesc('id')->value('session_token') ?? '');
+
         return Inertia::render('Checkout/Boleto', [
             'token' => $token,
             'order_id' => $orderId,
+            'checkout_session_token' => $checkoutSessionToken,
             'amount' => $amount,
             'amount_formatted' => $stored['amount_formatted'] ?? ('R$ '.number_format($amount, 2, ',', '.')),
             'expire_at' => $stored['expire_at'] ?? null,
@@ -1630,7 +1639,10 @@ class CheckoutController extends Controller
             'order_bump_ids' => ['nullable', 'array'],
             'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
             'payment_method' => ['required', 'string', 'in:card,apple_pay,google_pay'],
-            'checkout_session_token' => ['nullable', 'string', 'max:64'],
+            'checkout_session_token' => ['required', 'string', 'max:64'],
+            'website' => ['nullable', 'string', 'max:255'],
+            '_hp' => ['nullable', 'string', 'max:255'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
             'display_currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
             'coupon_code' => ['nullable', 'string', 'max:64'],
         ];
@@ -1645,6 +1657,15 @@ class CheckoutController extends Controller
             $rules = $shippingHelper->appendAddressRulesIfNeeded($product, $rules);
         }
         $validated = $request->validate($rules);
+
+        $sessionEmail = strtolower(trim((string) $request->input('email', '')));
+        if ($sessionEmail === '') {
+            $sessionEmail = 'cajupay.'.substr(hash('sha256', $validated['checkout_session_token']), 0, 16).'@checkout.invalid';
+        }
+        app(CheckoutAbuseGuard::class)->assertCanProcess($request, $product, array_merge($validated, [
+            'payment_method' => $validated['payment_method'],
+            'email' => $sessionEmail,
+        ]), false);
 
         try {
             $context = $this->calculateCajuPayDraftContext($request, $product, $validated);
@@ -1732,6 +1753,7 @@ class CheckoutController extends Controller
             'polling_token' => $pollingToken,
             'methods_available' => $availableMethods,
             'method_supported' => $availableMethods === [] ? null : in_array($method, $availableMethods, true),
+            'sdk_base_url' => CajuPayBrowserSdk::apiBaseUrlForBrowser($request),
         ]);
     }
 
@@ -1742,6 +1764,9 @@ class CheckoutController extends Controller
     {
         $rules = [
             'polling_token' => ['required', 'string', 'size:32'],
+            'website' => ['nullable', 'string', 'max:255'],
+            '_hp' => ['nullable', 'string', 'max:255'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
             'email' => ['required', 'email'],
             'name' => ['nullable', 'string', 'max:255'],
             'cpf' => ['nullable', 'string', 'max:11'],
@@ -1808,6 +1833,16 @@ class CheckoutController extends Controller
             return response()->json(['message' => 'Dados do cliente incompletos.', 'errors' => $errors], 422);
         }
 
+        $draftSessionToken = is_string($draft['checkout_session_token'] ?? null) ? trim($draft['checkout_session_token']) : '';
+        if ($draftSessionToken !== '') {
+            app(CheckoutAbuseGuard::class)->assertCanProcess($request, $product, [
+                'checkout_session_token' => $draftSessionToken,
+                'payment_method' => (string) ($draft['payment_method'] ?? 'card'),
+                'email' => $validated['email'],
+                'product_id' => $product->id,
+            ], false);
+        }
+
         try {
             $context = $this->createUserAndOrderFromCajuPayDraft($request, $product, $draft, $validated);
         } catch (\Throwable $e) {
@@ -1829,6 +1864,8 @@ class CheckoutController extends Controller
         ]));
 
         event(new OrderPending($order->fresh()));
+
+        app(\App\Services\CajuPay\CajuPayCheckoutCompletionService::class)->applyPendingForOrder($order->fresh());
 
         $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
         $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
@@ -1920,18 +1957,9 @@ class CheckoutController extends Controller
         $couponCode = isset($validated['coupon_code']) && trim((string) ($validated['coupon_code'] ?? '')) !== ''
             ? trim((string) $validated['coupon_code'])
             : null;
-        if ($couponCode !== null) {
-            $coupon = Coupon::forTenant($product->tenant_id)
-                ->where('code', $couponCode)
-                ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
-                ->first();
-            if ($coupon) {
-                $applied = $coupon->applyTo($product, $amount);
-                if ($applied !== null) {
-                    $amount = $applied['final_price'];
-                }
-            }
-        }
+        $couponApplied = app(CouponCheckoutService::class)->applyOptional($product, $couponCode, $amount);
+        $amount = $couponApplied['amount'];
+        $couponCode = $couponApplied['coupon_code'];
         $totalAmount = $amount + $bumpAmountTotal;
 
         $periodStart = null;
@@ -2038,9 +2066,11 @@ class CheckoutController extends Controller
             $user->update(['name' => trim((string) $validated['name'])]);
         }
 
+        $cajupayToken = $draft['cajupay_token'] ?? null;
         $orderMetadata = [
             'checkout_payment_method' => $draft['payment_method'],
-            'cajupay_session_token' => $draft['cajupay_token'] ?? null,
+            'cajupay_session_token' => $cajupayToken,
+            'cajupay_sdk_token' => $cajupayToken,
             'cajupay_checkout_session_id' => $draft['checkout_session_id'] ?? null,
         ];
         if ($product->type === Product::TYPE_AREA_MEMBROS && $plainPassword !== null) {
@@ -2165,42 +2195,65 @@ class CheckoutController extends Controller
             return response()->json(['status' => 'not_found'], 404);
         }
 
-        if ($order->status === 'pending' && ! empty($order->gateway) && ! empty($order->gateway_id)) {
-            $gatewaySlug = (string) $order->gateway;
-            try {
-                $credential = GatewayCredential::resolveForPayment($order->tenant_id, $gatewaySlug);
-                if ($credential) {
-                    $credentials = $credential->getDecryptedCredentials();
-                    $driver = GatewayRegistry::driver($gatewaySlug);
-                    $efiNeedsCert = $gatewaySlug === 'efi' && empty($credentials['certificate_path'] ?? '');
-                    if ($driver && $credentials !== [] && ! $efiNeedsCert) {
-                        $statusLookupId = (string) $order->gateway_id;
-                        if ($gatewaySlug === 'cajupay') {
-                            $meta = $order->metadata;
-                            $sessionTok = is_array($meta) ? ($meta['cajupay_session_token'] ?? null) : null;
-                            if (is_string($sessionTok) && $sessionTok !== '') {
-                                $statusLookupId = $sessionTok;
+        if ($order->status === 'pending') {
+            $gatewaySlug = (string) ($order->gateway ?: '');
+            $meta = is_array($order->metadata) ? $order->metadata : [];
+            $cajupaySessionToken = is_string($meta['cajupay_session_token'] ?? null) ? trim($meta['cajupay_session_token']) : '';
+            if ($cajupaySessionToken === '' && is_string($meta['cajupay_sdk_token'] ?? null)) {
+                $cajupaySessionToken = trim($meta['cajupay_sdk_token']);
+            }
+            if ($cajupaySessionToken === '' && is_string($stored['session_token'] ?? null)) {
+                $cajupaySessionToken = trim($stored['session_token']);
+            }
+            $isCajuPayCheckout = $gatewaySlug === 'cajupay'
+                || ($cajupaySessionToken !== '' && in_array($order->payment_method, ['card', 'apple_pay', 'google_pay'], true));
+
+            if ($isCajuPayCheckout && $cajupaySessionToken !== '') {
+                try {
+                    app(\App\Services\CajuPay\CajuPayCheckoutCompletionService::class)->tryCompleteFromPublicSession($order);
+                    $order->refresh();
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::debug('CheckoutController orderStatus: falha poll CajuPay SDK', [
+                        'order_id' => $order->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            } elseif (! empty($order->gateway) && ! empty($order->gateway_id)) {
+                try {
+                    $credential = GatewayCredential::resolveForPayment($order->tenant_id, $gatewaySlug);
+                    if ($credential) {
+                        $credentials = $credential->getDecryptedCredentials();
+                        $driver = GatewayRegistry::driver($gatewaySlug);
+                        $efiNeedsCert = $gatewaySlug === 'efi' && empty($credentials['certificate_path'] ?? '');
+                        if ($driver && $credentials !== [] && ! $efiNeedsCert) {
+                            $statusLookupId = (string) $order->gateway_id;
+                            if ($gatewaySlug === 'cajupay' && $cajupaySessionToken !== '') {
+                                $statusLookupId = $cajupaySessionToken;
+                            }
+                            $apiStatus = $driver->getTransactionStatus($statusLookupId, $credentials);
+                            if ($apiStatus === 'paid') {
+                                $dispatchId = (string) ($order->gateway_id ?: $statusLookupId);
+                                ProcessPaymentWebhook::dispatchSync(
+                                    $gatewaySlug,
+                                    $dispatchId,
+                                    $gatewaySlug === 'cajupay' ? 'checkout.payment.paid' : 'order.paid',
+                                    'paid',
+                                    [
+                                        'source' => 'order_status_poll',
+                                        'webhook_source' => $gatewaySlug === 'cajupay' ? 'cajupay_public_session_poll' : '',
+                                    ]
+                                );
+                                $order->refresh();
                             }
                         }
-                        $apiStatus = $driver->getTransactionStatus($statusLookupId, $credentials);
-                        if ($apiStatus === 'paid') {
-                            ProcessPaymentWebhook::dispatchSync(
-                                $gatewaySlug,
-                                (string) $order->gateway_id,
-                                'order.paid',
-                                'paid',
-                                ['source' => 'order_status_poll']
-                            );
-                            $order->refresh();
-                        }
                     }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::debug('CheckoutController orderStatus: falha ao consultar status no gateway', [
+                        'order_id' => $order->id,
+                        'gateway' => $gatewaySlug,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::debug('CheckoutController orderStatus: falha ao consultar status no gateway', [
-                    'order_id' => $order->id,
-                    'gateway' => $gatewaySlug,
-                    'error' => $e->getMessage(),
-                ]);
             }
         }
 
@@ -2315,18 +2368,7 @@ class CheckoutController extends Controller
         $couponCode = isset($validated['coupon_code']) && trim((string) ($validated['coupon_code'] ?? '')) !== ''
             ? trim((string) $validated['coupon_code'])
             : null;
-        if ($couponCode !== null) {
-            $coupon = Coupon::forTenant($product->tenant_id)
-                ->where('code', $couponCode)
-                ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
-                ->first();
-            if ($coupon) {
-                $applied = $coupon->applyTo($product, $amount);
-                if ($applied !== null) {
-                    $amount = $applied['final_price'];
-                }
-            }
-        }
+        $amount = app(CouponCheckoutService::class)->tryApply($product, $couponCode, $amount);
         $orderBumpIds = array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])));
         $bumpTotal = 0.0;
         if ($orderBumpIds !== []) {
@@ -2368,6 +2410,14 @@ class CheckoutController extends Controller
     private function idempotencyReturn(?string $key, RedirectResponse|JsonResponse $response): RedirectResponse|JsonResponse
     {
         if ($key === null || $key === '' || strlen($key) > 128) {
+            if ($this->idempotencyRequest !== null && $this->idempotencyValidated !== null) {
+                app(CheckoutAbuseGuard::class)->rememberFingerprintResponse(
+                    $this->idempotencyRequest,
+                    $this->idempotencyValidated,
+                    $response
+                );
+            }
+
             return $response;
         }
         if ($response instanceof RedirectResponse) {
@@ -2381,6 +2431,14 @@ class CheckoutController extends Controller
                 'type' => 'json',
                 'data' => json_decode($response->getContent(), true),
             ], now()->addMinutes(1440));
+        }
+
+        if ($this->idempotencyRequest !== null && $this->idempotencyValidated !== null) {
+            app(CheckoutAbuseGuard::class)->rememberFingerprintResponse(
+                $this->idempotencyRequest,
+                $this->idempotencyValidated,
+                $response
+            );
         }
 
         return $response;

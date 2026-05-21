@@ -1,0 +1,45 @@
+<?php
+
+namespace Tests\Unit;
+
+use App\Models\GatewayCredential;
+use App\Support\GatewayInboundWebhookAuth;
+use Illuminate\Http\Request;
+use Tests\TestCase;
+
+class GatewayInboundWebhookAuthTest extends TestCase
+{
+    public function test_fail_closed_when_webhook_secret_missing(): void
+    {
+        $request = Request::create('/webhooks/gateways/asaas', 'POST', [], [], [], [], '{"payment":{"id":"pay_1"}}');
+
+        $this->assertFalse(GatewayInboundWebhookAuth::verifyHmacSha256Body($request, 'asaas', 1, 'X-Webhook-Signature'));
+    }
+
+    public function test_accepts_valid_hmac_when_secret_configured(): void
+    {
+        $secret = 'test-webhook-secret';
+        $credential = GatewayCredential::create([
+            'tenant_id' => null,
+            'gateway_slug' => 'pushinpay',
+            'credentials' => '',
+            'is_connected' => true,
+        ]);
+        $credential->setEncryptedCredentials(['webhook_secret' => $secret]);
+        $credential->save();
+
+        $body = '{"id":"tx_1","status":"paid"}';
+        $signature = 'sha256='.hash_hmac('sha256', $body, $secret);
+        $request = Request::create(
+            '/webhooks/gateways/pushinpay',
+            'POST',
+            [],
+            [],
+            [],
+            ['HTTP_X-Webhook-Signature' => $signature],
+            $body
+        );
+
+        $this->assertTrue(GatewayInboundWebhookAuth::verifyHmacSha256Body($request, 'pushinpay', 1, 'X-Webhook-Signature'));
+    }
+}

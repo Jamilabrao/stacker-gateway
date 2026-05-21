@@ -29,7 +29,7 @@ class CheckoutSession extends Model
 
     protected $fillable = [
         'tenant_id', 'product_id', 'product_offer_id', 'subscription_plan_id',
-        'checkout_slug', 'session_token', 'step', 'email', 'name',
+        'checkout_slug', 'session_token', 'step', 'email', 'name', 'cpf', 'phone',
         'customer_ip', 'order_id',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'sck', 'src',
         'abandoned_webhook_fired_at',

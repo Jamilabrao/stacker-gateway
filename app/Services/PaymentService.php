@@ -10,6 +10,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
+use App\Support\GatewayApiCredentials;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
@@ -40,7 +41,7 @@ class PaymentService
                 continue;
             }
             $credentials = $credential->getDecryptedCredentials();
-            if (empty($credentials)) {
+            if (! GatewayApiCredentials::isReadyForGateway($gatewaySlug, $credentials)) {
                 continue;
             }
             $driver = GatewayRegistry::driver($gatewaySlug);
@@ -62,15 +63,21 @@ class PaymentService
                     (string) $order->id,
                     $postbackUrl
                 );
+                $copyPaste = $result['copy_paste'] ?? null;
+                $qrcode = $result['qrcode'] ?? null;
+                if ((! is_string($copyPaste) || $copyPaste === '') && (! is_string($qrcode) || $qrcode === '')) {
+                    throw new \RuntimeException('PIX gerado sem código de pagamento. Tente novamente.');
+                }
                 $order->update([
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
                 ]);
+
                 return [
                     'transaction_id' => $result['transaction_id'] ?? '',
                     'gateway' => $gatewaySlug,
-                    'qrcode' => $result['qrcode'] ?? null,
-                    'copy_paste' => $result['copy_paste'] ?? null,
+                    'qrcode' => $qrcode,
+                    'copy_paste' => $copyPaste,
                 ];
             } catch (\Throwable $e) {
                 Log::warning('PaymentService: PIX gateway failed.', [
@@ -270,34 +277,80 @@ class PaymentService
      * @param  array<string, mixed>|null  $gatewayConfigOverride  When set (e.g. API application payment_gateways), used like product's config.
      * @return array<int, string>
      */
+    /**
+     * Ordem de gateways por método: tenant (se existir), senão plataforma (admin), senão default do config.
+     *
+     * @return array{pix: list<string>, card: list<string>, boleto: list<string>, pix_auto: list<string>}
+     */
+    public function normalizedGatewayOrder(?int $tenantId): array
+    {
+        $defaultOrder = config('gateways.default_order', ['pix' => [], 'card' => [], 'boleto' => [], 'pix_auto' => []]);
+        $decode = function (mixed $raw): ?array {
+            if (is_string($raw)) {
+                $decoded = json_decode($raw, true);
+
+                return is_array($decoded) ? $decoded : null;
+            }
+
+            return is_array($raw) ? $raw : null;
+        };
+
+        $tenantRaw = $tenantId !== null ? $decode(Setting::get('gateway_order', null, $tenantId)) : null;
+        $platformRaw = $decode(Setting::get('gateway_order', null, null));
+
+        $pick = function (string $method) use ($tenantRaw, $platformRaw, $defaultOrder): array {
+            $from = function (?array $source) use ($method): ?array {
+                if (! is_array($source) || ! array_key_exists($method, $source)) {
+                    return null;
+                }
+                if (! is_array($source[$method])) {
+                    return null;
+                }
+                if ($source[$method] === []) {
+                    return [];
+                }
+
+                return $source[$method];
+            };
+
+            $slugs = $from($tenantRaw) ?? $from($platformRaw);
+            if ($slugs === null) {
+                $slugs = is_array($defaultOrder[$method] ?? null) ? $defaultOrder[$method] : [];
+            }
+
+            return GatewayRegistry::filterSlugsToAllowedAcquirers($slugs);
+        };
+
+        return [
+            'pix' => $pick('pix'),
+            'card' => $pick('card'),
+            'boleto' => $pick('boleto'),
+            'pix_auto' => $pick('pix_auto'),
+        ];
+    }
+
     public function getGatewayOrderForMethod(?int $tenantId, string $method, ?Product $product = null, ?array $gatewayConfigOverride = null): array
     {
-        // Ordem salva em Financeiro / Gateways por tenant (PlatformConfigContext); não misturar com settings globais (tenant null).
-        $raw = Setting::get('gateway_order', null, $tenantId);
-        if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            $raw = is_array($decoded) ? $decoded : null;
-        }
-        $default = config('gateways.default_order', ['pix' => [], 'card' => [], 'boleto' => [], 'pix_auto' => []]);
-        $globalOrder = is_array($raw) ? ($raw[$method] ?? $default[$method] ?? []) : ($default[$method] ?? []);
-        $globalOrder = is_array($globalOrder) ? $globalOrder : [];
-        $globalOrder = GatewayRegistry::filterSlugsToAllowedAcquirers($globalOrder);
+        $order = $this->normalizedGatewayOrder($tenantId);
+        $globalOrder = $order[$method] ?? [];
 
-        // Inclui slugs de adquirentes permitidos que ainda não estão na ordem (ex.: ao fim).
-        $existingSet = array_flip($globalOrder);
-        foreach (GatewayRegistry::allowedAcquirers() as $g) {
-            $slug = $g['slug'] ?? '';
-            if ($slug === '' || isset($existingSet[$slug])) {
-                continue;
-            }
-            if (in_array($method, $g['methods'] ?? [], true)) {
-                $globalOrder[] = $slug;
-                $existingSet[$slug] = true;
+        // Lista vazia explícita na ordem do tenant/plataforma = método desabilitado (não preencher com defaults).
+        if ($globalOrder !== []) {
+            $existingSet = array_flip($globalOrder);
+            foreach (GatewayRegistry::allowedAcquirers() as $g) {
+                $slug = $g['slug'] ?? '';
+                if ($slug === '' || isset($existingSet[$slug])) {
+                    continue;
+                }
+                if (in_array($method, $g['methods'] ?? [], true)) {
+                    $globalOrder[] = $slug;
+                    $existingSet[$slug] = true;
+                }
             }
         }
 
-        $pg = $gatewayConfigOverride;
-        if (is_array($pg) && ! empty($pg)) {
+        $pg = $gatewayConfigOverride ?? $this->paymentGatewaysFromProduct($product);
+        if (is_array($pg) && $pg !== []) {
             $slug = isset($pg[$method]) ? trim((string) $pg[$method]) : null;
             if ($slug !== null && $slug !== '' && $slug !== '__default__') {
                 $redundancy = $pg[$method . '_redundancy'] ?? [];
@@ -362,18 +415,6 @@ class PaymentService
         $enabled = is_array($enabled) ? $enabled : [];
 
         $tenantId = $product->tenant_id;
-        $orderRaw = Setting::get('gateway_order', null, $tenantId);
-        if (is_string($orderRaw)) {
-            $orderRaw = json_decode($orderRaw, true);
-        }
-        $defaultOrder = config('gateways.default_order', ['pix' => [], 'card' => [], 'boleto' => [], 'pix_auto' => []]);
-        $order = is_array($orderRaw) ? $orderRaw : $defaultOrder;
-        $order = [
-            'pix' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['pix'] ?? $defaultOrder['pix'] ?? []),
-            'card' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['card'] ?? $defaultOrder['card'] ?? []),
-            'boleto' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['boleto'] ?? $defaultOrder['boleto'] ?? []),
-            'pix_auto' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['pix_auto'] ?? $defaultOrder['pix_auto'] ?? []),
-        ];
 
         $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
 
@@ -407,8 +448,7 @@ class PaymentService
                     continue;
                 }
             }
-            $slugsToCheck = is_array($order[$methodKey] ?? null) ? $order[$methodKey] : [];
-            $slugsToCheck = GatewayRegistry::filterSlugsToAllowedAcquirers($slugsToCheck);
+            $slugsToCheck = $this->getGatewayOrderForMethod($tenantId, $methodKey, $product);
 
             foreach ($slugsToCheck as $slug) {
                 $cred = $credentialBySlug->get($slug);
@@ -469,25 +509,13 @@ class PaymentService
     public function globallyAvailablePaymentMethodKeys(Product $product, ?SubscriptionPlan $plan = null): array
     {
         $tenantId = $product->tenant_id;
-        $orderRaw = Setting::get('gateway_order', null, $tenantId);
-        if (is_string($orderRaw)) {
-            $orderRaw = json_decode($orderRaw, true);
-        }
-        $defaultOrder = config('gateways.default_order', ['pix' => [], 'card' => [], 'boleto' => [], 'pix_auto' => []]);
-        $order = is_array($orderRaw) ? $orderRaw : $defaultOrder;
-        $order = [
-            'pix' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['pix'] ?? $defaultOrder['pix'] ?? []),
-            'card' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['card'] ?? $defaultOrder['card'] ?? []),
-            'boleto' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['boleto'] ?? $defaultOrder['boleto'] ?? []),
-            'pix_auto' => GatewayRegistry::filterSlugsToAllowedAcquirers($order['pix_auto'] ?? $defaultOrder['pix_auto'] ?? []),
-        ];
         $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
         $out = ['pix' => false, 'card' => false, 'boleto' => false, 'pix_auto' => false, 'apple_pay' => false, 'google_pay' => false];
         foreach (['pix', 'card', 'boleto', 'pix_auto'] as $methodKey) {
             if ($methodKey === 'pix_auto' && $plan === null) {
                 continue;
             }
-            $slugsToCheck = is_array($order[$methodKey] ?? null) ? $order[$methodKey] : [];
+            $slugsToCheck = $this->getGatewayOrderForMethod($tenantId, $methodKey, $product);
             foreach ($slugsToCheck as $slug) {
                 $cred = $credentialBySlug->get($slug);
                 if (! $cred) {
@@ -501,7 +529,7 @@ class PaymentService
             }
         }
         $firstCardSlug = null;
-        foreach ($order['card'] ?? [] as $slug) {
+        foreach ($this->getGatewayOrderForMethod($tenantId, 'card', $product) as $slug) {
             if (! $credentialBySlug->get($slug)) {
                 continue;
             }
@@ -517,6 +545,20 @@ class PaymentService
         }
 
         return $out;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function paymentGatewaysFromProduct(?Product $product): ?array
+    {
+        if ($product === null) {
+            return null;
+        }
+        $config = is_array($product->checkout_config) ? $product->checkout_config : [];
+        $pg = $config['payment_gateways'] ?? null;
+
+        return is_array($pg) && $pg !== [] ? $pg : null;
     }
 
     private function webhookUrlForGateway(string $gatewaySlug): string

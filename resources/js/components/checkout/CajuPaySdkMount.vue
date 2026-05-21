@@ -75,7 +75,13 @@ async function tryMount() {
             cardFieldReady.value = true;
         }
     } catch (e) {
-        error.value = e?.message || 'Não foi possível carregar o checkout CajuPay.';
+        const raw = (e?.message || '').toString();
+        const lower = raw.toLowerCase();
+        if (lower.includes('cors') || lower.includes('failed to fetch') || lower.includes('network')) {
+            error.value = 'Não foi possível conectar ao pagamento CajuPay. Em ambiente local use HTTPS ou recarregue a página; em produção o checkout deve estar em HTTPS.';
+        } else {
+            error.value = raw || 'Não foi possível carregar o checkout CajuPay.';
+        }
         controller.value = null;
     }
 }

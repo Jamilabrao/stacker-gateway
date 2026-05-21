@@ -62,4 +62,33 @@ return [
     'subscriptions' => [
         'cancel_grace_days_after_period_end' => max(0, (int) env('GETFY_SUBSCRIPTION_CANCEL_GRACE_DAYS', 14)),
     ],
+
+    /**
+     * Anti-flood no checkout público (rate limit + regras no CheckoutAbuseGuard).
+     */
+    'installer' => [
+        'enabled' => filter_var(env('INSTALLER_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'token' => is_string($t = env('INSTALLER_TOKEN')) && trim($t) !== ''
+            ? trim($t)
+            : (is_file($installTokenFile = base_path('.install-token'))
+                ? trim((string) file_get_contents($installTokenFile))
+                : null),
+    ],
+
+    'checkout_security' => [
+        'min_seconds_before_pay' => max(0, (int) env('CHECKOUT_MIN_SECONDS_BEFORE_PAY', 4)),
+        'duplicate_pending_minutes' => max(1, (int) env('CHECKOUT_DUPLICATE_PENDING_MINUTES', 15)),
+        'max_pending_per_email' => max(1, (int) env('CHECKOUT_MAX_PENDING_PER_EMAIL', 3)),
+        'session_max_age_hours' => max(1, (int) env('CHECKOUT_SESSION_MAX_AGE_HOURS', 2)),
+        'server_idempotency_ttl_seconds' => max(30, (int) env('CHECKOUT_SERVER_IDEMPOTENCY_TTL', 120)),
+        'rate_limits' => [
+            'pay_per_minute' => max(1, (int) env('CHECKOUT_RATE_PAY_PER_MINUTE', 10)),
+            'pix_per_minute' => max(1, (int) env('CHECKOUT_RATE_PIX_PER_MINUTE', env('CHECKOUT_RATE_PIX_PER_FIVE_MINUTES', 3))),
+            'pix_email_per_ten_minutes' => max(1, (int) env('CHECKOUT_RATE_PIX_EMAIL_PER_TEN_MINUTES', 3)),
+            'cajupay_session_per_minute' => max(1, (int) env('CHECKOUT_RATE_CAJUPAY_SESSION_PER_MINUTE', 15)),
+            'track_per_minute' => max(1, (int) env('CHECKOUT_RATE_TRACK_PER_MINUTE', 30)),
+            'coupon_per_minute' => max(1, (int) env('CHECKOUT_RATE_COUPON_PER_MINUTE', 20)),
+            'shipping_quote_per_minute' => max(1, (int) env('CHECKOUT_RATE_SHIPPING_QUOTE_PER_MINUTE', 30)),
+        ],
+    ],
 ];

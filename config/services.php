@@ -50,6 +50,8 @@ return [
     */
     'cajupay' => [
         'base_url' => rtrim(env('CAJUPAY_API_BASE_URL', 'https://api.cajupay.com.br'), '/'),
+        /** Em checkout HTTP local, repassa chamadas do SDK pelo próprio domínio (evita CORS). Desative com CAJUPAY_SDK_BROWSER_PROXY=false */
+        'sdk_browser_proxy' => filter_var(env('CAJUPAY_SDK_BROWSER_PROXY', true), FILTER_VALIDATE_BOOLEAN),
     ],
 
     /*

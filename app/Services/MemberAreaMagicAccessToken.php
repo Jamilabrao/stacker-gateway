@@ -10,7 +10,7 @@ class MemberAreaMagicAccessToken
 {
     private const CACHE_PREFIX = 'member_area_magic_v1:';
 
-    private const TTL_SECONDS = 604800;
+    private const TTL_SECONDS = 86400;
 
     private const TOKEN_LENGTH = 64;
 
@@ -48,5 +48,23 @@ class MemberAreaMagicAccessToken
         $uid = (int) ($payload['user_id'] ?? 0);
 
         return $uid > 0 ? $uid : null;
+    }
+
+    /**
+     * Invalida o token após login bem-sucedido (one-time).
+     */
+    public function consume(string $token, Product $product): void
+    {
+        if (strlen($token) !== self::TOKEN_LENGTH || ! ctype_xdigit($token)) {
+            return;
+        }
+        $key = self::CACHE_PREFIX.hash('sha256', $token);
+        $payload = Cache::pull($key);
+        if (! is_array($payload)) {
+            return;
+        }
+        if ((int) ($payload['product_id'] ?? 0) !== (int) $product->id) {
+            Cache::put($key, $payload, now()->addSeconds(self::TTL_SECONDS));
+        }
     }
 }

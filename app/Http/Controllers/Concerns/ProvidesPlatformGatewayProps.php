@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Concerns;
 use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
 use App\Models\Setting;
+use App\Support\GatewayInboundWebhookAuth;
+use App\Support\GatewayWebhookSecurityAlert;
 
 trait ProvidesPlatformGatewayProps
 {
@@ -52,8 +54,18 @@ trait ProvidesPlatformGatewayProps
                 'signup_url' => $g['signup_url'] ?? null,
                 'is_configured' => $cred !== null,
                 'is_connected' => $cred?->is_connected ?? false,
+                'inbound_webhook_secret_required' => in_array($g['slug'] ?? '', ['asaas', 'pushinpay', 'spacepag', 'woovi'], true),
+                'webhook_secret_configured' => ($cred && GatewayInboundWebhookAuth::webhookSecret($g['slug'] ?? '', $tenantId) !== null),
             ];
         }, $all);
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function gatewayWebhookSecurityWarnings(?int $tenantId): array
+    {
+        return GatewayWebhookSecurityAlert::missingInboundSecretSlugs($tenantId);
     }
 
     /**

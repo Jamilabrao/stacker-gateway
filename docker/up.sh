@@ -34,6 +34,8 @@ GETFY_QUEUE_WORKER_MEMORY=${GETFY_QUEUE_WORKER_MEMORY:-128}
 GETFY_QUEUE_WORKER_MAX_TIME=${GETFY_QUEUE_WORKER_MAX_TIME:-3600}
 GETFY_QUEUE_WORKER_MAX_JOBS=${GETFY_QUEUE_WORKER_MAX_JOBS:-1000}
 GETFY_CADDY_HOST=${GETFY_CADDY_HOST:-:80}
+GETFY_APP_ENV=production
+GETFY_APP_DEBUG=false
 EOF
 else
   if grep -Eq '^\s*GETFY_DB_USERNAME\s*=\s*$' "$ENV_FILE" || grep -Eq '^\s*GETFY_DB_PASSWORD\s*=\s*$' "$ENV_FILE" \
@@ -77,6 +79,20 @@ awk '
   }
 ' "$ENV_FILE" > "$TMP_DB"
 mv "$TMP_DB" "$ENV_FILE"
+
+# Sempre produção (install/update e deploy Docker).
+TMP_PROD="$(mktemp)"
+awk '
+  BEGIN { env=0; dbg=0 }
+  $0 ~ /^GETFY_APP_ENV=/ { print "GETFY_APP_ENV=production"; env=1; next }
+  $0 ~ /^GETFY_APP_DEBUG=/ { print "GETFY_APP_DEBUG=false"; dbg=1; next }
+  { print }
+  END {
+    if (!env) print "GETFY_APP_ENV=production"
+    if (!dbg) print "GETFY_APP_DEBUG=false"
+  }
+' "$ENV_FILE" > "$TMP_PROD"
+mv "$TMP_PROD" "$ENV_FILE"
 
 COMPOSE_FILES="${GETFY_COMPOSE_FILES:-docker-compose.yml}"
 COMPOSE_ARGS=""

@@ -3,6 +3,8 @@
 namespace App\Gateways\CajuPay;
 
 use App\Gateways\Contracts\GatewayDriver;
+use App\Support\BrazilianDocuments;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -101,64 +103,198 @@ class CajuPayDriver implements GatewayDriver
 
         $baseIdempotencyKey = Str::limit('getfy-order-'.$externalId, 200, '');
 
+        $consumerPayload = [
+            'name' => $name,
+            'email' => $email !== '' ? $email : 'cliente@checkout.local',
+            'document' => $document,
+        ];
+        $phoneDigits = preg_replace('/\D/', '', (string) ($consumer['phone'] ?? ''));
+        if (is_string($phoneDigits) && strlen($phoneDigits) >= 10) {
+            $consumerPayload['phone'] = $phoneDigits;
+        }
+
         $body = [
             'amount_cents' => $amountCents,
             'currency' => 'BRL',
             'description' => 'Pedido #'.$externalId,
             'product_ref' => 'order-'.$externalId,
             'customer_ref' => 'getfy-order-'.$externalId,
-            'consumer' => [
-                'name' => $name,
-                'email' => $email !== '' ? $email : 'cliente@checkout.local',
-                'document' => $document,
-            ],
+            'consumer' => $consumerPayload,
         ];
 
-        $response = $this->httpForCredentials($credentials)
-            ->withHeaders(['Idempotency-Key' => $baseIdempotencyKey])
-            ->post('/api/payments/pix', $body);
-
-        // Alguns cenários reaproveitam o mesmo order id com payload levemente diferente.
-        // Quando a API acusa mismatch de idempotência, tenta uma única vez com chave derivada do payload.
-        if (! $response->successful() && str_contains(strtolower((string) $response->body()), 'idempotency_key_reuse_mismatch')) {
-            $payloadHash = sha1(json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
-            $retryIdempotencyKey = Str::limit($baseIdempotencyKey.'-'.$payloadHash, 200, '');
-            $response = $this->httpForCredentials($credentials)
-                ->withHeaders(['Idempotency-Key' => $retryIdempotencyKey])
-                ->post('/api/payments/pix', $body);
-        }
+        $response = $this->postPixCharge($credentials, $body, $baseIdempotencyKey);
 
         if (! $response->successful()) {
-            $msg = $response->body();
-            if (strlen($msg) > 300) {
-                $msg = substr($msg, 0, 300).'…';
-            }
             Log::warning('CajuPayDriver createPixPayment failed', [
                 'status' => $response->status(),
                 'order' => $externalId,
             ]);
-            throw new \RuntimeException('CajuPay: '.($msg !== '' ? $msg : 'Erro ao criar cobrança PIX.'));
+            throw new \RuntimeException($this->friendlyPixErrorMessage($response));
         }
 
         $data = $response->json();
         if (! is_array($data)) {
-            throw new \RuntimeException('CajuPay: resposta inválida.');
+            throw new \RuntimeException('Não foi possível gerar o PIX. Tente novamente.');
         }
 
         $paymentId = $data['payment_id'] ?? '';
         if (! is_string($paymentId) || $paymentId === '') {
-            throw new \RuntimeException('CajuPay: payment_id ausente na resposta.');
+            throw new \RuntimeException('Não foi possível gerar o PIX. Tente novamente.');
         }
 
-        $qr = $data['pix_qr_code'] ?? null;
-        $copy = $data['pix_copy_paste'] ?? null;
+        ['qrcode' => $qr, 'copy_paste' => $copy] = $this->extractPixFields($data);
+        if ($qr === null && $copy === null) {
+            Log::warning('CajuPayDriver createPixPayment missing pix payload', [
+                'order' => $externalId,
+                'payment_id' => $paymentId,
+            ]);
+            throw new \RuntimeException('PIX criado sem código de pagamento. Tente novamente.');
+        }
 
         return [
             'transaction_id' => $paymentId,
-            'qrcode' => is_string($qr) ? $qr : null,
-            'copy_paste' => is_string($copy) ? $copy : null,
+            'qrcode' => $qr,
+            'copy_paste' => $copy,
             'raw' => $data,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @param  array<string, mixed>  $body
+     */
+    private function postPixCharge(array $credentials, array $body, string $idempotencyKey): Response
+    {
+        $http = $this->httpForCredentials($credentials)
+            ->withHeaders(['Idempotency-Key' => $idempotencyKey]);
+
+        try {
+            $response = $http->post('/api/payments/pix', $body);
+        } catch (\Throwable $e) {
+            Log::warning('CajuPayDriver createPixPayment transport error', [
+                'message' => $e->getMessage(),
+            ]);
+            usleep(400_000);
+            $response = $http->post('/api/payments/pix', $body);
+        }
+
+        if (! $response->successful() && str_contains(strtolower((string) $response->body()), 'idempotency_key_reuse_mismatch')) {
+            $payloadHash = sha1(json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+            $retryKey = Str::limit($idempotencyKey.'-'.$payloadHash, 200, '');
+            $response = $this->httpForCredentials($credentials)
+                ->withHeaders(['Idempotency-Key' => $retryKey])
+                ->post('/api/payments/pix', $body);
+        }
+
+        if (! $response->successful() && $this->isRetryableHttpStatus($response->status())) {
+            usleep(400_000);
+            $response = $this->httpForCredentials($credentials)
+                ->withHeaders(['Idempotency-Key' => $idempotencyKey])
+                ->post('/api/payments/pix', $body);
+        }
+
+        return $response;
+    }
+
+    private function isRetryableHttpStatus(int $status): bool
+    {
+        return in_array($status, [408, 429, 500, 502, 503, 504], true);
+    }
+
+    private function friendlyPixErrorMessage(Response $response): string
+    {
+        $parsed = $this->parseApiErrorMessage($response);
+        if ($parsed !== '') {
+            if (str_contains(strtolower($parsed), 'document') || str_contains(strtolower($parsed), 'cpf')) {
+                return 'CPF ou CNPJ inválido. Verifique os dados e tente novamente.';
+            }
+
+            return $parsed;
+        }
+
+        if ($response->status() === 401 || $response->status() === 403) {
+            return 'Pagamento PIX indisponível no momento. O vendedor deve verificar as chaves da API CajuPay.';
+        }
+
+        if ($this->isRetryableHttpStatus($response->status())) {
+            return 'Serviço PIX temporariamente indisponível. Aguarde alguns segundos e tente novamente.';
+        }
+
+        return 'Não foi possível gerar o PIX. Tente novamente.';
+    }
+
+    private function parseApiErrorMessage(Response $response): string
+    {
+        $data = $response->json();
+        if (! is_array($data)) {
+            return '';
+        }
+
+        foreach (['message', 'error', 'detail', 'title'] as $key) {
+            $v = $data[$key] ?? null;
+            if (is_string($v) && trim($v) !== '') {
+                return trim($v);
+            }
+        }
+
+        $errors = $data['errors'] ?? null;
+        if (is_array($errors)) {
+            foreach ($errors as $err) {
+                if (is_string($err) && trim($err) !== '') {
+                    return trim($err);
+                }
+                if (is_array($err)) {
+                    $msg = $err['message'] ?? $err['detail'] ?? null;
+                    if (is_string($msg) && trim($msg) !== '') {
+                        return trim($msg);
+                    }
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{qrcode: ?string, copy_paste: ?string}
+     */
+    private function extractPixFields(array $data): array
+    {
+        $qr = $this->firstNonEmptyString($data, [
+            'pix_qr_code', 'qr_code', 'qrcode', 'qrcode_image', 'qr_code_base64',
+        ]);
+        $copy = $this->firstNonEmptyString($data, [
+            'pix_copy_paste', 'copy_paste', 'emv', 'brcode', 'pix_code', 'payload',
+        ]);
+
+        $nested = $data['pix'] ?? $data['payment'] ?? null;
+        if (is_array($nested)) {
+            $qr = $qr ?? $this->firstNonEmptyString($nested, [
+                'pix_qr_code', 'qr_code', 'qrcode', 'qrcode_image',
+            ]);
+            $copy = $copy ?? $this->firstNonEmptyString($nested, [
+                'pix_copy_paste', 'copy_paste', 'emv', 'brcode',
+            ]);
+        }
+
+        return ['qrcode' => $qr, 'copy_paste' => $copy];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array<int, string>  $keys
+     */
+    private function firstNonEmptyString(array $data, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            $v = $data[$key] ?? null;
+            if (is_string($v) && trim($v) !== '') {
+                return trim($v);
+            }
+        }
+
+        return null;
     }
 
     public function getTransactionStatus(string $transactionId, array $credentials): ?string
@@ -486,9 +622,14 @@ class CajuPayDriver implements GatewayDriver
 
     private function normalizeDocument(string $document): string
     {
-        $digits = preg_replace('/\D/', '', $document);
-        $digits = is_string($digits) ? $digits : '';
+        $digits = BrazilianDocuments::digits($document);
 
+        if (strlen($digits) === 11 && BrazilianDocuments::isValidCpf($digits)) {
+            return $digits;
+        }
+        if (strlen($digits) === 14 && BrazilianDocuments::isValidCnpj($digits)) {
+            return $digits;
+        }
         if (strlen($digits) === 11 || strlen($digits) === 14) {
             return $digits;
         }

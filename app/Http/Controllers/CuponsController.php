@@ -46,6 +46,7 @@ class CuponsController extends Controller
                 return false;
             })
             ->values()
+            ->each(fn (Coupon $c) => $c->syncUsedCountFromCompletedOrders())
             ->map(fn (Coupon $c) => $this->couponToArray($c));
 
         $produtos = Product::forTenant($tenantId)
@@ -75,6 +76,7 @@ class CuponsController extends Controller
             'valid_until' => ['nullable', 'date', 'after_or_equal:valid_from'],
             'is_active' => ['boolean'],
         ]);
+        $validated = $this->normalizeCouponAttributes($validated);
         $validated['tenant_id'] = $tenantId;
         $validated['is_active'] = $request->boolean('is_active', true);
         $productIds = $validated['product_ids'] ?? [];
@@ -112,6 +114,7 @@ class CuponsController extends Controller
             'valid_until' => ['nullable', 'date', 'after_or_equal:valid_from'],
             'is_active' => ['boolean'],
         ]);
+        $validated = $this->normalizeCouponAttributes($validated);
         $validated['is_active'] = $request->boolean('is_active', true);
         $productIds = $validated['product_ids'] ?? [];
         unset($validated['product_ids']);
@@ -145,6 +148,25 @@ class CuponsController extends Controller
         if ($coupon->tenant_id !== auth()->user()->tenant_id) {
             abort(403);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function normalizeCouponAttributes(array $validated): array
+    {
+        $validated['code'] = trim((string) ($validated['code'] ?? ''));
+        $validated['max_uses'] = isset($validated['max_uses']) && $validated['max_uses'] !== '' && $validated['max_uses'] !== null
+            ? (int) $validated['max_uses']
+            : null;
+        if (array_key_exists('min_amount', $validated)) {
+            $validated['min_amount'] = $validated['min_amount'] !== '' && $validated['min_amount'] !== null
+                ? (float) $validated['min_amount']
+                : null;
+        }
+
+        return $validated;
     }
 
     private function couponToArray(Coupon $c): array

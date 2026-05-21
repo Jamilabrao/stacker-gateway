@@ -169,21 +169,135 @@ class StorageService
     }
 
     /**
-     * Get the public URL for a stored file.
+     * Get the public URL for a stored file (path relativo no bucket/disco).
      */
     public function url(string $path): string
     {
-        if (empty($path)) {
+        return $this->resolvePublicUrl($path);
+    }
+
+    /**
+     * Converte valor salvo no banco (path, /storage/... ou URL local antiga) na URL pública atual (local ou R2).
+     */
+    public function resolvePublicUrl(?string $stored): string
+    {
+        if ($stored === null || trim($stored) === '') {
             return '';
         }
 
-        $this->disk(); // ensure disk is resolved (sets isLocal)
+        $stored = trim($stored);
+        $normalizer = new StorageUrlNormalizer;
 
-        if ($this->isLocal) {
-            return url('/storage/' . ltrim($path, '/'));
+        if (preg_match('#^https?://#i', $stored)) {
+            if ($normalizer->isLocalStorageUrl($stored)) {
+                $stored = $normalizer->toRelativePath($stored);
+            } else {
+                return $stored;
+            }
+        } elseif (str_starts_with($stored, '/storage/')) {
+            $stored = ltrim(substr($stored, strlen('/storage/')), '/');
         }
 
-        return $this->disk->url($path);
+        $this->disk();
+
+        if ($this->isLocal) {
+            return url('/storage/' . ltrim($stored, '/'));
+        }
+
+        return $this->disk->url($stored);
+    }
+
+    /**
+     * Normaliza URL/caminho recebido do front para gravar no banco (preferir path relativo).
+     */
+    public function toStoragePath(?string $value): ?string
+    {
+        if ($value === null || trim($value) === '') {
+            return null;
+        }
+
+        $value = trim($value);
+        $normalizer = new StorageUrlNormalizer;
+
+        if (preg_match('#^https?://#i', $value)) {
+            if ($normalizer->isLocalStorageUrl($value)) {
+                return $normalizer->toRelativePath($value);
+            }
+
+            return $value;
+        }
+
+        if (str_starts_with($value, '/storage/')) {
+            return ltrim(substr($value, strlen('/storage/')), '/');
+        }
+
+        return ltrim($value, '/');
+    }
+
+    /**
+     * Resolve URLs de mídia dentro de member_area_config (logos, hero, login, etc.).
+     *
+     * @param  array<string, mixed>|null  $config
+     * @return array<string, mixed>|null
+     */
+    public function resolveMediaUrlsInConfig(?array $config): ?array
+    {
+        if ($config === null) {
+            return null;
+        }
+
+        return $this->resolveMediaUrlsInArray($config);
+    }
+
+    /**
+     * @param  array<string, mixed>  $arr
+     * @return array<string, mixed>
+     */
+    private function resolveMediaUrlsInArray(array $arr): array
+    {
+        foreach ($arr as $key => $value) {
+            if (is_string($value) && $this->shouldResolveConfigMediaString($value)) {
+                $arr[$key] = $this->resolvePublicUrl($value);
+            } elseif (is_array($value)) {
+                $arr[$key] = $this->resolveMediaUrlsInArray($value);
+            }
+        }
+
+        return $arr;
+    }
+
+    private function shouldResolveConfigMediaString(string $value): bool
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return false;
+        }
+
+        if (preg_match('#^https?://#i', $value)) {
+            return (new StorageUrlNormalizer)->isLocalStorageUrl($value);
+        }
+
+        if (str_starts_with($value, '/storage/')) {
+            return true;
+        }
+
+        $prefixes = [
+            'member-area/',
+            'member-area-gamification/',
+            'products/',
+            'checkout/',
+            'branding/',
+            'email-templates/',
+            'dashboard-banners/',
+            'platform/',
+        ];
+        foreach ($prefixes as $prefix) {
+            if (str_starts_with($value, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

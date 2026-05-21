@@ -13,8 +13,8 @@ function getCsrfToken() {
 /**
  * Registra no servidor que o browser tentou disparar Purchase (diagnóstico + keepalive antes do redirect).
  */
-export function sendPurchasePixelAck({ orderId, token = '', triggerType = 'approved' }) {
-    if (!orderId) return;
+export function sendPurchasePixelAck({ orderId, checkoutSessionToken = '', token = '', triggerType = 'approved' }) {
+    if (!orderId || !checkoutSessionToken) return;
 
     const url = '/checkout/pixel/purchase-ack';
     const csrf = getCsrfToken();
@@ -22,6 +22,7 @@ export function sendPurchasePixelAck({ orderId, token = '', triggerType = 'appro
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
         const fd = new FormData();
         fd.append('order_id', String(orderId));
+        fd.append('checkout_session_token', checkoutSessionToken);
         if (token) fd.append('token', token);
         fd.append('trigger_type', triggerType);
         if (csrf) fd.append('_token', csrf);
@@ -32,6 +33,7 @@ export function sendPurchasePixelAck({ orderId, token = '', triggerType = 'appro
 
     const body = new URLSearchParams();
     body.append('order_id', String(orderId));
+    body.append('checkout_session_token', checkoutSessionToken);
     if (token) body.append('token', token);
     body.append('trigger_type', triggerType);
     if (csrf) body.append('_token', csrf);

@@ -62,7 +62,7 @@ fi
 
 cd "$INSTALL_DIR"
 
-$SUDO env GETFY_COMPOSE_FILES="docker-compose.caddy.yml" sh docker/up.sh
+$SUDO env GETFY_COMPOSE_FILES="docker-compose.caddy.yml" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
 
 echo ""
 echo "Atualização concluída e stack (Caddy) reiniciado."
