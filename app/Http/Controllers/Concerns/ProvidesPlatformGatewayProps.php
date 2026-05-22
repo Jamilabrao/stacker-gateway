@@ -37,7 +37,7 @@ trait ProvidesPlatformGatewayProps
         $all = GatewayRegistry::allowedAcquirers();
         $credentialBySlug = GatewayCredential::forTenant($tenantId)->get()->keyBy('gateway_slug');
 
-        return array_map(function ($g) use ($credentialBySlug) {
+        return array_map(function ($g) use ($credentialBySlug, $tenantId) {
             $cred = $credentialBySlug->get($g['slug'] ?? '');
             $image = $g['image'] ?? null;
 
