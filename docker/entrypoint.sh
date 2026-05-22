@@ -192,6 +192,7 @@ if [ "${GETFY_RUN_SETUP:-true}" = "true" ]; then
   php artisan migrate --force
   if ! php -r '
 require "vendor/autoload.php";
+$valid = false;
 $c = (string) @file_get_contents(".env");
 $c = str_replace("\r\n", "\n", $c);
 $val = static function (string $c, string $k): ?string {
@@ -201,7 +202,30 @@ $val = static function (string $c, string $k): ?string {
 };
 $pub = $val($c, "PWA_VAPID_PUBLIC");
 $priv = $val($c, "PWA_VAPID_PRIVATE");
-exit(\App\Support\VapidEnvKeys::normalizedPairLooksValid($pub, $priv) ? 0 : 1);
+if (\App\Support\VapidEnvKeys::normalizedPairLooksValid($pub, $priv)) {
+  $valid = true;
+}
+if (! $valid) {
+  try {
+    $boot = require "bootstrap/app.php";
+    $boot->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+    $row = \App\Models\BrandingSetting::query()->whereNull("tenant_id")->first();
+    $data = is_array($row?->data) ? $row->data : [];
+    $merged = \App\Support\PanelPushSettings::mergeWithEnvFallback($data);
+    if (\App\Support\VapidEnvKeys::normalizedPairLooksValid($merged["pwa_vapid_public"] ?? null, $merged["pwa_vapid_private"] ?? null)) {
+      $valid = true;
+    }
+    if (($merged["push_provider"] ?? "vapid") === "fcm"
+        && ! empty($merged["firebase_service_account"])
+        && ! empty($merged["firebase_api_key"])
+        && ! empty($merged["firebase_project_id"])) {
+      $valid = true;
+    }
+  } catch (\Throwable $e) {
+    // schema ainda não pronto
+  }
+}
+exit($valid ? 0 : 1);
 ' >/dev/null 2>&1; then
     php artisan pwa:vapid || true
   fi

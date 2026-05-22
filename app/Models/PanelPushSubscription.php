@@ -7,11 +7,33 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PanelPushSubscription extends Model
 {
-    protected $fillable = ['user_id', 'tenant_id', 'endpoint', 'keys', 'user_agent'];
+    public const PROVIDER_VAPID = 'vapid';
+
+    public const PROVIDER_FCM = 'fcm';
+
+    protected $fillable = [
+        'user_id',
+        'tenant_id',
+        'provider',
+        'endpoint',
+        'fcm_token',
+        'keys',
+        'user_agent',
+        'device_label',
+        'last_used_at',
+    ];
 
     protected function casts(): array
     {
-        return ['keys' => 'array'];
+        return [
+            'keys' => 'array',
+            'last_used_at' => 'datetime',
+        ];
+    }
+
+    public function isFcm(): bool
+    {
+        return $this->provider === self::PROVIDER_FCM;
     }
 
     public function user(): BelongsTo

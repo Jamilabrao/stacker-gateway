@@ -19,6 +19,8 @@ class BrandingSettingsController extends Controller
         'app_logo_dark',
         'app_logo_icon',
         'app_logo_icon_dark',
+        'pwa_nav_logo',
+        'pwa_nav_logo_dark',
         'login_hero_image',
         'favicon_url',
     ];
@@ -28,6 +30,8 @@ class BrandingSettingsController extends Controller
         'app_logo_dark',
         'app_logo_icon',
         'app_logo_icon_dark',
+        'pwa_nav_logo',
+        'pwa_nav_logo_dark',
         'login_hero_image',
         'favicon_url',
     ];

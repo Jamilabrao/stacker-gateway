@@ -6,9 +6,11 @@ use App\Models\BrandingSetting;
 use App\Models\PanelPushSubscription;
 use App\Services\MemberAreaResolver;
 use App\Support\PanelPwaIconUrls;
+use App\Support\PanelPushSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
 
 class PanelPwaController extends Controller
 {
@@ -100,17 +102,60 @@ class PanelPwaController extends Controller
 
     public function pushSubscribe(Request $request): JsonResponse
     {
+        $user = $request->user();
+        if (! $user->canAccessPanel()) {
+            return response()->json(['message' => 'Acesso negado.'], 403);
+        }
+
+        if (! PanelPushSettings::isPushEnabled()) {
+            return response()->json(['message' => 'Notificações push não configuradas na plataforma.'], 422);
+        }
+
+        $activeProvider = PanelPushSettings::activeProvider();
+
+        if ($activeProvider === PanelPushSettings::PROVIDER_FCM) {
+            $validated = $request->validate([
+                'provider' => ['required', 'string', Rule::in([PanelPushSubscription::PROVIDER_FCM])],
+                'fcm_token' => ['required', 'string', 'max:512'],
+                'device_label' => ['nullable', 'string', 'max:120'],
+            ]);
+
+            $subscription = PanelPushSubscription::updateOrCreate(
+                [
+                    'user_id' => $user->id,
+                    'provider' => PanelPushSubscription::PROVIDER_FCM,
+                ],
+                [
+                    'tenant_id' => $user->tenant_id,
+                    'fcm_token' => $validated['fcm_token'],
+                    'endpoint' => 'fcm:'.$validated['fcm_token'],
+                    'keys' => null,
+                    'user_agent' => $request->userAgent(),
+                    'device_label' => $validated['device_label'] ?? null,
+                ]
+            );
+
+            PanelPushSubscription::query()
+                ->where('user_id', $user->id)
+                ->where('provider', PanelPushSubscription::PROVIDER_VAPID)
+                ->delete();
+
+            return response()->json([
+                'success' => true,
+                'subscribed' => true,
+                'provider' => PanelPushSubscription::PROVIDER_FCM,
+                'subscription_id' => $subscription->id,
+                'updated_at' => $subscription->updated_at?->toISOString(),
+            ]);
+        }
+
         $validated = $request->validate([
             'endpoint' => ['required', 'string', 'max:500'],
             'keys' => ['required', 'array'],
             'keys.auth' => ['required', 'string'],
             'keys.p256dh' => ['required', 'string'],
+            'device_label' => ['nullable', 'string', 'max:120'],
         ]);
-
-        $user = $request->user();
-        if (! $user->canAccessPanel()) {
-            return response()->json(['message' => 'Acesso negado.'], 403);
-        }
 
         $keys = $validated['keys'];
         $keys['auth'] = $this->normalizeBase64KeyForPush((string) ($keys['auth'] ?? ''));
@@ -123,14 +168,18 @@ class PanelPwaController extends Controller
             [
                 'user_id' => $user->id,
                 'tenant_id' => $user->tenant_id,
+                'provider' => PanelPushSubscription::PROVIDER_VAPID,
+                'fcm_token' => null,
                 'keys' => $keys,
                 'user_agent' => $request->userAgent(),
+                'device_label' => $validated['device_label'] ?? null,
             ]
         );
 
         return response()->json([
             'success' => true,
             'subscribed' => true,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
             'subscription_id' => $subscription->id,
             'updated_at' => $subscription->updated_at?->toISOString(),
         ]);

@@ -31,6 +31,7 @@
         "clsx": "^2.1.1",
         "codemirror": "^6.0.2",
         "dompurify": "^3.4.2",
+        "firebase": "^11.6.0",
         "lucide-vue-next": "^0.575.0",
         "payment-token-efi": "^3.2.1",
         "pinia": "^3.0.4",

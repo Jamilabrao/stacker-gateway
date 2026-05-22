@@ -36,6 +36,7 @@ Route::get('/favicon.ico', function () {
 
 // PWA Painel: manifest e service worker
 Route::get('/manifest.json', [\App\Http\Controllers\PanelPwaController::class, 'manifest'])->name('panel.pwa.manifest');
+Route::get('/painel/push/client-config.json', [\App\Http\Controllers\Platform\AppPushController::class, 'clientConfig'])->name('panel.pwa.push-client-config');
 Route::get('/painel-sw.js', function () {
     $path = public_path('painel-sw.js');
     if (! file_exists($path)) {
@@ -231,7 +232,15 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/app', [\App\Http\Controllers\Platform\AppController::class, 'update'])->name('app.update');
         Route::post('/app/upload', [\App\Http\Controllers\Platform\AppController::class, 'upload'])->name('app.upload');
         Route::post('/app/clear-field', [\App\Http\Controllers\Platform\AppController::class, 'clearField'])->name('app.clear-field');
-        Route::post('/app/push/send', [\App\Http\Controllers\Platform\AppController::class, 'sendPush'])->name('app.push.send');
+        Route::post('/app/push/send', [\App\Http\Controllers\Platform\AppPushController::class, 'sendBroadcast'])->name('app.push.send');
+        Route::get('/app/push/data', [\App\Http\Controllers\Platform\AppPushController::class, 'data'])->name('app.push.data');
+        Route::put('/app/push', [\App\Http\Controllers\Platform\AppPushController::class, 'update'])->name('app.push.update');
+        Route::post('/app/push/upload-service-account', [\App\Http\Controllers\Platform\AppPushController::class, 'uploadServiceAccount'])->name('app.push.upload-service-account');
+        Route::post('/app/push/generate-vapid', [\App\Http\Controllers\Platform\AppPushController::class, 'generateVapid'])->name('app.push.generate-vapid');
+        Route::post('/app/push/test', [\App\Http\Controllers\Platform\AppPushController::class, 'test'])->name('app.push.test');
+        Route::post('/app/push/clear-provider-subscriptions', [\App\Http\Controllers\Platform\AppPushController::class, 'clearOtherProviderSubscriptions'])->name('app.push.clear-provider');
+        Route::get('/app/push/subscribers', [\App\Http\Controllers\Platform\AppPushController::class, 'subscribers'])->name('app.push.subscribers');
+        Route::delete('/app/push/subscribers/{subscription}', [\App\Http\Controllers\Platform\AppPushController::class, 'destroySubscriber'])->name('app.push.subscribers.destroy');
         Route::get('/conquistas', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'index'])->name('conquistas.index');
         Route::post('/conquistas', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'store'])->name('conquistas.store');
         Route::put('/conquistas/{salesAchievement}', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'update'])->name('conquistas.update');

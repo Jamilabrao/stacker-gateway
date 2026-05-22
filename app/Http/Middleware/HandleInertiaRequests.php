@@ -57,6 +57,8 @@ class HandleInertiaRequests extends Middleware
             'app_logo_dark' => config('getfy.app_logo_dark'),
             'app_logo_icon' => config('getfy.app_logo_icon'),
             'app_logo_icon_dark' => config('getfy.app_logo_icon_dark'),
+            'pwa_nav_logo' => config('getfy.pwa_nav_logo'),
+            'pwa_nav_logo_dark' => config('getfy.pwa_nav_logo_dark'),
         ] : null;
 
         $publicBranding = $this->buildPublicBranding();
@@ -67,7 +69,9 @@ class HandleInertiaRequests extends Middleware
         $plugins = [];
         $achievementsProgress = null;
         $pushEnabled = false;
+        $pushProvider = null;
         $vapidPublic = null;
+        $firebaseClientConfig = null;
         $settingsPluginTabs = [];
         if ($user && ($user->canAccessSellerPanel() || $user->canAccessPlatformPanel())) {
             $settingsPluginTabs = PluginRegistry::getSettingsTabs();
@@ -80,8 +84,14 @@ class HandleInertiaRequests extends Middleware
                     return $href === '' || ! str_starts_with($href, '/plataforma/');
                 }));
             }
-            $vapidPublic = config('getfy.pwa.vapid_public');
-            $pushEnabled = ! empty($vapidPublic) && ! empty(config('getfy.pwa.vapid_private'));
+            $pushClient = \App\Support\PanelPushSettings::publicClientConfig();
+            $pushEnabled = \App\Support\PanelPushSettings::isPushEnabled();
+            $pushProvider = $pushClient['push_provider'] ?? 'vapid';
+            $vapidPublic = ($pushProvider === 'vapid' && $pushEnabled) ? ($pushClient['vapid_public'] ?? null) : null;
+            $firebaseClientConfig = ($pushProvider === 'fcm' && $pushEnabled) ? [
+                'firebase' => $pushClient['firebase'] ?? null,
+                'firebase_web_vapid_key' => $pushClient['firebase_web_vapid_key'] ?? null,
+            ] : null;
             $installed = PluginRegistry::installed();
             $plugins = array_map(fn ($p) => [
                 'slug' => $p['slug'],
@@ -183,7 +193,9 @@ class HandleInertiaRequests extends Middleware
             'plugins' => $plugins,
             'achievementsProgress' => $achievementsProgress,
             'push_enabled' => $pushEnabled,
-            'vapid_public' => $pushEnabled ? $vapidPublic : null,
+            'push_provider' => $pushEnabled ? ($pushProvider ?? 'vapid') : null,
+            'vapid_public' => $vapidPublic,
+            'firebase_client_config' => $firebaseClientConfig ?? null,
             'notifications_unread_count' => $notificationsUnreadCount,
             'member_notifications_unread_count' => $memberNotificationsUnreadCount,
             'member_push_subscribed' => $memberPushSubscribed,

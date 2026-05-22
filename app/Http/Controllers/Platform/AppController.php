@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BrandingSetting;
 use App\Models\PanelPushSubscription;
 use App\Services\PanelPushService;
-use App\Support\VapidEnvKeys;
+use App\Support\PanelPushSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -131,49 +131,9 @@ class AppController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /** @deprecated Use AppPushController::sendBroadcast — rota mantida por compatibilidade */
     public function sendPush(Request $request, PanelPushService $panelPushService): JsonResponse
     {
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:120'],
-            'body' => ['required', 'string', 'max:500'],
-            'url' => ['nullable', 'string', 'max:2048'],
-        ]);
-
-        $subscriptionsCount = PanelPushSubscription::query()->count();
-        if ($subscriptionsCount === 0) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'Nenhum dispositivo inscrito no painel. Os infoprodutores precisam permitir notificações no PWA do painel (/dashboard).',
-                'result' => ['sent' => 0, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => 0],
-            ], 422);
-        }
-
-        $vapidPublic = config('getfy.pwa.vapid_public');
-        $vapidPrivate = config('getfy.pwa.vapid_private');
-        if (! VapidEnvKeys::normalizedPairLooksValid($vapidPublic, $vapidPrivate)) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'Chaves VAPID inválidas ou ausentes. Defina PWA_VAPID_PUBLIC e PWA_VAPID_PRIVATE no .env (ou rode php artisan pwa:vapid) e reinicie a aplicação.',
-                'result' => ['sent' => 0, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => $subscriptionsCount],
-            ], 422);
-        }
-
-        $result = $panelPushService->sendAndPersistToAll(
-            'system',
-            trim($validated['title']),
-            trim($validated['body']),
-            isset($validated['url']) && trim((string) $validated['url']) !== '' ? trim((string) $validated['url']) : null
-        );
-
-        $message = null;
-        if (($result['sent'] ?? 0) === 0) {
-            $message = 'Nenhum push foi entregue. Verifique as inscrições (expiradas são removidas automaticamente) e as chaves VAPID no servidor.';
-        }
-
-        return response()->json([
-            'ok' => true,
-            'message' => $message,
-            'result' => $result,
-        ]);
+        return app(AppPushController::class)->sendBroadcast($request, $panelPushService);
     }
 }

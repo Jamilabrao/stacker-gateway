@@ -17,6 +17,8 @@ const form = reactive({
     app_logo_dark: '',
     app_logo_icon: '',
     app_logo_icon_dark: '',
+    pwa_nav_logo: '',
+    pwa_nav_logo_dark: '',
     login_hero_image: '',
     favicon_url: '',
 });
@@ -36,6 +38,8 @@ const fieldLabels = {
     app_logo_dark: 'Logo (tema escuro)',
     app_logo_icon: 'Logo colapsada (claro)',
     app_logo_icon_dark: 'Logo colapsada (escuro)',
+    pwa_nav_logo: 'PWA — botão central do menu (tema claro)',
+    pwa_nav_logo_dark: 'PWA — botão central do menu (tema escuro)',
     login_hero_image: 'Imagem da tela de login',
     favicon_url: 'Favicon (aba do navegador)',
 };
@@ -129,9 +133,13 @@ const imageFields = [
     'app_logo_dark',
     'app_logo_icon',
     'app_logo_icon_dark',
+    'pwa_nav_logo',
+    'pwa_nav_logo_dark',
     'login_hero_image',
     'favicon_url',
 ];
+
+const pwaNavHint = 'Recomendado: PNG ou SVG quadrado (ex.: 96×96 px). Se vazio, usa a logo colapsada do tema correspondente.';
 </script>
 
 <template>
@@ -202,6 +210,12 @@ const imageFields = [
                                 <input type="file" accept="image/*" class="hidden" @change="(e) => onFileChange(e, field)" />
                             </label>
                             <p v-if="uploading && uploadField === field" class="mt-2 text-xs text-zinc-500">Enviando...</p>
+                            <p
+                                v-if="field === 'pwa_nav_logo' || field === 'pwa_nav_logo_dark'"
+                                class="mt-2 text-xs text-zinc-500 dark:text-zinc-400"
+                            >
+                                {{ pwaNavHint }}
+                            </p>
                         </div>
                     </div>
                 </div>

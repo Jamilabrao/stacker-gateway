@@ -503,11 +503,13 @@ PWA_VAPID_PRIVATE=
                     $app = require $basePath . '/bootstrap/app.php';
                     $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
                     $app->make(\Illuminate\Contracts\Console\Kernel::class)->call('pwa:vapid');
-                    $log[] = '[Fallback] Chaves VAPID geradas em processo.';
+                    $log[] = '[Fallback] Chaves VAPID geradas no .env (opcional).';
                 }
             } catch (Throwable $e) {
-                $log[] = '[Aviso] pwa:vapid falhou: ' . $e->getMessage() . ' – rode depois: php artisan pwa:vapid';
+                $log[] = '[Aviso] pwa:vapid opcional: ' . $e->getMessage() . ' – configure push em Plataforma → App.';
             }
+        } else {
+            $log[] = '[Info] Chaves VAPID no .env. Você também pode usar Plataforma → App → Notificações push (VAPID ou Firebase).';
         }
         $cronSecret = bin2hex(random_bytes(24));
         $envContent = file_get_contents($envPath);

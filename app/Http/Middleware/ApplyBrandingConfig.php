@@ -18,6 +18,8 @@ class ApplyBrandingConfig
         'app_logo_dark' => 'getfy.app_logo_dark',
         'app_logo_icon' => 'getfy.app_logo_icon',
         'app_logo_icon_dark' => 'getfy.app_logo_icon_dark',
+        'pwa_nav_logo' => 'getfy.pwa_nav_logo',
+        'pwa_nav_logo_dark' => 'getfy.pwa_nav_logo_dark',
         'login_hero_image' => 'getfy.login_hero_image',
         'favicon_url' => 'getfy.favicon_url',
         'pwa_icon_192' => 'getfy.pwa_icon_192',
@@ -44,6 +46,14 @@ class ApplyBrandingConfig
         }
         if ($merge !== []) {
             config($merge);
+        }
+
+        try {
+            if (Schema::hasTable('branding_settings')) {
+                \App\Support\PanelPushSettings::applyToConfig();
+            }
+        } catch (\Throwable) {
+            // ignore during install / partial schema
         }
 
         return $next($request);
