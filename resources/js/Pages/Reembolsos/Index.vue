@@ -11,7 +11,14 @@ defineOptions({ layout: LayoutInfoprodutor });
 const props = defineProps({
     requests: { type: Object, required: true },
     filter_status: { type: String, default: 'pending' },
+    order_ids_with_open_med: { type: Array, default: () => [] },
 });
+
+const openMedSet = computed(() => new Set(props.order_ids_with_open_med ?? []));
+
+function hasOpenMed(rr) {
+    return openMedSet.value.has(rr.order_id);
+}
 
 const page = usePage();
 const rows = computed(() => props.requests?.data ?? []);
@@ -61,6 +68,10 @@ function setFilter(status) {
 }
 
 function approve(rr) {
+    if (hasOpenMed(rr)) {
+        alert('Reembolso bloqueado: existe disputa MED aberta neste pedido. Resolva em Disputas MED.');
+        return;
+    }
     if (!confirm(`Aprovar reembolso do pedido #${rr.order_id}?`)) return;
     router.post(`/reembolsos/${rr.id}/aprovar`, {}, { preserveScroll: true });
 }
@@ -165,7 +176,8 @@ function submitReject() {
                         </td>
                         <td class="px-4 py-3 text-right">
                             <div v-if="rr.status === 'pending'" class="flex flex-wrap justify-end gap-2">
-                                <Button type="button" class="text-xs" @click="approve(rr)">Aprovar</Button>
+                                <p v-if="hasOpenMed(rr)" class="text-xs text-orange-600 dark:text-orange-400">MED aberta</p>
+                                <Button type="button" class="text-xs" :disabled="hasOpenMed(rr)" @click="approve(rr)">Aprovar</Button>
                                 <Button type="button" variant="secondary" class="text-xs" @click="openReject(rr)">Recusar</Button>
                             </div>
                             <span v-else class="text-xs text-zinc-500">—</span>

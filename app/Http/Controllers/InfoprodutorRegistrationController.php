@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ProductCoproducer;
 use App\Models\TenantWallet;
 use App\Models\User;
+use App\Services\LegalDocumentsService;
 use App\Services\PlatformEmailNotifications;
 use App\Support\BrazilianDocuments;
 use App\Support\DockerSetupState;
@@ -205,11 +206,13 @@ class InfoprodutorRegistrationController extends Controller
             'monthly_revenue_range' => ['required', 'string', Rule::in(User::MONTHLY_REVENUE_RANGES)],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
             'coproducer_invite' => ['nullable', 'string', 'max:64'],
+            'accept_terms_privacy' => ['accepted'],
         ];
 
         $validated = $request->validate($rules, [
             'email.unique' => 'Este e-mail já está em uso.',
             'birth_date.before' => 'É necessário ter pelo menos 18 anos.',
+            'accept_terms_privacy.accepted' => 'Você precisa aceitar os Termos de Uso e a Política de Privacidade.',
         ]);
 
         // Campos de texto puro: previne XSS armazenado (endereços, nomes, etc.)
@@ -290,6 +293,8 @@ class InfoprodutorRegistrationController extends Controller
 
         $user->update(['tenant_id' => $user->id]);
 
+        $this->recordLegalConsent($user);
+
         if (Schema::hasTable('tenant_wallets')) {
             TenantWallet::query()->firstOrCreate(
                 ['tenant_id' => $user->tenant_id],
@@ -352,11 +357,13 @@ class InfoprodutorRegistrationController extends Controller
             'monthly_revenue_range' => ['required', 'string', Rule::in(User::MONTHLY_REVENUE_RANGES)],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
             'coproducer_invite' => ['nullable', 'string', 'max:64'],
+            'accept_terms_privacy' => ['accepted'],
         ];
 
         $validated = $request->validate($rules, [
             'email.unique' => 'Este e-mail já está em uso.',
             'birth_date.before' => 'É necessário ter pelo menos 18 anos.',
+            'accept_terms_privacy.accepted' => 'Você precisa aceitar os Termos de Uso e a Política de Privacidade.',
         ]);
 
         foreach ([
@@ -436,6 +443,8 @@ class InfoprodutorRegistrationController extends Controller
 
         $user->update(['tenant_id' => $user->id]);
 
+        $this->recordLegalConsent($user);
+
         if (Schema::hasTable('tenant_wallets')) {
             TenantWallet::query()->firstOrCreate(
                 ['tenant_id' => $user->tenant_id],
@@ -465,6 +474,22 @@ class InfoprodutorRegistrationController extends Controller
             : 'Parabéns! Sua conta de infoprodutor está ativa. Complete o KYC para o Financeiro.';
 
         return redirect()->intended('/dashboard')->with('success', $msg);
+    }
+
+    private function recordLegalConsent(User $user): void
+    {
+        if (! Schema::hasColumn('users', 'privacy_policy_accepted_at')) {
+            return;
+        }
+
+        $now = now();
+        $version = app(LegalDocumentsService::class)->contentVersion();
+
+        $user->forceFill([
+            'privacy_policy_accepted_at' => $now,
+            'terms_accepted_at' => $now,
+            'legal_consent_version' => $version,
+        ])->save();
     }
 }
 

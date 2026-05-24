@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MedDispute;
 use App\Models\RefundRequest;
 use App\Services\RefundRequestService;
 use Illuminate\Http\RedirectResponse;
@@ -28,9 +29,16 @@ class SellerRefundRequestsController extends Controller
 
         $rows = $q->paginate(20)->withQueryString();
 
+        $orderIdsWithOpenMed = MedDispute::query()
+            ->forTenant($tenantId)
+            ->open()
+            ->pluck('order_id')
+            ->all();
+
         return Inertia::render('Reembolsos/Index', [
             'requests' => $rows,
             'filter_status' => $status,
+            'order_ids_with_open_med' => $orderIdsWithOpenMed,
             'pageTitle' => 'Reembolsos',
         ]);
     }

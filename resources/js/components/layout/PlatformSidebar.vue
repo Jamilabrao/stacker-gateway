@@ -13,6 +13,7 @@ import {
     Smartphone,
     Wallet,
     ArrowLeftRight,
+    AlertTriangle,
     Banknote,
     CircleDollarSign,
     Trophy,
@@ -56,6 +57,7 @@ const navItemsCore = [
     { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
     { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
     { name: 'Transações', href: '/plataforma/transacoes', icon: ArrowLeftRight },
+    { name: 'Disputas MED', href: '/plataforma/disputas', icon: AlertTriangle },
     { name: 'Produtos', href: '/plataforma/produtos', icon: Package },
     { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck },
     { name: 'Saques', href: '/plataforma/saques', icon: Banknote },
@@ -96,6 +98,9 @@ function isActive(href) {
     }
     if (href === '/plataforma/transacoes') {
         return url === '/plataforma/transacoes' || url.startsWith('/plataforma/transacoes/');
+    }
+    if (href === '/plataforma/disputas') {
+        return url === '/plataforma/disputas' || url.startsWith('/plataforma/disputas/');
     }
     if (href === '/plataforma/clientes') {
         return url === '/plataforma/clientes' || url.startsWith('/plataforma/clientes/');

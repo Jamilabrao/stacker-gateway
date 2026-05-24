@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -77,12 +78,16 @@ class PlatformProductsController extends Controller
             return redirect()->back()->with('error', 'Execute as migrações do banco para usar o bloqueio de produtos.');
         }
 
-        $validated = $request->validate([
-            'admin_blocked' => ['required', 'boolean'],
+        $request->validate([
+            'admin_blocked' => ['required'],
         ]);
 
+        $blocked = $request->boolean('admin_blocked');
+
         $was = (bool) $product->admin_blocked;
-        $product->update(['admin_blocked' => $validated['admin_blocked']]);
+        $product->admin_blocked = $blocked;
+        $product->save();
+        $product->refresh();
 
         PlatformAuditService::log('platform.product.admin_block_updated', [
             'product_id' => $product->id,
@@ -95,5 +100,26 @@ class PlatformProductsController extends Controller
             : 'Bloqueio removido. Se o produto estiver ativo, volta a poder ser vendido.';
 
         return redirect()->back()->with('success', $msg);
+    }
+
+    public function destroy(Request $request, Product $product): RedirectResponse
+    {
+        $productId = $product->id;
+        $productName = $product->name;
+        $tenantId = $product->tenant_id;
+
+        try {
+            PlatformAdminDeletionService::deleteProduct($product);
+        } catch (\Throwable $e) {
+            return redirect()->back()->with('error', 'Não foi possível excluir o produto: '.$e->getMessage());
+        }
+
+        PlatformAuditService::log('platform.product.deleted', [
+            'product_id' => $productId,
+            'product_name' => $productName,
+            'tenant_id' => $tenantId,
+        ], $request);
+
+        return redirect()->route('plataforma.produtos.index')->with('success', 'Produto "'.$productName.'" excluído permanentemente.');
     }
 }

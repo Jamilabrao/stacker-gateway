@@ -3,6 +3,8 @@ import { ref, computed } from 'vue';
 import { useForm, Link, usePage } from '@inertiajs/vue3';
 import { Eye, EyeOff } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import CookieConsentBanner from '@/components/legal/CookieConsentBanner.vue';
+import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
 
 const showPassword = ref(false);
 const page = usePage();
@@ -120,7 +122,10 @@ function submit() {
                     Recuperar senha
                 </Link>
             </p>
+            <LegalFooterLinks class="mt-6" />
         </div>
+
+        <CookieConsentBanner />
 
         <div
             class="relative hidden overflow-hidden bg-zinc-100 dark:bg-zinc-900 lg:flex lg:flex-1 lg:items-center lg:justify-center"

@@ -3140,6 +3140,11 @@ function submit() {
             <p class="mt-2 text-center text-xs text-gray-400">
                 Copyright © {{ new Date().getFullYear() }}. Todos os direitos reservados.
             </p>
+            <p class="mt-2 text-center text-xs text-gray-400">
+                <a href="/termos-de-uso" target="_blank" rel="noopener" class="underline hover:text-gray-600">Termos</a>
+                <span class="mx-1">·</span>
+                <a href="/politica-privacidade" target="_blank" rel="noopener" class="underline hover:text-gray-600">Privacidade</a>
+            </p>
         </footer>
 
         <!-- Modal pagamento recusado (cartão) -->

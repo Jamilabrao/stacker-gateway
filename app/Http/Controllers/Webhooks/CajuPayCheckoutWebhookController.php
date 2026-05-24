@@ -7,6 +7,9 @@ use App\Jobs\ProcessPaymentWebhook;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Services\CajuPay\CajuPayCheckoutCompletionService;
+use App\Services\CajuPay\CajuPayMedService;
+use App\Services\PlatformOrderAdminService;
+use App\Support\CajuPayPaymentId;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -52,8 +55,14 @@ class CajuPayCheckoutWebhookController extends Controller
         $object = $this->extractObject($payload);
         $checkoutSessionId = $this->pickSessionId($object);
         $paymentId = $this->pickPaymentId($object);
+        if ($paymentId === '' && is_array($object)) {
+            $paymentId = CajuPayPaymentId::pickFromWebhookObject($object);
+        }
 
         $order = $this->findOrderForWebhook($checkoutSessionId, $paymentId);
+        if ($order === null && is_array($object)) {
+            $order = CajuPayMedService::findOrderForPixWebhook($object);
+        }
 
         $secret = $this->resolveSigningSecret($rawBody, (string) $timestamp, $signatureHex, $order?->tenant_id);
         if ($secret === null) {
@@ -88,7 +97,7 @@ class CajuPayCheckoutWebhookController extends Controller
             return response('ok', 200);
         }
 
-        if ($paymentId !== '' && $order->gateway_id !== $paymentId) {
+        if ($order !== null && $paymentId !== '' && $order->gateway_id !== $paymentId) {
             try {
                 $order->update([
                     'gateway' => self::SLUG,
@@ -143,6 +152,39 @@ class CajuPayCheckoutWebhookController extends Controller
             return response('ok', 200);
         }
 
+        if ($this->isPixRefundedEvent($eventType)) {
+            $pixOrder = $order ?? CajuPayMedService::findOrderForPixWebhook($object ?? []);
+            if ($pixOrder !== null) {
+                $paymentId = CajuPayPaymentId::pickFromWebhookObject($object);
+                if ($paymentId !== '') {
+                    CajuPayPaymentId::persistOnOrder($pixOrder, $paymentId);
+                }
+                if (in_array($pixOrder->status, ['completed', 'disputed'], true)) {
+                    PlatformOrderAdminService::applyGatewayRefund($pixOrder->fresh());
+                }
+            }
+
+            return response('ok', 200);
+        }
+
+        if ($this->isPixMedOpenedEvent($eventType)) {
+            $pixOrder = $order ?? CajuPayMedService::findOrderForPixWebhook($object ?? []);
+            if ($pixOrder !== null && is_array($object)) {
+                app(CajuPayMedService::class)->syncOpenedFromWebhook($pixOrder, $object);
+            }
+
+            return response('ok', 200);
+        }
+
+        if ($this->isPixMedResolvedEvent($eventType)) {
+            $pixOrder = $order ?? CajuPayMedService::findOrderForPixWebhook($object ?? []);
+            if ($pixOrder !== null && is_array($object)) {
+                app(CajuPayMedService::class)->syncResolvedFromWebhook($pixOrder, $object);
+            }
+
+            return response('ok', 200);
+        }
+
         Log::debug('CajuPayWebhook: tipo não tratado', ['event' => $eventType]);
 
         return response('ok', 200);
@@ -181,6 +223,21 @@ class CajuPayCheckoutWebhookController extends Controller
             'checkout.payment.disputed',
             'card.payment.disputed',
         ], true);
+    }
+
+    private function isPixRefundedEvent(string $eventType): bool
+    {
+        return $eventType === 'pix.payment.refunded';
+    }
+
+    private function isPixMedOpenedEvent(string $eventType): bool
+    {
+        return $eventType === 'pix.payment.med_opened';
+    }
+
+    private function isPixMedResolvedEvent(string $eventType): bool
+    {
+        return $eventType === 'pix.payment.med_resolved';
     }
 
     /**
@@ -289,6 +346,13 @@ class CajuPayCheckoutWebhookController extends Controller
                 ->first();
             if ($byPayment !== null) {
                 return $byPayment;
+            }
+
+            $byMeta = Order::query()
+                ->where('metadata->cajupay_payment_id', $paymentId)
+                ->first();
+            if ($byMeta !== null) {
+                return $byMeta;
             }
         }
 

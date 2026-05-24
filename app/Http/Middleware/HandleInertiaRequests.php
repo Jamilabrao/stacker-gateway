@@ -12,6 +12,8 @@ use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Services\PlatformI18nService;
 use App\Services\ApiPixAccess;
+use App\Services\CajuPay\CajuPayMedService;
+use App\Services\LegalDocumentsService;
 use App\Services\PhysicalProductAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -109,6 +111,11 @@ class HandleInertiaRequests extends Middleware
             $notificationsUnreadCount = PanelNotification::forUser($user->id)->unread()->count();
         }
 
+        $medOpenCount = 0;
+        if ($user && $user->canAccessSellerPanel() && $user->tenant_id) {
+            $medOpenCount = app(CajuPayMedService::class)->openCountForTenant((int) $user->tenant_id);
+        }
+
         $path = $request->path();
         $isMemberArea = str_starts_with($path, 'm/') || $request->attributes->get('member_area_slug');
         $isCheckout = str_starts_with($path, 'c/') || str_starts_with($path, 'checkout') || str_starts_with($path, 'api-checkout');
@@ -197,6 +204,7 @@ class HandleInertiaRequests extends Middleware
             'vapid_public' => $vapidPublic,
             'firebase_client_config' => $firebaseClientConfig ?? null,
             'notifications_unread_count' => $notificationsUnreadCount,
+            'med_open_count' => $medOpenCount,
             'member_notifications_unread_count' => $memberNotificationsUnreadCount,
             'member_push_subscribed' => $memberPushSubscribed,
             'customer_panel' => $customerPanel,
@@ -206,6 +214,7 @@ class HandleInertiaRequests extends Middleware
             'physical_products_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? PhysicalProductAccess::globalEnabled()
                 : false,
+            'legal' => app(LegalDocumentsService::class)->publicLinks(),
         ];
 
         if ($user && ($user->canAccessSellerPanel() || $user->canAccessPlatformPanel())) {

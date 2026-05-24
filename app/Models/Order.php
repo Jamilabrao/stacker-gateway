@@ -99,6 +99,16 @@ class Order extends Model
         return $this->hasMany(RefundRequest::class);
     }
 
+    public function medDisputes(): HasMany
+    {
+        return $this->hasMany(MedDispute::class);
+    }
+
+    public function hasOpenMedDispute(): bool
+    {
+        return $this->medDisputes()->open()->exists();
+    }
+
     /**
      * Valor líquido exibido em relatórios: soma das linhas (produto + order bumps) ou, se não houver itens, orders.amount.
      */

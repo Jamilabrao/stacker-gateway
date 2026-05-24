@@ -5,7 +5,6 @@ namespace App\Jobs;
 use App\Events\OrderCancelled;
 use App\Events\OrderCompleted;
 use App\Events\OrderRejected;
-use App\Events\OrderRefunded;
 use App\Events\SubscriptionCreated;
 use App\Events\SubscriptionRenewed;
 use App\Gateways\GatewayRegistry;
@@ -13,6 +12,7 @@ use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Subscription;
 use App\Services\CajuPay\CajuPaySdkCheckoutService;
+use App\Services\PlatformOrderAdminService;
 use App\Support\CajuPayCheckoutMetadata;
 use App\Services\EfiPixRecorrenteService;
 use Illuminate\Support\Facades\Cache;
@@ -177,17 +177,30 @@ class ProcessPaymentWebhook implements ShouldQueue
             }
         }
 
+        $isDisputeEvent = in_array($this->event, ['order.disputed', 'payment.disputed'], true)
+            || ($this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.disputed');
+        if ($isDisputeEvent && in_array($this->status, ['disputed', 'chargeback'], true)) {
+            if (in_array($order->status, ['completed', 'pending'], true)) {
+                try {
+                    PlatformOrderAdminService::markDisputed($order);
+                } catch (\InvalidArgumentException) {
+                    //
+                }
+            }
+
+            return;
+        }
+
         $isRefundEvent = in_array($this->event, ['order.refunded', 'payment.refunded'], true)
-            || ($this->gatewaySlug === 'cajupay' && in_array($this->event, ['checkout.payment.refunded', 'checkout.payment.disputed'], true));
-        if ($isRefundEvent && in_array($this->status, ['refunded', 'refund', 'disputed'], true)) {
-            if ($order->status === 'completed') {
+            || ($this->gatewaySlug === 'cajupay' && in_array($this->event, ['checkout.payment.refunded', 'card.payment.refunded', 'pix.payment.refunded'], true));
+        if ($isRefundEvent && in_array($this->status, ['refunded', 'refund'], true)) {
+            if (in_array($order->status, ['completed', 'disputed'], true)) {
                 $skipReconfirmRefund = $this->gatewaySlug === 'cajupay'
-                    && in_array($this->event, ['checkout.payment.refunded', 'checkout.payment.disputed'], true);
+                    && in_array($this->event, ['checkout.payment.refunded', 'card.payment.refunded', 'pix.payment.refunded'], true);
                 if (! $skipReconfirmRefund && ! $this->reconfirmGatewayStatus($order, ['cancelled'])) {
                     return;
                 }
-                $order->update(['status' => 'refunded']);
-                event(new OrderRefunded($order));
+                PlatformOrderAdminService::applyGatewayRefund($order);
             }
         }
     }

@@ -43,6 +43,7 @@ class KycRegistrationTest extends TestCase
             'monthly_revenue_range' => 'up_to_10k',
             'password' => 'Password123!',
             'password_confirmation' => 'Password123!',
+            'accept_terms_privacy' => '1',
         ];
 
         $response = $this->post('/cadastro', $payload);

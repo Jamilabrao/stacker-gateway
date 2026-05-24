@@ -289,6 +289,119 @@ class PlatformOrderAdminService
         ]);
     }
 
+    /**
+     * Libera hold MED e restaura pedido para pago (disputa ganha/cancelada).
+     */
+    public static function releaseMedHoldAndComplete(Order $order): void
+    {
+        if ($order->status !== 'disputed') {
+            throw new InvalidArgumentException('Pedido não está em MED.');
+        }
+
+        DB::transaction(function () use ($order) {
+            self::releaseMedHold($order);
+            $order->update(['status' => 'completed']);
+        });
+    }
+
+    /**
+     * Reverte bloqueio MED: pending_* de volta para available_*.
+     */
+    public static function releaseMedHold(Order $order): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
+            return;
+        }
+
+        $holds = WalletTransaction::query()
+            ->where('order_id', $order->id)
+            ->where('type', WalletTransaction::TYPE_MED_HOLD)
+            ->get()
+            ->filter(function ($tx) {
+                $m = is_array($tx->meta) ? $tx->meta : [];
+
+                return empty($m['released_at']);
+            });
+
+        if ($holds->isEmpty()) {
+            return;
+        }
+
+        foreach ($holds->groupBy('tenant_id') as $tenantId => $tenantHolds) {
+            self::releaseMedHoldForTenant($order, (int) $tenantId, $tenantHolds);
+        }
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, WalletTransaction>  $holds
+     */
+    private static function releaseMedHoldForTenant(Order $order, int $tenantId, Collection $holds): void
+    {
+        if ($tenantId < 1 || $holds->isEmpty()) {
+            return;
+        }
+
+        DB::transaction(function () use ($order, $tenantId, $holds) {
+            $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->lockForUpdate()->first();
+            if ($wallet === null) {
+                return;
+            }
+
+            foreach ($holds as $hold) {
+                $meta = is_array($hold->meta) ? $hold->meta : [];
+                if (! empty($meta['released_at'])) {
+                    continue;
+                }
+
+                $net = (float) $hold->amount_net;
+                if ($net <= 0) {
+                    $hold->update(['meta' => array_merge($meta, ['released_at' => now()->toIso8601String()])]);
+
+                    continue;
+                }
+
+                $bucket = (string) $hold->bucket;
+                $availCol = 'available_'.$bucket;
+                $pendCol = 'pending_'.$bucket;
+                if (! in_array($availCol, ['available_pix', 'available_card', 'available_boleto'], true)) {
+                    $availCol = 'available_pix';
+                    $pendCol = 'pending_pix';
+                }
+
+                $pending = (float) ($wallet->{$pendCol} ?? 0);
+                $move = min($net, max(0, $pending));
+                if ($move > 0) {
+                    $wallet->{$pendCol} = round($pending - $move, 2);
+                    $wallet->{$availCol} = round((float) ($wallet->{$availCol} ?? 0) + $move, 2);
+                }
+
+                $hold->update(['meta' => array_merge($meta, [
+                    'released_at' => now()->toIso8601String(),
+                    'reason' => 'med_dispute_released',
+                ])]);
+            }
+
+            self::recalcWalletAggregates($wallet);
+            $wallet->save();
+        });
+    }
+
+    /**
+     * Reembolso confirmado via webhook/API sem nova chamada ao gateway.
+     */
+    public static function applyGatewayRefund(Order $order): void
+    {
+        if ($order->status === 'refunded') {
+            return;
+        }
+
+        if (! in_array($order->status, ['completed', 'disputed'], true)) {
+            return;
+        }
+
+        self::refundPaidOrDisputed($order);
+    }
+
     private static function recalcWalletAggregates(TenantWallet $wallet): void
     {
         if (Schema::hasColumn('tenant_wallets', 'available_balance')) {

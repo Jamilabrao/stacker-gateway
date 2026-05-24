@@ -18,6 +18,7 @@ import {
     Images,
     Truck,
     Shield,
+    Scale,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
@@ -25,6 +26,7 @@ import BrandingTab from '@/Pages/Settings/Tabs/BrandingTab.vue';
 import DashboardBannersTab from '@/Pages/Settings/Tabs/DashboardBannersTab.vue';
 import LanguagesTab from '@/Pages/Settings/Tabs/LanguagesTab.vue';
 import SecurityTab from '@/Pages/Settings/Tabs/SecurityTab.vue';
+import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -61,10 +63,14 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    legal_defaults: {
+        type: Object,
+        default: () => ({}),
+    },
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'cron', 'update'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'lgpd', 'cron', 'update'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -149,6 +155,10 @@ const form = useForm({
     checkout_turnstile_secret_key: '',
     checkout_turnstile_mode: props.settings.checkout_turnstile_mode ?? 'pix_boleto',
     checkout_turnstile_secret_configured: Boolean(props.settings.checkout_turnstile_secret_configured),
+    legal_privacy_policy_html: props.settings.legal_privacy_policy_html ?? '',
+    legal_terms_of_use_html: props.settings.legal_terms_of_use_html ?? '',
+    legal_privacy_contact_email: props.settings.legal_privacy_contact_email ?? '',
+    legal_cookie_banner_enabled: props.settings.legal_cookie_banner_enabled !== false,
 });
 
 const showCloudR2Override = ref(false);
@@ -173,6 +183,7 @@ const coreTabsStatic = [
     { id: 'moedas', label: 'Moedas', icon: Banknote },
     { id: 'recursos', label: 'Recursos', icon: Truck },
     { id: 'seguranca', label: 'Segurança', icon: Shield },
+    { id: 'lgpd', label: 'LGPD', icon: Scale },
     { id: 'cron', label: 'Cron', icon: Clock },
     { id: 'update', label: 'Versão', icon: Tag },
 ];
@@ -1147,6 +1158,19 @@ const selectClass =
                 </p>
             </div>
         </template>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'lgpd'" class="w-full max-w-full space-y-6">
+                <LegalTab :form="form" :legal-defaults="legal_defaults" />
+            </div>
+        </Transition>
 
         <Transition
             enter-active-class="transition duration-200 ease-out"

@@ -3,6 +3,8 @@ import { ref, computed, watch, watchEffect, onMounted } from 'vue';
 import { useForm, Link, usePage } from '@inertiajs/vue3';
 import { User, Building2, ChevronLeft } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import CookieConsentBanner from '@/components/legal/CookieConsentBanner.vue';
+import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
 
 const page = usePage();
 const branding = computed(() => page.props.public_branding ?? {});
@@ -231,6 +233,10 @@ async function validateCurrentStep() {
             wizardStepError.value = 'A confirmação da senha não confere.';
             return false;
         }
+        if (!form.accept_terms_privacy) {
+            wizardStepError.value = 'Você precisa aceitar os Termos de Uso e a Política de Privacidade.';
+            return false;
+        }
         return true;
     }
 
@@ -260,6 +266,7 @@ const form = useForm({
     monthly_revenue_range: '',
     password: '',
     password_confirmation: '',
+    accept_terms_privacy: false,
 });
 
 onMounted(() => {
@@ -683,6 +690,22 @@ function submitRegistration() {
                             <label class="block text-xs font-semibold uppercase text-zinc-500">Confirmar senha</label>
                             <input v-model="form.password_confirmation" type="password" required autocomplete="new-password" class="wl-input mt-1 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 dark:border-zinc-600 dark:bg-zinc-950 dark:text-white" />
                         </div>
+                        <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-600 dark:bg-zinc-950">
+                            <input
+                                v-model="form.accept_terms_privacy"
+                                type="checkbox"
+                                class="wl-checkbox mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300"
+                            />
+                            <span class="text-sm leading-snug text-zinc-700 dark:text-zinc-300">
+                                Li e aceito os
+                                <a href="/termos-de-uso" target="_blank" rel="noopener" class="font-medium text-[var(--color-primary)] underline">Termos de Uso</a>
+                                e a
+                                <a href="/politica-privacidade" target="_blank" rel="noopener" class="font-medium text-[var(--color-primary)] underline">Política de Privacidade</a>.
+                            </span>
+                        </label>
+                        <p v-if="form.errors.accept_terms_privacy" class="text-sm text-red-600">
+                            {{ form.errors.accept_terms_privacy }}
+                        </p>
                     </div>
 
                     <p
@@ -710,7 +733,10 @@ function submitRegistration() {
                 Já tem conta?
                 <Link href="/login" class="font-medium text-[var(--color-primary)] hover:underline">Entrar</Link>
             </p>
+            <LegalFooterLinks class="mt-4" />
         </div>
+
+        <CookieConsentBanner />
 
         <div class="relative hidden overflow-hidden bg-zinc-100 dark:bg-zinc-900 lg:flex lg:flex-1 lg:items-center lg:justify-center">
             <img :src="heroImage" alt="" class="h-full w-full object-cover opacity-90 dark:opacity-80" />

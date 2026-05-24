@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ApiApplication;
 use App\Models\Order;
 use App\Services\ApiPixAccess;
+use App\Jobs\PollCajuPayPixRefundJob;
 use App\Services\OrderRefundGatewayBridge;
 use App\Services\PlatformOrderAdminService;
 use Illuminate\Http\JsonResponse;
@@ -90,6 +91,35 @@ class PixController extends Controller
 
         $bridge = app(OrderRefundGatewayBridge::class);
         $bridgeResult = $bridge->tryRefund($orderModel);
+
+        if ($bridgeResult['status'] === 'blocked_med') {
+            return response()->json([
+                'message' => $bridgeResult['note'] ?? 'Reembolso bloqueado por disputa MED.',
+                'order_id' => $orderModel->id,
+                'status' => $orderModel->status,
+                'gateway_refund' => $bridgeResult,
+            ], 422);
+        }
+
+        if ($bridgeResult['status'] === 'failed') {
+            return response()->json([
+                'message' => $bridgeResult['note'] ?? 'Falha no reembolso no gateway.',
+                'order_id' => $orderModel->id,
+                'status' => $orderModel->status,
+                'gateway_refund' => $bridgeResult,
+            ], 422);
+        }
+
+        if ($bridgeResult['status'] === 'gateway_pending') {
+            PollCajuPayPixRefundJob::dispatch($orderModel->id)->delay(now()->addSeconds(5));
+
+            return response()->json([
+                'order_id' => $orderModel->id,
+                'status' => $orderModel->status,
+                'gateway_refund' => $bridgeResult,
+                'message' => $bridgeResult['note'] ?? 'Reembolso PIX em processamento.',
+            ]);
+        }
 
         PlatformOrderAdminService::refundPaidOrDisputed($orderModel);
         $orderModel = $orderModel->fresh();

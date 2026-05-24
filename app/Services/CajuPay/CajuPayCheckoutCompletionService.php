@@ -5,6 +5,7 @@ namespace App\Services\CajuPay;
 use App\Jobs\ProcessPaymentWebhook;
 use App\Models\Order;
 use App\Support\CajuPayCheckoutMetadata;
+use App\Support\CajuPayPaymentId;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -73,9 +74,15 @@ class CajuPayCheckoutCompletionService
             return;
         }
 
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        if (CajuPayPaymentId::looksLikeUuid($chargeId)) {
+            $meta['cajupay_payment_id'] = $chargeId;
+        }
+
         $order->update([
             'gateway' => 'cajupay',
             'gateway_id' => $chargeId,
+            'metadata' => $meta,
         ]);
 
         $enriched = array_merge($payload, [

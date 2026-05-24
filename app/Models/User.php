@@ -69,6 +69,9 @@ class User extends Authenticatable
         'kyc_reviewed_at',
         'kyc_reviewed_by',
         'seller_onboarded_at',
+        'privacy_policy_accepted_at',
+        'terms_accepted_at',
+        'legal_consent_version',
     ];
 
     /** @deprecated Migração: antigo admin virou infoprodutor; manter só por compatibilidade de dados legados */
@@ -295,6 +298,8 @@ class User extends Authenticatable
             'birth_date' => 'date',
             'kyc_reviewed_at' => 'datetime',
             'seller_onboarded_at' => 'datetime',
+            'privacy_policy_accepted_at' => 'datetime',
+            'terms_accepted_at' => 'datetime',
         ];
     }
 }

@@ -4,10 +4,14 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\CheckoutSession;
+use App\Models\MedDispute;
 use App\Models\Order;
 use App\Services\EffectiveMerchantFees;
 use App\Services\OrderManualApprovalService;
+use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
+use App\Jobs\PollCajuPayPixRefundJob;
+use App\Services\OrderRefundGatewayBridge;
 use App\Services\PlatformOrderAdminService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -121,7 +125,15 @@ class TransactionsController extends Controller
                 });
             }
 
-            $ordersPaginator = $query->paginate(40)->withQueryString()->through(function (Order $o) {
+            $paginated = $query->paginate(40)->withQueryString();
+            $openMedOrderIds = MedDispute::query()
+                ->whereIn('order_id', $paginated->getCollection()->pluck('id'))
+                ->open()
+                ->pluck('order_id')
+                ->flip()
+                ->all();
+
+            $ordersPaginator = $paginated->through(function (Order $o) use ($openMedOrderIds) {
                 $arr = $o->toArray();
                 $breakdown = $this->orderFeeBreakdown($o);
                 $arr['gateway_label'] = $o->paymentMethodDisplayLabel();
@@ -138,6 +150,7 @@ class TransactionsController extends Controller
                 $arr['infoprodutor_name'] = $o->tenantOwner?->name ?? '—';
                 $arr['infoprodutor_email'] = $o->tenantOwner?->email;
                 $arr['payment_method_label'] = $o->paymentMethodDisplayLabel();
+                $arr['has_open_med_dispute'] = isset($openMedOrderIds[$o->id]);
 
                 return $arr;
             });
@@ -209,6 +222,28 @@ class TransactionsController extends Controller
     {
         $redirectParams = $this->orderActionRedirectParams($request);
 
+        $gw = app(OrderRefundGatewayBridge::class)->tryRefund($order);
+        if ($gw['status'] === 'blocked_med') {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', $gw['note'] ?? 'Reembolso bloqueado por disputa MED aberta.');
+        }
+        if ($gw['status'] === 'failed') {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', $gw['note'] ?? 'Falha ao solicitar reembolso no gateway.');
+        }
+
+        if ($gw['status'] === 'gateway_pending') {
+            PollCajuPayPixRefundJob::dispatch($order->id)->delay(now()->addSeconds(5));
+            PlatformAuditService::log('platform.order.refund_pending', [
+                'order_id' => $order->id,
+                'tenant_id' => $order->tenant_id,
+                'gateway_refund' => $gw,
+            ], $request);
+
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('success', $gw['note'] ?? 'Reembolso PIX enviado à CajuPay. A carteira será ajustada quando a devolução for confirmada.');
+        }
+
         try {
             PlatformOrderAdminService::refundPaidOrDisputed($order);
         } catch (InvalidArgumentException $e) {
@@ -221,10 +256,11 @@ class TransactionsController extends Controller
         PlatformAuditService::log('platform.order.refunded', [
             'order_id' => $order->id,
             'tenant_id' => $order->tenant_id,
+            'gateway_refund' => $gw,
         ], $request);
 
         return redirect()->route('plataforma.transacoes.index', $redirectParams)
-            ->with('success', 'Pedido #'.$order->id.' marcado como reembolsado.');
+            ->with('success', 'Pedido #'.$order->id.' reembolsado.');
     }
 
     public function markDisputedOrder(Request $request, Order $order): RedirectResponse
@@ -247,6 +283,28 @@ class TransactionsController extends Controller
 
         return redirect()->route('plataforma.transacoes.index', $redirectParams)
             ->with('success', 'Pedido #'.$order->id.' marcado como MED.');
+    }
+
+    public function destroyOrder(Request $request, Order $order): RedirectResponse
+    {
+        $redirectParams = $this->orderActionRedirectParams($request);
+        $orderId = $order->id;
+
+        try {
+            PlatformAdminDeletionService::deleteOrder($order);
+        } catch (InvalidArgumentException $e) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', 'Não foi possível excluir o pedido: '.$e->getMessage());
+        }
+
+        PlatformAuditService::log('platform.order.deleted', [
+            'order_id' => $orderId,
+        ], $request);
+
+        return redirect()->route('plataforma.transacoes.index', $redirectParams)
+            ->with('success', 'Pedido #'.$orderId.' removido do histórico.');
     }
 
     private function orderProductLabel(Order $order): string

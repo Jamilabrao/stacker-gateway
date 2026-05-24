@@ -4,6 +4,7 @@ namespace App\Gateways\CajuPay;
 
 use App\Gateways\Contracts\GatewayDriver;
 use App\Support\BrazilianDocuments;
+use App\Support\CajuPayPaymentId;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -725,6 +726,284 @@ class CajuPayDriver implements GatewayDriver
         return $s;
     }
 
+    /**
+     * Estorno PIX via API CajuPay (módulo 18). Cartão/wallet: sem API — use webhook.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return array{success: bool, pending?: bool, message?: string, error_code?: string, raw?: array<string, mixed>}
+     */
+    public function refundTransaction(array $credentials, string $txId, float $amount, string $externalId): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            return ['success' => false, 'message' => 'Credenciais CajuPay não configuradas.'];
+        }
+
+        $paymentId = trim($txId);
+        if ($paymentId === '' || ! CajuPayPaymentId::looksLikeUuid($paymentId)) {
+            return ['success' => false, 'message' => 'ID de pagamento CajuPay inválido para reembolso PIX.'];
+        }
+
+        $clientRefundId = $this->normalizeClientRefundId('order-'.$externalId.'-refund');
+
+        $payload = ['client_refund_id' => $clientRefundId];
+        $response = $this->httpForCredentials($credentials)
+            ->post('/api/payments/'.rawurlencode($paymentId).'/pix-refund', $payload);
+
+        if (! $response->successful()) {
+            return [
+                'success' => false,
+                'message' => $this->friendlyRefundErrorMessage($response),
+                'error_code' => $this->parseApiErrorCode($response),
+            ];
+        }
+
+        $data = $response->json();
+        $body = is_array($data) ? $data : [];
+
+        return $this->mapPixRefundResponse($body);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function createPixRefund(array $credentials, string $paymentId, ?string $clientRefundId = null): array
+    {
+        $paymentId = trim($paymentId);
+        $payload = [];
+        if ($clientRefundId !== null && $clientRefundId !== '') {
+            $payload['client_refund_id'] = $this->normalizeClientRefundId($clientRefundId);
+        }
+
+        $response = $this->httpForCredentials($credentials)
+            ->post('/api/payments/'.rawurlencode($paymentId).'/pix-refund', $payload);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->friendlyRefundErrorMessage($response));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function getPixRefund(array $credentials, string $paymentId): array
+    {
+        $response = $this->httpForCredentials($credentials)
+            ->get('/api/payments/'.rawurlencode(trim($paymentId)).'/pix-refund');
+
+        if ($response->status() === 404) {
+            return [];
+        }
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->friendlyRefundErrorMessage($response));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function retryPixRefund(array $credentials, string $paymentId): array
+    {
+        $response = $this->httpForCredentials($credentials)
+            ->post('/api/payments/'.rawurlencode(trim($paymentId)).'/pix-refund/retry');
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->friendlyRefundErrorMessage($response));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    public function cancelPixRefund(array $credentials, string $paymentId): bool
+    {
+        $response = $this->httpForCredentials($credentials)
+            ->delete('/api/payments/'.rawurlencode(trim($paymentId)).'/pix-refund');
+
+        return $response->status() === 204 || $response->successful();
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array{success: bool, pending?: bool, message?: string, error_code?: string, raw?: array<string, mixed>}
+     */
+    public function mapPixRefundResponse(array $body): array
+    {
+        $status = strtolower(trim((string) ($body['status'] ?? '')));
+
+        if ($status === 'devolvido') {
+            return ['success' => true, 'pending' => false, 'message' => 'Reembolso PIX confirmado.', 'raw' => $body];
+        }
+
+        if (in_array($status, ['submitted', 'pending_balance'], true)) {
+            return ['success' => true, 'pending' => true, 'message' => 'Reembolso PIX enviado; aguardando confirmação.', 'raw' => $body];
+        }
+
+        if ($status === 'failed') {
+            $err = trim((string) ($body['last_error'] ?? 'Falha no reembolso PIX.'));
+
+            return ['success' => false, 'message' => $err !== '' ? $err : 'Falha no reembolso PIX.', 'raw' => $body];
+        }
+
+        return ['success' => true, 'pending' => true, 'message' => 'Reembolso PIX em processamento.', 'raw' => $body];
+    }
+
+    private function normalizeClientRefundId(string $id): string
+    {
+        $id = preg_replace('/[^a-zA-Z0-9_-]/', '-', $id) ?: 'refund';
+
+        return Str::limit($id, 64, '');
+    }
+
+    private function parseApiErrorCode(Response $response): ?string
+    {
+        $data = $response->json();
+        if (! is_array($data)) {
+            return null;
+        }
+        $error = $data['error'] ?? null;
+        if (! is_string($error) || trim($error) === '') {
+            return null;
+        }
+
+        return strtolower(trim($error));
+    }
+
+    private function friendlyRefundErrorMessage(Response $response): string
+    {
+        $parsed = $this->parseApiErrorMessage($response);
+        $code = $this->parseApiErrorCode($response) ?? '';
+
+        $map = [
+            'med_blocks_refund' => 'Reembolso bloqueado: existe disputa MED aberta neste pagamento.',
+            'refund_window_expired' => 'Prazo de reembolso PIX expirado (30 dias).',
+            'payment_not_paid' => 'Pagamento ainda não está confirmado como pago.',
+            'payment_not_found' => 'Pagamento não encontrado na CajuPay.',
+            'refund_not_found' => 'Nenhum pedido de reembolso encontrado para este pagamento.',
+            'invalid_client_refund_id' => 'Identificador de reembolso inválido.',
+            'missing_pix_end_to_end_id' => 'Identificador PIX end-to-end ausente no provedor.',
+            'refund_only_onlyup' => 'Conta não habilitada para reembolso via API.',
+        ];
+
+        if ($code !== '' && isset($map[$code])) {
+            return $map[$code];
+        }
+
+        if ($parsed !== '') {
+            return $parsed;
+        }
+
+        if ($response->status() === 401 || $response->status() === 403) {
+            return 'Credenciais CajuPay inválidas ou sem permissão payments.write.';
+        }
+
+        return 'Não foi possível processar o reembolso PIX na CajuPay.';
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{data: list<array<string, mixed>>}
+     */
+    public function listMedDisputes(array $credentials, int $limit = 50): array
+    {
+        $response = $this->httpForCredentials($credentials)
+            ->get('/api/med', ['limit' => max(1, min(100, $limit))]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->parseApiErrorMessage($response) ?: 'Falha ao listar disputas MED.');
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : ['data' => []];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function getMedDispute(array $credentials, string $disputeId): array
+    {
+        $response = $this->httpForCredentials($credentials)
+            ->get('/api/med/'.rawurlencode(trim($disputeId)));
+
+        if ($response->status() === 404) {
+            throw new \RuntimeException('Disputa MED não encontrada.');
+        }
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->parseApiErrorMessage($response) ?: 'Falha ao consultar disputa MED.');
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    public function getMedSummary(array $credentials): int
+    {
+        $response = $this->httpForCredentials($credentials)->get('/api/med/summary');
+        if (! $response->successful()) {
+            return 0;
+        }
+        $data = $response->json();
+        if (! is_array($data)) {
+            return 0;
+        }
+
+        return (int) ($data['open_count'] ?? 0);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @param  list<\Illuminate\Http\UploadedFile>  $attachments
+     * @return array<string, mixed>
+     */
+    public function submitMedDefense(array $credentials, string $disputeId, string $text, array $attachments = []): array
+    {
+        $disputeId = trim($disputeId);
+        $http = $this->httpForCredentials($credentials);
+
+        $request = $http->asMultipart();
+        foreach ($attachments as $file) {
+            $request = $request->attach(
+                'attachments[]',
+                file_get_contents($file->getRealPath()),
+                $file->getClientOriginalName()
+            );
+        }
+
+        $response = $request->post('/api/med/'.rawurlencode($disputeId).'/defense', [
+            'text' => $text,
+        ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException($this->parseApiErrorMessage($response) ?: 'Falha ao enviar defesa MED.');
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : ['ok' => true];
+    }
+
     public function createCardPayment(
         array $credentials,
         float $amount,
@@ -803,6 +1082,9 @@ class CajuPayDriver implements GatewayDriver
             'card.payment.failed',
             'card.payment.refunded',
             'card.payment.disputed',
+            'pix.payment.refunded',
+            'pix.payment.med_opened',
+            'pix.payment.med_resolved',
         ];
 
         $http = $this->httpForCredentials($credentials);

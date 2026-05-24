@@ -7,6 +7,7 @@ use App\Mail\RefundRequestSellerMail;
 use App\Models\Order;
 use App\Models\RefundRequest;
 use App\Models\User;
+use App\Jobs\PollCajuPayPixRefundJob;
 use App\Services\PlatformOrderAdminService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -56,6 +57,29 @@ class RefundRequestService
             'gateway_refund_status' => $gw['status'],
             'gateway_refund_note' => $gw['note'],
         ]);
+
+        if ($gw['status'] === 'blocked_med') {
+            throw new \InvalidArgumentException($gw['note'] ?? 'Reembolso bloqueado por disputa MED aberta.');
+        }
+
+        if ($gw['status'] === 'failed') {
+            throw new \InvalidArgumentException($gw['note'] ?? 'Falha ao solicitar reembolso no gateway.');
+        }
+
+        if ($gw['status'] === 'gateway_pending') {
+            PollCajuPayPixRefundJob::dispatch($order->id)->delay(now()->addSeconds(5));
+            $request->update([
+                'status' => RefundRequest::STATUS_APPROVED,
+                'resolved_by_user_id' => $seller->id,
+                'resolved_at' => now(),
+            ]);
+            $customer = $request->user;
+            if ($customer && $customer->email) {
+                Mail::to($customer->email)->send(new RefundDecisionCustomerMail($request->fresh(['order.product']), true, $gw['note'] ?? null));
+            }
+
+            return;
+        }
 
         try {
             PlatformOrderAdminService::refundPaidOrDisputed($order->fresh());

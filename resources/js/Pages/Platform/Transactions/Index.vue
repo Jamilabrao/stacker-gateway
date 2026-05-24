@@ -12,6 +12,7 @@ import {
     Ban,
     RotateCcw,
     AlertTriangle,
+    Trash2,
 } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
@@ -149,6 +150,17 @@ function confirmMed(id, wasPaid) {
     router.post(orderActionUrl('marcar-med', id), {}, { preserveScroll: true });
 }
 
+function confirmDeleteOrder(id) {
+    if (
+        !confirm(
+            'Excluir este pedido do histórico?\n\nPedidos pagos ou em MED só podem ser removidos após reembolso. Esta ação não pode ser desfeita.'
+        )
+    ) {
+        return;
+    }
+    router.delete(`/plataforma/transacoes/pedidos/${id}${approveQuerySuffix()}`, { preserveScroll: true });
+}
+
 function openDetail(v) {
     selectedVenda.value = v;
     sidebarOpen.value = true;
@@ -167,10 +179,8 @@ const menuOrder = computed(() => {
     return list.find((x) => x.id === openMenuId.value) ?? null;
 });
 
-function hasActionsMenu(o) {
-    return (
-        o.status === 'pending' || o.status === 'completed' || o.status === 'disputed'
-    );
+function hasActionsMenu() {
+    return true;
 }
 
 async function updateMenuPosition() {
@@ -399,7 +409,6 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             </td>
                             <td class="relative px-2 py-2 text-right align-middle" @click.stop>
                                 <div
-                                    v-if="hasActionsMenu(o)"
                                     class="relative flex justify-end"
                                     :data-tx-menu="o.id"
                                 >
@@ -413,7 +422,6 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                                         <MoreVertical class="h-4 w-4 shrink-0" />
                                     </button>
                                 </div>
-                                <span v-else class="inline-block py-1 text-xs text-zinc-400">—</span>
                             </td>
                         </tr>
                         <tr v-if="!rows().length">
@@ -526,6 +534,15 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                         Reembolsar
                     </button>
                 </template>
+                <div class="my-1 border-t border-zinc-200 dark:border-zinc-700" role="separator" />
+                <button
+                    type="button"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+                    @click="runMenuAction((r) => confirmDeleteOrder(r.id))"
+                >
+                    <Trash2 class="h-4 w-4 shrink-0" />
+                    Excluir pedido
+                </button>
             </div>
         </Teleport>
     </div>

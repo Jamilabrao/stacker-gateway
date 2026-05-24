@@ -52,6 +52,9 @@ Route::get('/painel-sw.js', function () {
     ]);
 })->name('panel.pwa.sw');
 
+Route::get('/politica-privacidade', [\App\Http\Controllers\LegalPagesController::class, 'privacy'])->name('legal.privacy');
+Route::get('/termos-de-uso', [\App\Http\Controllers\LegalPagesController::class, 'terms'])->name('legal.terms');
+
 Route::get('/', function (\Illuminate\Http\Request $request) {
     $resolved = app(\App\Services\MemberAreaResolver::class)->resolve($request);
     if ($resolved && in_array($resolved['access_type'], ['subdomain', 'custom'], true)) {
@@ -311,10 +314,19 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/produtos/{product}/bloqueio', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'updateBlock'])
             ->name('produtos.bloqueio')
             ->middleware('throttle:60,1');
+        Route::delete('/produtos/{product}', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'destroy'])
+            ->name('produtos.destroy')
+            ->middleware('throttle:30,1');
 
         Route::get('/saques', [\App\Http\Controllers\Platform\WithdrawalsController::class, 'index'])->name('saques.index');
         Route::get('/transacoes', [\App\Http\Controllers\Platform\TransactionsController::class, 'index'])->name('transacoes.index');
         Route::get('/clientes', [\App\Http\Controllers\Platform\CustomersController::class, 'index'])->name('clientes.index');
+        Route::delete('/clientes/{user}', [\App\Http\Controllers\Platform\CustomersController::class, 'destroy'])
+            ->name('clientes.destroy')
+            ->middleware('throttle:30,1');
+        Route::delete('/clientes/{user}/historico-pedidos', [\App\Http\Controllers\Platform\CustomersController::class, 'destroyOrderHistory'])
+            ->name('clientes.historico.destroy')
+            ->middleware('throttle:30,1');
         Route::post('/transacoes/pedidos/{order}/aprovar-manualmente', [\App\Http\Controllers\Platform\TransactionsController::class, 'approveManualOrder'])
             ->name('transacoes.pedidos.approve-manual')
             ->middleware('throttle:10,1');
@@ -327,6 +339,12 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/transacoes/pedidos/{order}/marcar-med', [\App\Http\Controllers\Platform\TransactionsController::class, 'markDisputedOrder'])
             ->name('transacoes.pedidos.disputed')
             ->middleware('throttle:10,1');
+        Route::delete('/transacoes/pedidos/{order}', [\App\Http\Controllers\Platform\TransactionsController::class, 'destroyOrder'])
+            ->name('transacoes.pedidos.destroy')
+            ->middleware('throttle:30,1');
+
+        Route::get('/disputas', [\App\Http\Controllers\Platform\MedDisputesController::class, 'index'])->name('disputas.index');
+        Route::get('/disputas/{dispute}', [\App\Http\Controllers\Platform\MedDisputesController::class, 'show'])->name('disputas.show');
 
         Route::get('/verificacoes-kyc', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'index'])->name('kyc.index');
         Route::get('/verificacoes-kyc/documento/{document}', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'downloadDocument'])
@@ -463,6 +481,16 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
     Route::post('/reembolsos/{refundRequest}/recusar', [\App\Http\Controllers\SellerRefundRequestsController::class, 'reject'])
         ->middleware(['throttle:30,1', 'team.permission:vendas.view'])
         ->name('reembolsos.reject');
+
+    Route::get('/disputas', [\App\Http\Controllers\SellerMedDisputesController::class, 'index'])
+        ->middleware('team.permission:vendas.view')
+        ->name('disputas.index');
+    Route::get('/disputas/{dispute}', [\App\Http\Controllers\SellerMedDisputesController::class, 'show'])
+        ->middleware('team.permission:vendas.view')
+        ->name('disputas.show');
+    Route::post('/disputas/{dispute}/defesa', [\App\Http\Controllers\SellerMedDisputesController::class, 'submitDefense'])
+        ->middleware(['throttle:15,1', 'team.permission:vendas.view'])
+        ->name('disputas.defense');
 
     Route::get('/kyc', [\App\Http\Controllers\SellerKycController::class, 'show'])->name('kyc.upload');
     Route::post('/kyc/document', [\App\Http\Controllers\SellerKycController::class, 'uploadDocument'])->middleware('throttle:30,1')->name('kyc.document');

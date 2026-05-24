@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\LegalDocumentsService;
 use App\Services\PhysicalProductAccess;
+use App\Services\PlatformAuditService;
+use App\Support\HtmlSanitizer;
 use App\Support\CheckoutTranslations;
 use App\Support\CheckoutTurnstileSettings;
 use App\Support\PlatformConfigContext;
@@ -77,6 +80,8 @@ class SettingsController extends Controller
             && trim($storageS3Url) === ''
             && trim($storageS3SecretRaw) === '';
 
+        $legalForm = app(LegalDocumentsService::class)->forAdminForm();
+
         return Inertia::render('Settings/Index', [
             'current_version' => $currentVersion,
             'cloud_mode' => $cloudMode,
@@ -114,7 +119,14 @@ class SettingsController extends Controller
                 'storage_cloud_r2_managed' => $cloudR2Managed,
                 'physical_products_enabled' => PhysicalProductAccess::globalEnabled(),
                 ...($tenantId === null ? CheckoutTurnstileSettings::forSettingsForm() : []),
+                ...($tenantId === null ? [
+                    'legal_privacy_policy_html' => $legalForm['legal_privacy_policy_html'],
+                    'legal_terms_of_use_html' => $legalForm['legal_terms_of_use_html'],
+                    'legal_privacy_contact_email' => $legalForm['legal_privacy_contact_email'],
+                    'legal_cookie_banner_enabled' => $legalForm['legal_cookie_banner_enabled'],
+                ] : []),
             ],
+            'legal_defaults' => $tenantId === null ? ($legalForm['legal_defaults'] ?? []) : [],
         ]);
     }
 
@@ -160,6 +172,10 @@ class SettingsController extends Controller
             'checkout_turnstile_site_key' => ['nullable', 'string', 'max:255'],
             'checkout_turnstile_secret_key' => ['nullable', 'string', 'max:512'],
             'checkout_turnstile_mode' => ['nullable', 'string', 'in:disabled,pix_boleto,all_payments'],
+            'legal_privacy_policy_html' => ['nullable', 'string', 'max:200000'],
+            'legal_terms_of_use_html' => ['nullable', 'string', 'max:200000'],
+            'legal_privacy_contact_email' => ['nullable', 'email', 'max:255'],
+            'legal_cookie_banner_enabled' => ['nullable', 'boolean'],
         ]);
 
         $tenantId = PlatformConfigContext::settingsTenantId();
@@ -216,8 +232,15 @@ class SettingsController extends Controller
             'storage_s3_endpoint', 'storage_s3_url',
         ];
 
+        if ($tenantId === null) {
+            $this->persistLegalSettings($request, $validated);
+        }
+
         foreach ($validated as $key => $value) {
             if (in_array($key, ['smtp_password', 'hostinger_smtp_password', 'sendgrid_api_key', 'storage_s3_secret'], true)) {
+                continue;
+            }
+            if (str_starts_with($key, 'legal_')) {
                 continue;
             }
             if (in_array($key, $brandingKeys, true)) {
@@ -238,5 +261,52 @@ class SettingsController extends Controller
         }
 
         return back()->with('success', 'Configurações salvas.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function persistLegalSettings(Request $request, array $validated): void
+    {
+        $now = now()->toIso8601String();
+
+        if (array_key_exists('legal_privacy_contact_email', $validated)) {
+            Setting::set(
+                LegalDocumentsService::SETTING_PRIVACY_EMAIL,
+                trim((string) ($validated['legal_privacy_contact_email'] ?? '')),
+                null
+            );
+        }
+
+        if (array_key_exists('legal_cookie_banner_enabled', $validated)) {
+            Setting::set(
+                LegalDocumentsService::SETTING_COOKIE_BANNER,
+                ($validated['legal_cookie_banner_enabled'] ?? false) ? '1' : '0',
+                null
+            );
+        }
+
+        if (array_key_exists('legal_privacy_policy_html', $validated) && $validated['legal_privacy_policy_html'] !== null) {
+            Setting::set(
+                LegalDocumentsService::SETTING_PRIVACY_HTML,
+                HtmlSanitizer::sanitize((string) $validated['legal_privacy_policy_html']),
+                null
+            );
+            Setting::set(LegalDocumentsService::SETTING_PRIVACY_UPDATED_AT, $now, null);
+        }
+
+        if (array_key_exists('legal_terms_of_use_html', $validated) && $validated['legal_terms_of_use_html'] !== null) {
+            Setting::set(
+                LegalDocumentsService::SETTING_TERMS_HTML,
+                HtmlSanitizer::sanitize((string) $validated['legal_terms_of_use_html']),
+                null
+            );
+            Setting::set(LegalDocumentsService::SETTING_TERMS_UPDATED_AT, $now, null);
+        }
+
+        PlatformAuditService::log('platform.legal.updated', [
+            'privacy_updated' => array_key_exists('legal_privacy_policy_html', $validated),
+            'terms_updated' => array_key_exists('legal_terms_of_use_html', $validated),
+        ], $request);
     }
 }

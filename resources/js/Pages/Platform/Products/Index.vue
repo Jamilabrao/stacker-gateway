@@ -59,6 +59,17 @@ function setProductBlocked(product, blocked) {
     );
 }
 
+function deleteProduct(product) {
+    if (
+        !confirm(
+            `Excluir permanentemente o produto "${product.name}"?\n\nO checkout deixa de funcionar. Pedidos antigos permanecem no sistema (produto desvinculado). Esta ação não pode ser desfeita.`
+        )
+    ) {
+        return;
+    }
+    router.delete(`/plataforma/produtos/${product.id}`, { preserveScroll: true });
+}
+
 const productRows = computed(() => props.products?.data ?? []);
 
 function formatBRL(value) {
@@ -202,6 +213,15 @@ function typeLabel(t) {
                                         Bloquear
                                     </Button>
                                     <Button v-else type="button" size="sm" @click="setProductBlocked(p, false)">Desbloquear</Button>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        class="!text-red-700 dark:!text-red-300"
+                                        @click="deleteProduct(p)"
+                                    >
+                                        Excluir
+                                    </Button>
                                 </div>
                             </td>
                         </tr>

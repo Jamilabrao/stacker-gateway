@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
+import Button from '@/components/ui/Button.vue';
 import { Search } from 'lucide-vue-next';
 import { htmlToText } from '@/lib/sanitizeHtml';
 
@@ -28,6 +29,34 @@ function applySearch() {
 }
 
 const userRows = computed(() => props.users?.data ?? []);
+
+function customerActionUrl(userId, pathSuffix = '') {
+    const q = searchQ.value?.trim();
+    const base = `/plataforma/clientes/${userId}${pathSuffix}`;
+    return q ? `${base}?q=${encodeURIComponent(q)}` : base;
+}
+
+function deleteCustomer(user) {
+    if (
+        !confirm(
+            `Excluir a conta de "${user.name}" (${user.email})?\n\nOs pedidos antigos permanecem no sistema, mas sem vínculo a esta conta.`
+        )
+    ) {
+        return;
+    }
+    router.delete(customerActionUrl(user.id), { preserveScroll: true });
+}
+
+function deleteCustomerHistory(user) {
+    if (
+        !confirm(
+            `Excluir todo o histórico de pedidos de "${user.name}"?\n\nPedidos pagos ou em MED precisam ser reembolsados antes. Esta ação não pode ser desfeita.`
+        )
+    ) {
+        return;
+    }
+    router.delete(customerActionUrl(user.id, '/historico-pedidos'), { preserveScroll: true });
+}
 </script>
 
 <template>
@@ -52,12 +81,18 @@ const userRows = computed(() => props.users?.data ?? []);
             </button>
         </form>
 
-        <div
+        <p
             v-if="page.props.flash?.success"
-            class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100"
+            class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
         >
             {{ page.props.flash.success }}
-        </div>
+        </p>
+        <p
+            v-if="page.props.flash?.error"
+            class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+        >
+            {{ page.props.flash.error }}
+        </p>
 
         <div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60">
             <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -67,6 +102,7 @@ const userRows = computed(() => props.users?.data ?? []);
                         <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Nome</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">E-mail</th>
                         <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Compras</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Ações</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -76,6 +112,27 @@ const userRows = computed(() => props.users?.data ?? []);
                         <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ u.email }}</td>
                         <td class="px-4 py-3 text-right text-sm text-zinc-800 dark:text-zinc-200">
                             {{ u.purchases_count ?? 0 }}
+                        </td>
+                        <td class="px-4 py-3 text-right">
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="secondary"
+                                    @click="deleteCustomerHistory(u)"
+                                >
+                                    Excluir histórico
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="secondary"
+                                    class="!text-red-700 dark:!text-red-300"
+                                    @click="deleteCustomer(u)"
+                                >
+                                    Excluir cliente
+                                </Button>
+                            </div>
                         </td>
                     </tr>
                 </tbody>
