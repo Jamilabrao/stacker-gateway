@@ -3,7 +3,7 @@ import { ref, computed, reactive } from 'vue';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
-import { UserPlus, Trash2, Pencil, X, Eye } from 'lucide-vue-next';
+import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -305,7 +305,7 @@ function formatBlockUntilForInput(iso) {
                         <th class="px-4 py-3">Documento</th>
                         <th class="px-4 py-3">Status</th>
                         <th class="px-4 py-3 text-right">Saldo</th>
-                        <th class="px-4 py-3 text-right">PIX pend.</th>
+                        <th class="px-4 py-3 text-right">Pendente</th>
                         <th class="px-4 py-3 text-right">Ações</th>
                     </tr>
                 </thead>
@@ -322,11 +322,18 @@ function formatBlockUntilForInput(iso) {
                         <td class="px-4 py-3 text-right">
                             <div class="flex justify-end gap-1">
                                 <Link
-                                    :href="`/plataforma/verificacoes-kyc/usuario/${u.id}`"
+                                    :href="`/plataforma/usuarios/${u.id}`"
                                     class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-[var(--color-primary)] dark:hover:bg-zinc-800"
-                                    title="Ver dados e documentos (KYC)"
+                                    title="Ver infoprodutor"
                                 >
                                     <Eye class="h-4 w-4" />
+                                </Link>
+                                <Link
+                                    :href="`/plataforma/verificacoes-kyc/usuario/${u.id}`"
+                                    class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
+                                    title="Ver KYC"
+                                >
+                                    <BadgeCheck class="h-4 w-4" />
                                 </Link>
                                 <button
                                     type="button"

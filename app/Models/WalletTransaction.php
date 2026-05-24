@@ -24,6 +24,26 @@ class WalletTransaction extends Model
 
     public const TYPE_WITHDRAWAL_REFUND = 'withdrawal_refund';
 
+    /** Ajuste manual pela plataforma (admin). */
+    public const TYPE_ADMIN_ADJUSTMENT = 'admin_adjustment';
+
+    /**
+     * @return array<string, string>
+     */
+    public static function typeLabels(): array
+    {
+        return [
+            self::TYPE_CREDIT_SALE => 'Venda creditada',
+            self::TYPE_CREDIT_SALE_PENDING => 'Venda em liquidação',
+            self::TYPE_DEBIT_REFUND => 'Estorno',
+            self::TYPE_MED_HOLD => 'MED / contestação',
+            self::TYPE_WITHDRAWAL_REQUEST => 'Saque solicitado',
+            self::TYPE_WITHDRAWAL_COMPLETE => 'Saque concluído',
+            self::TYPE_WITHDRAWAL_REFUND => 'Saque estornado',
+            self::TYPE_ADMIN_ADJUSTMENT => 'Ajuste admin',
+        ];
+    }
+
     protected $fillable = [
         'tenant_id',
         'order_id',

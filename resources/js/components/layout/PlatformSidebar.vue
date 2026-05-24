@@ -14,6 +14,7 @@ import {
     Wallet,
     ArrowLeftRight,
     Banknote,
+    CircleDollarSign,
     Trophy,
     BadgeCheck,
     Package,
@@ -58,6 +59,7 @@ const navItemsCore = [
     { name: 'Produtos', href: '/plataforma/produtos', icon: Package },
     { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck },
     { name: 'Saques', href: '/plataforma/saques', icon: Banknote },
+    { name: 'Saldo', href: '/plataforma/saldo', icon: CircleDollarSign },
     { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet },
     { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
     { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
@@ -106,6 +108,12 @@ function isActive(href) {
     }
     if (href === '/plataforma/saques') {
         return url === '/plataforma/saques' || url.startsWith('/plataforma/saques/');
+    }
+    if (href === '/plataforma/saldo') {
+        return url === '/plataforma/saldo' || url.startsWith('/plataforma/saldo/');
+    }
+    if (href === '/plataforma/usuarios') {
+        return url === '/plataforma/usuarios' || (url.startsWith('/plataforma/usuarios/') && !url.startsWith('/plataforma/usuarios/create'));
     }
     if (href === '/plataforma/financeiro') {
         return url === '/plataforma/financeiro' || url.startsWith('/plataforma/financeiro/');

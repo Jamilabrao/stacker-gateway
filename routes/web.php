@@ -250,9 +250,13 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             Route::get('/', [\App\Http\Controllers\Platform\UsersController::class, 'index'])->name('index');
             Route::get('/create', [\App\Http\Controllers\Platform\UsersController::class, 'create'])->name('create');
             Route::post('/', [\App\Http\Controllers\Platform\UsersController::class, 'store'])->name('store');
+            Route::get('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'show'])->name('show');
+            Route::post('/{user}/ajuste-saldo', [\App\Http\Controllers\Platform\UsersController::class, 'adjustBalance'])->name('adjust-balance');
             Route::put('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'update'])->name('update');
             Route::delete('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'destroy'])->name('destroy');
         });
+
+        Route::get('/saldo', [\App\Http\Controllers\Platform\BalancesController::class, 'index'])->name('saldo.index');
 
         Route::get('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'index'])->name('settings.index');
         Route::put('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'update'])->name('settings.update');

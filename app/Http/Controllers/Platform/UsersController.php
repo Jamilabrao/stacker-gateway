@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Platform;
 
+use App\Http\Controllers\Concerns\BuildsMerchantWalletProps;
 use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
+use App\Services\AdminWalletAdjustmentService;
 use App\Support\PlatformConfigContext;
 use App\Gateways\GatewayRegistry;
 use App\Models\TenantWallet;
 use App\Models\User;
+use App\Models\WalletTransaction;
 use App\Services\MerchantWalletAdminBlockService;
 use App\Services\PlatformAuditService;
 use Illuminate\Http\RedirectResponse;
@@ -21,6 +24,7 @@ use Inertia\Response;
 
 class UsersController extends Controller
 {
+    use BuildsMerchantWalletProps;
     use ProvidesPlatformGatewayProps;
 
     public function index(): Response
@@ -82,6 +86,67 @@ class UsersController extends Controller
             'gateways' => $this->buildGatewaysListForMerchantPicker(),
             'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
         ]);
+    }
+
+    public function show(User $user): Response
+    {
+        Gate::authorize('manageMerchantForPlatform', $user);
+
+        $tenantId = $this->tenantIdForUser($user);
+
+        return Inertia::render('Platform/Users/Show', [
+            'merchant' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'document' => $user->document,
+                'person_type' => $user->person_type,
+                'account_status' => $user->account_status ?? 'approved',
+                'kyc_status' => Schema::hasColumn('users', 'kyc_status') ? ($user->kyc_status ?? User::KYC_NOT_SUBMITTED) : null,
+                'created_at' => $user->created_at?->toIso8601String(),
+                'tenant_id' => $tenantId,
+            ],
+            'wallet' => $this->walletPayloadForTenant($tenantId),
+            'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),
+            'wallet_transactions' => $this->walletTransactionsPayloadForTenant($tenantId),
+            'wallet_transaction_type_labels' => WalletTransaction::typeLabels(),
+        ]);
+    }
+
+    public function adjustBalance(Request $request, User $user, AdminWalletAdjustmentService $adjustmentService): RedirectResponse
+    {
+        Gate::authorize('manageMerchantForPlatform', $user);
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999'],
+            'direction' => ['required', 'string', 'in:credit,debit'],
+            'bucket' => ['nullable', 'string', 'in:pix,card,boleto'],
+            'note' => ['required', 'string', 'min:3', 'max:500'],
+        ], [
+            'note.required' => 'Informe o motivo do ajuste.',
+            'note.min' => 'O motivo deve ter pelo menos 3 caracteres.',
+        ]);
+
+        $amount = round((float) $validated['amount'], 2);
+        $delta = $validated['direction'] === 'credit' ? $amount : -$amount;
+        $bucket = $validated['bucket'] ?? 'pix';
+
+        $adjustmentService->adjust(
+            $this->tenantIdForUser($user),
+            $bucket,
+            $delta,
+            $validated['note'],
+            $request
+        );
+
+        $redirectTo = $request->input('redirect_to');
+        if (is_string($redirectTo) && str_starts_with($redirectTo, '/plataforma/')) {
+            return redirect($redirectTo)->with('success', 'Saldo ajustado com sucesso.');
+        }
+
+        return redirect()
+            ->route('plataforma.usuarios.show', $user)
+            ->with('success', 'Saldo ajustado com sucesso.');
     }
 
     public function create(): Response
