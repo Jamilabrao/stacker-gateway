@@ -142,7 +142,7 @@ class ProdutosController extends Controller
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'is_active' => ['boolean'],
-            'image' => ['nullable', 'image', 'max:2048'],
+            'image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
             'deliverable_link' => ['nullable', 'string', 'url', 'max:500'],
         ]);
 
@@ -505,7 +505,7 @@ class ProdutosController extends Controller
             'price' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'is_active' => ['boolean'],
-            'image' => ['nullable', 'image', 'max:2048'],
+            'image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
             'conversion_pixels' => ['nullable', 'array'],
             'conversion_pixels.meta' => ['nullable', 'array'],
             'conversion_pixels.meta.enabled' => ['nullable', 'boolean'],

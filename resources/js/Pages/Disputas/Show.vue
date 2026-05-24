@@ -1,6 +1,7 @@
 <script setup>
 import { useForm, usePage, Link } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
+import VendasTabs from '@/components/vendas/VendasTabs.vue';
 import Button from '@/components/ui/Button.vue';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -25,7 +26,7 @@ function onFiles(e) {
 }
 
 function submitDefense() {
-    form.post(`/disputas/${props.dispute.id}/defesa`, {
+    form.post(`/vendas/disputas/${props.dispute.id}/defesa`, {
         forceFormData: true,
         preserveScroll: true,
     });
@@ -34,7 +35,8 @@ function submitDefense() {
 
 <template>
     <div class="mx-auto max-w-2xl space-y-6">
-        <Link href="/disputas" class="text-sm text-[var(--color-primary)] hover:underline">← Voltar às disputas</Link>
+        <VendasTabs />
+        <Link href="/vendas/disputas" class="text-sm text-[var(--color-primary)] hover:underline">← Voltar às disputas</Link>
 
         <div
             v-if="page.props.flash?.success"

@@ -98,7 +98,7 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
 
 Route::get('/cron', function () {
     $secret = config('getfy.cron_secret');
-    $token = request()->query('token');
+    $token = request()->header('X-Cron-Token') ?? request()->query('token');
     if (! $secret || $token !== $secret) {
         abort(404);
     }
@@ -482,16 +482,6 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         ->middleware(['throttle:30,1', 'team.permission:vendas.view'])
         ->name('reembolsos.reject');
 
-    Route::get('/disputas', [\App\Http\Controllers\SellerMedDisputesController::class, 'index'])
-        ->middleware('team.permission:vendas.view')
-        ->name('disputas.index');
-    Route::get('/disputas/{dispute}', [\App\Http\Controllers\SellerMedDisputesController::class, 'show'])
-        ->middleware('team.permission:vendas.view')
-        ->name('disputas.show');
-    Route::post('/disputas/{dispute}/defesa', [\App\Http\Controllers\SellerMedDisputesController::class, 'submitDefense'])
-        ->middleware(['throttle:15,1', 'team.permission:vendas.view'])
-        ->name('disputas.defense');
-
     Route::get('/kyc', [\App\Http\Controllers\SellerKycController::class, 'show'])->name('kyc.upload');
     Route::post('/kyc/document', [\App\Http\Controllers\SellerKycController::class, 'uploadDocument'])->middleware('throttle:30,1')->name('kyc.document');
     Route::post('/kyc/finalize', [\App\Http\Controllers\SellerKycController::class, 'finalize'])->middleware('throttle:15,1')->name('kyc.finalize');
@@ -512,7 +502,17 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::get('/vendas/export', [\App\Http\Controllers\VendasController::class, 'export'])->name('vendas.export');
         Route::post('/vendas/{order}/resend-access-email', [\App\Http\Controllers\VendasController::class, 'resendAccessEmail'])->name('vendas.resend-access-email');
         Route::post('/vendas/{order}/approve-manually', [\App\Http\Controllers\VendasController::class, 'approveManually'])->name('vendas.approve-manually');
+        Route::get('/vendas/disputas', [\App\Http\Controllers\SellerMedDisputesController::class, 'index'])->name('disputas.index');
+        Route::get('/vendas/disputas/{dispute}', [\App\Http\Controllers\SellerMedDisputesController::class, 'show'])->name('disputas.show');
+        Route::post('/vendas/disputas/{dispute}/defesa', [\App\Http\Controllers\SellerMedDisputesController::class, 'submitDefense'])
+            ->middleware('throttle:15,1')
+            ->name('disputas.defense');
     });
+
+    Route::redirect('/disputas', '/vendas/disputas')->middleware('team.permission:vendas.view');
+    Route::get('/disputas/{dispute}', function (\App\Models\MedDispute $dispute) {
+        return redirect()->route('disputas.show', $dispute);
+    })->middleware('team.permission:vendas.view')->whereNumber('dispute');
 
     Route::middleware('team.permission:produtos.view')->group(function () {
         Route::get('/afiliados', [\App\Http\Controllers\AffiliateManagementController::class, 'index'])->name('afiliados.index');

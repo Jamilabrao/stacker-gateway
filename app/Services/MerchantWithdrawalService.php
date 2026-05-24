@@ -9,12 +9,54 @@ use App\Models\Withdrawal;
 use App\Services\MerchantWalletAdminBlockService;
 use App\Services\Payout\GatewayPayoutEconomics;
 use App\Services\Payout\PlatformPayoutGateway;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class MerchantWithdrawalService
 {
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_PROCESSING = 'processing';
+
+    public const STATUS_PAID = 'paid';
+
+    public const STATUS_REJECTED = 'rejected';
+
+    /**
+     * Reserva o saque para aprovação/envio PIX (evita duplo clique / requests paralelos).
+     */
+    public static function beginPayoutApproval(int $withdrawalId): ?Withdrawal
+    {
+        return DB::transaction(function () use ($withdrawalId) {
+            $withdrawal = Withdrawal::query()->whereKey($withdrawalId)->lockForUpdate()->first();
+            if ($withdrawal === null || $withdrawal->status !== self::STATUS_PENDING) {
+                return null;
+            }
+
+            $withdrawal->status = self::STATUS_PROCESSING;
+            $withdrawal->save();
+
+            return $withdrawal->fresh();
+        });
+    }
+
+    /**
+     * Reverte para pendente quando o envio ao gateway falha antes de concluir o saque.
+     */
+    public static function releasePayoutApproval(Withdrawal $withdrawal): void
+    {
+        DB::transaction(function () use ($withdrawal) {
+            $locked = Withdrawal::query()->whereKey($withdrawal->id)->lockForUpdate()->first();
+            if ($locked === null || $locked->status !== self::STATUS_PROCESSING) {
+                return;
+            }
+
+            $locked->status = self::STATUS_PENDING;
+            $locked->save();
+        });
+    }
     /**
      * Valor solicitado é o bruto debitado da carteira; a taxa incide sobre esse valor.
      *
@@ -115,36 +157,53 @@ class MerchantWithdrawalService
 
     public static function markPaid(Withdrawal $withdrawal): void
     {
-        if ($withdrawal->status !== 'pending') {
+        if (! in_array($withdrawal->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
             return;
         }
 
         DB::transaction(function () use ($withdrawal) {
-            $withdrawal->refresh();
-            if ($withdrawal->status !== 'pending') {
+            $locked = Withdrawal::query()->whereKey($withdrawal->id)->lockForUpdate()->first();
+            if ($locked === null || ! in_array($locked->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
                 return;
             }
 
-            $withdrawal->status = 'paid';
-            $withdrawal->save();
+            $alreadyComplete = WalletTransaction::query()
+                ->where('withdrawal_id', $locked->id)
+                ->where('type', WalletTransaction::TYPE_WITHDRAWAL_COMPLETE)
+                ->exists();
 
-            WalletTransaction::query()->create([
-                'tenant_id' => (int) $withdrawal->tenant_id,
-                'order_id' => null,
-                'withdrawal_id' => $withdrawal->id,
-                'bucket' => (string) $withdrawal->bucket,
-                'type' => WalletTransaction::TYPE_WITHDRAWAL_COMPLETE,
-                'amount_gross' => (float) $withdrawal->amount,
-                'amount_fee' => (float) $withdrawal->fee_amount,
-                'amount_net' => (float) $withdrawal->net_amount,
-                'meta' => ['phase' => 'paid'],
-            ]);
+            if ($locked->status !== self::STATUS_PAID) {
+                $locked->status = self::STATUS_PAID;
+                $locked->save();
+            }
+
+            if ($alreadyComplete) {
+                return;
+            }
+
+            try {
+                WalletTransaction::query()->create([
+                    'tenant_id' => (int) $locked->tenant_id,
+                    'order_id' => null,
+                    'withdrawal_id' => $locked->id,
+                    'bucket' => (string) $locked->bucket,
+                    'type' => WalletTransaction::TYPE_WITHDRAWAL_COMPLETE,
+                    'amount_gross' => (float) $locked->amount,
+                    'amount_fee' => (float) $locked->fee_amount,
+                    'amount_net' => (float) $locked->net_amount,
+                    'meta' => ['phase' => 'paid'],
+                ]);
+            } catch (QueryException $e) {
+                if (! self::isDuplicateKey($e)) {
+                    throw $e;
+                }
+            }
         });
     }
 
     public static function reject(Withdrawal $withdrawal, ?string $adminNote = null): void
     {
-        if ($withdrawal->status !== 'pending') {
+        if ($withdrawal->status !== self::STATUS_PENDING) {
             return;
         }
 
@@ -203,5 +262,13 @@ class MerchantWithdrawalService
             + (float) ($wallet->available_boleto ?? 0),
             2
         );
+    }
+
+    private static function isDuplicateKey(QueryException $e): bool
+    {
+        $code = (string) ($e->errorInfo[1] ?? '');
+
+        return in_array($code, ['1062', '23000', '23505'], true)
+            || str_contains(strtolower($e->getMessage()), 'unique');
     }
 }

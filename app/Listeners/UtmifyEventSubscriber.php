@@ -9,8 +9,8 @@ use App\Events\OrderRejected;
 use App\Events\PixGenerated;
 use App\Jobs\UtmifySendOrderJob;
 use App\Models\UtmifyIntegration;
+use App\Support\IntegrationJobDispatch;
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Support\Str;
 
 class UtmifyEventSubscriber
 {
@@ -80,7 +80,7 @@ class UtmifyEventSubscriber
                 continue;
             }
 
-            if ($this->shouldDispatchSync()) {
+            if (IntegrationJobDispatch::shouldDispatchSync()) {
                 UtmifySendOrderJob::dispatchSync(
                     $integration->id,
                     $order->id,
@@ -100,18 +100,4 @@ class UtmifyEventSubscriber
         }
     }
 
-    private function shouldDispatchSync(): bool
-    {
-        $default = (string) config('queue.default', 'sync');
-        if ($default === 'sync' || $default === 'database') {
-            return true;
-        }
-
-        $v = (string) env('INTEGRATIONS_DISPATCH_SYNC', '');
-        if ($v !== '' && in_array(Str::lower(trim($v)), ['1', 'true', 'yes', 'on'], true)) {
-            return true;
-        }
-
-        return false;
-    }
 }

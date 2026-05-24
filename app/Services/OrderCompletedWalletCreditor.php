@@ -6,7 +6,10 @@ use App\Models\Order;
 use App\Models\ProductCoproducer;
 use App\Models\TenantWallet;
 use App\Models\WalletTransaction;
+use App\Support\WalletCreditReference;
 use Carbon\Carbon;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -34,6 +37,20 @@ class OrderCompletedWalletCreditor
             return;
         }
 
+        $lock = Cache::lock('wallet-credit-order-'.$order->id, 60);
+        if (! $lock->get()) {
+            return;
+        }
+
+        try {
+            self::creditWithinLock($order);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private static function creditWithinLock(Order $order): void
+    {
         if (WalletTransaction::query()
             ->where('order_id', $order->id)
             ->whereIn('type', [WalletTransaction::TYPE_CREDIT_SALE, WalletTransaction::TYPE_CREDIT_SALE_PENDING])
@@ -100,7 +117,9 @@ class OrderCompletedWalletCreditor
             $reserveHoldDays = max(0, (int) ($rules['reserve_hold_days'] ?? 0));
 
             if ($days === 0 && $reservePct <= 0) {
-                self::creditAvailableDirectly($order, $tenantId, $bucket, $feeCalc, $grossSlice, $baseMeta);
+                if (self::creditAvailableDirectly($order, $tenantId, $bucket, $feeCalc, $grossSlice, $baseMeta)) {
+                    continue;
+                }
 
                 continue;
             }
@@ -129,9 +148,14 @@ class OrderCompletedWalletCreditor
             $grossForSlice = (float) $grossSlice;
 
             DB::transaction(function () use ($order, $tenantId, $bucket, $feeCalc, $grossForSlice, $feeTotal, $net, $parts, $pendingCol, $days, $reserveHoldDays, $baseMeta, &$createdPendingIds) {
-                $wallet = TenantWallet::query()->firstOrCreate(
-                    ['tenant_id' => $tenantId],
-                    [
+                $wallet = TenantWallet::query()
+                    ->where('tenant_id', $tenantId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($wallet === null) {
+                    $wallet = TenantWallet::query()->create([
+                        'tenant_id' => $tenantId,
                         'available_balance' => 0,
                         'pending_balance' => 0,
                         'currency' => 'BRL',
@@ -141,16 +165,23 @@ class OrderCompletedWalletCreditor
                         'pending_pix' => 0,
                         'pending_card' => 0,
                         'pending_boleto' => 0,
-                    ]
-                );
+                    ]);
+                    $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->lockForUpdate()->first();
+                }
 
                 foreach ($parts as $part) {
+                    $portion = (string) ($part['portion'] ?? 'main');
+                    $creditRef = WalletCreditReference::forPendingSale((int) $order->id, $tenantId, $portion);
+
+                    if (self::creditReferenceExists($creditRef)) {
+                        continue;
+                    }
+
                     $netPart = $part['net'];
                     $ratio = $net > 0 ? ($netPart / $net) : 0;
                     $grossPart = round($grossForSlice * $ratio, 2);
                     $feePart = round($feeTotal * $ratio, 2);
 
-                    $portion = $part['portion'] ?? 'main';
                     $totalDays = $days + (($portion === 'reserve') ? $reserveHoldDays : 0);
                     $clearsAt = $totalDays === 0
                         ? Carbon::now()
@@ -179,18 +210,25 @@ class OrderCompletedWalletCreditor
                         $meta['reserve_hold_days'] = $reserveHoldDays;
                     }
 
-                    $tx = WalletTransaction::query()->create([
-                        'tenant_id' => $tenantId,
-                        'order_id' => $order->id,
-                        'withdrawal_id' => null,
-                        'bucket' => $bucket,
-                        'type' => WalletTransaction::TYPE_CREDIT_SALE_PENDING,
-                        'amount_gross' => $grossPart,
-                        'amount_fee' => $feePart,
-                        'amount_net' => $netPart,
-                        'meta' => $meta,
-                    ]);
-                    $createdPendingIds[] = $tx->id;
+                    try {
+                        $tx = WalletTransaction::query()->create([
+                            'tenant_id' => $tenantId,
+                            'order_id' => $order->id,
+                            'withdrawal_id' => null,
+                            'bucket' => $bucket,
+                            'type' => WalletTransaction::TYPE_CREDIT_SALE_PENDING,
+                            'credit_reference' => $creditRef,
+                            'amount_gross' => $grossPart,
+                            'amount_fee' => $feePart,
+                            'amount_net' => $netPart,
+                            'meta' => $meta,
+                        ]);
+                        $createdPendingIds[] = $tx->id;
+                    } catch (QueryException $e) {
+                        if (! self::isDuplicateCreditReference($e)) {
+                            throw $e;
+                        }
+                    }
                 }
 
                 $wallet->save();
@@ -213,58 +251,104 @@ class OrderCompletedWalletCreditor
      * @param  array{fee: float, net: float, gross: float, percent: float, fixed: float}  $feeCalc
      * @param  array<string, mixed>  $baseMeta
      */
-    private static function creditAvailableDirectly(Order $order, int $tenantId, string $bucket, array $feeCalc, float $gross, array $baseMeta): void
+    private static function creditAvailableDirectly(Order $order, int $tenantId, string $bucket, array $feeCalc, float $gross, array $baseMeta): bool
     {
-        DB::transaction(function () use ($order, $tenantId, $bucket, $feeCalc, $gross, $baseMeta) {
-            $wallet = TenantWallet::query()->firstOrCreate(
-                ['tenant_id' => $tenantId],
-                [
-                    'available_balance' => 0,
-                    'pending_balance' => 0,
-                    'currency' => 'BRL',
-                    'available_pix' => 0,
-                    'available_card' => 0,
-                    'available_boleto' => 0,
-                    'pending_pix' => 0,
-                    'pending_card' => 0,
-                    'pending_boleto' => 0,
-                ]
-            );
+        $creditRef = WalletCreditReference::forDirectSale((int) $order->id, $tenantId);
 
-            $col = 'available_'.$bucket;
-            if (! in_array($col, ['available_pix', 'available_card', 'available_boleto'], true)) {
-                $col = 'available_pix';
+        if (self::creditReferenceExists($creditRef)) {
+            return false;
+        }
+
+        try {
+            DB::transaction(function () use ($order, $tenantId, $bucket, $feeCalc, $gross, $baseMeta, $creditRef) {
+                $wallet = TenantWallet::query()
+                    ->where('tenant_id', $tenantId)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($wallet === null) {
+                    $wallet = TenantWallet::query()->create([
+                        'tenant_id' => $tenantId,
+                        'available_balance' => 0,
+                        'pending_balance' => 0,
+                        'currency' => 'BRL',
+                        'available_pix' => 0,
+                        'available_card' => 0,
+                        'available_boleto' => 0,
+                        'pending_pix' => 0,
+                        'pending_card' => 0,
+                        'pending_boleto' => 0,
+                    ]);
+                    $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->lockForUpdate()->first();
+                }
+
+                if (self::creditReferenceExists($creditRef)) {
+                    return;
+                }
+
+                $col = 'available_'.$bucket;
+                if (! in_array($col, ['available_pix', 'available_card', 'available_boleto'], true)) {
+                    $col = 'available_pix';
+                }
+
+                $current = (float) ($wallet->{$col} ?? 0);
+                $wallet->{$col} = round($current + $feeCalc['net'], 2);
+
+                if (Schema::hasColumn('tenant_wallets', 'available_balance')) {
+                    $wallet->available_balance = round(
+                        (float) ($wallet->available_pix ?? 0)
+                        + (float) ($wallet->available_card ?? 0)
+                        + (float) ($wallet->available_boleto ?? 0),
+                        2
+                    );
+                }
+
+                $wallet->save();
+
+                WalletTransaction::query()->create([
+                    'tenant_id' => $tenantId,
+                    'order_id' => $order->id,
+                    'withdrawal_id' => null,
+                    'bucket' => $bucket,
+                    'type' => WalletTransaction::TYPE_CREDIT_SALE,
+                    'credit_reference' => $creditRef,
+                    'amount_gross' => $gross,
+                    'amount_fee' => $feeCalc['fee'],
+                    'amount_net' => $feeCalc['net'],
+                    'meta' => array_merge($baseMeta, [
+                        'payment_method' => $order->payment_method,
+                        'percent_applied' => $feeCalc['percent'] ?? null,
+                        'fixed_applied' => $feeCalc['fixed'] ?? null,
+                    ]),
+                ]);
+            });
+        } catch (QueryException $e) {
+            if (self::isDuplicateCreditReference($e)) {
+                return false;
             }
 
-            $current = (float) ($wallet->{$col} ?? 0);
-            $wallet->{$col} = round($current + $feeCalc['net'], 2);
+            throw $e;
+        }
 
-            if (Schema::hasColumn('tenant_wallets', 'available_balance')) {
-                $wallet->available_balance = round(
-                    (float) ($wallet->available_pix ?? 0)
-                    + (float) ($wallet->available_card ?? 0)
-                    + (float) ($wallet->available_boleto ?? 0),
-                    2
-                );
-            }
+        return true;
+    }
 
-            $wallet->save();
+    private static function creditReferenceExists(string $creditRef): bool
+    {
+        if (! Schema::hasColumn('wallet_transactions', 'credit_reference')) {
+            return false;
+        }
 
-            WalletTransaction::query()->create([
-                'tenant_id' => $tenantId,
-                'order_id' => $order->id,
-                'withdrawal_id' => null,
-                'bucket' => $bucket,
-                'type' => WalletTransaction::TYPE_CREDIT_SALE,
-                'amount_gross' => $gross,
-                'amount_fee' => $feeCalc['fee'],
-                'amount_net' => $feeCalc['net'],
-                'meta' => array_merge($baseMeta, [
-                    'payment_method' => $order->payment_method,
-                    'percent_applied' => $feeCalc['percent'] ?? null,
-                    'fixed_applied' => $feeCalc['fixed'] ?? null,
-                ]),
-            ]);
-        });
+        return WalletTransaction::query()
+            ->where('credit_reference', $creditRef)
+            ->exists();
+    }
+
+    private static function isDuplicateCreditReference(QueryException $e): bool
+    {
+        $code = (string) ($e->errorInfo[1] ?? '');
+
+        return in_array($code, ['1062', '23000', '23505'], true)
+            || str_contains(strtolower($e->getMessage()), 'unique');
     }
 }

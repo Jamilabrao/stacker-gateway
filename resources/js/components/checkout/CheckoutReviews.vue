@@ -1,18 +1,28 @@
 <script setup>
+import { computed } from 'vue';
 import { Star, BadgeCheck } from 'lucide-vue-next';
+import { safeHttpSrc } from '@/lib/safeUrl';
 
 const props = defineProps({
     reviews: { type: Array, default: () => [] },
     primaryColor: { type: String, default: '#7427F1' },
 });
+
+const safeReviews = computed(() =>
+    (props.reviews || []).map((r) => ({
+        ...r,
+        photo: safeHttpSrc(r?.photo),
+        testimonial_image: safeHttpSrc(r?.testimonial_image),
+    })),
+);
 </script>
 
 <template>
-    <div v-if="reviews?.length" class="space-y-4" data-checkout="reviews">
+    <div v-if="safeReviews?.length" class="space-y-4" data-checkout="reviews">
         <h3 class="text-base font-bold tracking-tight text-gray-900">Avaliações</h3>
         <div class="space-y-4">
             <article
-                v-for="(r, i) in reviews"
+                v-for="(r, i) in safeReviews"
                 :key="i"
                 class="overflow-hidden rounded-2xl border border-white/20 bg-white/95 p-4 shadow-sm"
             >

@@ -47,11 +47,24 @@ class UtmifySendOrderJob implements ShouldQueue
             return;
         }
 
+        if ($this->utmifyStatus === 'paid') {
+            $meta = is_array($order->metadata) ? $order->metadata : [];
+            if (! empty($meta['utmify_paid_sent_at'])) {
+                return;
+            }
+        }
+
         try {
             $utmifyService->sendOrder($order, $this->utmifyStatus, $integration->api_key, [
                 'approved_at' => $this->approvedAt,
                 'refunded_at' => $this->refundedAt,
             ]);
+
+            if ($this->utmifyStatus === 'paid') {
+                $meta = is_array($order->metadata) ? $order->metadata : [];
+                $meta['utmify_paid_sent_at'] = now()->toIso8601String();
+                $order->update(['metadata' => $meta]);
+            }
         } catch (\Throwable $e) {
             Log::warning('UtmifySendOrderJob failed', [
                 'order_id' => $this->orderId,

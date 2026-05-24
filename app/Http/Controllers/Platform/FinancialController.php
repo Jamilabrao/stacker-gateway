@@ -171,10 +171,13 @@ class FinancialController extends Controller
 
     public function approveWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse
     {
-        if ($withdrawal->status !== 'pending') {
+        $locked = MerchantWithdrawalService::beginPayoutApproval((int) $withdrawal->id);
+        if ($locked === null) {
             return redirect()->route('plataforma.saques.index')
-                ->with('error', 'Este saque não está pendente.');
+                ->with('error', 'Este saque não está pendente ou já está em processamento.');
         }
+
+        $withdrawal = $locked;
 
         $validated = $request->validate([
             'payout_manual' => ['nullable', 'boolean'],
@@ -196,6 +199,8 @@ class FinancialController extends Controller
 
         $slug = PlatformPayoutGateway::activeSlug();
         if ($slug === null) {
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
             return redirect()->route('plataforma.saques.index')
                 ->with('error', 'Nenhum gateway de payout PIX está conectado. Use aprovação manual ou configure Integrações > Gateways.');
         }
@@ -203,6 +208,8 @@ class FinancialController extends Controller
         $owner = $this->withdrawalTenantOwner($withdrawal);
 
         if ($owner === null) {
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
             return redirect()->route('plataforma.saques.index')
                 ->with('error', 'Titular da conta (infoprodutor) não encontrado.');
         }
@@ -214,6 +221,7 @@ class FinancialController extends Controller
 
             if (! ($result['ok'] ?? false)) {
                 $this->recordCajuPayWithdrawalFailure($withdrawal, $result);
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', $result['error'] ?? 'Falha ao enviar o saque.');
@@ -250,6 +258,7 @@ class FinancialController extends Controller
                         'last_attempt_at' => now()->toIso8601String(),
                     ],
                 ]);
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'Spacepag: '.($result['error'] ?? 'Falha ao enviar o saque.'));
@@ -277,6 +286,8 @@ class FinancialController extends Controller
         if ($slug === 'woovi') {
             $pixKey = PayoutUserSettings::pixKey($settings);
             if ($pixKey === '') {
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'O infoprodutor precisa cadastrar uma chave PIX para saque em Financeiro (painel do vendedor).');
             }
@@ -293,6 +304,7 @@ class FinancialController extends Controller
                         'last_attempt_at' => now()->toIso8601String(),
                     ],
                 ]);
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'Woovi: '.($result['error'] ?? 'Falha ao enviar o saque.'));
@@ -320,6 +332,8 @@ class FinancialController extends Controller
         if ($slug === 'onlyup') {
             $pixKey = PayoutUserSettings::pixKey($settings);
             if ($pixKey === '') {
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'O infoprodutor precisa cadastrar uma chave PIX para saque em Financeiro (painel do vendedor).');
             }
@@ -336,6 +350,7 @@ class FinancialController extends Controller
                         'last_attempt_at' => now()->toIso8601String(),
                     ],
                 ]);
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'OnlyUp: '.($result['error'] ?? 'Falha ao enviar o saque.'));
@@ -360,6 +375,8 @@ class FinancialController extends Controller
                 ->with('success', 'Saque enviado à OnlyUp. Será marcado como pago após confirmação na API.');
         }
 
+        MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
         return redirect()->route('plataforma.saques.index')
             ->with('error', 'Gateway de payout não suportado.');
     }
@@ -369,18 +386,25 @@ class FinancialController extends Controller
      */
     public function retryCajuPayWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse
     {
-        if ($withdrawal->status !== 'pending') {
+        $locked = MerchantWithdrawalService::beginPayoutApproval((int) $withdrawal->id);
+        if ($locked === null) {
             return redirect()->route('plataforma.saques.index')
-                ->with('error', 'Este saque não está pendente.');
+                ->with('error', 'Este saque não está pendente ou já está em processamento.');
         }
 
+        $withdrawal = $locked;
+
         if (PlatformPayoutGateway::activeSlug() !== 'cajupay') {
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
             return redirect()->route('plataforma.saques.index')
                 ->with('error', 'O reprocessamento automático só está disponível com CajuPay como gateway de saque ativo.');
         }
 
         $owner = $this->withdrawalTenantOwner($withdrawal);
         if ($owner === null) {
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
             return redirect()->route('plataforma.saques.index')
                 ->with('error', 'Titular da conta (infoprodutor) não encontrado.');
         }
@@ -389,6 +413,7 @@ class FinancialController extends Controller
 
         if (! ($result['ok'] ?? false)) {
             $this->recordCajuPayWithdrawalFailure($withdrawal, $result);
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
             PlatformAuditService::log('platform.withdrawal.cajupay_retry_failed', [
                 'withdrawal_id' => $withdrawal->id,

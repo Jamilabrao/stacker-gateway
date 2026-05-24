@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\StorageService;
+use App\Support\HtmlSanitizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -42,13 +43,13 @@ class ProfileController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user)],
             'username' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('users', 'username')->ignore($user)],
-            'avatar' => ['nullable', 'image', 'max:2048'],
+            'avatar' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
         ], [
             'email.unique' => 'Este e-mail já está em uso por outra conta.',
             'username.unique' => 'Este nome de usuário já está em uso.',
         ]);
 
-        $user->name = $validated['name'];
+        $user->name = HtmlSanitizer::plainText($validated['name'], 255);
         $user->username = $validated['username'] ?: null;
         if ($user->email !== $validated['email']) {
             $user->email = $validated['email'];

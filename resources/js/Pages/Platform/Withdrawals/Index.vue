@@ -84,6 +84,7 @@ function formatBRL(value) {
 function withdrawalStatusLabel(status) {
     const map = {
         pending: 'Pendente',
+        processing: 'Processando',
         paid: 'Aprovado',
         rejected: 'Rejeitado',
     };
@@ -92,7 +93,7 @@ function withdrawalStatusLabel(status) {
 
 function withdrawalStatusBadgeClass(status) {
     if (status === 'paid') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200';
-    if (status === 'pending') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
+    if (status === 'pending' || status === 'processing') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
     if (status === 'rejected') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200';
     return 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
 }
@@ -217,7 +218,10 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                     </div>
                                 </td>
                                 <td class="py-3 text-right">
-                                    <div v-if="w.status === 'pending'" class="flex flex-wrap justify-end gap-2">
+                                    <p v-if="w.status === 'processing'" class="text-right text-xs text-amber-700 dark:text-amber-300">
+                                        Processando envio PIX…
+                                    </p>
+                                    <div v-else-if="w.status === 'pending'" class="flex flex-wrap justify-end gap-2">
                                         <Button
                                             v-if="payout_gateway_active === 'cajupay'"
                                             type="button"

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Support\DockerSetupState;
+use App\Support\HtmlSanitizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -50,7 +51,7 @@ class CreateFirstAdminController extends Controller
         ]);
 
         $user = User::create([
-            'name' => $validated['name'],
+            'name' => HtmlSanitizer::plainText($validated['name'], 255),
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role' => User::ROLE_PLATFORM_ADMIN,

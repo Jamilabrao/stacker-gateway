@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\OrderCompleted;
 use App\Events\PixGenerated;
+use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
@@ -147,8 +148,13 @@ class UpsellController extends Controller
         $orderId = $request->integer('order_id', 0);
         $conversionPixels = Product::defaultConversionPixels();
         $orderAmount = 0;
+        $checkoutSessionToken = '';
         if ($orderId > 0) {
             $order = Order::with('product')->find($orderId);
+            $checkoutSessionToken = (string) (CheckoutSession::query()
+                ->where('order_id', $orderId)
+                ->orderByDesc('id')
+                ->value('session_token') ?? '');
             if ($order && $order->product) {
                 $conversionPixels = AffiliateConversionPixels::forOrder($order);
                 $orderAmount = (float) $order->amount;
@@ -190,6 +196,7 @@ class UpsellController extends Controller
             'conversion_pixels' => $conversionPixels,
             'order_id' => $orderId > 0 ? $orderId : null,
             'order_amount' => $orderAmount,
+            'checkout_session_token' => $checkoutSessionToken,
         ]);
     }
 

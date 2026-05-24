@@ -30,7 +30,9 @@ class ReconcileWooviWithdrawalJob implements ShouldQueue
     public function handle(): void
     {
         $withdrawal = Withdrawal::query()->find($this->withdrawalId);
-        if ($withdrawal === null || $withdrawal->status !== 'pending' || $withdrawal->payout_provider !== 'woovi') {
+        if ($withdrawal === null
+            || ! in_array($withdrawal->status, ['pending', 'processing'], true)
+            || $withdrawal->payout_provider !== 'woovi') {
             return;
         }
 

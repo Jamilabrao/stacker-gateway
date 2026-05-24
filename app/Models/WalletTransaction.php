@@ -50,6 +50,7 @@ class WalletTransaction extends Model
         'withdrawal_id',
         'bucket',
         'type',
+        'credit_reference',
         'amount_gross',
         'amount_fee',
         'amount_net',

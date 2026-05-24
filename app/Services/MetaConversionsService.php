@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class MetaConversionsService
 {
@@ -21,6 +22,38 @@ class MetaConversionsService
         $enabled = (bool) ($meta['enabled'] ?? false);
         $entries = isset($meta['entries']) && is_array($meta['entries']) ? $meta['entries'] : [];
         if (! $enabled || $entries === []) {
+            return [];
+        }
+
+        $triggerType = $this->triggerTypeForOrder($order);
+        $eligibleEntries = [];
+        $hasPixelWithoutToken = false;
+
+        foreach ($entries as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $pixelId = trim((string) ($entry['pixel_id'] ?? ''));
+            if ($pixelId === '') {
+                continue;
+            }
+            $accessToken = trim((string) ($entry['access_token'] ?? ''));
+            if ($accessToken === '') {
+                $hasPixelWithoutToken = true;
+
+                continue;
+            }
+            if (! $this->shouldSendForEntry($entry, $triggerType)) {
+                continue;
+            }
+            $eligibleEntries[] = $entry;
+        }
+
+        if ($eligibleEntries === []) {
+            if ($hasPixelWithoutToken) {
+                $this->recordSkippedReason($order, 'missing_access_token');
+            }
+
             return [];
         }
 
@@ -46,8 +79,6 @@ class MetaConversionsService
         $phone = $order->phone ?: null;
 
         $userData = array_filter([
-            // Normalmente a Meta aceita unhashed e hasheia; para evitar inconsistências,
-            // enviamos hashed quando possível.
             'em' => $email ? [hash('sha256', strtolower(trim((string) $email)))] : null,
             'ph' => $phone ? [hash('sha256', preg_replace('/\D/', '', (string) $phone) ?? '')] : null,
             'client_ip_address' => $ip,
@@ -57,15 +88,9 @@ class MetaConversionsService
         ]);
 
         $out = [];
-        foreach ($entries as $entry) {
-            if (! is_array($entry)) {
-                continue;
-            }
+        foreach ($eligibleEntries as $entry) {
             $pixelId = trim((string) ($entry['pixel_id'] ?? ''));
             $accessToken = trim((string) ($entry['access_token'] ?? ''));
-            if ($pixelId === '' || $accessToken === '') {
-                continue;
-            }
 
             $payload = [
                 'data' => [[
@@ -103,5 +128,52 @@ class MetaConversionsService
 
         return $out;
     }
-}
 
+    /**
+     * Alinhado a ConversionPixels.vue shouldFireForEntry (triggerType pix/boleto/approved).
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    private function shouldSendForEntry(array $entry, string $triggerType): bool
+    {
+        if ($triggerType === 'pix' && ($entry['fire_purchase_on_pix'] ?? true) === false) {
+            return false;
+        }
+        if ($triggerType === 'boleto' && ($entry['fire_purchase_on_boleto'] ?? true) === false) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function triggerTypeForOrder(Order $order): string
+    {
+        $method = (string) ($order->payment_method ?? '');
+        if ($method === 'boleto') {
+            return 'boleto';
+        }
+        if (in_array($method, ['pix', 'pix_auto'], true)) {
+            return 'pix';
+        }
+
+        return 'approved';
+    }
+
+    private function recordSkippedReason(Order $order, string $reason): void
+    {
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        if (($meta['meta_capi_skipped_reason'] ?? null) === $reason) {
+            return;
+        }
+
+        $meta['meta_capi_skipped_reason'] = $reason;
+        $meta['meta_capi_skipped_at'] = now()->toIso8601String();
+        $order->update(['metadata' => $meta]);
+
+        Log::warning('Meta CAPI purchase skipped', [
+            'order_id' => $order->id,
+            'tenant_id' => $order->tenant_id,
+            'reason' => $reason,
+        ]);
+    }
+}

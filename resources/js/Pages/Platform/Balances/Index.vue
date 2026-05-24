@@ -5,6 +5,7 @@ import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import WalletAdjustForm from '@/components/platform/WalletAdjustForm.vue';
 import Button from '@/components/ui/Button.vue';
 import { X } from 'lucide-vue-next';
+import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -185,7 +186,7 @@ watch(
                           ? 'text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                           : 'pointer-events-none text-zinc-300'
                 "
-                v-html="link.label"
+                v-text="htmlToText(link.label)"
             />
         </div>
 

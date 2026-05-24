@@ -2008,7 +2008,7 @@ function submit() {
                                         <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Access Token (CAPI)</label>
                                         <input v-model="item.access_token" type="password" placeholder="Token para Conversions API" :class="inputClass" autocomplete="off" />
                                         <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                                            Obrigatório para Purchase via servidor (CAPI). Recomendado para conversões estáveis mesmo se o comprador fechar a aba após pagar.
+                                            Para contabilizar vendas quando o cliente fecha a página PIX ou boleto antes do redirecionamento, informe o token de acesso (Conversions API).
                                         </p>
                                     </div>
                                     <div class="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">

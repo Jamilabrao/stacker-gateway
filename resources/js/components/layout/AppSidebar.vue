@@ -25,7 +25,6 @@ import {
     GraduationCap,
     UserPlus,
     RotateCcw,
-    AlertTriangle,
     Truck,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
@@ -92,15 +91,6 @@ const navItems = computed(() => {
     if (canView('dashboard.view')) items.push({ name: t('sidebar.dashboard', 'Dashboard'), href: '/dashboard', icon: LayoutDashboard });
     if (canView('vendas.view')) items.push({ name: t('sidebar.sales', 'Vendas'), href: '/vendas', icon: CircleDollarSign });
     if (canView('vendas.view')) items.push({ name: 'Reembolsos', href: '/reembolsos', icon: RotateCcw });
-    if (canView('vendas.view')) {
-        const medCount = Number(page.props.med_open_count ?? 0);
-        items.push({
-            name: 'Disputas MED',
-            href: '/disputas',
-            icon: AlertTriangle,
-            badge: medCount > 0 ? String(medCount) : null,
-        });
-    }
     if (canView('produtos.view')) {
         items.push({ name: t('sidebar.products', 'Produtos'), href: '/produtos', icon: Package });
         items.push({
@@ -139,7 +129,6 @@ const navItems = computed(() => {
 function isActive(href) {
     const url = page.url.split('?')[0];
     if (href === '/reembolsos') return url === '/reembolsos' || url.startsWith('/reembolsos/');
-    if (href === '/disputas') return url === '/disputas' || url.startsWith('/disputas/');
     if (href === '/frete') return url === '/frete' || url.startsWith('/frete/');
     if (href === '/dashboard') return url === '/dashboard' || url === '/';
     if (href === '/produtos/vitrine-afiliacao') {

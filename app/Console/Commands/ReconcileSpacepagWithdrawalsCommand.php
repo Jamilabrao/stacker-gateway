@@ -47,7 +47,7 @@ class ReconcileSpacepagWithdrawalsCommand extends Command
 
                 return self::FAILURE;
             }
-            if ($w->status !== 'pending' || $w->payout_provider !== 'spacepag') {
+            if (! in_array($w->status, ['pending', 'processing'], true) || $w->payout_provider !== 'spacepag') {
                 $this->warn('Saque ignorado (não está pending/spacepag).');
 
                 return self::SUCCESS;

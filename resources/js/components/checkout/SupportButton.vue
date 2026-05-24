@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { MessageCircle, Headset, HelpCircle } from 'lucide-vue-next';
+import { safeHttpHref } from '@/lib/safeUrl';
 
 const props = defineProps({
     config: { type: Object, default: () => ({}) },
@@ -9,7 +10,8 @@ const props = defineProps({
 
 const enabled = computed(() => props.config?.enabled === true);
 const text = computed(() => props.config?.text || 'Suporte');
-const url = computed(() => props.config?.url || '#');
+const url = computed(() => safeHttpHref(props.config?.url, '#'));
+const linkEnabled = computed(() => url.value !== '#');
 const buttonColor = computed(() => props.config?.color || '#25D366');
 const positionClass = computed(() => {
     const p = props.config?.position || 'bottom-right';
@@ -33,7 +35,7 @@ const IconComponent = computed(() => {
 
 <template>
     <a
-        v-if="enabled"
+        v-if="enabled && linkEnabled"
         data-checkout="support-button"
         :href="url"
         target="_blank"

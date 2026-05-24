@@ -609,6 +609,7 @@ class CheckoutController extends Controller
             $rules['shipping_state'] = ['required', 'string', 'size:2'];
         }
         $validated = $request->validate($rules);
+        $validated = \App\Support\CheckoutInputSanitizer::sanitize($validated);
         $this->idempotencyRequest = $request;
         $this->idempotencyValidated = $validated;
 

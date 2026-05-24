@@ -94,4 +94,107 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
                 && isset($ud['fbp']) && isset($ud['fbc']);
         });
     }
+
+    public function test_capi_skips_pix_when_fire_purchase_on_pix_disabled(): void
+    {
+        Http::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        [
+                            'pixel_id' => '123',
+                            'access_token' => 'tok',
+                            'fire_purchase_on_pix' => false,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 50,
+            'email' => 'buyer@test.com',
+            'payment_method' => 'pix',
+        ]);
+
+        (new MetaConversionsSendPurchaseJob($order->id))->handle(app(\App\Services\MetaConversionsService::class));
+
+        Http::assertNothingSent();
+        $order->refresh();
+        $this->assertFalse($order->metadata['meta_capi_sent_purchase'] ?? false);
+    }
+
+    public function test_capi_records_missing_access_token_in_metadata(): void
+    {
+        Http::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '123'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 50,
+            'email' => 'buyer@test.com',
+            'payment_method' => 'credit_card',
+        ]);
+
+        (new MetaConversionsSendPurchaseJob($order->id))->handle(app(\App\Services\MetaConversionsService::class));
+
+        Http::assertNothingSent();
+        $order->refresh();
+        $this->assertSame('missing_access_token', $order->metadata['meta_capi_skipped_reason'] ?? null);
+    }
+
+    public function test_order_completed_runs_meta_capi_sync_when_queue_default_is_sync(): void
+    {
+        config(['queue.default' => 'sync']);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['events_received' => 1], 200),
+        ]);
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '555', 'access_token' => 'secret'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 25,
+            'email' => 'sync@test.com',
+            'payment_method' => 'credit_card',
+        ]);
+
+        event(new OrderCompleted($order));
+
+        $order->refresh();
+        $this->assertTrue($order->metadata['meta_capi_sent_purchase'] ?? false);
+    }
 }

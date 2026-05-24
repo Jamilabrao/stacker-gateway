@@ -1,6 +1,7 @@
 <script setup>
 import { router } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
+import VendasTabs from '@/components/vendas/VendasTabs.vue';
 import { AlertTriangle } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -33,12 +34,21 @@ function statusLabel(s) {
 }
 
 function setFilter(status) {
-    router.get('/disputas', { status }, { preserveState: true, preserveScroll: true, replace: true });
+    router.get('/vendas/disputas', { status }, { preserveState: true, preserveScroll: true, replace: true });
 }
 </script>
 
 <template>
     <div class="space-y-6">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Vendas</h1>
+            <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Contestações PIX (MED) e defesas junto ao banco.
+            </p>
+        </div>
+
+        <VendasTabs />
+
         <div class="flex flex-wrap items-center gap-3">
             <p class="text-sm text-zinc-600 dark:text-zinc-400">
                 Contestações PIX (MED) abertas pelo banco. Envie sua defesa antes do prazo.
@@ -96,7 +106,7 @@ function setFilter(status) {
                         <td class="px-4 py-3 text-sm">{{ statusLabel(d.status) }}</td>
                         <td class="px-4 py-3 text-right">
                             <a
-                                :href="`/disputas/${d.id}`"
+                                :href="`/vendas/disputas/${d.id}`"
                                 class="text-sm font-medium text-[var(--color-primary)] hover:underline"
                             >
                                 Ver detalhes

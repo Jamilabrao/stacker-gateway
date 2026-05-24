@@ -47,7 +47,7 @@ class ReconcileWooviWithdrawalsCommand extends Command
 
                 return self::FAILURE;
             }
-            if ($w->status !== 'pending' || $w->payout_provider !== 'woovi') {
+            if (! in_array($w->status, ['pending', 'processing'], true) || $w->payout_provider !== 'woovi') {
                 $this->warn('Saque ignorado (não está pending/woovi).');
 
                 return self::SUCCESS;

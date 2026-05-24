@@ -32,7 +32,11 @@ class WithdrawalsController extends Controller
                 ->with(['tenantOwner:id,name,email'])
                 ->orderByDesc('created_at');
             if ($withdrawalStatus !== 'all') {
-                $wq->where('status', $withdrawalStatus);
+                if ($withdrawalStatus === 'pending') {
+                    $wq->whereIn('status', ['pending', 'processing']);
+                } else {
+                    $wq->where('status', $withdrawalStatus);
+                }
             }
             $withdrawalsPaginator = $wq->paginate(40)->withQueryString()->through(function (Withdrawal $w) {
                 return [

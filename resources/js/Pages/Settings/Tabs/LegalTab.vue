@@ -1,7 +1,8 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Scale } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import { sanitizeHtmlAllowlist } from '@/lib/sanitizeHtml';
 
 const props = defineProps({
     form: { type: Object, required: true },
@@ -31,15 +32,15 @@ function closePreview() {
     previewDoc.value = null;
 }
 
-function previewHtml() {
+const previewHtmlSafe = computed(() => {
+    let raw = '';
     if (previewDoc.value === 'privacy') {
-        return props.form.legal_privacy_policy_html || '';
+        raw = props.form.legal_privacy_policy_html || '';
+    } else if (previewDoc.value === 'terms') {
+        raw = props.form.legal_terms_of_use_html || '';
     }
-    if (previewDoc.value === 'terms') {
-        return props.form.legal_terms_of_use_html || '';
-    }
-    return '';
-}
+    return sanitizeHtmlAllowlist(raw);
+});
 </script>
 
 <template>
@@ -155,7 +156,7 @@ function previewHtml() {
                     </h3>
                     <Button type="button" variant="outline" size="sm" @click="closePreview">Fechar</Button>
                 </div>
-                <article class="prose prose-sm max-w-none dark:prose-invert" v-html="previewHtml()" />
+                <article class="prose prose-sm max-w-none dark:prose-invert" v-html="previewHtmlSafe" />
             </div>
         </div>
     </section>

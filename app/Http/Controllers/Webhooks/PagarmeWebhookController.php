@@ -39,8 +39,11 @@ class PagarmeWebhookController extends Controller
 
         $credential = GatewayCredential::resolveForPayment($order->tenant_id, self::SLUG);
 
-        if ($credential && ! $this->verifyHubSignature($raw, $request->header('X-Hub-Signature'), $credential)) {
-            return response()->json(['message' => 'Unauthorized'], 401);
+        if ($credential) {
+            $secret = trim((string) ($credential->getDecryptedCredentials()['secret_key'] ?? ''));
+            if ($secret !== '' && ! $this->verifyHubSignature($raw, $request->header('X-Hub-Signature'), $credential)) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
         }
 
         $type = (string) ($payload['type'] ?? '');
@@ -118,14 +121,16 @@ class PagarmeWebhookController extends Controller
      */
     private function verifyHubSignature(string $rawBody, mixed $header, GatewayCredential $credential): bool
     {
-        if (! is_string($header) || trim($header) === '') {
-            return true;
-        }
-
         $credentials = $credential->getDecryptedCredentials();
         $secret = trim((string) ($credentials['secret_key'] ?? ''));
         if ($secret === '') {
             return true;
+        }
+
+        if (! is_string($header) || trim($header) === '') {
+            Log::warning('PagarmeWebhook: secret configurado mas X-Hub-Signature ausente');
+
+            return false;
         }
 
         $expectedHex = hash_hmac('sha1', $rawBody, $secret, false);

@@ -173,8 +173,15 @@ class EfiWebhookController extends Controller
             return true;
         }
         $receivedHmac = $request->query('hmac');
+        if (! is_string($receivedHmac) || $receivedHmac === '') {
+            Log::warning('EfiWebhook: webhook_hmac configurado mas parâmetro hmac ausente', [
+                'tenant_id' => $tenantId,
+            ]);
 
-        return is_string($receivedHmac) && hash_equals($expectedHmac, $receivedHmac);
+            return false;
+        }
+
+        return hash_equals((string) $expectedHmac, $receivedHmac);
     }
 
     /**

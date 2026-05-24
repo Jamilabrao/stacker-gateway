@@ -1,12 +1,14 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { CheckCircle2 } from 'lucide-vue-next';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
+import { sendPurchasePixelAck } from '@/composables/usePurchasePixelAck';
 
 defineOptions({ layout: null });
 
 const conversionPixelsRef = ref(null);
+let purchaseFiredForLoad = false;
 
 const props = defineProps({
     redirect_url: { type: String, default: '/' },
@@ -16,17 +18,39 @@ const props = defineProps({
     conversion_pixels: { type: Object, default: () => ({}) },
     order_id: { type: Number, default: null },
     order_amount: { type: Number, default: 0 },
+    checkout_session_token: { type: String, default: '' },
 });
 
-onMounted(async () => {
-    if (props.order_id && props.order_amount > 0 && conversionPixelsRef.value?.firePurchase) {
-        await conversionPixelsRef.value.firePurchaseReliable?.(props.order_amount, 'BRL', String(props.order_id), false, 'approved', 350);
-    }
-});
+/**
+ * Meta Pixel só expõe fbq após init em ConversionPixels (@ready).
+ * onMounted no pai perdia o evento; alinhado ao fluxo PIX/Boleto e referência opensource.
+ */
+async function onConversionPixelsReady() {
+    if (purchaseFiredForLoad) return;
+    if (!props.order_id || !(Number(props.order_amount) > 0)) return;
+    const api = conversionPixelsRef.value;
+    if (!api?.firePurchaseReliable) return;
+    purchaseFiredForLoad = true;
+
+    sendPurchasePixelAck({
+        orderId: props.order_id,
+        checkoutSessionToken: props.checkout_session_token || '',
+        triggerType: 'approved',
+    });
+
+    await api.firePurchaseReliable(
+        props.order_amount,
+        'BRL',
+        String(props.order_id),
+        false,
+        'approved',
+        350
+    );
+}
 </script>
 
 <template>
-    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" />
+    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" @ready="onConversionPixelsReady" />
     <Head>
         <title>Obrigado pela compra</title>
     </Head>

@@ -40,12 +40,14 @@ class MercadoPagoWebhookController extends Controller
 
         $event = 'order.pending';
         $status = 'pending';
+        $apiConfirmed = false;
 
         if ($credential) {
             $credentials = $credential->getDecryptedCredentials();
             $driver = GatewayRegistry::driver('mercadopago');
             if (! empty($credentials) && $driver) {
                 $apiStatus = $driver->getTransactionStatus($transactionId, $credentials);
+                $apiConfirmed = true;
                 if ($apiStatus === 'paid') {
                     $event = 'order.paid';
                     $status = 'paid';
@@ -54,6 +56,15 @@ class MercadoPagoWebhookController extends Controller
                     $status = 'cancelled';
                 }
             }
+        }
+
+        if ($status === 'paid' && ! $apiConfirmed) {
+            Log::warning('MercadoPagoWebhook: ignorando paid sem confirmação na API', [
+                'gateway_id' => $transactionId,
+                'order_id' => $order->id,
+            ]);
+            $event = 'order.pending';
+            $status = 'pending';
         }
 
         ProcessPaymentWebhook::dispatchSync('mercadopago', $transactionId, $event, $status, $payload);
