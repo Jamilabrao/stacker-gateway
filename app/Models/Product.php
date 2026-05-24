@@ -320,10 +320,19 @@ class Product extends Model
         }
         $pm = $cfg['payment_methods_enabled'] ?? [];
         if (! is_array($pm)) {
-            return $basePm;
+            $merged = $basePm;
+        } else {
+            $merged = array_merge($basePm, $pm);
         }
 
-        return array_merge($basePm, $pm);
+        $platformEnabled = \App\Services\PlatformPaymentMethods::platformEnabled();
+        foreach (\App\Services\PlatformPaymentMethods::METHOD_KEYS as $methodKey) {
+            if (($platformEnabled[$methodKey] ?? true) === false) {
+                $merged[$methodKey] = false;
+            }
+        }
+
+        return $merged;
     }
 
     /**

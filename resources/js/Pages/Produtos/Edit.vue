@@ -1482,7 +1482,7 @@ function submit() {
                             v-if="paymentMethodCardsList.length === 0"
                             class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-200"
                         >
-                            Nenhuma forma de pagamento está ativa na plataforma. Conecte e ordene os gateways no painel da plataforma (Financeiro / Gateways).
+                            Nenhuma forma de pagamento está ativa na plataforma. Ative métodos e gateways em Plataforma → Financeiro (abas Formas de pagamento e Adquirentes).
                         </p>
                         <div v-else class="grid gap-2 sm:gap-2.5" :class="paymentMethodGridClass">
                             <div

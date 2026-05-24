@@ -1658,6 +1658,18 @@ class CheckoutController extends Controller
         }
         $validated = $request->validate($rules);
 
+        $subscriptionPlanId = $request->filled('subscription_plan_id') ? (int) $request->input('subscription_plan_id') : null;
+        $plan = $subscriptionPlanId
+            ? SubscriptionPlan::where('id', $subscriptionPlanId)->where('product_id', $product->id)->first()
+            : null;
+        $allowedPaymentIds = array_column(
+            app(PaymentService::class)->availablePaymentMethodsForCheckout($product, $plan, null),
+            'id'
+        );
+        if (! in_array($validated['payment_method'], $allowedPaymentIds, true)) {
+            return response()->json(['message' => 'Método de pagamento não disponível para este produto.'], 422);
+        }
+
         $sessionEmail = strtolower(trim((string) $request->input('email', '')));
         if ($sessionEmail === '') {
             $sessionEmail = 'cajupay.'.substr(hash('sha256', $validated['checkout_session_token']), 0, 16).'@checkout.invalid';

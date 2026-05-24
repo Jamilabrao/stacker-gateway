@@ -293,6 +293,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/financeiro/gateways/{slug}/test', [\App\Http\Controllers\GatewaysController::class, 'test'])->name('financeiro.gateways.test');
         Route::post('/financeiro/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate'])->name('financeiro.gateways.certificate');
         Route::put('/financeiro/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate']);
+        Route::put('/financeiro/metodos-pagamento', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePaymentMethods'])->name('financeiro.payment-methods.update');
         Route::put('/financeiro/taxas', [\App\Http\Controllers\Platform\FinancialController::class, 'updateFees'])->name('financeiro.taxas.update');
         Route::put('/financeiro/liquidacao', [\App\Http\Controllers\Platform\FinancialController::class, 'updateSettlement'])->name('financeiro.liquidacao.update');
         Route::put('/financeiro/payout-gateway', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePayoutGatewayPreference'])->name('financeiro.payout-gateway.update');

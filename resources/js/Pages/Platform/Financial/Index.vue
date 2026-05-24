@@ -44,6 +44,18 @@ const props = defineProps({
     /** Slug efetivo usado hoje (pode diferir do preferido se este não estiver conectado). */
     payout_gateway_active: { type: String, default: null },
     gateway_webhook_security_warnings: { type: Array, default: () => [] },
+    platform_payment_methods_enabled: {
+        type: Object,
+        default: () => ({
+            pix: true,
+            card: true,
+            boleto: true,
+            pix_auto: true,
+            apple_pay: true,
+            google_pay: true,
+        }),
+    },
+    platform_payment_method_labels: { type: Array, default: () => [] },
 });
 
 const GATEWAYS_API_BASE = '/plataforma/financeiro/gateways';
@@ -206,7 +218,7 @@ async function savePayoutPreference() {
 }
 
 function allAllowedTabIds() {
-    return ['adquirentes', 'taxas', 'liquidacao'];
+    return ['adquirentes', 'metodos', 'taxas', 'liquidacao'];
 }
 
 const activeTab = ref('adquirentes');
@@ -217,9 +229,34 @@ if (typeof window !== 'undefined') {
 
 const tabs = computed(() => [
     { id: 'adquirentes', label: 'Adquirentes', icon: CreditCard },
+    { id: 'metodos', label: 'Formas de pagamento', icon: LayoutGrid },
     { id: 'taxas', label: 'Taxas', icon: Percent },
     { id: 'liquidacao', label: 'Liquidação', icon: CalendarClock },
 ]);
+
+const paymentMethodsForm = useForm({
+    platform_payment_methods_enabled: { ...props.platform_payment_methods_enabled },
+});
+
+watch(
+    () => props.platform_payment_methods_enabled,
+    (v) => {
+        paymentMethodsForm.platform_payment_methods_enabled = { ...v };
+    },
+    { deep: true }
+);
+
+function togglePlatformPaymentMethod(key) {
+    const cur = paymentMethodsForm.platform_payment_methods_enabled[key];
+    paymentMethodsForm.platform_payment_methods_enabled[key] = cur === false ? true : false;
+}
+
+function submitPaymentMethods() {
+    paymentMethodsForm.put('/plataforma/financeiro/metodos-pagamento', {
+        preserveScroll: true,
+        onSuccess: () => paymentMethodsForm.clearErrors(),
+    });
+}
 
 const gatewaySidebarOpen = ref(false);
 const selectedGatewaySlug = ref(null);
@@ -694,6 +731,73 @@ function submitSettlement() {
                                 {{ savingPayoutPref ? 'Salvando...' : 'Salvar preferência de saque' }}
                             </Button>
                         </div>
+                    </div>
+                </section>
+            </div>
+        </Transition>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'metodos'" class="space-y-6">
+                <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Formas de pagamento na plataforma
+                    </h2>
+                    <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+                        Ative ou desative cada forma de pagamento para <strong class="font-medium text-zinc-800 dark:text-zinc-200">toda a plataforma</strong>.
+                        Infoprodutores ainda podem restringir por produto no checkout. Apple Pay e Google Pay exigem CajuPay como adquirente de cartão.
+                    </p>
+                    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <button
+                            v-for="m in props.platform_payment_method_labels"
+                            :key="m.key"
+                            type="button"
+                            class="flex flex-col rounded-xl border-2 px-4 py-4 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+                            :class="
+                                paymentMethodsForm.platform_payment_methods_enabled[m.key] !== false
+                                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/[0.08] dark:bg-[var(--color-primary)]/15'
+                                    : 'border-zinc-200 bg-zinc-50/50 hover:border-zinc-300 dark:border-zinc-600 dark:bg-zinc-800/40'
+                            "
+                            @click="togglePlatformPaymentMethod(m.key)"
+                        >
+                            <span class="text-sm font-semibold text-zinc-900 dark:text-white">{{ m.label }}</span>
+                            <span class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ m.hint }}</span>
+                            <span
+                                class="mt-3 inline-flex w-fit rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                                :class="
+                                    paymentMethodsForm.platform_payment_methods_enabled[m.key] !== false
+                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+                                        : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300'
+                                "
+                            >
+                                {{
+                                    paymentMethodsForm.platform_payment_methods_enabled[m.key] !== false
+                                        ? 'Ativo na plataforma'
+                                        : 'Desativado'
+                                }}
+                            </span>
+                        </button>
+                    </div>
+                    <p
+                        v-if="paymentMethodsForm.errors.platform_payment_methods_enabled"
+                        class="mt-4 text-sm text-red-600 dark:text-red-400"
+                    >
+                        {{ paymentMethodsForm.errors.platform_payment_methods_enabled }}
+                    </p>
+                    <div class="mt-6 flex justify-end">
+                        <Button
+                            type="button"
+                            :disabled="paymentMethodsForm.processing"
+                            @click="submitPaymentMethods"
+                        >
+                            Salvar formas de pagamento
+                        </Button>
                     </div>
                 </section>
             </div>

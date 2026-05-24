@@ -413,6 +413,12 @@ class PaymentService
         $productOnly = array_replace_recursive($defaults, is_array($product->checkout_config) ? $product->checkout_config : []);
         $enabled = $productOnly['payment_methods_enabled'] ?? $defaults['payment_methods_enabled'] ?? [];
         $enabled = is_array($enabled) ? $enabled : [];
+        $platformEnabled = PlatformPaymentMethods::platformEnabled();
+        foreach (PlatformPaymentMethods::METHOD_KEYS as $methodKey) {
+            if (($platformEnabled[$methodKey] ?? true) === false) {
+                $enabled[$methodKey] = false;
+            }
+        }
 
         $tenantId = $product->tenant_id;
 
@@ -540,8 +546,18 @@ class PaymentService
             }
         }
         if ($firstCardSlug === 'cajupay') {
-            $out['apple_pay'] = true;
-            $out['google_pay'] = true;
+            if (PlatformPaymentMethods::isEnabled('apple_pay')) {
+                $out['apple_pay'] = true;
+            }
+            if (PlatformPaymentMethods::isEnabled('google_pay')) {
+                $out['google_pay'] = true;
+            }
+        }
+
+        foreach ($out as $key => $value) {
+            if ($value && ! PlatformPaymentMethods::isEnabled($key)) {
+                $out[$key] = false;
+            }
         }
 
         return $out;

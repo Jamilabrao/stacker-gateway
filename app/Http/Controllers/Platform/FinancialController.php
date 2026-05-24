@@ -20,6 +20,7 @@ use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\PlatformAuditService;
+use App\Services\PlatformPaymentMethods;
 use App\Models\Setting;
 use App\Support\PlatformConfigContext;
 use Illuminate\Http\JsonResponse;
@@ -45,7 +46,37 @@ class FinancialController extends Controller
             'payout_gateway_preference' => PlatformPayoutGateway::preference(),
             'payout_gateway_active' => PlatformPayoutGateway::activeSlug(),
             'gateway_webhook_security_warnings' => $this->gatewayWebhookSecurityWarnings($tenantId),
+            'platform_payment_methods_enabled' => PlatformPaymentMethods::platformEnabled(),
+            'platform_payment_method_labels' => PlatformPaymentMethods::labelsForAdmin(),
         ]);
+    }
+
+    public function updatePaymentMethods(Request $request): RedirectResponse
+    {
+        $rules = [
+            'platform_payment_methods_enabled' => ['required', 'array'],
+        ];
+        foreach (PlatformPaymentMethods::METHOD_KEYS as $key) {
+            $rules["platform_payment_methods_enabled.$key"] = ['nullable', 'boolean'];
+        }
+        $request->validate($rules);
+
+        $out = PlatformPaymentMethods::defaults();
+        foreach (PlatformPaymentMethods::METHOD_KEYS as $key) {
+            $out[$key] = $request->boolean("platform_payment_methods_enabled.$key", true);
+        }
+
+        if (! collect($out)->contains(true)) {
+            return redirect()->route('plataforma.financeiro.index', ['tab' => 'metodos'])
+                ->with('error', 'Ative pelo menos uma forma de pagamento na plataforma.');
+        }
+
+        Setting::set('platform_payment_methods_enabled', $out, null);
+
+        PlatformAuditService::log('platform.financial.payment_methods_updated', ['enabled' => $out], $request);
+
+        return redirect()->route('plataforma.financeiro.index', ['tab' => 'metodos'])
+            ->with('success', 'Formas de pagamento da plataforma atualizadas.');
     }
 
     /**
