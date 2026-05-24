@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessPaymentWebhook;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Services\CajuPay\CajuPayCheckoutCompletionService;
@@ -12,8 +13,10 @@ use Illuminate\Support\Facades\Log;
 
 class CajuPayCheckoutWebhookController extends Controller
 {
+    private const SLUG = 'cajupay';
+
     /**
-     * POST /webhooks/gateways/cajupay/checkout — outbound webhooks (cartão / SDK).
+     * POST /webhooks/gateways/cajupay — webhooks CajuPay (PIX API, checkout SDK, cartão).
      *
      * @see https://api.cajupay.com.br — X-CajuPay-Signature: t=<unix>,v1=<hex_hmac>
      */
@@ -24,162 +27,244 @@ class CajuPayCheckoutWebhookController extends Controller
             return response('empty body', 400);
         }
 
-        $sigHeader = (string) $request->header('X-CajuPay-Signature', '');
-        $parsed = $this->parseSignatureHeader($sigHeader);
-        if ($parsed === null) {
-            return response('invalid_signature_header', 400);
-        }
-
-        [$timestamp, $signatureHex] = $parsed;
-        if (abs(time() - $timestamp) > 300) {
-            return response('stale_timestamp', 401);
-        }
-
         $payload = json_decode($rawBody, true);
         if (! is_array($payload)) {
             return response('invalid json', 400);
         }
 
-        $secret = $this->resolveSigningSecret($rawBody, $timestamp, $signatureHex);
+        $eventType = (string) ($request->header('X-CajuPay-Event') ?? ($payload['type'] ?? ''));
+
+        $sigHeader = (string) $request->header('X-CajuPay-Signature', '');
+        $parsed = $this->parseSignatureHeader($sigHeader);
+        $timestampHeader = (string) $request->header('X-CajuPay-Timestamp', '');
+
+        $timestamp = $parsed['t'] ?? (is_numeric($timestampHeader) ? (int) $timestampHeader : 0);
+        $signatureHex = strtolower($parsed['v1'] ?? '');
+
+        if ($signatureHex === '' || $timestamp <= 0) {
+            return response('invalid_signature_header', 400);
+        }
+
+        if (abs(time() - $timestamp) > 300) {
+            return response('stale_timestamp', 401);
+        }
+
+        $object = $this->extractObject($payload);
+        $checkoutSessionId = $this->pickSessionId($object);
+        $paymentId = $this->pickPaymentId($object);
+
+        $order = $this->findOrderForWebhook($checkoutSessionId, $paymentId);
+
+        $secret = $this->resolveSigningSecret($rawBody, (string) $timestamp, $signatureHex, $order?->tenant_id);
         if ($secret === null) {
-            Log::warning('CajuPayCheckoutWebhook: no matching signing secret', [
-                'event' => $payload['type'] ?? null,
+            Log::warning('CajuPayWebhook: no matching signing secret', [
+                'event' => $eventType,
+                'payment_id' => $paymentId,
+                'checkout_session_id' => $checkoutSessionId,
             ]);
 
             return response('invalid_signature', 401);
         }
 
-        $type = is_string($payload['type'] ?? null) ? $payload['type'] : '';
-        $object = is_array($payload['data']['object'] ?? null) ? $payload['data']['object'] : [];
-
-        $checkoutSessionId = $this->stringFrom($object['checkout_session_id'] ?? null);
-        $chargeId = $this->stringFrom($object['cajupay_charge_id'] ?? null);
-
-        $order = $this->findOrderForWebhook($checkoutSessionId, $chargeId);
         if ($order === null) {
-            if ($type === 'checkout.payment.paid' && $checkoutSessionId !== '' && $chargeId !== '') {
+            if ($this->isPaidEvent($eventType) && $checkoutSessionId !== '' && $paymentId !== '') {
                 app(CajuPayCheckoutCompletionService::class)->storePendingPaidWebhook(
                     $checkoutSessionId,
-                    $chargeId,
-                    array_merge($payload, ['webhook_source' => 'cajupay_checkout_webhook'])
+                    $paymentId,
+                    array_merge($payload, ['webhook_source' => 'cajupay_webhook'])
                 );
-                Log::info('CajuPayCheckoutWebhook: paid guardado até confirm-order', [
+                Log::info('CajuPayWebhook: paid guardado até confirm-order', [
                     'checkout_session_id' => $checkoutSessionId,
-                    'charge_id' => $chargeId,
+                    'payment_id' => $paymentId,
                 ]);
             } else {
-                Log::info('CajuPayCheckoutWebhook: order not found', [
+                Log::info('CajuPayWebhook: order not found', [
+                    'event' => $eventType,
                     'checkout_session_id' => $checkoutSessionId,
-                    'charge_id' => $chargeId,
-                    'type' => $type,
+                    'payment_id' => $paymentId,
                 ]);
             }
 
             return response('ok', 200);
         }
 
+        if ($paymentId !== '' && $order->gateway_id !== $paymentId) {
+            try {
+                $order->update([
+                    'gateway' => self::SLUG,
+                    'gateway_id' => $paymentId,
+                ]);
+                $order->refresh();
+            } catch (\Throwable $e) {
+                Log::debug('CajuPayWebhook: falha ao atualizar gateway_id', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $dispatchId = $paymentId !== '' ? $paymentId : (string) ($order->gateway_id ?? $checkoutSessionId);
+        $webhookMeta = array_merge($payload, ['webhook_source' => 'cajupay_webhook']);
         $completion = app(CajuPayCheckoutCompletionService::class);
 
-        if ($type === 'checkout.payment.paid' || $type === 'card.payment.succeeded') {
-            if ($chargeId === '') {
+        if ($this->isPaidEvent($eventType)) {
+            if ($dispatchId === '') {
                 return response('ok', 200);
             }
-            $completion->applyPaid($order, $chargeId, array_merge($payload, [
-                'webhook_source' => 'cajupay_checkout_webhook',
-            ]));
+            $completion->applyPaid($order, $dispatchId, $webhookMeta);
 
             return response('ok', 200);
         }
 
-        if ($type === 'checkout.payment.failed' || $type === 'card.payment.failed') {
-            $ref = $chargeId !== '' ? $chargeId : $checkoutSessionId;
-            if ($ref === '') {
+        if ($this->isFailedEvent($eventType)) {
+            if ($dispatchId === '') {
                 return response('ok', 200);
             }
-            \App\Jobs\ProcessPaymentWebhook::dispatchSync('cajupay', $ref, 'checkout.payment.failed', 'rejected', array_merge($payload, [
-                'webhook_source' => 'cajupay_checkout_webhook',
-            ]));
+            ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'checkout.payment.failed', 'rejected', $webhookMeta);
 
             return response('ok', 200);
         }
 
-        if ($type === 'checkout.payment.refunded' || $type === 'card.payment.refunded') {
-            if ($chargeId === '') {
+        if ($this->isRefundedEvent($eventType)) {
+            if ($dispatchId === '') {
                 return response('ok', 200);
             }
-            \App\Jobs\ProcessPaymentWebhook::dispatchSync('cajupay', $chargeId, 'checkout.payment.refunded', 'refunded', array_merge($payload, [
-                'webhook_source' => 'cajupay_checkout_webhook',
-            ]));
+            ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'checkout.payment.refunded', 'refunded', $webhookMeta);
 
             return response('ok', 200);
         }
 
-        if ($type === 'checkout.payment.disputed' || $type === 'card.payment.disputed') {
-            if ($chargeId === '') {
+        if ($this->isDisputedEvent($eventType)) {
+            if ($dispatchId === '') {
                 return response('ok', 200);
             }
-            \App\Jobs\ProcessPaymentWebhook::dispatchSync('cajupay', $chargeId, 'checkout.payment.disputed', 'disputed', array_merge($payload, [
-                'webhook_source' => 'cajupay_checkout_webhook',
-            ]));
+            ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'checkout.payment.disputed', 'disputed', $webhookMeta);
 
             return response('ok', 200);
         }
+
+        Log::debug('CajuPayWebhook: tipo não tratado', ['event' => $eventType]);
 
         return response('ok', 200);
     }
 
-    /**
-     * @return array{0: int, 1: string}|null
-     */
-    private function parseSignatureHeader(string $header): ?array
+    private function isPaidEvent(string $eventType): bool
     {
-        $header = trim($header);
-        if ($header === '') {
-            return null;
-        }
-        $parts = array_map('trim', explode(',', $header));
-        $ts = null;
-        $sig = null;
-        foreach ($parts as $part) {
-            if (str_starts_with($part, 't=')) {
-                $ts = (int) substr($part, 2);
-            }
-            if (str_starts_with($part, 'v1=')) {
-                $sig = substr($part, 3);
-            }
-        }
-        if ($ts === null || $sig === null || $ts <= 0 || $sig === '') {
-            return null;
-        }
-
-        return [$ts, strtolower($sig)];
+        return in_array($eventType, [
+            'checkout.payment.paid',
+            'card.payment.succeeded',
+            'payment.paid',
+        ], true);
     }
 
-    private function resolveSigningSecret(string $rawBody, int $timestamp, string $signatureHex): ?string
+    private function isFailedEvent(string $eventType): bool
     {
-        $candidates = GatewayCredential::query()
-            ->where('gateway_slug', 'cajupay')
-            ->where('is_connected', true)
-            ->get();
+        return in_array($eventType, [
+            'checkout.payment.failed',
+            'card.payment.failed',
+            'payment.failed',
+        ], true);
+    }
 
-        $signedPayload = $timestamp.'.'.$rawBody;
+    private function isRefundedEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'checkout.payment.refunded',
+            'card.payment.refunded',
+            'payment.refunded',
+        ], true);
+    }
 
-        foreach ($candidates as $credential) {
-            $creds = $credential->getDecryptedCredentials();
-            $secret = trim((string) ($creds['checkout_webhook_signing_secret'] ?? ''));
-            if ($secret === '') {
-                continue;
+    private function isDisputedEvent(string $eventType): bool
+    {
+        return in_array($eventType, [
+            'checkout.payment.disputed',
+            'card.payment.disputed',
+        ], true);
+    }
+
+    /**
+     * @return array{t?: string, v1?: string}
+     */
+    private function parseSignatureHeader(string $header): array
+    {
+        $out = [];
+        $header = trim($header);
+        if ($header === '') {
+            return $out;
+        }
+        foreach (explode(',', $header) as $part) {
+            $part = trim($part);
+            if (str_starts_with($part, 't=')) {
+                $out['t'] = substr($part, 2);
             }
-            $expected = hash_hmac('sha256', $signedPayload, $secret);
-            if (hash_equals($expected, $signatureHex)) {
-                return $secret;
+            if (str_starts_with($part, 'v1=')) {
+                $out['v1'] = substr($part, 3);
             }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>|null
+     */
+    private function extractObject(array $payload): ?array
+    {
+        $data = $payload['data'] ?? null;
+        if (is_array($data)) {
+            $object = $data['object'] ?? null;
+            if (is_array($object)) {
+                return $object;
+            }
+
+            return $data;
+        }
+        if (isset($payload['object']) && is_array($payload['object'])) {
+            return $payload['object'];
         }
 
         return null;
     }
 
-    private function findOrderForWebhook(string $checkoutSessionId, string $chargeId): ?Order
+    /**
+     * @param  array<string, mixed>|null  $object
+     */
+    private function pickSessionId(?array $object): string
+    {
+        if ($object === null) {
+            return '';
+        }
+        foreach (['checkout_session_id', 'checkout_sessionId', 'session_id'] as $k) {
+            $v = $object[$k] ?? null;
+            if (is_string($v) && trim($v) !== '') {
+                return trim($v);
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $object
+     */
+    private function pickPaymentId(?array $object): string
+    {
+        if ($object === null) {
+            return '';
+        }
+        foreach (['cajupay_charge_id', 'charge_id', 'payment_id', 'id'] as $k) {
+            $v = $object[$k] ?? null;
+            if (is_string($v) && trim($v) !== '') {
+                return trim($v);
+            }
+        }
+
+        return '';
+    }
+
+    private function findOrderForWebhook(string $checkoutSessionId, string $paymentId): ?Order
     {
         if ($checkoutSessionId !== '') {
             $bySession = Order::query()
@@ -189,30 +274,64 @@ class CajuPayCheckoutWebhookController extends Controller
                 return $bySession;
             }
             $bySession = Order::query()
-                ->where('gateway', 'cajupay')
+                ->where('gateway', self::SLUG)
                 ->where('gateway_id', $checkoutSessionId)
                 ->first();
             if ($bySession !== null) {
                 return $bySession;
             }
         }
-        if ($chargeId !== '') {
-            return Order::query()
-                ->where('gateway', 'cajupay')
-                ->where('gateway_id', $chargeId)
+
+        if ($paymentId !== '') {
+            $byPayment = Order::query()
+                ->where('gateway', self::SLUG)
+                ->where('gateway_id', $paymentId)
                 ->first();
+            if ($byPayment !== null) {
+                return $byPayment;
+            }
         }
 
         return null;
     }
 
-    private function stringFrom(mixed $v): string
+    private function resolveSigningSecret(string $rawBody, string $timestamp, string $signatureHex, ?int $preferTenantId): ?string
     {
-        if (! is_string($v)) {
-            return '';
+        if ($signatureHex === '' || $timestamp === '') {
+            return null;
         }
-        $s = trim($v);
 
-        return $s;
+        $signedPayload = $timestamp.'.'.$rawBody;
+
+        $query = GatewayCredential::query()
+            ->where('gateway_slug', self::SLUG)
+            ->where('is_connected', true);
+        if ($preferTenantId !== null) {
+            $query->where('tenant_id', $preferTenantId);
+        }
+        $candidates = $query->get();
+
+        if ($candidates->isEmpty() && $preferTenantId !== null) {
+            $candidates = GatewayCredential::query()
+                ->where('gateway_slug', self::SLUG)
+                ->where('is_connected', true)
+                ->get();
+        }
+
+        foreach ($candidates as $credential) {
+            $creds = $credential->getDecryptedCredentials();
+            foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret'] as $key) {
+                $secret = trim((string) ($creds[$key] ?? ''));
+                if ($secret === '') {
+                    continue;
+                }
+                $expected = hash_hmac('sha256', $signedPayload, $secret);
+                if (hash_equals($expected, $signatureHex)) {
+                    return $secret;
+                }
+            }
+        }
+
+        return null;
     }
 }

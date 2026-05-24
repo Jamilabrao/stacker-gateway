@@ -81,8 +81,12 @@ class ProcessPaymentWebhook implements ShouldQueue
             }
             $apiStatus = $this->fetchGatewayTransactionStatus($order);
             $trustedCajuCheckoutWebhook = $this->gatewaySlug === 'cajupay'
-                && $this->event === 'checkout.payment.paid'
-                && ($this->payload['webhook_source'] ?? '') !== '';
+                && ($this->payload['webhook_source'] ?? '') !== ''
+                && in_array($this->event, [
+                    'checkout.payment.paid',
+                    'payment.paid',
+                    'card.payment.succeeded',
+                ], true);
             if ($apiStatus !== 'paid' && $trustedCajuCheckoutWebhook) {
                 $apiStatus = 'paid';
             }
@@ -224,7 +228,11 @@ class ProcessPaymentWebhook implements ShouldQueue
         if ($this->gatewaySlug === 'stripe' && $this->event === 'payment_intent.succeeded') {
             return true;
         }
-        if ($this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.paid') {
+        if ($this->gatewaySlug === 'cajupay' && in_array($this->event, [
+            'checkout.payment.paid',
+            'payment.paid',
+            'card.payment.succeeded',
+        ], true)) {
             return true;
         }
 

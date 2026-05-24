@@ -87,7 +87,6 @@ class CajuPayDriver implements GatewayDriver
         string $externalId,
         string $postbackUrl
     ): array {
-        unset($postbackUrl);
         if (! $this->hasApiKeys($credentials)) {
             throw new \RuntimeException('CajuPay: configure a chave pública e a chave secreta da API (painel CajuPay → API / Chaves).');
         }
@@ -121,6 +120,11 @@ class CajuPayDriver implements GatewayDriver
             'customer_ref' => 'getfy-order-'.$externalId,
             'consumer' => $consumerPayload,
         ];
+
+        $postbackUrl = trim($postbackUrl);
+        if ($postbackUrl !== '') {
+            $body['postback_url'] = $postbackUrl;
+        }
 
         $response = $this->postPixCharge($credentials, $body, $baseIdempotencyKey);
 
@@ -317,38 +321,159 @@ class CajuPayDriver implements GatewayDriver
             }
         }
 
-        if (! $this->hasApiKeys($credentials)) {
+        return $this->getPixPaymentStatus($transactionId, $credentials);
+    }
+
+    /**
+     * Consulta status de cobrança PIX/API por payment_id (não sessão SDK).
+     */
+    public function getPixPaymentStatus(string $paymentId, array $credentials): ?string
+    {
+        $paymentId = trim($paymentId);
+        if ($paymentId === '' || ! $this->hasApiKeys($credentials)) {
             return null;
         }
 
+        $fromDirect = $this->fetchPixPaymentStatusById($paymentId, $credentials);
+        if ($fromDirect !== null) {
+            return $fromDirect;
+        }
+
+        $fromFilter = $this->fetchPixPaymentStatusByListFilter($paymentId, $credentials);
+        if ($fromFilter !== null) {
+            return $fromFilter;
+        }
+
+        return $this->fetchPixPaymentStatusFromList($paymentId, $credentials);
+    }
+
+    private function fetchPixPaymentStatusById(string $paymentId, array $credentials): ?string
+    {
         try {
             $response = $this->httpForCredentials($credentials)
-                ->get('/api/payments', ['limit' => 100]);
+                ->get('/api/payments/'.rawurlencode($paymentId));
+
+            if ($response->status() === 404) {
+                return null;
+            }
 
             if (! $response->successful()) {
                 return null;
             }
 
-            $list = $response->json();
-            if (! is_array($list)) {
+            $data = $response->json();
+            if (! is_array($data)) {
                 return null;
             }
 
-            foreach ($list as $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
-                $pid = $item['payment_id'] ?? null;
-                if (! is_string($pid) || $pid !== $transactionId) {
-                    continue;
-                }
+            if (isset($data['payment_id']) || isset($data['status'])) {
+                return $this->normalizePaymentStatus($data['status'] ?? null);
+            }
 
-                return $this->normalizePaymentStatus($item['status'] ?? null);
+            $nested = $data['payment'] ?? $data['data'] ?? null;
+            if (is_array($nested)) {
+                return $this->normalizePaymentStatus($nested['status'] ?? null);
             }
         } catch (\Throwable $e) {
-            Log::debug('CajuPayDriver getTransactionStatus', ['message' => $e->getMessage()]);
+            Log::debug('CajuPayDriver fetchPixPaymentStatusById', ['message' => $e->getMessage()]);
+        }
 
-            return null;
+        return null;
+    }
+
+    private function fetchPixPaymentStatusByListFilter(string $paymentId, array $credentials): ?string
+    {
+        foreach (['payment_id', 'id'] as $param) {
+            try {
+                $response = $this->httpForCredentials($credentials)
+                    ->get('/api/payments', [
+                        $param => $paymentId,
+                        'limit' => 10,
+                    ]);
+
+                if (! $response->successful()) {
+                    continue;
+                }
+
+                $status = $this->findPaymentStatusInList($response->json(), $paymentId, 'payment_id');
+                if ($status !== null) {
+                    return $status;
+                }
+            } catch (\Throwable $e) {
+                Log::debug('CajuPayDriver fetchPixPaymentStatusByListFilter', [
+                    'param' => $param,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    private function fetchPixPaymentStatusFromList(string $paymentId, array $credentials): ?string
+    {
+        $perPage = 100;
+        $maxPages = 5;
+
+        try {
+            for ($page = 1; $page <= $maxPages; $page++) {
+                $query = ['limit' => $perPage];
+                if ($page > 1) {
+                    $query['page'] = $page;
+                }
+
+                $response = $this->httpForCredentials($credentials)->get('/api/payments', $query);
+                if (! $response->successful()) {
+                    break;
+                }
+
+                $status = $this->findPaymentStatusInList($response->json(), $paymentId, 'payment_id');
+                if ($status !== null) {
+                    return $status;
+                }
+
+                $items = $this->normalizePaymentsList($response->json());
+                if (count($items) < $perPage) {
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::debug('CajuPayDriver fetchPixPaymentStatusFromList', ['message' => $e->getMessage()]);
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function normalizePaymentsList(mixed $list): array
+    {
+        if (! is_array($list)) {
+            return [];
+        }
+
+        if (isset($list['items']) && is_array($list['items'])) {
+            $list = $list['items'];
+        } elseif (isset($list['data']) && is_array($list['data'])) {
+            $list = $list['data'];
+        }
+
+        return array_values(array_filter($list, static fn ($it) => is_array($it)));
+    }
+
+    /**
+     * @param  'payment_id'|'customer_ref'  $matchField
+     */
+    private function findPaymentStatusInList(mixed $list, string $needle, string $matchField): ?string
+    {
+        foreach ($this->normalizePaymentsList($list) as $item) {
+            $value = $item[$matchField] ?? null;
+            if (! is_string($value) || $value !== $needle) {
+                continue;
+            }
+
+            return $this->normalizePaymentStatus($item['status'] ?? null);
         }
 
         return null;
@@ -618,6 +743,114 @@ class CajuPayDriver implements GatewayDriver
         string $notificationUrl
     ): array {
         throw new \RuntimeException('CajuPay não suporta boleto nesta integração.');
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listWebhookEndpoints(array $credentials): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            return [];
+        }
+
+        try {
+            $response = $this->httpForCredentials($credentials)
+                ->get('/api/webhooks/endpoints');
+
+            if (! $response->successful()) {
+                return [];
+            }
+
+            $data = $response->json();
+            if (! is_array($data)) {
+                return [];
+            }
+
+            if (isset($data['items']) && is_array($data['items'])) {
+                $data = $data['items'];
+            }
+
+            return array_values(array_filter($data, static fn ($it) => is_array($it)));
+        } catch (\Throwable $e) {
+            Log::debug('CajuPayDriver listWebhookEndpoints', ['message' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * @return array{endpoint_id: string, signing_secret: string|null, raw: array<string, mixed>}
+     */
+    public function registerWebhookEndpoint(array $credentials, string $url, ?string $existingId = null): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API antes de registrar o webhook.');
+        }
+        if ($url === '') {
+            throw new \RuntimeException('CajuPay: URL do webhook vazia.');
+        }
+
+        $eventTypes = [
+            'payment.paid',
+            'payment.failed',
+            'payment.refunded',
+            'checkout.payment.paid',
+            'checkout.payment.failed',
+            'checkout.payment.refunded',
+            'checkout.payment.disputed',
+            'card.payment.succeeded',
+            'card.payment.failed',
+            'card.payment.refunded',
+            'card.payment.disputed',
+        ];
+
+        $http = $this->httpForCredentials($credentials);
+
+        try {
+            if ($existingId !== null && $existingId !== '') {
+                $response = $http->patch('/api/webhooks/endpoints', [
+                    'id' => $existingId,
+                    'url' => $url,
+                    'enabled' => true,
+                    'rotate_secret' => true,
+                ]);
+            } else {
+                $response = $http->post('/api/webhooks/endpoints', [
+                    'url' => $url,
+                    'description' => 'Getfy ('.parse_url($url, PHP_URL_HOST).')',
+                    'event_types' => $eventTypes,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('CajuPay: falha ao contatar o registro de webhooks: '.$e->getMessage(), 0, $e);
+        }
+
+        if (! $response->successful()) {
+            $msg = $response->body();
+            if (strlen($msg) > 300) {
+                $msg = substr($msg, 0, 300).'…';
+            }
+            throw new \RuntimeException('CajuPay: '.($msg !== '' ? $msg : 'Erro ao registrar webhook.'));
+        }
+
+        $data = $response->json();
+        if (! is_array($data)) {
+            throw new \RuntimeException('CajuPay: resposta inválida ao registrar webhook.');
+        }
+
+        $endpointId = $data['id'] ?? ($existingId ?? null);
+        $signingSecret = $data['signing_secret'] ?? null;
+
+        if (! is_string($endpointId) || $endpointId === '') {
+            throw new \RuntimeException('CajuPay: endpoint_id ausente na resposta de webhook.');
+        }
+
+        return [
+            'endpoint_id' => $endpointId,
+            'signing_secret' => is_string($signingSecret) && $signingSecret !== '' ? $signingSecret : null,
+            'raw' => $data,
+        ];
     }
 
     private function normalizeDocument(string $document): string

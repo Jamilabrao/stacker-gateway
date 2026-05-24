@@ -77,9 +77,12 @@ class ReconcilePendingPaymentsCommand extends Command
             }
 
             if ($apiStatus === 'paid') {
-                ProcessPaymentWebhook::dispatchSync($gatewaySlug, $transactionId, 'order.paid', 'paid', [
-                    'source' => 'reconcile_pending',
-                ]);
+                $paidEvent = $gatewaySlug === 'cajupay' ? 'checkout.payment.paid' : 'order.paid';
+                $paidPayload = ['source' => 'reconcile_pending'];
+                if ($gatewaySlug === 'cajupay') {
+                    $paidPayload['webhook_source'] = 'reconcile_pending';
+                }
+                ProcessPaymentWebhook::dispatchSync($gatewaySlug, $transactionId, $paidEvent, 'paid', $paidPayload);
                 $paid++;
                 continue;
             }

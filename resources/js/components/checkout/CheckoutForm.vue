@@ -1193,7 +1193,7 @@ async function pollCajuPayOrderStatus() {
     } catch (_) {
         /* segue tentando */
     }
-    cajupayPollTimer = setTimeout(pollCajuPayOrderStatus, 3000);
+    cajupayPollTimer = setTimeout(pollCajuPayOrderStatus, 2000);
 }
 
 function startCajuPayPolling(token) {
@@ -1202,7 +1202,7 @@ function startCajuPayPolling(token) {
     cajupayPolling.value = true;
     stopCajuPayPolling();
     cajupayPolling.value = true;
-    cajupayPollTimer = setTimeout(pollCajuPayOrderStatus, 2500);
+    cajupayPollTimer = setTimeout(pollCajuPayOrderStatus, 2000);
 }
 
 watch(() => form.payment_method, () => {

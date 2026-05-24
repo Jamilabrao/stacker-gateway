@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
 use App\Models\Setting;
@@ -9,6 +10,7 @@ use App\Support\PlatformConfigContext;
 use App\Services\PlatformAuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
@@ -80,12 +82,12 @@ class GatewaysController extends Controller
             $webhookUrl = Route::has($webhookRoute) ? route($webhookRoute) : null;
         } elseif ($slug === 'onlyup' && Route::has('webhooks.gateway')) {
             $webhookUrl = route('webhooks.gateway', ['slug' => 'onlyup']);
-        } elseif ($slug === 'cajupay' && Route::has('webhooks.cajupay.checkout')) {
+        } elseif ($slug === 'cajupay' && Route::has('webhooks.cajupay')) {
             $publicBase = trim((string) (config('getfy.webhook_public_url') ?? ''));
             $webhookUrl = $publicBase !== ''
-                ? rtrim($publicBase, '/').'/webhooks/gateways/cajupay/checkout'
-                : route('webhooks.cajupay.checkout');
-            $webhookHelp = 'No painel CajuPay (Webhooks), cadastre esta URL HTTPS e marque os eventos: checkout.payment.paid, checkout.payment.failed, checkout.payment.refunded, checkout.payment.disputed. Guarde o signing_secret (cwhsec_…) no campo abaixo — ele só aparece uma vez ao criar o endpoint.';
+                ? rtrim($publicBase, '/').'/webhooks/gateways/cajupay'
+                : route('webhooks.cajupay');
+            $webhookHelp = 'Cadastre esta URL HTTPS no painel CajuPay (Webhooks) ou use “Testar conexão” para registro automático. Eventos: payment.paid, payment.failed, payment.refunded, checkout.payment.paid/failed/refunded/disputed, card.payment.*. Cole o signing secret (cwhsec_…) no campo abaixo.';
         }
 
         $fileFieldsConfigured = [];
@@ -202,7 +204,23 @@ class GatewaysController extends Controller
                 $credentials[$key] = filter_var($v, FILTER_VALIDATE_BOOLEAN);
                 continue;
             }
+            if ($type === 'password' && $slug === 'cajupay' && $key === 'checkout_webhook_signing_secret') {
+                $trimmed = is_string($v) ? trim($v) : '';
+                if ($trimmed === '' && ! empty($existingCredentials['checkout_webhook_signing_secret'])) {
+                    $credentials[$key] = $existingCredentials['checkout_webhook_signing_secret'];
+                    continue;
+                }
+            }
             $credentials[$key] = is_string($v) ? trim($v) : '';
+        }
+
+        foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret', 'webhook_endpoint_id'] as $preserveKey) {
+            if (
+                (! isset($credentials[$preserveKey]) || $credentials[$preserveKey] === '' || $credentials[$preserveKey] === null)
+                && ! empty($existingCredentials[$preserveKey])
+            ) {
+                $credentials[$preserveKey] = $existingCredentials[$preserveKey];
+            }
         }
 
         // Preserve existing certificate_path when nenhum novo arquivo foi enviado
@@ -263,11 +281,15 @@ class GatewaysController extends Controller
 
         $driver = GatewayRegistry::driver($slug);
         $isConnected = false;
+        $webhookWarning = null;
         if ($driver && !empty($credentials)) {
             try {
                 $isConnected = $driver->testConnection($credentials);
             } catch (\Throwable) {
                 $isConnected = false;
+            }
+            if ($isConnected && $slug === 'cajupay' && $driver instanceof CajuPayDriver) {
+                $credentials = $this->ensureCajuPayWebhookRegistered($driver, $credentials, $webhookWarning);
             }
         }
 
@@ -281,6 +303,7 @@ class GatewaysController extends Controller
             'success' => true,
             'is_connected' => $isConnected,
             'message' => $isConnected ? 'Credenciais salvas e conexão verificada.' : 'Credenciais salvas.',
+            'webhook_warning' => $webhookWarning,
         ]);
     }
 
@@ -314,7 +337,8 @@ class GatewaysController extends Controller
 
         $tenantId = PlatformConfigContext::settingsTenantId();
         $credential = GatewayCredential::forTenant($tenantId)->where('gateway_slug', $slug)->first();
-        $credentials = $credential ? $credential->getDecryptedCredentials() : [];
+        $existingCredentials = $credential ? $credential->getDecryptedCredentials() : [];
+        $credentials = $existingCredentials;
         foreach ($credentialKeys as $keyDef) {
             $key = $keyDef['key'] ?? '';
             $type = $keyDef['type'] ?? 'text';
@@ -360,8 +384,26 @@ class GatewaysController extends Controller
             return response()->json(['success' => false, 'message' => 'Driver do gateway não disponível.'], 422);
         }
 
+        foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret', 'webhook_endpoint_id'] as $preserveKey) {
+            if (
+                (! isset($credentials[$preserveKey]) || $credentials[$preserveKey] === '' || $credentials[$preserveKey] === null)
+                && ! empty($existingCredentials[$preserveKey])
+            ) {
+                $credentials[$preserveKey] = $existingCredentials[$preserveKey];
+            }
+        }
+
         try {
             $ok = $driver->testConnection($credentials);
+            $webhookWarning = null;
+            if ($ok && $slug === 'cajupay' && $driver instanceof CajuPayDriver) {
+                $credentials = $this->ensureCajuPayWebhookRegistered($driver, $credentials, $webhookWarning);
+                if ($credential) {
+                    $credential->setEncryptedCredentials($credentials);
+                    $credential->is_connected = true;
+                    $credential->save();
+                }
+            }
             $failMessage = 'Falha na autenticação. Verifique as credenciais.';
             if (! $ok && $slug === 'woovi') {
                 $failMessage = 'Falha na autenticação. Em testes, marque “Sandbox” e use um AppID do painel de sandbox; o AppID de produção só vale com Sandbox desmarcado.';
@@ -370,6 +412,7 @@ class GatewaysController extends Controller
             return response()->json([
                 'success' => $ok,
                 'message' => $ok ? 'Conexão realizada com sucesso.' : $failMessage,
+                'webhook_warning' => $webhookWarning,
             ]);
         } catch (\Throwable $e) {
             return response()->json([
@@ -377,6 +420,67 @@ class GatewaysController extends Controller
                 'message' => $e->getMessage() ?: 'Erro ao testar conexão.',
             ], 422);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    private function ensureCajuPayWebhookRegistered(CajuPayDriver $driver, array $credentials, ?string &$warning): array
+    {
+        $warning = null;
+        try {
+            $url = route('webhooks.cajupay');
+        } catch (\Throwable) {
+            $warning = 'Webhook CajuPay: rota webhooks.cajupay indisponível.';
+
+            return $credentials;
+        }
+
+        try {
+            $existing = $driver->listWebhookEndpoints($credentials);
+        } catch (\Throwable $e) {
+            $existing = [];
+            Log::debug('GatewaysController: list webhooks CajuPay falhou', ['error' => $e->getMessage()]);
+        }
+
+        $foundId = null;
+        foreach ($existing as $endpoint) {
+            if (! is_array($endpoint)) {
+                continue;
+            }
+            if (($endpoint['url'] ?? null) === $url) {
+                $foundId = is_string($endpoint['id'] ?? null) ? $endpoint['id'] : null;
+                break;
+            }
+        }
+
+        $hasSecret = ! empty($credentials['checkout_webhook_signing_secret'])
+            || ! empty($credentials['webhook_signing_secret']);
+
+        if ($foundId !== null && ! empty($credentials['webhook_endpoint_id']) && $hasSecret) {
+            return $credentials;
+        }
+
+        try {
+            $reg = $driver->registerWebhookEndpoint($credentials, $url, $foundId);
+        } catch (\Throwable $e) {
+            $warning = 'Webhook ainda não registrado: '.$e->getMessage();
+            Log::warning('GatewaysController: registro de webhook CajuPay falhou', [
+                'error' => $e->getMessage(),
+                'url' => $url,
+            ]);
+
+            return $credentials;
+        }
+
+        $credentials['webhook_endpoint_id'] = $reg['endpoint_id'];
+        if (! empty($reg['signing_secret'])) {
+            $credentials['checkout_webhook_signing_secret'] = $reg['signing_secret'];
+            $credentials['webhook_signing_secret'] = $reg['signing_secret'];
+        }
+
+        return $credentials;
     }
 
     public function updateCertificate(Request $request, string $slug): JsonResponse
