@@ -28,7 +28,11 @@ class MemberAreaAccountController extends Controller
             if ($user->avatar && $storage->exists($user->avatar)) {
                 $storage->delete($user->avatar);
             }
-            $user->avatar = $storage->putFile('avatars', $request->file('avatar'));
+            try {
+                $user->avatar = $storage->putFile('avatars', $request->file('avatar'));
+            } catch (\RuntimeException $e) {
+                return redirect()->back()->withErrors(['avatar' => $e->getMessage()])->withInput();
+            }
         }
 
         $user->save();

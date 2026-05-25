@@ -108,6 +108,24 @@ class StorageServiceResolveUrlTest extends TestCase
         $this->assertSame('https://media.valuxpay.com/avatars/photo.png', $resolved);
     }
 
+    public function test_r2_upload_options_omit_acl_visibility(): void
+    {
+        $this->assertSame([], RemoteStorage::uploadOptionsForProvider('r2'));
+        $this->assertSame(['visibility' => 'public'], RemoteStorage::uploadOptionsForProvider('s3'));
+    }
+
+    public function test_normalize_storage_path_extracts_key_from_public_url(): void
+    {
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_bucket', 'my-bucket', null);
+        Setting::set('storage_s3_url', 'https://media.example.com', null);
+
+        $service = new StorageService(null);
+        $key = $service->normalizeStoragePath('https://media.example.com/avatars/photo.png');
+
+        $this->assertSame('avatars/photo.png', $key);
+    }
+
     public function test_repair_malformed_app_path_with_embedded_cdn_host(): void
     {
         Setting::set('storage_provider', 'r2', null);

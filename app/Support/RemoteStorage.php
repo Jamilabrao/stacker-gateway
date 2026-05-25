@@ -154,10 +154,14 @@ final class RemoteStorage
             'secret' => $creds['secret'],
             'region' => $regionForConfig,
             'bucket' => $creds['bucket'],
-            'visibility' => 'public',
             'throw' => false,
             'report' => false,
         ];
+
+        // R2 com "Bucket owner enforced" rejeita ACL no PutObject — visibilidade vem da política do bucket/CDN.
+        if (! $isR2) {
+            $config['visibility'] = 'public';
+        }
 
         if ($endpoint !== '') {
             $config['endpoint'] = $endpoint;
@@ -180,6 +184,20 @@ final class RemoteStorage
     public static function requiresPublicBaseUrl(string $provider): bool
     {
         return $provider === 'r2';
+    }
+
+    /**
+     * Opções de upload Flysystem/S3. R2 não deve enviar ACL (evita 500 no PutObject).
+     *
+     * @return array<string, mixed>
+     */
+    public static function uploadOptionsForProvider(string $provider): array
+    {
+        if ($provider === 'r2') {
+            return [];
+        }
+
+        return ['visibility' => 'public'];
     }
 
     public static function resolvePublicBaseUrlForProvider(string $provider, string $settingsUrl, array $r2Env): string

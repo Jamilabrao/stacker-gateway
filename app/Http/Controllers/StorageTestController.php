@@ -118,7 +118,7 @@ class StorageTestController extends Controller
             $sampleUrl = null;
             if ($publicUrl !== '') {
                 $probeKey = '.getfy-storage-test-'.uniqid('', true).'.txt';
-                $disk->put($probeKey, 'ok', ['visibility' => 'public']);
+                $disk->put($probeKey, 'ok', RemoteStorage::uploadOptionsForProvider($provider));
                 $sampleUrl = RemoteStorage::buildPublicUrl($publicUrl, $probeKey);
                 $disk->delete($probeKey);
             }

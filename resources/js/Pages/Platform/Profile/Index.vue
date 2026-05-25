@@ -109,6 +109,9 @@ function submitPassword() {
                             class="sr-only"
                             @change="onAvatarChange"
                         />
+                        <p v-if="profileForm.errors.avatar" class="mt-2 max-w-xs text-center text-sm text-red-600 dark:text-red-400">
+                            {{ profileForm.errors.avatar }}
+                        </p>
                     </div>
 
                     <form class="min-w-0 flex-1 space-y-4" @submit.prevent="submitProfile">

@@ -206,7 +206,29 @@ class StorageService
      */
     public function putFileAs(string $directory, UploadedFile $file, string $name): string
     {
-        return $this->disk()->putFileAs($directory, $file, $name, ['visibility' => 'public']);
+        $creds = $this->resolveRemoteCredentials();
+        $provider = (string) ($creds['provider'] ?? 'local');
+
+        if (RemoteStorage::requiresPublicBaseUrl($provider) && $this->publicBaseUrl() === '') {
+            throw new \RuntimeException(
+                'Configure a URL pública do R2 (ex.: https://media.seudominio.com) em Configurações → Storage antes de enviar imagens.'
+            );
+        }
+
+        $stored = $this->disk()->putFileAs(
+            $directory,
+            $file,
+            $name,
+            RemoteStorage::uploadOptionsForProvider($provider)
+        );
+
+        if ($stored === false || $stored === '') {
+            throw new \RuntimeException(
+                'Não foi possível enviar o arquivo. Verifique credenciais do storage e, no R2, o acesso público ao bucket.'
+            );
+        }
+
+        return $stored;
     }
 
     /**
@@ -227,14 +249,35 @@ class StorageService
         }
 
         try {
-            return $this->resolvePublicUrlUnsafe(trim($stored));
+            return $this->finalizePublicUrl($this->resolvePublicUrlUnsafe(trim($stored)));
         } catch (\Throwable $e) {
             Log::warning('storage.resolve_public_url_failed', [
                 'message' => $e->getMessage(),
             ]);
 
-            return $this->fallbackPublicUrl(trim($stored));
+            return $this->finalizePublicUrl($this->fallbackPublicUrl(trim($stored)));
         }
+    }
+
+    /**
+     * Evita src relativo no HTML (ex.: avatars/foto.png → 404 em /plataforma/meu-perfil).
+     */
+    private function finalizePublicUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+
+        if (str_starts_with($url, '/')) {
+            return url($url);
+        }
+
+        return url('/storage/'.ltrim($url, '/'));
     }
 
     private function resolvePublicUrlUnsafe(string $stored): string
@@ -412,11 +455,18 @@ class StorageService
      */
     public function delete(string $path): bool
     {
-        if (empty($path)) {
+        $path = $this->normalizeStoragePath($path);
+        if ($path === '') {
             return false;
         }
 
-        return $this->disk()->delete($path);
+        try {
+            return $this->disk()->delete($path);
+        } catch (\Throwable $e) {
+            Log::warning('storage.delete_failed', ['path' => $path, 'message' => $e->getMessage()]);
+
+            return false;
+        }
     }
 
     /**
@@ -424,10 +474,44 @@ class StorageService
      */
     public function exists(string $path): bool
     {
-        if (empty($path)) {
+        $path = $this->normalizeStoragePath($path);
+        if ($path === '') {
             return false;
         }
 
-        return $this->disk()->exists($path);
+        try {
+            return $this->disk()->exists($path);
+        } catch (\Throwable $e) {
+            Log::warning('storage.exists_failed', ['path' => $path, 'message' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Converte URL completa ou /storage/... no path relativo do bucket/disco.
+     */
+    public function normalizeStoragePath(string $path): string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return '';
+        }
+
+        if (preg_match('#^https?://#i', $path)) {
+            $bucket = $this->resolveRemoteCredentials()['bucket'] ?? '';
+            $key = RemoteStorage::extractObjectKeyFromUrl(
+                $path,
+                is_string($bucket) && $bucket !== '' ? $bucket : null
+            );
+
+            return $key ?? $path;
+        }
+
+        if (str_starts_with($path, '/storage/')) {
+            return ltrim(substr($path, strlen('/storage/')), '/');
+        }
+
+        return ltrim($path, '/');
     }
 }

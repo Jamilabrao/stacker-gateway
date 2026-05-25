@@ -54,11 +54,15 @@ class ProfileController extends Controller
         }
 
         if ($request->hasFile('avatar')) {
-            $storage = app(StorageService::class);
-            if ($user->avatar && $storage->exists($user->avatar)) {
-                $storage->delete($user->avatar);
+            try {
+                $storage = app(StorageService::class);
+                if ($user->avatar && $storage->exists($user->avatar)) {
+                    $storage->delete($user->avatar);
+                }
+                $user->avatar = $storage->putFile('avatars', $request->file('avatar'));
+            } catch (\RuntimeException $e) {
+                return redirect()->back()->withErrors(['avatar' => $e->getMessage()])->withInput();
             }
-            $user->avatar = $storage->putFile('avatars', $request->file('avatar'));
         }
 
         $user->save();
