@@ -1,18 +1,15 @@
 {
 	http_port 80
 	https_port 443
-	# Cloudflare termina HTTPS no edge; não redirecionar HTTP→HTTPS na origem (evita ERR_TOO_MANY_REDIRECTS em modo Flexible).
+	# Sem redirect HTTP→HTTPS na origem (Flexible + Cloudflare no edge).
 	auto_https disable_redirects
-	servers {
-		trusted_proxies cloudflare
-	}
 }
 
-# HTTP na origem (Cloudflare → :80 ou :443 em Full)
+# Cloudflare Flexible → HTTP :80
 :80 {
 	reverse_proxy app:80
 	encode zstd gzip
 }
 
-# Blocos do domínio (docker-setup) — TLS na 443 se necessário; sem redirect automático 80→443
+# Cloudflare Full / Full strict → HTTPS :443 (bloco com tls no domínio)
 import /etc/getfy/Caddyfile.domains
