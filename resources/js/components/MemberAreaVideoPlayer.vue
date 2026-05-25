@@ -25,6 +25,10 @@ const isEmbedProvider = computed(() => {
     return t === 'youtube' || t === 'vimeo';
 });
 const isYoutube = computed(() => providerType.value === 'youtube' && !!props.src);
+/** Quando a IFrame API falha (CSP, bloqueador, timeout), usa Vidstack como na referência open source. */
+const useVidstackFallback = ref(false);
+const useLegacyYoutube = computed(() => isYoutube.value && !useVidstackFallback.value);
+const showVidstackPlayer = computed(() => !!props.src?.trim() && (!isYoutube.value || useVidstackFallback.value));
 const isMobile = ref(false);
 let mobileMql = null;
 function onMobileQueryChange(e) {
@@ -87,6 +91,12 @@ const ytPosterVisible = ref(true);
 const ytScrubbing = ref(false);
 const ytMaskActive = ref(false);
 let ytMaskTimer = null;
+const ytReady = ref(false);
+const ytLoading = ref(false);
+const ytLoadError = ref(false);
+let ytFallbackTimer = null;
+let ytInitInFlight = false;
+const YT_LEGACY_INIT_TIMEOUT_MS = 8000;
 
 const ytMaskBranding = computed(() => {
     if (ytPosterVisible.value) return true;
@@ -138,7 +148,27 @@ function saveQuality(q) {
     } catch (_) {}
 }
 
+function clearYtFallbackTimer() {
+    if (ytFallbackTimer) {
+        clearTimeout(ytFallbackTimer);
+        ytFallbackTimer = null;
+    }
+}
+
+function enableVidstackFallback() {
+    if (useVidstackFallback.value) return;
+    clearYtFallbackTimer();
+    destroyYoutubePlayer();
+    useVidstackFallback.value = true;
+    ytLoading.value = false;
+    ytLoadError.value = true;
+}
+
 function destroyYoutubePlayer() {
+    clearYtFallbackTimer();
+    ytInitInFlight = false;
+    ytReady.value = false;
+    ytLoading.value = false;
     if (ytApplyQualityTimer) {
         clearTimeout(ytApplyQualityTimer);
         ytApplyQualityTimer = null;
@@ -206,15 +236,32 @@ function applyYoutubeQuality(q) {
 }
 
 async function initYoutubePlayer() {
+    if (useVidstackFallback.value) return;
     destroyYoutubePlayer();
     if (!isYoutube.value || !youtubeVideoId.value) return;
     await nextTick();
     const mount = youtubeMountEl.value;
     if (!mount) return;
 
+    ytLoading.value = true;
+    ytLoadError.value = false;
+    ytInitInFlight = true;
+    clearYtFallbackTimer();
+    ytFallbackTimer = setTimeout(() => enableVidstackFallback(), YT_LEGACY_INIT_TIMEOUT_MS);
+
     selectedQuality.value = getSavedQuality();
-    await loadYoutubeApiOnce();
-    if (!window.YT?.Player) return;
+    try {
+        await loadYoutubeApiOnce();
+    } catch (_) {
+        enableVidstackFallback();
+        return;
+    } finally {
+        ytInitInFlight = false;
+    }
+    if (!window.YT?.Player) {
+        enableVidstackFallback();
+        return;
+    }
 
     const mountId = `yt-legacy-${Math.random().toString(36).slice(2, 10)}`;
     mount.innerHTML = `<div id="${mountId}" class="yt-legacy-iframe"></div>`;
@@ -238,6 +285,9 @@ async function initYoutubePlayer() {
         },
         events: {
             onReady: () => {
+                ytReady.value = true;
+                ytLoading.value = false;
+                clearYtFallbackTimer();
                 // Aplicar qualidade em diferentes momentos melhora a chance de pegar (como na antiga).
                 applyYoutubeQuality(selectedQuality.value);
                 ytApplyQualityTimer = setTimeout(() => applyYoutubeQuality(selectedQuality.value), 800);
@@ -289,7 +339,14 @@ function setQuality(q) {
 }
 
 function togglePlay() {
-    if (!ytPlayer) return;
+    if (useVidstackFallback.value) return;
+    if (!ytPlayer) {
+        if (!ytInitInFlight && !ytLoading.value) {
+            void initYoutubePlayer();
+        }
+        return;
+    }
+    if (!ytReady.value) return;
     try {
         const state = ytPlayer.getPlayerState?.();
         if (state === window.YT?.PlayerState?.PLAYING) {
@@ -427,7 +484,7 @@ async function requestMemberVideoFullscreen() {
         }
     }
 
-    if (isYoutube.value && wrap) {
+    if (useLegacyYoutube.value && wrap) {
         if (isIosTouchDevice() && isMobile.value) {
             enterImmersiveMode();
             return;
@@ -595,10 +652,15 @@ onUnmounted(() => {
 });
 
 watch(
-    () => [providerType.value, youtubeVideoId.value],
+    () => [props.src, providerType.value, youtubeVideoId.value],
     () => {
-        if (providerType.value === 'youtube') initYoutubePlayer();
-        else destroyYoutubePlayer();
+        useVidstackFallback.value = false;
+        ytLoadError.value = false;
+        if (providerType.value === 'youtube') {
+            void initYoutubePlayer();
+        } else {
+            destroyYoutubePlayer();
+        }
     }
 );
 
@@ -610,8 +672,10 @@ const effectivePlaysinline = computed(() => {
 
 const showFullscreenOverlay = computed(() => {
     // iOS (Safari/Chrome) + YouTube legado: overlay porque o Vidstack não está montado neste branch.
-    return isIosTouchDevice() && isMobile.value && providerType.value === 'youtube' && !!props.src;
+    return isIosTouchDevice() && isMobile.value && useLegacyYoutube.value;
 });
+
+const useNativeCrossOrigin = computed(() => providerType.value === 'native');
 
 function onEnded() {
     emit('ended');
@@ -650,13 +714,16 @@ function onContextMenu(e) {
             <span class="sr-only">Tela cheia</span>
         </button>
         <div
-            v-if="isYoutube"
+            v-if="useLegacyYoutube"
             ref="ytRootEl"
             class="yt-legacy-root"
             @mousemove="showControls"
             @touchstart.passive="showControls"
         >
             <div ref="youtubeMountEl" class="yt-legacy-mount" />
+            <div v-if="ytLoading && !ytReady" class="yt-loading-overlay" aria-live="polite">
+                <span class="yt-loading-text">Carregando vídeo…</span>
+            </div>
             <!-- Poster/máscara: esconde thumb/logo do YouTube antes do primeiro play e durante scrub/seek -->
             <div v-if="ytMaskBranding" class="yt-mask" aria-hidden="true">
                 <div
@@ -736,7 +803,7 @@ function onContextMenu(e) {
         </div>
 
         <media-player
-            v-else-if="src"
+            v-else-if="showVidstackPlayer"
             ref="playerRef"
             class="player"
             :src="vidstackSrc"
@@ -745,7 +812,7 @@ function onContextMenu(e) {
             :fullscreen-target="isEmbedProvider ? 'provider' : undefined"
             load="eager"
             preload="auto"
-            crossorigin
+            :crossorigin="useNativeCrossOrigin ? '' : undefined"
             @vds-ended="onEnded"
             @vds-end="onEnded"
         >
@@ -886,6 +953,20 @@ function onContextMenu(e) {
     background-size: cover;
     background-position: center;
     opacity: 0.98;
+}
+.yt-loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.72);
+    pointer-events: none;
+}
+.yt-loading-text {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.9);
 }
 .yt-veil {
     position: absolute;
