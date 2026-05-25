@@ -84,4 +84,42 @@ class StorageServiceResolveUrlTest extends TestCase
 
         $this->assertSame('member-area/1.png', $key);
     }
+
+    public function test_normalize_public_base_url_adds_https_when_missing(): void
+    {
+        $this->assertSame(
+            'https://media.valuxpay.com',
+            RemoteStorage::normalizePublicBaseUrl('media.valuxpay.com')
+        );
+    }
+
+    public function test_resolve_public_url_with_host_only_base_not_app_relative(): void
+    {
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'key', null);
+        Setting::set('storage_s3_secret', encrypt('secret'), null);
+        Setting::set('storage_s3_bucket', 'bucket', null);
+        Setting::set('storage_s3_endpoint', 'https://acc.r2.cloudflarestorage.com', null);
+        Setting::set('storage_s3_url', 'media.valuxpay.com', null);
+
+        $service = new StorageService(null);
+        $resolved = $service->resolvePublicUrl('avatars/photo.png');
+
+        $this->assertSame('https://media.valuxpay.com/avatars/photo.png', $resolved);
+    }
+
+    public function test_repair_malformed_app_path_with_embedded_cdn_host(): void
+    {
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'key', null);
+        Setting::set('storage_s3_secret', encrypt('secret'), null);
+        Setting::set('storage_s3_bucket', 'bucket', null);
+        Setting::set('storage_s3_url', 'https://media.valuxpay.com', null);
+
+        $service = new StorageService(null);
+        $broken = 'https://app.valuxpay.com/plataforma/media.valuxpay.com/avatars/Z.png';
+        $resolved = $service->resolvePublicUrl($broken);
+
+        $this->assertSame('https://media.valuxpay.com/avatars/Z.png', $resolved);
+    }
 }

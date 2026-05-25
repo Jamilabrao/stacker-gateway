@@ -808,6 +808,7 @@ const selectClass =
                                                 <template v-else>
                                                     CDN ou domínio público do bucket (recomendado para exibir arquivos no navegador).
                                                 </template>
+                                                Sempre com <strong>https://</strong> (ex.: <code class="rounded bg-zinc-200 px-1 dark:bg-zinc-700">https://media.seudominio.com</code>).
                                             </p>
                                         </div>
                                     </div>

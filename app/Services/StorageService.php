@@ -221,7 +221,19 @@ class StorageService
         $creds = $this->resolveRemoteCredentials();
         $bucket = $creds['bucket'] ?? '';
 
+        $base = '';
+        $this->disk();
+        if (! $this->isLocal) {
+            $base = $this->publicBaseUrl();
+        }
+
         if (preg_match('#^https?://#i', $stored)) {
+            if ($base !== '') {
+                $repaired = RemoteStorage::repairEmbeddedPublicHostUrl($stored, $base);
+                if ($repaired !== null) {
+                    return $repaired;
+                }
+            }
             if ($normalizer->isLocalStorageUrl($stored)) {
                 $stored = $normalizer->toRelativePath($stored);
             } elseif (RemoteStorage::isLikelyNonPublicUrl($stored)) {
@@ -232,15 +244,14 @@ class StorageService
             }
         } elseif (str_starts_with($stored, '/storage/')) {
             $stored = ltrim(substr($stored, strlen('/storage/')), '/');
+        } elseif (preg_match('#^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}/#i', $stored)) {
+            return RemoteStorage::ensureAbsoluteUrl($stored);
         }
-
-        $this->disk();
 
         if ($this->isLocal) {
             return url('/storage/'.ltrim($stored, '/'));
         }
 
-        $base = $this->publicBaseUrl();
         if ($base !== '') {
             return RemoteStorage::buildPublicUrl($base, $stored);
         }

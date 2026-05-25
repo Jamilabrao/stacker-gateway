@@ -7,11 +7,39 @@ namespace App\Support;
  */
 final class RemoteStorage
 {
+    /**
+     * Garante URL absoluta com esquema (evita media.dominio.com/arquivo ser tratado como path relativo no HTML).
+     */
+    public static function ensureAbsoluteUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+
+        if (str_starts_with($url, '//')) {
+            return 'https:'.$url;
+        }
+
+        if (preg_match('#^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}#i', $url)) {
+            return 'https://'.ltrim($url, '/');
+        }
+
+        return $url;
+    }
+
     public static function normalizePublicBaseUrl(string $url): string
     {
         $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
 
-        return $url === '' ? '' : rtrim($url, '/');
+        return rtrim(self::ensureAbsoluteUrl($url), '/');
     }
 
     public static function isR2ApiEndpoint(?string $url): bool
@@ -75,7 +103,37 @@ final class RemoteStorage
             return '';
         }
 
-        return $base.'/'.$key;
+        return self::ensureAbsoluteUrl($base.'/'.$key);
+    }
+
+    /**
+     * Corrige URLs geradas por engano quando a base pública não tinha https:// (ex.: /plataforma/media.site.com/...).
+     */
+    public static function repairEmbeddedPublicHostUrl(string $stored, string $publicBaseUrl): ?string
+    {
+        $publicBaseUrl = self::normalizePublicBaseUrl($publicBaseUrl);
+        if ($publicBaseUrl === '' || ! preg_match('#^https?://#i', $stored)) {
+            return null;
+        }
+
+        $host = parse_url($publicBaseUrl, PHP_URL_HOST);
+        if (! is_string($host) || $host === '') {
+            return null;
+        }
+
+        if (! str_contains(strtolower($stored), strtolower($host))) {
+            return null;
+        }
+
+        if (str_starts_with(strtolower($stored), strtolower($publicBaseUrl.'/')) {
+            return null;
+        }
+
+        if (preg_match('#(?:https?://)?'.preg_quote($host, '#').'/(.+)$#i', $stored, $m)) {
+            return self::buildPublicUrl($publicBaseUrl, $m[1]);
+        }
+
+        return null;
     }
 
     /**
