@@ -107,7 +107,7 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
 Route::get('/up/storage-check', function () {
     return response()->json([
         'ok' => true,
-        'version' => 'storage-v4',
+        'version' => 'storage-v5-inline-test',
         'php' => PHP_VERSION,
         'aws_sdk' => class_exists(\Aws\S3\S3Client::class, false),
         'remote_storage_file' => is_file(app_path('Support/RemoteStorage.php')),
@@ -289,9 +289,10 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/configuracoes/storage/ping', function () {
             return response()->json([
                 'ok' => true,
-                'version' => 'storage-v4',
-                'aws_sdk' => \App\Services\StorageConnectionTester::awsSdkAvailable(),
+                'version' => 'storage-v5-inline-test',
+                'aws_sdk' => class_exists(\Aws\S3\S3Client::class),
                 'remote_storage_file' => is_file(app_path('Support/RemoteStorage.php')),
+                'storage_test_controller' => is_file(app_path('Http/Controllers/StorageTestController.php')),
             ]);
         })
             ->withoutMiddleware([\App\Http\Middleware\HandleInertiaRequests::class])

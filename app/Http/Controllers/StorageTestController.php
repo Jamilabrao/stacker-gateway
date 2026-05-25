@@ -3,14 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
-use App\Services\StorageConnectionTester;
 use App\Support\PlatformConfigContext;
 use App\Support\RemoteStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Validator;
 
 class StorageTestController extends Controller
 {
@@ -18,35 +17,20 @@ class StorageTestController extends Controller
     {
         try {
             return $this->runTest($request);
-        } catch (ValidationException $e) {
-            $first = collect($e->errors())->flatten()->first();
-
-            return response()->json([
-                'success' => false,
-                'message' => is_string($first) && $first !== '' ? $first : 'Dados inválidos.',
-                'errors' => $e->errors(),
-            ], 422);
         } catch (\Throwable $e) {
             Log::warning('storage.test_failed', [
                 'message' => $e->getMessage(),
                 'class' => $e::class,
             ]);
 
-            return response()->json([
-                'success' => false,
-                'message' => StorageConnectionTester::friendlyMessage($e),
-                'error' => $e->getMessage(),
-            ], 422);
+            return $this->fail($e->getMessage() !== '' ? $e->getMessage() : 'Erro ao testar storage.', $e);
         }
     }
 
     private function runTest(Request $request): JsonResponse
     {
-        if (! StorageConnectionTester::awsSdkAvailable()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Pacote aws/aws-sdk-php não está instalado no servidor. Execute composer install --no-dev no container/app e reinicie.',
-            ], 422);
+        if (! class_exists(\Aws\S3\S3Client::class)) {
+            return $this->fail('Pacote aws/aws-sdk-php não está instalado. Execute composer install --no-dev no servidor.');
         }
 
         $provider = (string) $request->input('storage_provider', 'local');
@@ -81,7 +65,7 @@ class StorageTestController extends Controller
             && trim((string) $request->input('storage_s3_secret', '')) === '';
 
         if (! $useEnvR2) {
-            $request->validate([
+            $validator = Validator::make($request->all(), [
                 'storage_provider' => ['required', 'string', 'in:s3,wasabi,r2'],
                 'storage_s3_key' => ['required', 'string', 'max:255'],
                 'storage_s3_secret' => ['nullable', 'string', 'max:512'],
@@ -95,6 +79,12 @@ class StorageTestController extends Controller
                 'storage_s3_key.required' => 'O campo Access Key é obrigatório.',
                 'storage_s3_bucket.required' => 'O campo Bucket é obrigatório.',
             ]);
+
+            if ($validator->fails()) {
+                $message = $validator->errors()->first() ?: 'Dados inválidos.';
+
+                return $this->fail($message);
+            }
         }
 
         $tenantId = PlatformConfigContext::settingsTenantId();
@@ -111,10 +101,7 @@ class StorageTestController extends Controller
             }
         }
         if ($secret === null || $secret === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'O campo Secret Key é obrigatório. Preencha e salve as configurações uma vez para que fique guardado.',
-            ], 422);
+            return $this->fail('O campo Secret Key é obrigatório. Preencha e salve as configurações uma vez.');
         }
 
         $bucket = $useEnvR2 ? $r2EnvBucket : (string) $request->input('storage_s3_bucket');
@@ -125,34 +112,28 @@ class StorageTestController extends Controller
             : $publicUrlInput;
 
         if (RemoteStorage::requiresPublicBaseUrl($provider) && $publicUrl === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Para Cloudflare R2, informe a URL pública (ex.: https://pub-xxxx.r2.dev ou https://media.seudominio.com). O endpoint da API não abre imagens no navegador.',
-            ], 422);
+            return $this->fail(
+                'Para Cloudflare R2, informe a URL pública (ex.: https://media.seudominio.com). O endpoint da API não abre imagens no navegador.'
+            );
         }
 
         if ($publicUrl !== '' && RemoteStorage::isR2ApiEndpoint($publicUrl)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'A URL pública não pode ser o endpoint da API (*.r2.cloudflarestorage.com). Use pub-*.r2.dev ou domínio customizado.',
-            ], 422);
+            return $this->fail('A URL pública não pode ser o endpoint da API (*.r2.cloudflarestorage.com).');
         }
 
         if ($provider === 'r2' && trim($endpoint) === '' && ! $useEnvR2) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Informe o Endpoint R2 (https://<account_id>.r2.cloudflarestorage.com).',
-            ], 422);
+            return $this->fail('Informe o Endpoint R2 (https://<account_id>.r2.cloudflarestorage.com).');
         }
 
-        $result = StorageConnectionTester::test([
-            'provider' => $provider,
-            'key' => $key,
-            'secret' => (string) $secret,
-            'bucket' => $bucket,
-            'region' => $region,
-            'endpoint' => $endpoint,
-        ], $publicUrl);
+        $sampleUrl = $this->probeS3Connection(
+            $provider,
+            (string) $key,
+            (string) $secret,
+            (string) $bucket,
+            (string) $region,
+            (string) $endpoint,
+            $publicUrl
+        );
 
         $message = 'Conexão estabelecida com sucesso.';
         if ($provider === 'r2' && $publicUrl !== '') {
@@ -162,7 +143,73 @@ class StorageTestController extends Controller
         return response()->json([
             'success' => true,
             'message' => $message,
-            'sample_public_url' => $result['sample_public_url'],
+            'sample_public_url' => $sampleUrl,
         ]);
+    }
+
+    private function probeS3Connection(
+        string $provider,
+        string $key,
+        string $secret,
+        string $bucket,
+        string $region,
+        string $endpoint,
+        string $publicUrl
+    ): ?string {
+        $endpoint = trim($endpoint);
+        $isR2 = $provider === 'r2' || RemoteStorage::isR2ApiEndpoint($endpoint);
+
+        $clientConfig = [
+            'version' => 'latest',
+            'region' => $region !== '' ? $region : ($isR2 ? 'auto' : 'us-east-1'),
+            'credentials' => ['key' => $key, 'secret' => $secret],
+            'request_checksum_calculation' => 'when_required',
+            'response_checksum_validation' => 'when_required',
+        ];
+
+        if ($endpoint !== '') {
+            $clientConfig['endpoint'] = $endpoint;
+            $clientConfig['use_path_style_endpoint'] = RemoteStorage::isR2ApiEndpoint($endpoint)
+                || str_contains($endpoint, 'wasabisys.com');
+        }
+
+        $client = new \Aws\S3\S3Client($clientConfig);
+
+        $client->listObjectsV2([
+            'Bucket' => $bucket,
+            'MaxKeys' => 1,
+        ]);
+
+        $publicUrl = RemoteStorage::normalizePublicBaseUrl($publicUrl);
+        if ($publicUrl === '') {
+            return null;
+        }
+
+        $probeKey = '.getfy-storage-test-'.uniqid('', true).'.txt';
+        $client->putObject([
+            'Bucket' => $bucket,
+            'Key' => $probeKey,
+            'Body' => 'ok',
+        ]);
+        $sampleUrl = RemoteStorage::buildPublicUrl($publicUrl, $probeKey);
+        $client->deleteObject([
+            'Bucket' => $bucket,
+            'Key' => $probeKey,
+        ]);
+
+        return $sampleUrl !== '' ? $sampleUrl : null;
+    }
+
+    private function fail(string $message, ?\Throwable $e = null): JsonResponse
+    {
+        if ($e !== null && class_exists(RemoteStorage::class)) {
+            $message = RemoteStorage::friendlyErrorMessage($e);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => $message,
+            'error' => $e?->getMessage() ?? $message,
+        ], 422);
     }
 }
