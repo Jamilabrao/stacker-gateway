@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Services\EmailCampaignRecipientsService;
 use App\Services\PlatformAuditService;
 use App\Services\TenantMailConfigService;
+use App\Support\EmailCampaignTemplate;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Artisan;
@@ -88,7 +89,7 @@ class EmailMarketingController extends Controller
         return Inertia::render('EmailMarketing/Create', [
             'email_configured' => $emailConfigured,
             'products' => $products,
-            'default_body_html' => self::defaultBodyHtml(),
+            'default_message_text' => EmailCampaignTemplate::defaultMessageText(),
         ]);
     }
 
@@ -97,23 +98,22 @@ class EmailMarketingController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'subject' => ['required', 'string', 'max:255'],
-            'body_html' => ['required', 'string'],
+            'body_message' => ['required', 'string', 'max:50000'],
             'filter_config' => ['nullable', 'array'],
+            'filter_config.include_customers' => ['nullable', 'boolean'],
+            'filter_config.include_infoprodutors' => ['nullable', 'boolean'],
             'filter_config.all_customers' => ['nullable', 'boolean'],
             'filter_config.product_ids' => ['nullable', 'array'],
             'filter_config.product_ids.*' => ['nullable'],
         ]);
 
-        $filterConfig = $validated['filter_config'] ?? [];
-        if (empty($filterConfig['all_customers']) && empty($filterConfig['product_ids'])) {
-            $filterConfig['all_customers'] = true;
-        }
+        $filterConfig = self::normalizeCampaignFilterConfig($validated['filter_config'] ?? []);
 
         EmailCampaign::create([
             'tenant_id' => null,
             'name' => $validated['name'],
             'subject' => $validated['subject'],
-            'body_html' => $validated['body_html'],
+            'body_html' => EmailCampaignTemplate::wrapContent($validated['body_message']),
             'filter_config' => $filterConfig,
             'status' => EmailCampaign::STATUS_DRAFT,
         ]);
@@ -135,17 +135,19 @@ class EmailMarketingController extends Controller
         $products = Product::query()->orderBy('name')->get(['id', 'name'])
             ->map(fn (Product $p) => ['id' => $p->id, 'name' => $p->name])->values()->all();
 
+        $filterConfig = EmailCampaignRecipientsService::normalizeFilterConfig($campaign->filter_config ?? []);
+
         return Inertia::render('EmailMarketing/Edit', [
             'campaign' => [
                 'id' => $campaign->id,
                 'name' => $campaign->name,
                 'subject' => $campaign->subject,
-                'body_html' => $campaign->body_html,
-                'filter_config' => $campaign->filter_config ?? [],
+                'body_message' => EmailCampaignTemplate::extractPlainText($campaign->body_html ?? ''),
+                'filter_config' => $filterConfig,
             ],
             'email_configured' => $emailConfigured,
             'products' => $products,
-            'default_body_html' => self::defaultBodyHtml(),
+            'default_message_text' => EmailCampaignTemplate::defaultMessageText(),
         ]);
     }
 
@@ -158,22 +160,21 @@ class EmailMarketingController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'subject' => ['required', 'string', 'max:255'],
-            'body_html' => ['required', 'string'],
+            'body_message' => ['required', 'string', 'max:50000'],
             'filter_config' => ['nullable', 'array'],
+            'filter_config.include_customers' => ['nullable', 'boolean'],
+            'filter_config.include_infoprodutors' => ['nullable', 'boolean'],
             'filter_config.all_customers' => ['nullable', 'boolean'],
             'filter_config.product_ids' => ['nullable', 'array'],
             'filter_config.product_ids.*' => ['nullable'],
         ]);
 
-        $filterConfig = $validated['filter_config'] ?? [];
-        if (empty($filterConfig['all_customers']) && empty($filterConfig['product_ids'])) {
-            $filterConfig['all_customers'] = true;
-        }
+        $filterConfig = self::normalizeCampaignFilterConfig($validated['filter_config'] ?? []);
 
         $campaign->update([
             'name' => $validated['name'],
             'subject' => $validated['subject'],
-            'body_html' => $validated['body_html'],
+            'body_html' => EmailCampaignTemplate::wrapContent($validated['body_message']),
             'filter_config' => $filterConfig,
         ]);
 
@@ -186,10 +187,16 @@ class EmailMarketingController extends Controller
             abort(404);
         }
 
-        $filterConfig = $campaign->filter_config ?? [];
-        if (empty($filterConfig)) {
-            $filterConfig = ['all_customers' => true];
-        }
+        $validated = $request->validate([
+            'filter_config' => ['nullable', 'array'],
+            'filter_config.include_customers' => ['nullable', 'boolean'],
+            'filter_config.include_infoprodutors' => ['nullable', 'boolean'],
+            'filter_config.all_customers' => ['nullable', 'boolean'],
+            'filter_config.product_ids' => ['nullable', 'array'],
+            'filter_config.product_ids.*' => ['nullable'],
+        ]);
+
+        $filterConfig = $validated['filter_config'] ?? $campaign->filter_config ?? [];
 
         return $this->previewRecipientsResponse(null, $filterConfig);
     }
@@ -201,28 +208,54 @@ class EmailMarketingController extends Controller
     {
         $validated = $request->validate([
             'filter_config' => ['nullable', 'array'],
+            'filter_config.include_customers' => ['nullable', 'boolean'],
+            'filter_config.include_infoprodutors' => ['nullable', 'boolean'],
             'filter_config.all_customers' => ['nullable', 'boolean'],
             'filter_config.product_ids' => ['nullable', 'array'],
             'filter_config.product_ids.*' => ['nullable'],
         ]);
-        $filterConfig = $validated['filter_config'] ?? [];
-        if (empty($filterConfig) || (empty($filterConfig['all_customers']) && empty($filterConfig['product_ids']))) {
-            $filterConfig = ['all_customers' => true];
-        }
 
-        return $this->previewRecipientsResponse(null, $filterConfig);
+        return $this->previewRecipientsResponse(null, $validated['filter_config'] ?? []);
     }
 
+    /**
+     * @param  array<string, mixed>  $filterConfig
+     */
     private function previewRecipientsResponse(?int $tenantId, array $filterConfig): JsonResponse
     {
-        $recipients = $this->recipientsService->getRecipients($tenantId, $filterConfig);
+        $normalized = self::normalizeCampaignFilterConfig($filterConfig);
+        $recipients = $this->recipientsService->getRecipients($tenantId, $normalized);
         $count = $recipients->count();
-        $sample = $recipients->take(10)->values()->all();
+        $sample = $recipients->take(10)->map(fn ($r) => [
+            'email' => $r['email'],
+            'name' => $r['name'],
+            'type' => $r['type'] ?? 'customer',
+        ])->values()->all();
 
         return response()->json([
             'count' => $count,
             'sample' => $sample,
+            'breakdown' => [
+                'customers' => $recipients->where('type', 'customer')->count(),
+                'infoprodutors' => $recipients->where('type', 'infoprodutor')->count(),
+            ],
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filterConfig
+     * @return array{include_customers: bool, include_infoprodutors: bool, all_customers: bool, product_ids: list<int>}
+     */
+    private static function normalizeCampaignFilterConfig(array $filterConfig): array
+    {
+        $normalized = EmailCampaignRecipientsService::normalizeFilterConfig($filterConfig);
+        if (! $normalized['include_customers'] && ! $normalized['include_infoprodutors']) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'filter_config' => ['Selecione pelo menos um público: compradores e/ou infoprodutores.'],
+            ]);
+        }
+
+        return $normalized;
     }
 
     public function send(EmailCampaign $campaign): RedirectResponse
@@ -303,14 +336,4 @@ class EmailMarketingController extends Controller
         }
     }
 
-    public static function defaultBodyHtml(): string
-    {
-        return '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;">
-<tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-<table width="100%" cellpadding="0" cellspacing="0">
-<tr><td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid #e2e8f0;"><h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">Olá, {nome}!</h1></td></tr>
-<tr><td style="padding:28px 32px;"><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Conteúdo do seu e-mail aqui. Use os placeholders <strong>{nome}</strong> e <strong>{email}</strong> para personalizar.</p><p style="margin:0;font-size:16px;line-height:1.6;color:#334155;">Qualquer dúvida, responda este e-mail.</p></td></tr>
-<tr><td style="padding:20px 32px;background:#f1f5f9;border-radius:0 0 12px 12px;"><p style="margin:0;font-size:13px;color:#64748b;">Você está recebendo este e-mail porque é um de nossos clientes.</p></td></tr>
-</table></td></tr></table>';
-    }
 }
