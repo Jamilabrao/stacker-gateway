@@ -43,6 +43,13 @@ fi
 GIT_BASE=(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR")
 $SUDO "${GIT_BASE[@]}" remote set-url origin "$REPO_URL" >/dev/null 2>&1 || true
 
+# Merge/rebase interrompido deixa o índice travado ("needs merge" / "resolve your current index first").
+if [ -f "$INSTALL_DIR/.git/MERGE_HEAD" ] || [ -f "$INSTALL_DIR/.git/REBASE_HEAD" ]; then
+  echo "Aviso: merge/rebase anterior incompleto — abortando para permitir a atualização." >&2
+  $SUDO "${GIT_BASE[@]}" merge --abort >/dev/null 2>&1 || true
+  $SUDO "${GIT_BASE[@]}" rebase --abort >/dev/null 2>&1 || true
+fi
+
 HAS_LOCAL_CHANGES=0
 if [ -n "$($SUDO "${GIT_BASE[@]}" status --porcelain 2>/dev/null || true)" ]; then
   HAS_LOCAL_CHANGES=1
