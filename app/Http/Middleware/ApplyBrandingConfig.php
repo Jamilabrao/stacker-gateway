@@ -28,6 +28,10 @@ class ApplyBrandingConfig
 
     public function handle(Request $request, Closure $next): Response
     {
+        if ($request->is('plataforma/configuracoes/storage/*')) {
+            return $next($request);
+        }
+
         try {
             if (! Schema::hasTable('branding_settings')) {
                 return $next($request);

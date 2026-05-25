@@ -125,7 +125,9 @@ final class RemoteStorage
             return null;
         }
 
-        if (str_starts_with(strtolower($stored), strtolower($publicBaseUrl.'/')) {
+        $storedLower = strtolower($stored);
+        $basePrefix = strtolower(rtrim($publicBaseUrl, '/').'/');
+        if (str_starts_with($storedLower, $basePrefix)) {
             return null;
         }
 

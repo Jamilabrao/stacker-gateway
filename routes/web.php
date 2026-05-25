@@ -105,13 +105,24 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
 
 // Diagnóstico de deploy/storage (sem auth — não expõe credenciais)
 Route::get('/up/storage-check', function () {
+    $remoteFile = app_path('Support/RemoteStorage.php');
+    $syntaxOk = false;
+    if (is_file($remoteFile)) {
+        try {
+            token_get_all((string) file_get_contents($remoteFile), TOKEN_PARSE);
+            $syntaxOk = true;
+        } catch (\Throwable) {
+            $syntaxOk = false;
+        }
+    }
+
     return response()->json([
         'ok' => true,
-        'version' => 'storage-v5-inline-test',
+        'version' => 'storage-v6-no-remote-storage',
         'php' => PHP_VERSION,
         'aws_sdk' => class_exists(\Aws\S3\S3Client::class, false),
-        'remote_storage_file' => is_file(app_path('Support/RemoteStorage.php')),
-        'storage_tester_file' => is_file(app_path('Services/StorageConnectionTester.php')),
+        'remote_storage_file' => is_file($remoteFile),
+        'remote_storage_syntax_ok' => $syntaxOk,
         'vendor_autoload' => is_file(base_path('vendor/autoload.php')),
     ]);
 });
@@ -289,7 +300,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/configuracoes/storage/ping', function () {
             return response()->json([
                 'ok' => true,
-                'version' => 'storage-v5-inline-test',
+                'version' => 'storage-v6-no-remote-storage',
                 'aws_sdk' => class_exists(\Aws\S3\S3Client::class),
                 'remote_storage_file' => is_file(app_path('Support/RemoteStorage.php')),
                 'storage_test_controller' => is_file(app_path('Http/Controllers/StorageTestController.php')),
@@ -297,8 +308,12 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         })
             ->withoutMiddleware([\App\Http\Middleware\HandleInertiaRequests::class])
             ->name('settings.storage.ping');
-        Route::post('/configuracoes/storage/test', [\App\Http\Controllers\StorageTestController::class, '__invoke'])
-            ->withoutMiddleware([\App\Http\Middleware\HandleInertiaRequests::class])
+        Route::post('/configuracoes/storage/test', \App\Http\Controllers\StorageTestController::class)
+            ->withoutMiddleware([
+                \App\Http\Middleware\HandleInertiaRequests::class,
+                \App\Http\Middleware\ApplyBrandingConfig::class,
+                \App\Http\Middleware\SetPanelLocale::class,
+            ])
             ->name('settings.storage.test');
         Route::post('/configuracoes/storage/migrate', [\App\Http\Controllers\StorageMigrateController::class, '__invoke'])
             ->withoutMiddleware([\App\Http\Middleware\HandleInertiaRequests::class])

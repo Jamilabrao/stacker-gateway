@@ -73,6 +73,20 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (\Throwable $e, Request $request) {
+            if ($request->is('plataforma/configuracoes/storage/test')
+                || $request->is('plataforma/configuracoes/storage/migrate')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage() !== '' ? $e->getMessage() : 'Erro interno no teste de storage.',
+                    'error' => $e->getMessage(),
+                    'exception' => $e::class,
+                ], 422);
+            }
+
+            return null;
+        });
+
         $exceptions->render(function (PostTooLargeException $e, Request $request) {
             $message = 'A requisição excedeu o limite do servidor. Envie um arquivo por vez (até 20 MB).';
 
