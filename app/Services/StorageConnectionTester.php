@@ -3,18 +3,32 @@
 namespace App\Services;
 
 use App\Support\RemoteStorage;
-use Aws\S3\S3Client;
 
 /**
  * Testa e monta cliente S3/R2 sem depender do fluxo completo do Flysystem no teste de conexão.
  */
 class StorageConnectionTester
 {
+    public static function awsSdkAvailable(): bool
+    {
+        return class_exists(\Aws\S3\S3Client::class);
+    }
+
+    public static function ensureAwsSdk(): void
+    {
+        if (! self::awsSdkAvailable()) {
+            throw new \RuntimeException(
+                'Pacote aws/aws-sdk-php não está instalado no servidor. No container/app rode: composer install --no-dev'
+            );
+        }
+    }
+
     /**
      * @param  array{provider: string, key: string, secret: string, bucket: string, region: string, endpoint: string, url?: string}  $creds
      */
-    public static function makeClient(array $creds): S3Client
+    public static function makeClient(array $creds): \Aws\S3\S3Client
     {
+        self::ensureAwsSdk();
         $endpoint = trim((string) ($creds['endpoint'] ?? ''));
         $provider = (string) ($creds['provider'] ?? 's3');
         $isR2 = $provider === 'r2' || RemoteStorage::isR2ApiEndpoint($endpoint);
@@ -41,7 +55,7 @@ class StorageConnectionTester
                 || str_contains($endpoint, 'digitaloceanspaces.com');
         }
 
-        return new S3Client($config);
+        return new \Aws\S3\S3Client($config);
     }
 
     /**

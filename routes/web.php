@@ -103,6 +103,19 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
     return redirect()->to('/login', 302);
 });
 
+// Diagnóstico de deploy/storage (sem auth — não expõe credenciais)
+Route::get('/up/storage-check', function () {
+    return response()->json([
+        'ok' => true,
+        'version' => 'storage-v4',
+        'php' => PHP_VERSION,
+        'aws_sdk' => class_exists(\Aws\S3\S3Client::class, false),
+        'remote_storage_file' => is_file(app_path('Support/RemoteStorage.php')),
+        'storage_tester_file' => is_file(app_path('Services/StorageConnectionTester.php')),
+        'vendor_autoload' => is_file(base_path('vendor/autoload.php')),
+    ]);
+});
+
 Route::get('/cron', function () {
     $secret = config('getfy.cron_secret');
     $token = request()->header('X-Cron-Token') ?? request()->query('token');
@@ -276,13 +289,19 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/configuracoes/storage/ping', function () {
             return response()->json([
                 'ok' => true,
-                'version' => 'storage-v3-s3client-direct',
-                'storage_connection_tester' => class_exists(\App\Services\StorageConnectionTester::class),
-                'remote_storage' => class_exists(\App\Support\RemoteStorage::class),
+                'version' => 'storage-v4',
+                'aws_sdk' => \App\Services\StorageConnectionTester::awsSdkAvailable(),
+                'remote_storage_file' => is_file(app_path('Support/RemoteStorage.php')),
             ]);
-        })->name('settings.storage.ping');
-        Route::post('/configuracoes/storage/test', [\App\Http\Controllers\StorageTestController::class, '__invoke'])->name('settings.storage.test');
-        Route::post('/configuracoes/storage/migrate', [\App\Http\Controllers\StorageMigrateController::class, '__invoke'])->name('settings.storage.migrate');
+        })
+            ->withoutMiddleware([\App\Http\Middleware\HandleInertiaRequests::class])
+            ->name('settings.storage.ping');
+        Route::post('/configuracoes/storage/test', [\App\Http\Controllers\StorageTestController::class, '__invoke'])
+            ->withoutMiddleware([\App\Http\Middleware\HandleInertiaRequests::class])
+            ->name('settings.storage.test');
+        Route::post('/configuracoes/storage/migrate', [\App\Http\Controllers\StorageMigrateController::class, '__invoke'])
+            ->withoutMiddleware([\App\Http\Middleware\HandleInertiaRequests::class])
+            ->name('settings.storage.migrate');
         Route::get('/configuracoes/idiomas/data', [\App\Http\Controllers\Platform\LanguageSettingsController::class, 'data'])->name('settings.languages.data');
         Route::post('/configuracoes/idiomas/languages', [\App\Http\Controllers\Platform\LanguageSettingsController::class, 'addLanguage'])->name('settings.languages.add');
         Route::put('/configuracoes/idiomas/languages/{platformLanguage}', [\App\Http\Controllers\Platform\LanguageSettingsController::class, 'updateLanguage'])->name('settings.languages.update');

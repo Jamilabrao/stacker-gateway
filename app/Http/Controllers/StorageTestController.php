@@ -42,6 +42,13 @@ class StorageTestController extends Controller
 
     private function runTest(Request $request): JsonResponse
     {
+        if (! StorageConnectionTester::awsSdkAvailable()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Pacote aws/aws-sdk-php não está instalado no servidor. Execute composer install --no-dev no container/app e reinicie.',
+            ], 422);
+        }
+
         $provider = (string) $request->input('storage_provider', 'local');
 
         if ($provider === 'local') {

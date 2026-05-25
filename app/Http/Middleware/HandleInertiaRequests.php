@@ -49,6 +49,38 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        if ($this->isStorageApiRequest($request)) {
+            return parent::share($request);
+        }
+
+        try {
+            return $this->buildSharedData($request);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('inertia.share_failed', [
+                'path' => $request->path(),
+                'message' => $e->getMessage(),
+            ]);
+
+            return array_merge(parent::share($request), [
+                'csrf_token' => $request->hasSession() ? $request->session()->token() : '',
+                'app_url' => rtrim(config('app.url'), '/'),
+                'flash' => ['success' => null, 'error' => null, 'info' => null, 'status' => null],
+                'platform' => null,
+            ]);
+        }
+    }
+
+    private function isStorageApiRequest(Request $request): bool
+    {
+        $path = $request->path();
+
+        return str_ends_with($path, 'configuracoes/storage/ping')
+            || str_ends_with($path, 'configuracoes/storage/test')
+            || str_ends_with($path, 'configuracoes/storage/migrate');
+    }
+
+    private function buildSharedData(Request $request): array
+    {
         $user = $request->user();
         $tenantId = $user?->tenant_id;
 
