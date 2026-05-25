@@ -215,12 +215,21 @@ class StorageService
             );
         }
 
-        $stored = $this->disk()->putFileAs(
-            $directory,
-            $file,
-            $name,
-            RemoteStorage::uploadOptionsForProvider($provider)
-        );
+        try {
+            $stored = $this->disk()->putFileAs(
+                $directory,
+                $file,
+                $name,
+                RemoteStorage::uploadOptionsForProvider($provider)
+            );
+        } catch (\Throwable $e) {
+            Log::warning('storage.put_file_failed', [
+                'provider' => $provider,
+                'directory' => $directory,
+                'message' => $e->getMessage(),
+            ]);
+            throw new \RuntimeException(RemoteStorage::friendlyErrorMessage($e), 0, $e);
+        }
 
         if ($stored === false || $stored === '') {
             throw new \RuntimeException(

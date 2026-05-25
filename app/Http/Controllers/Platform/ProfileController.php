@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Services\StorageService;
+use App\Support\RemoteStorage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -60,8 +61,12 @@ class ProfileController extends Controller
                     $storage->delete($user->avatar);
                 }
                 $user->avatar = $storage->putFile('avatars', $request->file('avatar'));
-            } catch (\RuntimeException $e) {
-                return redirect()->back()->withErrors(['avatar' => $e->getMessage()])->withInput();
+            } catch (\Throwable $e) {
+                $message = $e instanceof \RuntimeException
+                    ? $e->getMessage()
+                    : RemoteStorage::friendlyErrorMessage($e);
+
+                return redirect()->back()->withErrors(['avatar' => $message])->withInput();
             }
         }
 

@@ -114,6 +114,23 @@ class StorageServiceResolveUrlTest extends TestCase
         $this->assertSame(['visibility' => 'public'], RemoteStorage::uploadOptionsForProvider('s3'));
     }
 
+    public function test_build_s3_disk_config_disables_default_checksums_for_r2(): void
+    {
+        $config = RemoteStorage::buildS3DiskConfig([
+            'provider' => 'r2',
+            'key' => 'k',
+            'secret' => 's',
+            'bucket' => 'b',
+            'region' => 'auto',
+            'endpoint' => 'https://acc.r2.cloudflarestorage.com',
+            'url' => 'https://media.example.com',
+        ]);
+
+        $this->assertSame('when_required', $config['request_checksum_calculation']);
+        $this->assertSame('when_required', $config['response_checksum_validation']);
+        $this->assertArrayNotHasKey('visibility', $config);
+    }
+
     public function test_normalize_storage_path_extracts_key_from_public_url(): void
     {
         Setting::set('storage_provider', 'r2', null);

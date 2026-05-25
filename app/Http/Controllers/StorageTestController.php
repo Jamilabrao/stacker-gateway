@@ -8,10 +8,30 @@ use App\Support\RemoteStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+
 class StorageTestController extends Controller
 {
     public function __invoke(Request $request): JsonResponse
+    {
+        try {
+            return $this->runTest($request);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::warning('storage.test_failed', ['message' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => RemoteStorage::friendlyErrorMessage($e),
+                'error' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    private function runTest(Request $request): JsonResponse
     {
         $provider = $request->input('storage_provider', 'local');
 
@@ -111,34 +131,31 @@ class StorageTestController extends Controller
             'url' => $publicUrl,
         ]);
 
-        try {
-            $disk = Storage::build($config);
-            $disk->files('/');
+        $disk = Storage::build($config);
+        $disk->files('/');
 
-            $sampleUrl = null;
-            if ($publicUrl !== '') {
-                $probeKey = '.getfy-storage-test-'.uniqid('', true).'.txt';
-                $disk->put($probeKey, 'ok', RemoteStorage::uploadOptionsForProvider($provider));
-                $sampleUrl = RemoteStorage::buildPublicUrl($publicUrl, $probeKey);
-                $disk->delete($probeKey);
+        $sampleUrl = null;
+        if ($publicUrl !== '') {
+            $probeKey = '.getfy-storage-test-'.uniqid('', true).'.txt';
+            $written = $disk->put($probeKey, 'ok', RemoteStorage::uploadOptionsForProvider($provider));
+            if ($written === false) {
+                throw new \RuntimeException(
+                    'Upload de teste falhou. Confira credenciais, endpoint e URL pública do R2.'
+                );
             }
-
-            $message = 'Conexão estabelecida com sucesso.';
-            if ($provider === 'r2' && $publicUrl !== '') {
-                $message .= ' URL pública configurada.';
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => $message,
-                'sample_public_url' => $sampleUrl,
-            ]);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'error' => $e->getMessage(),
-            ], 422);
+            $sampleUrl = RemoteStorage::buildPublicUrl($publicUrl, $probeKey);
+            $disk->delete($probeKey);
         }
+
+        $message = 'Conexão estabelecida com sucesso.';
+        if ($provider === 'r2' && $publicUrl !== '') {
+            $message .= ' URL pública configurada.';
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $message,
+            'sample_public_url' => $sampleUrl,
+        ]);
     }
 }

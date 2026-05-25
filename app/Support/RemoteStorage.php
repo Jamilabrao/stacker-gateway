@@ -156,6 +156,9 @@ final class RemoteStorage
             'bucket' => $creds['bucket'],
             'throw' => false,
             'report' => false,
+            // aws/aws-sdk-php >= 3.337 envia CRC32 por padrão; R2 retorna 501 (NotImplemented) sem isto.
+            'request_checksum_calculation' => 'when_required',
+            'response_checksum_validation' => 'when_required',
         ];
 
         // R2 com "Bucket owner enforced" rejeita ACL no PutObject — visibilidade vem da política do bucket/CDN.
@@ -198,6 +201,31 @@ final class RemoteStorage
         }
 
         return ['visibility' => 'public'];
+    }
+
+    /**
+     * Mensagem amigável para falhas S3/R2 (checksum, credenciais, endpoint).
+     */
+    public static function friendlyErrorMessage(\Throwable $e): string
+    {
+        $msg = $e->getMessage();
+        $lower = strtolower($msg);
+
+        if (str_contains($lower, 'checksum-crc32')
+            || str_contains($lower, 'not implemented')
+            || str_contains($lower, 'notimplemented')) {
+            return 'O storage R2/S3 rejeitou a requisição (checksum do AWS SDK). Atualize o código da aplicação e tente de novo. Se persistir, confira endpoint e URL pública no painel R2.';
+        }
+
+        if (str_contains($lower, 'access denied') || str_contains($lower, '403')) {
+            return 'Acesso negado: verifique Access Key, Secret e permissões do token R2 no bucket.';
+        }
+
+        if (str_contains($lower, 'could not resolve host') || str_contains($lower, 'connection')) {
+            return 'Não foi possível conectar ao endpoint. Confira se o endpoint R2 está correto (https://<account>.r2.cloudflarestorage.com).';
+        }
+
+        return $msg !== '' ? $msg : 'Erro desconhecido ao acessar o storage.';
     }
 
     public static function resolvePublicBaseUrlForProvider(string $provider, string $settingsUrl, array $r2Env): string

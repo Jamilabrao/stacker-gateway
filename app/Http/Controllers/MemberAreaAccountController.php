@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\StorageService;
+use App\Support\RemoteStorage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
@@ -30,8 +31,12 @@ class MemberAreaAccountController extends Controller
             }
             try {
                 $user->avatar = $storage->putFile('avatars', $request->file('avatar'));
-            } catch (\RuntimeException $e) {
-                return redirect()->back()->withErrors(['avatar' => $e->getMessage()])->withInput();
+            } catch (\Throwable $e) {
+                $message = $e instanceof \RuntimeException
+                    ? $e->getMessage()
+                    : RemoteStorage::friendlyErrorMessage($e);
+
+                return redirect()->back()->withErrors(['avatar' => $message])->withInput();
             }
         }
 
