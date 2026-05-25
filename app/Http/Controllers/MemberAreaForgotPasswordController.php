@@ -59,7 +59,7 @@ class MemberAreaForgotPasswordController extends Controller
             if ($this->mailConfig->isEmailConfigured($product->tenant_id)) {
                 $this->mailConfig->applyMailerConfigForTenant($product->tenant_id);
             } else {
-                $this->mailConfig->applyForPasswordReset($user);
+                $this->mailConfig->applyForPasswordReset($user, preferPlatformGlobal: false);
             }
             $this->mailConfig->assertSmtpHostIsConfigured();
             config(['mail.default' => 'smtp']);

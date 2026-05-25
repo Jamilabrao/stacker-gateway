@@ -18,8 +18,6 @@ use App\Listeners\UtmifyEventSubscriber;
 use App\Listeners\SendApiApplicationWebhookListener;
 use App\Listeners\WebhookEventSubscriber;
 use App\Support\DockerSetupState;
-use App\Mail\PasswordResetMail;
-use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use App\Models\Order;
@@ -154,21 +152,6 @@ class AppServiceProvider extends ServiceProvider
         Event::subscribe(SpedyEventSubscriber::class);
         Event::subscribe(CademiEventSubscriber::class);
 
-        ResetPassword::toMailUsing(function (object $notifiable, string $token) {
-            $tenantId = property_exists($notifiable, 'tenant_id') ? ($notifiable->tenant_id ?? null) : null;
-            $params = [
-                'token' => $token,
-                'email' => $notifiable->getEmailForPasswordReset(),
-            ];
-            $redirect = app()->bound('password_reset_redirect') ? app('password_reset_redirect') : null;
-            if ($redirect !== null) {
-                $params['redirect'] = $redirect;
-            }
-            $url = url(route('password.reset', $params, false));
-            $expire = (int) config('auth.passwords.'.config('auth.defaults.passwords').'.expire');
-
-            return new PasswordResetMail($url, $expire, is_int($tenantId) ? $tenantId : null);
-        });
     }
 
     private function bootCloudFolder(): void

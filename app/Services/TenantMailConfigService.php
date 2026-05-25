@@ -143,16 +143,27 @@ class TenantMailConfigService
     }
 
     /**
-     * Aplica SMTP para redefinição de senha: tenant do usuário → SMTP global da plataforma → primeiro tenant com e-mail.
+     * Aplica SMTP para redefinição de senha.
+     *
+     * Login geral (/esqueci-senha): prioriza SMTP global da plataforma (mesmo do teste em Plataforma → E-mail),
+     * depois tenant do usuário, depois qualquer tenant com e-mail configurado.
+     *
+     * Área de membros: use $preferPlatformGlobal = false para priorizar o tenant do produto.
      *
      * @throws \RuntimeException quando nenhum provedor está configurado
      */
-    public function applyForPasswordReset(?\App\Models\User $user): void
+    public function applyForPasswordReset(?\App\Models\User $user, bool $preferPlatformGlobal = true): void
     {
         if ($user?->canAccessPlatformPanel()) {
             if (! $this->isEmailConfigured(null)) {
                 throw new \RuntimeException('Configure o SMTP em Plataforma → Configurações → E-mail.');
             }
+            $this->applyPlatformGlobalMailerConfig();
+
+            return;
+        }
+
+        if ($preferPlatformGlobal && $this->isEmailConfigured(null)) {
             $this->applyPlatformGlobalMailerConfig();
 
             return;
@@ -203,11 +214,19 @@ class TenantMailConfigService
      */
     private function applySmtpConfigToLaravel(array $config, ?int $tenantId, string $provider, array $overrides): void
     {
+        $encryption = $config['encryption'] ?? null;
+        $scheme = match ($encryption) {
+            'ssl' => 'smtps',
+            'tls' => 'smtp',
+            default => 'smtp',
+        };
+
         config(['mail.mailers.smtp.transport' => 'smtp']);
+        config(['mail.mailers.smtp.scheme' => $scheme]);
         config(['mail.mailers.smtp.host' => $config['host']]);
         config(['mail.mailers.smtp.port' => $config['port']]);
         config(['mail.mailers.smtp.username' => $config['username']]);
-        config(['mail.mailers.smtp.encryption' => $config['encryption']]);
+        config(['mail.mailers.smtp.encryption' => $encryption]);
         config(['mail.mailers.smtp.password' => $config['password']]);
 
         $fromAddress = $config['username'] ?: config('mail.from.address');

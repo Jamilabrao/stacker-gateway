@@ -3,11 +3,13 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Mail\PasswordResetMail;
 use App\Policies\UserPolicy;
 use Illuminate\Database\Eloquent\Attributes\UsePolicy;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Mail;
 
 #[UsePolicy(UserPolicy::class)]
 class User extends Authenticatable
@@ -269,6 +271,28 @@ class User extends Authenticatable
         $status = (string) ($subject->account_status ?? 'approved');
 
         return in_array($status, ['suspended', 'blocked', 'rejected'], true);
+    }
+
+    /**
+     * Envia o link de redefinição pelo mailer SMTP (configurado em TenantMailConfigService antes do envio).
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        $params = [
+            'token' => $token,
+            'email' => $this->getEmailForPasswordReset(),
+        ];
+        $redirect = app()->bound('password_reset_redirect') ? app('password_reset_redirect') : null;
+        if ($redirect !== null) {
+            $params['redirect'] = $redirect;
+        }
+        $url = url(route('password.reset', $params, false));
+        $expire = (int) config('auth.passwords.'.config('auth.defaults.passwords').'.expire');
+        $tenantId = $this->tenant_id;
+
+        Mail::mailer('smtp')->to($this->getEmailForPasswordReset())->send(
+            new PasswordResetMail($url, $expire, is_int($tenantId) ? $tenantId : null)
+        );
     }
 
     /**
