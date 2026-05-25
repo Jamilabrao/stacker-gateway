@@ -5,7 +5,7 @@ import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
 import axios from 'axios';
 
-defineOptions({ layout: LayoutInfoprodutor });
+defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
     email_configured: { type: Boolean, default: false },

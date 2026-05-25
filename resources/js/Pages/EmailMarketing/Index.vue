@@ -38,11 +38,13 @@ function confirmSend(campaign) {
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">E-mail Marketing</h1>
             <div class="flex gap-2">
-                <Link v-if="activeTab === 'campanhas'" href="/plataforma/email-marketing/create">
-                    <Button variant="primary" class="inline-flex items-center gap-2">
-                        <Plus class="h-4 w-4" />
-                        Nova campanha
-                    </Button>
+                <Link
+                    v-if="activeTab === 'campanhas'"
+                    href="/plataforma/email-marketing/create"
+                    class="inline-flex items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                >
+                    <Plus class="h-4 w-4" />
+                    Nova campanha
                 </Link>
             </div>
         </div>
@@ -98,8 +100,11 @@ function confirmSend(campaign) {
 
             <div v-if="campaigns.length === 0" class="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white p-8 text-center dark:bg-zinc-800/50">
                 <p class="text-zinc-600 dark:text-zinc-400">Nenhuma campanha ainda.</p>
-                <Link href="/plataforma/email-marketing/create" class="mt-4 inline-block">
-                    <Button variant="primary">Criar primeira campanha</Button>
+                <Link
+                    href="/plataforma/email-marketing/create"
+                    class="mt-4 inline-flex items-center justify-center rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                >
+                    Criar primeira campanha
                 </Link>
             </div>
 
