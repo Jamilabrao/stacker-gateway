@@ -62,7 +62,21 @@ fi
 
 cd "$INSTALL_DIR"
 
+$SUDO chmod +x docker/ensure-upload-limits.sh 2>/dev/null || true
+echo ""
+echo "=== Limites de upload (PHP / Member Builder) ==="
+$SUDO sh docker/ensure-upload-limits.sh
+
+if [ -f docker/build-frontend.sh ]; then
+  $SUDO chmod +x docker/build-frontend.sh 2>/dev/null || true
+  echo ""
+  echo "=== Build do frontend ==="
+  $SUDO sh docker/build-frontend.sh
+fi
+
+echo ""
+echo "=== Reiniciando stack Docker (Caddy) ==="
 $SUDO env GETFY_COMPOSE_FILES="docker-compose.caddy.yml" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
 
 echo ""
-echo "Atualização concluída e stack (Caddy) reiniciado."
+echo "Atualização concluída (git + build frontend + stack Caddy reiniciado)."

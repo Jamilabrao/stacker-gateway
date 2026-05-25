@@ -78,7 +78,10 @@ fi
 
 echo ""
 echo "=== Reiniciando stack Docker ==="
-$SUDO env GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+$SUDO chmod +x docker/detect-compose-files.sh 2>/dev/null || true
+COMPOSE_FILES="$($SUDO sh docker/detect-compose-files.sh)"
+echo "Compose: $COMPOSE_FILES"
+$SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
 
 echo ""
 echo "Atualização concluída (git + build frontend + stack reiniciado)."

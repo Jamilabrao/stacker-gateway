@@ -141,6 +141,9 @@ $SUDO env \
   GETFY_COMPOSE_FILES="docker-compose.caddy.yml" \
   sh docker/up.sh
 
+$SUDO mkdir -p .docker
+echo "caddy" | $SUDO tee .docker/compose-profile >/dev/null
+
 IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
 if [ -z "$IP" ]; then
   IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
