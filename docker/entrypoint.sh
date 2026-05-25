@@ -6,6 +6,11 @@ cd /var/www/html
 mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache .docker
 chmod -R 777 storage bootstrap/cache .docker 2>/dev/null || true
 
+# Caddy (compose.caddy) importa este arquivo; vazio quebra o import — placeholder até docker-setup.
+if [ ! -s .docker/Caddyfile.domains ] 2>/dev/null; then
+  printf '%s\n' '# Blocos de domínio HTTPS são gravados pelo /docker-setup.' > .docker/Caddyfile.domains
+fi
+
 if [ ! -f .docker/app.key ]; then
   php -r 'echo "base64:".base64_encode(random_bytes(32));' > .docker/app.key
 fi

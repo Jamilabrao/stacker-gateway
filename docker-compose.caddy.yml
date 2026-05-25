@@ -9,6 +9,7 @@ services:
       - "${GETFY_HTTPS_PORT:-443}:443"
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - getfy_env:/etc/getfy:ro
       - caddy_data:/data
       - caddy_config:/config
 

@@ -1,9 +1,13 @@
 {
-  http_port 80
-  https_port 443
+	http_port 80
+	https_port 443
 }
 
-{$GETFY_CADDY_HOST} {
-  reverse_proxy app:80
-  encode zstd gzip
+# HTTP padrão (IP, healthcheck, antes do docker-setup)
+:80 {
+	reverse_proxy app:80
+	encode zstd gzip
 }
+
+# Domínio HTTPS gravado em docker-setup (.docker/Caddyfile.domains no volume getfy_env)
+import /etc/getfy/Caddyfile.domains
