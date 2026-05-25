@@ -7,6 +7,7 @@ use App\Support\RemoteStorage;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class StorageService
@@ -165,8 +166,17 @@ class StorageService
             return $this->disk;
         }
 
-        $this->disk = Storage::build(RemoteStorage::buildS3DiskConfig($creds));
-        $this->isLocal = false;
+        try {
+            $this->disk = Storage::build(RemoteStorage::buildS3DiskConfig($creds));
+            $this->isLocal = false;
+        } catch (\Throwable $e) {
+            Log::warning('storage.disk_build_failed', [
+                'provider' => $creds['provider'] ?? null,
+                'message' => $e->getMessage(),
+            ]);
+            $this->disk = Storage::disk('public');
+            $this->isLocal = true;
+        }
 
         return $this->disk;
     }
@@ -216,7 +226,19 @@ class StorageService
             return '';
         }
 
-        $stored = trim($stored);
+        try {
+            return $this->resolvePublicUrlUnsafe(trim($stored));
+        } catch (\Throwable $e) {
+            Log::warning('storage.resolve_public_url_failed', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return $this->fallbackPublicUrl(trim($stored));
+        }
+    }
+
+    private function resolvePublicUrlUnsafe(string $stored): string
+    {
         $normalizer = new StorageUrlNormalizer;
         $creds = $this->resolveRemoteCredentials();
         $bucket = $creds['bucket'] ?? '';
@@ -262,6 +284,19 @@ class StorageService
         }
 
         return $adapterUrl;
+    }
+
+    private function fallbackPublicUrl(string $stored): string
+    {
+        if (preg_match('#^https?://#i', $stored)) {
+            return $stored;
+        }
+
+        if (str_starts_with($stored, '/storage/')) {
+            return url($stored);
+        }
+
+        return url('/storage/'.ltrim($stored, '/'));
     }
 
     /**

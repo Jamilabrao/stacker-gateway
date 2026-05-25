@@ -165,7 +165,7 @@ class HandleInertiaRequests extends Middleware
                     'email' => $user->email,
                     'username' => $user->username,
                     'role' => $user->role,
-                    'avatar_url' => $user->avatar ? app(StorageService::class)->url($user->avatar) : null,
+                    'avatar_url' => $this->resolveAvatarUrl($user),
                     'kyc_status' => $kycSubject?->kyc_status,
                     'needs_kyc_attention' => $kycSubject !== null
                         && ($kycSubject->kyc_status ?? null) !== User::KYC_APPROVED,
@@ -238,6 +238,19 @@ class HandleInertiaRequests extends Middleware
     private function pageTitleForRoute(?string $name): ?string
     {
         return null;
+    }
+
+    private function resolveAvatarUrl(?User $user): ?string
+    {
+        if ($user === null || ! $user->avatar) {
+            return null;
+        }
+
+        try {
+            return app(StorageService::class)->url($user->avatar);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

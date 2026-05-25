@@ -11,7 +11,14 @@ use Illuminate\Support\Facades\Route;
 // Typos comuns → painel operador (evita 404)
 Route::redirect('/pataform/login', '/plataforma/login', 302);
 Route::redirect('/platfform/login', '/plataforma/login', 302);
-Route::get('/admin', fn () => redirect('/dashboard'))->name('admin.portal');
+Route::get('/admin', function () {
+    $user = auth()->user();
+    if ($user && $user->canAccessPlatformPanel()) {
+        return redirect()->route('plataforma.dashboard');
+    }
+
+    return redirect('/dashboard');
+})->name('admin.portal');
 
 // Storage: servir arquivos de storage/app/public (sem symlink) — deve ser uma das primeiras rotas
 Route::get('/storage/{path}', \App\Http\Controllers\StorageServeController::class)
