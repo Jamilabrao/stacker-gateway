@@ -1,13 +1,18 @@
 {
 	http_port 80
 	https_port 443
+	# Cloudflare termina HTTPS no edge; não redirecionar HTTP→HTTPS na origem (evita ERR_TOO_MANY_REDIRECTS em modo Flexible).
+	auto_https disable_redirects
+	servers {
+		trusted_proxies cloudflare
+	}
 }
 
-# HTTP padrão (IP, healthcheck, antes do docker-setup)
+# HTTP na origem (Cloudflare → :80 ou :443 em Full)
 :80 {
 	reverse_proxy app:80
 	encode zstd gzip
 }
 
-# Domínio HTTPS gravado em docker-setup (.docker/Caddyfile.domains no volume getfy_env)
+# Blocos do domínio (docker-setup) — TLS na 443 se necessário; sem redirect automático 80→443
 import /etc/getfy/Caddyfile.domains

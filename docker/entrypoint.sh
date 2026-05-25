@@ -128,6 +128,7 @@ $vars = [
     "REDIS_HOST" => getenv("REDIS_HOST") ?: "redis",
     "REDIS_PORT" => getenv("REDIS_PORT") ?: "6379",
     "REDIS_PASSWORD" => getenv("REDIS_PASSWORD") ?: "null",
+    "TRUSTED_PROXIES" => getenv("TRUSTED_PROXIES") ?: ($setupDone ? "*" : null),
 ];
 foreach ($vars as $key => $value) {
     if ($value === null) {
