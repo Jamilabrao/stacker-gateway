@@ -145,9 +145,30 @@ class DockerSetupController extends Controller
         }
         file_put_contents($dockerDir.DIRECTORY_SEPARATOR.'app.url', $url);
         file_put_contents($dockerDir.DIRECTORY_SEPARATOR.'setup.done', 'true');
-        file_put_contents($dockerDir.DIRECTORY_SEPARATOR.'Caddyfile.domains', $host." {\n\treverse_proxy app:80\n}\n");
+        $this->writeCaddyDomainBlock($host, $dockerDir);
 
         return redirect('/login')->with('success', 'Configuração inicial salva.');
+    }
+
+    /**
+     * TLS na origem (porta 443) para Cloudflare SSL "Completo" / "Completo estrito".
+     * Sem isto, só a porta 80 responde e o modo Full gera erro 522 na borda.
+     */
+    private function writeCaddyDomainBlock(string $host, string $dockerDir): void
+    {
+        $cert = $dockerDir.DIRECTORY_SEPARATOR.'certs'.DIRECTORY_SEPARATOR.'origin.pem';
+        $key = $dockerDir.DIRECTORY_SEPARATOR.'certs'.DIRECTORY_SEPARATOR.'origin-key.pem';
+        if (is_file($cert) && is_file($key)) {
+            $tlsLine = "\ttls /etc/getfy/certs/origin.pem /etc/getfy/certs/origin-key.pem\n";
+        } else {
+            // Cloudflare "Completo" aceita certificado autoassinado na origem (tls internal).
+            $tlsLine = "\ttls internal\n";
+        }
+
+        file_put_contents(
+            $dockerDir.DIRECTORY_SEPARATOR.'Caddyfile.domains',
+            $host." {\n".$tlsLine."\treverse_proxy app:80\n}\n"
+        );
     }
 
     private function setEnv(array $vars): void
