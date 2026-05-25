@@ -167,15 +167,36 @@ class StorageService
         }
 
         try {
-            $this->disk = Storage::build(RemoteStorage::buildS3DiskConfig($creds));
+            $diskConfig = RemoteStorage::buildS3DiskConfig($creds);
+            $this->disk = Storage::build($diskConfig);
             $this->isLocal = false;
         } catch (\Throwable $e) {
             Log::warning('storage.disk_build_failed', [
                 'provider' => $creds['provider'] ?? null,
                 'message' => $e->getMessage(),
             ]);
-            $this->disk = Storage::disk('public');
-            $this->isLocal = true;
+            try {
+                $this->disk = Storage::build([
+                    'driver' => 's3',
+                    'key' => $creds['key'],
+                    'secret' => $creds['secret'],
+                    'region' => ($creds['provider'] ?? '') === 'r2' ? 'auto' : ($creds['region'] ?: 'us-east-1'),
+                    'bucket' => $creds['bucket'],
+                    'endpoint' => $creds['endpoint'] ?? null,
+                    'url' => $creds['url'] ?? null,
+                    'use_path_style_endpoint' => RemoteStorage::isR2ApiEndpoint($creds['endpoint'] ?? ''),
+                    'visibility' => ($creds['provider'] ?? '') === 'r2' ? 'private' : 'public',
+                    'retain_visibility' => false,
+                    'throw' => false,
+                    'report' => false,
+                    'request_checksum_calculation' => 'when_required',
+                    'response_checksum_validation' => 'when_required',
+                ]);
+                $this->isLocal = false;
+            } catch (\Throwable) {
+                $this->disk = Storage::disk('public');
+                $this->isLocal = true;
+            }
         }
 
         return $this->disk;

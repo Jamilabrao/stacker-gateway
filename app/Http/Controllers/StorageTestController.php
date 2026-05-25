@@ -3,13 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\StorageConnectionTester;
 use App\Support\PlatformConfigContext;
 use App\Support\RemoteStorage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class StorageTestController extends Controller
@@ -19,13 +19,22 @@ class StorageTestController extends Controller
         try {
             return $this->runTest($request);
         } catch (ValidationException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            Log::warning('storage.test_failed', ['message' => $e->getMessage()]);
+            $first = collect($e->errors())->flatten()->first();
 
             return response()->json([
                 'success' => false,
-                'message' => RemoteStorage::friendlyErrorMessage($e),
+                'message' => is_string($first) && $first !== '' ? $first : 'Dados inválidos.',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::warning('storage.test_failed', [
+                'message' => $e->getMessage(),
+                'class' => $e::class,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => StorageConnectionTester::friendlyMessage($e),
                 'error' => $e->getMessage(),
             ], 422);
         }
@@ -33,7 +42,7 @@ class StorageTestController extends Controller
 
     private function runTest(Request $request): JsonResponse
     {
-        $provider = $request->input('storage_provider', 'local');
+        $provider = (string) $request->input('storage_provider', 'local');
 
         if ($provider === 'local') {
             return response()->json([
@@ -82,7 +91,7 @@ class StorageTestController extends Controller
         }
 
         $tenantId = PlatformConfigContext::settingsTenantId();
-        $key = $useEnvR2 ? $r2EnvKey : $request->input('storage_s3_key');
+        $key = $useEnvR2 ? $r2EnvKey : (string) $request->input('storage_s3_key');
         $secret = $useEnvR2 ? $r2EnvSecret : $request->input('storage_s3_secret');
         if ($secret === null || $secret === '') {
             $secretRaw = Setting::get('storage_s3_secret', '', $tenantId);
@@ -94,15 +103,16 @@ class StorageTestController extends Controller
                 }
             }
         }
-        if ($secret === '') {
+        if ($secret === null || $secret === '') {
             return response()->json([
                 'success' => false,
                 'message' => 'O campo Secret Key é obrigatório. Preencha e salve as configurações uma vez para que fique guardado.',
             ], 422);
         }
-        $bucket = $useEnvR2 ? $r2EnvBucket : $request->input('storage_s3_bucket');
-        $region = $provider === 'r2' ? 'auto' : $request->input('storage_s3_region', 'us-east-1');
-        $endpoint = $useEnvR2 ? $r2EnvEndpoint : $request->input('storage_s3_endpoint', '');
+
+        $bucket = $useEnvR2 ? $r2EnvBucket : (string) $request->input('storage_s3_bucket');
+        $region = $provider === 'r2' ? 'auto' : (string) $request->input('storage_s3_region', 'us-east-1');
+        $endpoint = $useEnvR2 ? $r2EnvEndpoint : (string) $request->input('storage_s3_endpoint', '');
         $publicUrl = $useEnvR2
             ? RemoteStorage::normalizePublicBaseUrl($r2EnvPublicUrl)
             : $publicUrlInput;
@@ -110,42 +120,32 @@ class StorageTestController extends Controller
         if (RemoteStorage::requiresPublicBaseUrl($provider) && $publicUrl === '') {
             return response()->json([
                 'success' => false,
-                'message' => 'Para Cloudflare R2, informe a URL pública (ex.: https://pub-xxxx.r2.dev do painel R2 → bucket → Public access, ou seu domínio customizado). O endpoint da API não abre imagens no navegador.',
+                'message' => 'Para Cloudflare R2, informe a URL pública (ex.: https://pub-xxxx.r2.dev ou https://media.seudominio.com). O endpoint da API não abre imagens no navegador.',
             ], 422);
         }
 
         if ($publicUrl !== '' && RemoteStorage::isR2ApiEndpoint($publicUrl)) {
             return response()->json([
                 'success' => false,
-                'message' => 'A URL pública não pode ser o endpoint da API (*.r2.cloudflarestorage.com). Use a URL pub-*.r2.dev ou um domínio customizado vinculado ao bucket.',
+                'message' => 'A URL pública não pode ser o endpoint da API (*.r2.cloudflarestorage.com). Use pub-*.r2.dev ou domínio customizado.',
             ], 422);
         }
 
-        $config = RemoteStorage::buildS3DiskConfig([
+        if ($provider === 'r2' && trim($endpoint) === '' && ! $useEnvR2) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Informe o Endpoint R2 (https://<account_id>.r2.cloudflarestorage.com).',
+            ], 422);
+        }
+
+        $result = StorageConnectionTester::test([
             'provider' => $provider,
             'key' => $key,
-            'secret' => $secret,
+            'secret' => (string) $secret,
             'bucket' => $bucket,
             'region' => $region,
             'endpoint' => $endpoint,
-            'url' => $publicUrl,
-        ]);
-
-        $disk = Storage::build($config);
-        $disk->files('/');
-
-        $sampleUrl = null;
-        if ($publicUrl !== '') {
-            $probeKey = '.getfy-storage-test-'.uniqid('', true).'.txt';
-            $written = $disk->put($probeKey, 'ok', RemoteStorage::uploadOptionsForProvider($provider));
-            if ($written === false) {
-                throw new \RuntimeException(
-                    'Upload de teste falhou. Confira credenciais, endpoint e URL pública do R2.'
-                );
-            }
-            $sampleUrl = RemoteStorage::buildPublicUrl($publicUrl, $probeKey);
-            $disk->delete($probeKey);
-        }
+        ], $publicUrl);
 
         $message = 'Conexão estabelecida com sucesso.';
         if ($provider === 'r2' && $publicUrl !== '') {
@@ -155,7 +155,7 @@ class StorageTestController extends Controller
         return response()->json([
             'success' => true,
             'message' => $message,
-            'sample_public_url' => $sampleUrl,
+            'sample_public_url' => $result['sample_public_url'],
         ]);
     }
 }

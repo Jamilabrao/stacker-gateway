@@ -161,16 +161,19 @@ final class RemoteStorage
             'response_checksum_validation' => 'when_required',
         ];
 
-        // R2 com "Bucket owner enforced" rejeita ACL no PutObject — visibilidade vem da política do bucket/CDN.
-        if (! $isR2) {
-            $config['visibility'] = 'public';
-        }
-
         if ($endpoint !== '') {
             $config['endpoint'] = $endpoint;
             $config['use_path_style_endpoint'] = self::isR2ApiEndpoint($endpoint)
                 || str_contains($endpoint, 'wasabisys.com')
                 || str_contains($endpoint, 'digitaloceanspaces.com');
+        }
+
+        // R2: sem ACL no objeto; Laravel 12 usa retain_visibility quando o endpoint é R2.
+        if ($isR2) {
+            $config['visibility'] = 'private';
+            $config['retain_visibility'] = false;
+        } else {
+            $config['visibility'] = 'public';
         }
 
         $publicUrl = self::normalizePublicBaseUrl((string) ($creds['url'] ?? ''));

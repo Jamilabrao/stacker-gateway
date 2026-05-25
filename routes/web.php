@@ -273,6 +273,14 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/configuracoes/email/test', [\App\Http\Controllers\EmailTestController::class, 'test'])->name('settings.email.test');
         Route::post('/configuracoes/email/connection-test', [\App\Http\Controllers\EmailTestController::class, 'connectionTest'])->name('settings.email.connection-test');
         Route::post('/configuracoes/email/send-test', [\App\Http\Controllers\EmailTestController::class, 'sendTest'])->name('settings.email.send-test');
+        Route::get('/configuracoes/storage/ping', function () {
+            return response()->json([
+                'ok' => true,
+                'version' => 'storage-v3-s3client-direct',
+                'storage_connection_tester' => class_exists(\App\Services\StorageConnectionTester::class),
+                'remote_storage' => class_exists(\App\Support\RemoteStorage::class),
+            ]);
+        })->name('settings.storage.ping');
         Route::post('/configuracoes/storage/test', [\App\Http\Controllers\StorageTestController::class, '__invoke'])->name('settings.storage.test');
         Route::post('/configuracoes/storage/migrate', [\App\Http\Controllers\StorageMigrateController::class, '__invoke'])->name('settings.storage.migrate');
         Route::get('/configuracoes/idiomas/data', [\App\Http\Controllers\Platform\LanguageSettingsController::class, 'data'])->name('settings.languages.data');

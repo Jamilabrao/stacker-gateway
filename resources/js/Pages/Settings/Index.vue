@@ -430,7 +430,12 @@ async function testStorageConnection() {
         storageTestResult.value = { status: 'success', message: res.data.message || 'Conexão estabelecida com sucesso.' };
     } catch (e) {
         const data = e?.response?.data;
+        const status = e?.response?.status;
         let message = data?.message || data?.error || 'Erro ao testar conexão.';
+        if (status === 500 && !data?.message) {
+            message =
+                'Erro interno (500). O servidor pode estar com código antigo ou falha PHP. Rode update.sh no servidor e abra /plataforma/configuracoes/storage/ping para confirmar o deploy.';
+        }
         if (data?.errors && typeof data.errors === 'object') {
             const firstError = Object.values(data.errors).flat().find(Boolean);
             if (firstError) message = firstError;
