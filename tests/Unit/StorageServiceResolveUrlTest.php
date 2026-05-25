@@ -2,12 +2,16 @@
 
 namespace Tests\Unit;
 
+use App\Models\Setting;
 use App\Services\StorageService;
+use App\Support\RemoteStorage;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 class StorageServiceResolveUrlTest extends TestCase
 {
+    use RefreshDatabase;
     public function test_resolve_public_url_rewrites_legacy_local_storage_url_to_current_app_storage(): void
     {
         Config::set('app.url', 'https://loja.example.com');
@@ -37,5 +41,47 @@ class StorageServiceResolveUrlTest extends TestCase
         $path = $service->toStoragePath('https://loja.example.com/storage/member-area/1/x.png');
 
         $this->assertSame('member-area/1/x.png', $path);
+    }
+
+    public function test_resolve_public_url_uses_r2_public_base_not_api_endpoint(): void
+    {
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'test-key', null);
+        Setting::set('storage_s3_secret', encrypt('test-secret'), null);
+        Setting::set('storage_s3_bucket', 'my-bucket', null);
+        Setting::set('storage_s3_endpoint', 'https://acc.r2.cloudflarestorage.com', null);
+        Setting::set('storage_s3_url', 'https://pub-abc123.r2.dev', null);
+        Setting::set('storage_s3_region', 'auto', null);
+
+        $service = new StorageService(null);
+        $resolved = $service->resolvePublicUrl('products/foto.jpg');
+
+        $this->assertSame('https://pub-abc123.r2.dev/products/foto.jpg', $resolved);
+    }
+
+    public function test_resolve_public_url_rewrites_stored_api_endpoint_url(): void
+    {
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'test-key', null);
+        Setting::set('storage_s3_secret', encrypt('test-secret'), null);
+        Setting::set('storage_s3_bucket', 'my-bucket', null);
+        Setting::set('storage_s3_endpoint', 'https://acc.r2.cloudflarestorage.com', null);
+        Setting::set('storage_s3_url', 'https://cdn.loja.com', null);
+
+        $service = new StorageService(null);
+        $bad = 'https://acc.r2.cloudflarestorage.com/my-bucket/products/x.png';
+        $resolved = $service->resolvePublicUrl($bad);
+
+        $this->assertSame('https://cdn.loja.com/products/x.png', $resolved);
+    }
+
+    public function test_remote_storage_extract_key_from_r2_api_url(): void
+    {
+        $key = RemoteStorage::extractObjectKeyFromUrl(
+            'https://acc.r2.cloudflarestorage.com/my-bucket/member-area/1.png',
+            'my-bucket'
+        );
+
+        $this->assertSame('member-area/1.png', $key);
     }
 }

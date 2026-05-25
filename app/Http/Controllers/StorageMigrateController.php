@@ -65,7 +65,7 @@ class StorageMigrateController extends Controller
                     if ($stream === false) {
                         throw new \RuntimeException('Falha ao abrir stream do arquivo.');
                     }
-                    $written = $destinationDisk->writeStream($path, $stream);
+                    $written = $destinationDisk->writeStream($path, $stream, ['visibility' => 'public']);
                     if (is_resource($stream)) {
                         fclose($stream);
                     }
@@ -74,7 +74,7 @@ class StorageMigrateController extends Controller
                     }
                 } else {
                     $content = $localDisk->get($path);
-                    $destinationDisk->put($path, $content);
+                    $destinationDisk->put($path, $content, ['visibility' => 'public']);
                 }
                 $transferred++;
             } catch (\Throwable $e) {

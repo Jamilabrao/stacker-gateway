@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Setting;
+use App\Support\RemoteStorage;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
@@ -15,6 +16,9 @@ class StorageService
     private ?Filesystem $disk = null;
 
     private bool $isLocal = true;
+
+    /** @var array{provider: string, key: string, secret: string, bucket: string, region: string, endpoint: string, url: string}|null */
+    private ?array $remoteCredentials = null;
 
     public function __construct(?int $tenantId = null)
     {
@@ -47,12 +51,12 @@ class StorageService
     }
 
     /**
-     * Get the active storage disk for the current tenant.
+     * @return array{provider: string, key: string, secret: string, bucket: string, region: string, endpoint: string, url: string}
      */
-    public function disk(): Filesystem
+    public function resolveRemoteCredentials(): array
     {
-        if ($this->disk !== null) {
-            return $this->disk;
+        if ($this->remoteCredentials !== null) {
+            return $this->remoteCredentials;
         }
 
         $cloudMode = (bool) config('getfy.cloud_mode', false);
@@ -63,14 +67,21 @@ class StorageService
             $provider = ($cloudMode && $r2Env['configured']) ? 'r2' : 'local';
         }
 
-        if ($provider === 'local' || empty($provider)) {
-            $this->disk = Storage::disk('public');
-            $this->isLocal = true;
+        if ($provider === 'local' || $provider === '') {
+            $this->remoteCredentials = [
+                'provider' => 'local',
+                'key' => '',
+                'secret' => '',
+                'bucket' => '',
+                'region' => '',
+                'endpoint' => '',
+                'url' => '',
+            ];
 
-            return $this->disk;
+            return $this->remoteCredentials;
         }
 
-        $key = Setting::get('storage_s3_key', '', $this->tenantId);
+        $key = (string) Setting::get('storage_s3_key', '', $this->tenantId);
         $secretRaw = Setting::get('storage_s3_secret', '', $this->tenantId);
         $secret = '';
         if ($secretRaw) {
@@ -80,18 +91,18 @@ class StorageService
                 $secret = '';
             }
         }
-        $bucket = Setting::get('storage_s3_bucket', '', $this->tenantId);
-        $region = Setting::get('storage_s3_region', 'us-east-1', $this->tenantId);
-        $endpoint = Setting::get('storage_s3_endpoint', '', $this->tenantId);
-        $url = Setting::get('storage_s3_url', '', $this->tenantId);
+        $bucket = (string) Setting::get('storage_s3_bucket', '', $this->tenantId);
+        $region = (string) Setting::get('storage_s3_region', 'us-east-1', $this->tenantId);
+        $endpoint = (string) Setting::get('storage_s3_endpoint', '', $this->tenantId);
+        $url = (string) Setting::get('storage_s3_url', '', $this->tenantId);
 
         $useEnvR2 = $cloudMode
             && $provider === 'r2'
             && $r2Env['configured']
-            && trim((string) $key) === ''
-            && trim((string) $bucket) === ''
-            && trim((string) $endpoint) === ''
-            && trim((string) $url) === ''
+            && trim($key) === ''
+            && trim($bucket) === ''
+            && trim($endpoint) === ''
+            && trim($url) === ''
             && trim((string) $secretRaw) === '';
 
         if ($useEnvR2) {
@@ -103,38 +114,58 @@ class StorageService
             $region = $r2Env['region'];
         }
 
-        if (empty($key) || empty($secret) || empty($bucket)) {
+        $this->remoteCredentials = [
+            'provider' => (string) $provider,
+            'key' => $key,
+            'secret' => $secret,
+            'bucket' => $bucket,
+            'region' => $region,
+            'endpoint' => $endpoint,
+            'url' => RemoteStorage::normalizePublicBaseUrl($url),
+        ];
+
+        return $this->remoteCredentials;
+    }
+
+    /**
+     * URL pública base (CDN / pub-*.r2.dev). Vazio se não configurado.
+     */
+    public function publicBaseUrl(): string
+    {
+        $creds = $this->resolveRemoteCredentials();
+        if (($creds['provider'] ?? 'local') === 'local') {
+            return '';
+        }
+
+        return RemoteStorage::resolvePublicBaseUrlForProvider(
+            $creds['provider'],
+            $creds['url'],
+            $this->r2EnvConfig()
+        );
+    }
+
+    /**
+     * Get the active storage disk for the current tenant.
+     */
+    public function disk(): Filesystem
+    {
+        if ($this->disk !== null) {
+            return $this->disk;
+        }
+
+        $creds = $this->resolveRemoteCredentials();
+
+        if (($creds['provider'] ?? 'local') === 'local'
+            || $creds['key'] === ''
+            || $creds['secret'] === ''
+            || $creds['bucket'] === '') {
             $this->disk = Storage::disk('public');
             $this->isLocal = true;
 
             return $this->disk;
         }
 
-        $isR2 = $provider === 'r2' || ($endpoint && str_contains($endpoint, 'r2.cloudflarestorage.com'));
-        $regionForConfig = $isR2 ? 'auto' : ($region ?: 'us-east-1');
-
-        $config = [
-            'driver' => 's3',
-            'key' => $key,
-            'secret' => $secret,
-            'region' => $regionForConfig,
-            'bucket' => $bucket,
-            'throw' => false,
-            'report' => false,
-        ];
-
-        if ($endpoint) {
-            $config['endpoint'] = $endpoint;
-            $config['use_path_style_endpoint'] = str_contains($endpoint, 'r2.cloudflarestorage.com')
-                || str_contains($endpoint, 'wasabisys.com')
-                || str_contains($endpoint, 'digitaloceanspaces.com');
-        }
-
-        if ($url) {
-            $config['url'] = rtrim($url, '/');
-        }
-
-        $this->disk = Storage::build($config);
+        $this->disk = Storage::build(RemoteStorage::buildS3DiskConfig($creds));
         $this->isLocal = false;
 
         return $this->disk;
@@ -157,7 +188,7 @@ class StorageService
     {
         $name = $name ?? $file->hashName();
 
-        return $this->disk()->putFileAs($directory, $file, $name);
+        return $this->putFileAs($directory, $file, $name);
     }
 
     /**
@@ -165,7 +196,7 @@ class StorageService
      */
     public function putFileAs(string $directory, UploadedFile $file, string $name): string
     {
-        return $this->disk()->putFileAs($directory, $file, $name);
+        return $this->disk()->putFileAs($directory, $file, $name, ['visibility' => 'public']);
     }
 
     /**
@@ -177,7 +208,7 @@ class StorageService
     }
 
     /**
-     * Converte valor salvo no banco (path, /storage/... ou URL local antiga) na URL pública atual (local ou R2).
+     * Converte valor salvo no banco (path, /storage/... ou URL) na URL pública atual (local ou CDN/R2).
      */
     public function resolvePublicUrl(?string $stored): string
     {
@@ -187,10 +218,15 @@ class StorageService
 
         $stored = trim($stored);
         $normalizer = new StorageUrlNormalizer;
+        $creds = $this->resolveRemoteCredentials();
+        $bucket = $creds['bucket'] ?? '';
 
         if (preg_match('#^https?://#i', $stored)) {
             if ($normalizer->isLocalStorageUrl($stored)) {
                 $stored = $normalizer->toRelativePath($stored);
+            } elseif (RemoteStorage::isLikelyNonPublicUrl($stored)) {
+                $key = RemoteStorage::extractObjectKeyFromUrl($stored, $bucket !== '' ? $bucket : null);
+                $stored = $key ?? $stored;
             } else {
                 return $stored;
             }
@@ -201,10 +237,20 @@ class StorageService
         $this->disk();
 
         if ($this->isLocal) {
-            return url('/storage/' . ltrim($stored, '/'));
+            return url('/storage/'.ltrim($stored, '/'));
         }
 
-        return $this->disk->url($stored);
+        $base = $this->publicBaseUrl();
+        if ($base !== '') {
+            return RemoteStorage::buildPublicUrl($base, $stored);
+        }
+
+        $adapterUrl = $this->disk->url($stored);
+        if (RemoteStorage::isLikelyNonPublicUrl($adapterUrl)) {
+            return url('/storage/'.ltrim($stored, '/'));
+        }
+
+        return $adapterUrl;
     }
 
     /**
@@ -218,10 +264,21 @@ class StorageService
 
         $value = trim($value);
         $normalizer = new StorageUrlNormalizer;
+        $creds = $this->resolveRemoteCredentials();
+        $bucket = $creds['bucket'] ?? '';
 
         if (preg_match('#^https?://#i', $value)) {
             if ($normalizer->isLocalStorageUrl($value)) {
                 return $normalizer->toRelativePath($value);
+            }
+
+            if (RemoteStorage::isLikelyNonPublicUrl($value)) {
+                return RemoteStorage::extractObjectKeyFromUrl($value, $bucket !== '' ? $bucket : null);
+            }
+
+            $key = RemoteStorage::extractObjectKeyFromUrl($value, $bucket !== '' ? $bucket : null);
+            if ($key !== null && $key !== '') {
+                return $key;
             }
 
             return $value;
@@ -274,7 +331,11 @@ class StorageService
         }
 
         if (preg_match('#^https?://#i', $value)) {
-            return (new StorageUrlNormalizer)->isLocalStorageUrl($value);
+            if ((new StorageUrlNormalizer)->isLocalStorageUrl($value)) {
+                return true;
+            }
+
+            return RemoteStorage::isLikelyNonPublicUrl($value);
         }
 
         if (str_starts_with($value, '/storage/')) {

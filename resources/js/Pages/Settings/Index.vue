@@ -423,6 +423,7 @@ async function testStorageConnection() {
             storage_s3_bucket: form.storage_s3_bucket ?? '',
             storage_s3_region: region,
             storage_s3_endpoint: form.storage_s3_endpoint ?? '',
+            storage_s3_url: (form.storage_s3_url ?? '').trim(),
         };
     try {
         const res = await window.axios.post('/plataforma/configuracoes/storage/test', payload);
@@ -786,13 +787,28 @@ const selectClass =
                                             />
                                         </div>
                                         <div class="sm:col-span-2">
-                                            <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">URL pública opcional (CDN ou domínio customizado)</label>
+                                            <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                                URL pública
+                                                <span v-if="form.storage_provider === 'r2'" class="text-red-600 dark:text-red-400">*</span>
+                                                <span v-else class="text-zinc-400">(opcional)</span>
+                                            </label>
                                             <input
                                                 v-model="form.storage_s3_url"
-                                                type="text"
+                                                type="url"
                                                 :class="inputClass"
-                                                placeholder="https://cdn.exemplo.com"
+                                                :placeholder="form.storage_provider === 'r2'
+                                                    ? 'https://pub-xxxx.r2.dev (R2 → bucket → Public access)'
+                                                    : 'https://cdn.exemplo.com'"
                                             />
+                                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                                <template v-if="form.storage_provider === 'r2'">
+                                                    Obrigatório no R2: use a URL <strong>pub-….r2.dev</strong> ou domínio customizado com acesso público.
+                                                    Não use o endpoint <code class="rounded bg-zinc-200 px-1 dark:bg-zinc-700">*.r2.cloudflarestorage.com</code> — ele não abre imagens no site.
+                                                </template>
+                                                <template v-else>
+                                                    CDN ou domínio público do bucket (recomendado para exibir arquivos no navegador).
+                                                </template>
+                                            </p>
                                         </div>
                                     </div>
                                 </template>

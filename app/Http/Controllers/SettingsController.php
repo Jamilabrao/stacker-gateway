@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Setting;
 use App\Services\LegalDocumentsService;
 use App\Services\PhysicalProductAccess;
+use App\Support\RemoteStorage;
 use App\Services\PlatformAuditService;
 use App\Support\HtmlSanitizer;
 use App\Support\CheckoutTranslations;
@@ -236,6 +237,8 @@ class SettingsController extends Controller
             $this->persistLegalSettings($request, $validated);
         }
 
+        $this->validateStorageSettings($validated, $tenantId);
+
         foreach ($validated as $key => $value) {
             if (in_array($key, ['smtp_password', 'hostinger_smtp_password', 'sendgrid_api_key', 'storage_s3_secret'], true)) {
                 continue;
@@ -250,6 +253,9 @@ class SettingsController extends Controller
             if (in_array($key, $alwaysSetKeys, true) || in_array($key, $emailKeys, true)) {
                 Setting::set($key, $value ?? '', $tenantId);
             } elseif (in_array($key, $storageKeys, true)) {
+                if ($key === 'storage_s3_url' && is_string($value)) {
+                    $value = RemoteStorage::normalizePublicBaseUrl($value);
+                }
                 Setting::set($key, $value ?? '', $tenantId);
             } elseif ($key === 'checkout_translations' || $key === 'currencies') {
                 if (is_array($value) && ! empty($value)) {
@@ -261,6 +267,40 @@ class SettingsController extends Controller
         }
 
         return back()->with('success', 'Configurações salvas.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function validateStorageSettings(array $validated, ?int $tenantId): void
+    {
+        $provider = $validated['storage_provider'] ?? Setting::get('storage_provider', 'local', $tenantId);
+        if (! in_array($provider, ['s3', 'wasabi', 'r2'], true)) {
+            return;
+        }
+
+        $publicUrl = RemoteStorage::normalizePublicBaseUrl((string) ($validated['storage_s3_url'] ?? Setting::get('storage_s3_url', '', $tenantId)));
+
+        if ($provider === 'r2' && $publicUrl === '') {
+            $cloudMode = (bool) config('getfy.cloud_mode', false);
+            $r2Public = RemoteStorage::normalizePublicBaseUrl((string) env('R2_PUBLIC_URL', ''));
+            $managed = $cloudMode
+                && $r2Public !== ''
+                && trim((string) ($validated['storage_s3_key'] ?? '')) === ''
+                && trim((string) ($validated['storage_s3_bucket'] ?? '')) === '';
+
+            if (! $managed) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'storage_s3_url' => 'Para Cloudflare R2, a URL pública é obrigatória (pub-*.r2.dev ou domínio customizado com acesso público ao bucket).',
+                ]);
+            }
+        }
+
+        if ($publicUrl !== '' && RemoteStorage::isR2ApiEndpoint($publicUrl)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'storage_s3_url' => 'Use a URL pública do bucket, não o endpoint S3 (*.r2.cloudflarestorage.com).',
+            ]);
+        }
     }
 
     /**
