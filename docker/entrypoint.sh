@@ -189,7 +189,11 @@ fi
 # na camada efêmera dele e o worker reiniciaria em loop (vendor ausente).
 GETFY_VENDOR_JUST_INSTALLED=0
 if [ ! -f vendor/autoload.php ]; then
-  composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+  git config --global --add safe.directory /var/www/html 2>/dev/null || true
+  if ! composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts; then
+    echo "composer install falhou. A imagem Docker deve usar PHP 8.3+ (rebuild: docker compose build --no-cache app)." >&2
+    exit 1
+  fi
   GETFY_VENDOR_JUST_INSTALLED=1
 fi
 

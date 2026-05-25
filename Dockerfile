@@ -1,4 +1,4 @@
-FROM php:8.2-cli-alpine AS php_base
+FROM php:8.3-cli-alpine AS php_base
 
 RUN apk add --no-cache \
     git unzip libzip-dev libpng-dev libjpeg-turbo-dev freetype-dev oniguruma-dev \
@@ -18,10 +18,14 @@ WORKDIR /var/www/html
 
 FROM php_base AS app
 
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+
 COPY . .
 COPY docker/entrypoint.sh /usr/local/bin/getfy-entrypoint
 
-RUN chmod +x /usr/local/bin/getfy-entrypoint \
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts \
+    && chmod +x /usr/local/bin/getfy-entrypoint \
     && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache .docker \
     && chmod -R 777 storage bootstrap/cache .docker
 
