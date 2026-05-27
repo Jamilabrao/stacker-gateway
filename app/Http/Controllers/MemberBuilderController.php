@@ -16,6 +16,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Models\MemberNotification;
 use App\Models\MemberPushSubscription;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use App\Services\MemberAreaResolver;
 use App\Services\MemberCommentService;
@@ -25,6 +26,8 @@ use App\Services\MemberProgressService;
 use App\Services\TeamAccessService;
 use App\Support\MemberAreaPwaIconUrls;
 use App\Support\UploadLimits;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -552,6 +555,135 @@ class MemberBuilderController extends Controller
             return response()->json(['message' => 'Seção removida.']);
         }
         return back()->with('success', 'Seção removida.');
+    }
+
+    /**
+     * Reordena seções do produto, módulos dentro de uma seção ou aulas dentro de um módulo (transação única).
+     *
+     * JSON: { "scope": "sections"|"modules"|"lessons", "ordered_ids": int[], "section_id"?: int, "module_id"?: int }
+     * `ordered_ids` deve conter exatamente os IDs esperados neste contexto, na nova ordem (posições 1…n).
+     */
+    public function reorder(Request $request, Product $produto): JsonResponse
+    {
+        $this->authorizeProduct($produto);
+        if ($produto->type !== Product::TYPE_AREA_MEMBROS) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'scope' => ['required', 'string', Rule::in(['sections', 'modules', 'lessons'])],
+            'ordered_ids' => ['present', 'array'],
+            'ordered_ids.*' => ['integer'],
+        ]);
+
+        if ($validated['scope'] === 'modules') {
+            $validated = array_merge($validated, $request->validate([
+                'section_id' => ['required', 'integer'],
+            ]));
+        } elseif ($validated['scope'] === 'lessons') {
+            $validated = array_merge($validated, $request->validate([
+                'module_id' => ['required', 'integer'],
+            ]));
+        }
+
+        $orderedIds = array_values(array_map(static fn ($id) => (int) $id, $validated['ordered_ids']));
+
+        DB::transaction(function () use ($produto, $validated, $orderedIds): void {
+            match ($validated['scope']) {
+                'sections' => $this->applyMemberSectionReorder($produto, $orderedIds),
+                'modules' => $this->applyMemberModuleReorder($produto, (int) $validated['section_id'], $orderedIds),
+                'lessons' => $this->applyMemberLessonReorder($produto, (int) $validated['module_id'], $orderedIds),
+            };
+        });
+
+        return response()->json(['message' => 'Ordem atualizada.']);
+    }
+
+    /** @param  array<int>  $orderedIds */
+    private function applyMemberSectionReorder(Product $produto, array $orderedIds): void
+    {
+        $existing = MemberSection::query()
+            ->where('product_id', $produto->id)
+            ->pluck('id')
+            ->map(static fn ($id) => (int) $id)
+            ->all();
+        $this->assertSameMemberReorderIdSet($orderedIds, $existing);
+
+        foreach ($orderedIds as $index => $id) {
+            MemberSection::query()->where('product_id', $produto->id)->whereKey($id)->update(['position' => $index + 1]);
+        }
+    }
+
+    /** @param  array<int>  $orderedIds */
+    private function applyMemberModuleReorder(Product $produto, int $sectionId, array $orderedIds): void
+    {
+        $section = MemberSection::query()
+            ->where('product_id', $produto->id)
+            ->whereKey($sectionId)
+            ->firstOrFail();
+
+        $existing = MemberModule::query()
+            ->where('product_id', $produto->id)
+            ->where('member_section_id', $section->id)
+            ->pluck('id')
+            ->map(static fn ($id) => (int) $id)
+            ->all();
+        $this->assertSameMemberReorderIdSet($orderedIds, $existing);
+
+        foreach ($orderedIds as $index => $id) {
+            MemberModule::query()
+                ->where('product_id', $produto->id)
+                ->where('member_section_id', $section->id)
+                ->whereKey($id)
+                ->update(['position' => $index + 1]);
+        }
+    }
+
+    /** @param  array<int>  $orderedIds */
+    private function applyMemberLessonReorder(Product $produto, int $moduleId, array $orderedIds): void
+    {
+        $module = MemberModule::query()
+            ->where('product_id', $produto->id)
+            ->whereKey($moduleId)
+            ->firstOrFail();
+
+        $existing = MemberLesson::query()
+            ->where('product_id', $produto->id)
+            ->where('member_module_id', $module->id)
+            ->pluck('id')
+            ->map(static fn ($id) => (int) $id)
+            ->all();
+        $this->assertSameMemberReorderIdSet($orderedIds, $existing);
+
+        foreach ($orderedIds as $index => $id) {
+            MemberLesson::query()
+                ->where('product_id', $produto->id)
+                ->where('member_module_id', $module->id)
+                ->whereKey($id)
+                ->update(['position' => $index + 1]);
+        }
+    }
+
+    /**
+     * @param  array<int>  $orderedIds
+     * @param  array<int>  $existingIds
+     */
+    private function assertSameMemberReorderIdSet(array $orderedIds, array $existingIds): void
+    {
+        if (count($orderedIds) !== count(array_unique($orderedIds))) {
+            throw ValidationException::withMessages([
+                'ordered_ids' => ['IDs duplicados não são permitidos.'],
+            ]);
+        }
+        $a = $existingIds;
+        $b = $orderedIds;
+        sort($a);
+        sort($b);
+        if ($a !== $b) {
+            throw ValidationException::withMessages([
+                'ordered_ids' => ['A lista não corresponde aos itens deste contexto.'],
+            ]);
+        }
     }
 
     // Modules

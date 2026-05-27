@@ -3,7 +3,7 @@ import { ref, watch, computed } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
-import { Search, Package } from 'lucide-vue-next';
+import { Search, Package, X, ExternalLink, Copy, Check } from 'lucide-vue-next';
 import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutPlatform });
@@ -72,19 +72,38 @@ function deleteProduct(product) {
 
 const productRows = computed(() => props.products?.data ?? []);
 
+const deliverableModalProduct = ref(null);
+const copiedUrl = ref(false);
+
+function openDeliverableModal(product) {
+    deliverableModalProduct.value = product;
+    copiedUrl.value = false;
+}
+
+function closeDeliverableModal() {
+    deliverableModalProduct.value = null;
+    copiedUrl.value = false;
+}
+
+async function copyDeliverableUrl(url) {
+    if (!url) return;
+    try {
+        await navigator.clipboard.writeText(url);
+        copiedUrl.value = true;
+        setTimeout(() => {
+            copiedUrl.value = false;
+        }, 2000);
+    } catch {
+        window.prompt('Copiar URL:', url);
+    }
+}
+
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 }
 
-function typeLabel(t) {
-    const m = {
-        aplicativo: 'Aplicativo',
-        area_membros: 'Área de membros',
-        area_membros_externa: 'Área externa',
-        link: 'Link',
-        link_pagamento: 'Link pagamento',
-    };
-    return m[t] || t || '—';
+function typeLabel(p) {
+    return p.type_label || p.type || '—';
 }
 </script>
 
@@ -174,7 +193,16 @@ function typeLabel(t) {
                                 <div class="text-zinc-900 dark:text-white">{{ p.infoprodutor_name }}</div>
                                 <div class="text-xs text-zinc-500">{{ p.infoprodutor_email || '—' }}</div>
                             </td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ typeLabel(p.type) }}</td>
+                            <td class="px-4 py-3">
+                                <button
+                                    type="button"
+                                    class="text-left font-medium text-[var(--color-primary)] underline-offset-2 hover:underline dark:text-[var(--color-primary)]"
+                                    :title="'Ver entregável: ' + typeLabel(p)"
+                                    @click="openDeliverableModal(p)"
+                                >
+                                    {{ typeLabel(p) }}
+                                </button>
+                            </td>
                             <td class="px-4 py-3 text-right tabular-nums text-zinc-800 dark:text-zinc-200">
                                 {{ formatBRL(p.price) }}
                                 <span class="text-xs text-zinc-500">{{ p.currency || 'BRL' }}</span>
@@ -257,5 +285,113 @@ function typeLabel(t) {
                 @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
             />
         </nav>
+
+        <!-- Modal entregável -->
+        <div
+            v-if="deliverableModalProduct"
+            class="fixed inset-0 z-[200000] flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deliverable-modal-title"
+            @click.self="closeDeliverableModal"
+        >
+            <div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-900">
+                <div class="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                        <h3 id="deliverable-modal-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
+                            {{ deliverableModalProduct.deliverable_preview?.title || 'Entregável' }}
+                        </h3>
+                        <p class="mt-1 text-sm text-zinc-500">{{ deliverableModalProduct.name }}</p>
+                        <p class="mt-0.5 text-xs text-zinc-400">{{ typeLabel(deliverableModalProduct) }}</p>
+                    </div>
+                    <button
+                        type="button"
+                        class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        aria-label="Fechar"
+                        @click="closeDeliverableModal"
+                    >
+                        <X class="h-5 w-5" />
+                    </button>
+                </div>
+
+                <p class="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                    {{ deliverableModalProduct.deliverable_preview?.description }}
+                </p>
+
+                <div
+                    v-if="deliverableModalProduct.deliverable_preview?.primary_url"
+                    class="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50"
+                >
+                    <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">URL principal</p>
+                    <p class="mt-2 break-all font-mono text-sm text-zinc-800 dark:text-zinc-200">
+                        {{ deliverableModalProduct.deliverable_preview.primary_url }}
+                    </p>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <a
+                            v-if="deliverableModalProduct.deliverable_preview.can_open"
+                            :href="deliverableModalProduct.deliverable_preview.primary_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                        >
+                            <ExternalLink class="h-4 w-4" />
+                            Abrir
+                        </a>
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+                            @click="copyDeliverableUrl(deliverableModalProduct.deliverable_preview.primary_url)"
+                        >
+                            <Check v-if="copiedUrl" class="h-4 w-4 text-emerald-600" />
+                            <Copy v-else class="h-4 w-4" />
+                            {{ copiedUrl ? 'Copiado' : 'Copiar' }}
+                        </button>
+                    </div>
+                </div>
+
+                <div
+                    v-if="
+                        deliverableModalProduct.deliverable_preview?.checkout_url &&
+                        deliverableModalProduct.deliverable_preview.checkout_url !==
+                            deliverableModalProduct.deliverable_preview?.primary_url
+                    "
+                    class="mt-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"
+                >
+                    <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Checkout</p>
+                    <p class="mt-2 break-all font-mono text-sm text-zinc-700 dark:text-zinc-300">
+                        {{ deliverableModalProduct.deliverable_preview.checkout_url }}
+                    </p>
+                    <a
+                        :href="deliverableModalProduct.deliverable_preview.checkout_url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[var(--color-primary)] hover:underline"
+                    >
+                        <ExternalLink class="h-3.5 w-3.5" />
+                        Abrir checkout
+                    </a>
+                </div>
+
+                <p
+                    v-if="deliverableModalProduct.deliverable_preview?.limitations"
+                    class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+                >
+                    {{ deliverableModalProduct.deliverable_preview.limitations }}
+                </p>
+
+                <div class="mt-6 flex flex-wrap justify-end gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+                    <Button type="button" variant="secondary" @click="closeDeliverableModal">Fechar</Button>
+                    <Button
+                        v-if="!deliverableModalProduct.admin_blocked"
+                        type="button"
+                        variant="secondary"
+                        class="!text-red-700 dark:!text-red-300"
+                        @click="setProductBlocked(deliverableModalProduct, true); closeDeliverableModal()"
+                    >
+                        Bloquear produto
+                    </Button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>

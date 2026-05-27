@@ -15,6 +15,7 @@ import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import { useI18n } from '@/composables/useI18n';
 import { sanitizeHtmlAllowlist } from '@/lib/sanitizeHtml';
+import { normalizeMoneyInput } from '@/lib/moneyDecimal';
 
 const props = defineProps({
     open: { type: Boolean, default: false },
@@ -84,7 +85,7 @@ function submit() {
     fd.append('description', form.description ?? '');
     fd.append('type', form.type);
     fd.append('billing_type', form.billing_type);
-    fd.append('price', String(form.price ?? ''));
+    fd.append('price', String(normalizeMoneyInput(form.price)));
     fd.append('currency', form.currency);
     fd.append('is_active', form.is_active ? '1' : '0');
     if (form.deliverable_link) {
@@ -294,8 +295,9 @@ function safePluginSectionHtml(html) {
                             <input
                                 v-model="form.price"
                                 type="number"
-                                step="0.01"
+                                step="any"
                                 min="0"
+                                inputmode="decimal"
                                 required
                                 class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 placeholder-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
                                 placeholder="0,00"

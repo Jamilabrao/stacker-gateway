@@ -23,6 +23,7 @@ use App\Services\PhysicalProductAccess;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Support\HtmlSanitizer;
+use App\Support\MoneyDecimal;
 use App\Gateways\GatewayRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -155,6 +156,11 @@ class ProdutosController extends Controller
         $validated['tenant_id'] = auth()->user()->tenant_id;
         $validated['slug'] = $validated['slug'] ?? Str::slug($validated['name']);
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
+        $validated['price'] = MoneyDecimal::storageFromBrl(
+            (float) $validated['price'],
+            (string) $validated['currency'],
+            $this->productRates()
+        );
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['refund_policy_days'] = 7;
         $this->assertPhysicalProductRules($validated['type'] ?? '', $validated['billing_type'] ?? '');
@@ -590,6 +596,11 @@ class ProdutosController extends Controller
 
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
+        $validated['price'] = MoneyDecimal::storageFromBrl(
+            (float) $validated['price'],
+            (string) $validated['currency'],
+            $this->productRates()
+        );
         $validated['refund_policy_days'] = ($validated['refund_policy_days'] ?? null) !== null
             ? (int) $validated['refund_policy_days']
             : null;
@@ -895,6 +906,7 @@ class ProdutosController extends Controller
         ]);
         $validated['product_id'] = $produto->id;
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $validated['price'] = MoneyDecimal::toFloat($validated['price']);
         $maxPosition = $produto->offers()->max('position') ?? 0;
         $validated['position'] = $maxPosition + 1;
         $validated['checkout_slug'] = ProductOffer::generateUniqueCheckoutSlug();
@@ -915,6 +927,7 @@ class ProdutosController extends Controller
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
         ]);
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $validated['price'] = MoneyDecimal::toFloat($validated['price']);
         $offer->update($validated);
 
         return back()->with('success', 'Oferta atualizada.');
@@ -955,7 +968,9 @@ class ProdutosController extends Controller
         }
         $validated['product_id'] = $produto->id;
         $validated['target_product_offer_id'] = $validated['target_product_offer_id'] ?? null;
-        $validated['price_override'] = isset($validated['price_override']) ? (float) $validated['price_override'] : null;
+        $validated['price_override'] = isset($validated['price_override'])
+            ? MoneyDecimal::toFloat($validated['price_override'])
+            : null;
         $maxPosition = $produto->orderBumps()->max('position') ?? 0;
         $validated['position'] = $maxPosition + 1;
         ProductOrderBump::create($validated);
@@ -989,7 +1004,9 @@ class ProdutosController extends Controller
             }
         }
         $validated['target_product_offer_id'] = $validated['target_product_offer_id'] ?? null;
-        $validated['price_override'] = isset($validated['price_override']) ? (float) $validated['price_override'] : null;
+        $validated['price_override'] = isset($validated['price_override'])
+            ? MoneyDecimal::toFloat($validated['price_override'])
+            : null;
         $bump->update($validated);
 
         return back()->with('success', 'Order bump atualizado.');
@@ -1020,6 +1037,7 @@ class ProdutosController extends Controller
         ]);
         $validated['product_id'] = $produto->id;
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $validated['price'] = MoneyDecimal::toFloat($validated['price']);
         $maxPosition = $produto->subscriptionPlans()->max('position') ?? 0;
         $validated['position'] = $maxPosition + 1;
         $validated['checkout_slug'] = SubscriptionPlan::generateUniqueCheckoutSlug();
@@ -1041,6 +1059,7 @@ class ProdutosController extends Controller
             'interval' => ['required', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
         ]);
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
+        $validated['price'] = MoneyDecimal::toFloat($validated['price']);
         $plan->update($validated);
 
         return back()->with('success', 'Plano atualizado.');
@@ -1107,15 +1126,20 @@ class ProdutosController extends Controller
         }
     }
 
+    /**
+     * @return array{brl_eur: float|string, brl_usd: float|string}
+     */
+    private function productRates(): array
+    {
+        return config('products.rates', ['brl_eur' => 0.16, 'brl_usd' => 0.18]);
+    }
+
     private function productToArray(Product $p, array $rates): array
     {
-        $priceBrl = (float) $p->price;
         $currency = $p->currency ?? 'BRL';
-        if ($currency !== 'BRL') {
-            $priceBrl = $currency === 'EUR' ? $priceBrl / ($rates['brl_eur'] ?? 0.16) : $priceBrl / ($rates['brl_usd'] ?? 0.18);
-        }
-        $priceEur = round($priceBrl * ($rates['brl_eur'] ?? 0.16), 2);
-        $priceUsd = round($priceBrl * ($rates['brl_usd'] ?? 0.18), 2);
+        $priceBrl = MoneyDecimal::brlFromStorage((float) $p->price, (string) $currency, $rates);
+        $priceEur = MoneyDecimal::toFloat(bcmul((string) $priceBrl, (string) ($rates['brl_eur'] ?? 0.16), 4));
+        $priceUsd = MoneyDecimal::toFloat(bcmul((string) $priceBrl, (string) ($rates['brl_usd'] ?? 0.18), 4));
 
         $imageUrl = $p->image
             ? app(StorageService::class)->url($p->image)
@@ -1139,9 +1163,9 @@ class ProdutosController extends Controller
             'billing_type_label' => $billingLabels[$billingType] ?? $billingType,
             'image' => $p->image,
             'image_url' => $imageUrl,
-            'price' => (float) $p->price,
-            'currency' => $p->currency ?? 'BRL',
-            'price_brl' => round($priceBrl, 2),
+            'price' => MoneyDecimal::toFloat($p->price),
+            'currency' => $currency,
+            'price_brl' => $priceBrl,
             'price_eur' => $priceEur,
             'price_usd' => $priceUsd,
             'is_active' => $p->is_active,

@@ -196,7 +196,7 @@ class AlunosController extends Controller
         if ($sendAccessEmail && ! empty($productIds)) {
             $products = Product::whereIn('id', $productIds)->get();
             foreach ($products as $product) {
-                if ($accessEmailService->sendForUserProduct($user, $product)) {
+                if ($accessEmailService->sendForUserProduct($user, $product)->success) {
                     $emailsSent++;
                 }
             }
@@ -385,7 +385,7 @@ class AlunosController extends Controller
                 if ($sendAccessEmail && ! empty($productIds)) {
                     $products = Product::whereIn('id', $productIds)->get();
                     foreach ($products as $product) {
-                        if ($accessEmailService->sendForUserProduct($user, $product)) {
+                        if ($accessEmailService->sendForUserProduct($user, $product)->success) {
                             $emailsSent++;
                         }
                     }

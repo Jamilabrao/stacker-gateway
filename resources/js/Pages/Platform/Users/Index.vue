@@ -311,6 +311,9 @@ function formatBlockUntilForInput(iso) {
                         <th class="px-4 py-3">E-mail</th>
                         <th class="px-4 py-3">Documento</th>
                         <th class="px-4 py-3">Status</th>
+                        <th class="px-4 py-3 text-right" title="Pedidos concluídos via gateway (exclui aprovação manual)">
+                            Vendas totais
+                        </th>
                         <th class="px-4 py-3 text-right">Saldo</th>
                         <th class="px-4 py-3 text-right">Pendente</th>
                         <th class="px-4 py-3 text-right">Ações</th>
@@ -323,6 +326,9 @@ function formatBlockUntilForInput(iso) {
                         <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">{{ u.document || '—' }}</td>
                         <td class="px-4 py-3">
                             <span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ statusLabel(u.account_status) }}</span>
+                        </td>
+                        <td class="px-4 py-3 text-right tabular-nums font-medium text-zinc-900 dark:text-white">
+                            {{ formatBRL(u.vendas_totais) }}
                         </td>
                         <td class="px-4 py-3 text-right tabular-nums">{{ formatBRL(u.saldo_disponivel) }}</td>
                         <td class="px-4 py-3 text-right tabular-nums text-zinc-500">{{ formatBRL(u.saldo_pix) }}</td>
@@ -363,7 +369,7 @@ function formatBlockUntilForInput(iso) {
                         </td>
                     </tr>
                     <tr v-if="!users.length">
-                        <td colspan="7" class="px-4 py-10 text-center text-zinc-500">Nenhum infoprodutor cadastrado.</td>
+                        <td colspan="8" class="px-4 py-10 text-center text-zinc-500">Nenhum infoprodutor cadastrado.</td>
                     </tr>
                 </tbody>
             </table>

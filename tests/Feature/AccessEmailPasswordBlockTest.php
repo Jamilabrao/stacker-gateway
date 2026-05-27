@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Mail\AccessGrantedMail;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\AccessEmailService;
 use Illuminate\Support\Facades\Mail;
@@ -12,6 +13,17 @@ use Tests\TestCase;
 
 class AccessEmailPasswordBlockTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Setting::set('smtp_host', 'smtp.example.com', null);
+        Setting::set('smtp_port', '587', null);
+        Setting::set('smtp_username', 'user', null);
+        Setting::set('smtp_password', encrypt('secret'), null);
+        Setting::set('smtp_encryption', 'tls', null);
+        Setting::set('email_provider', 'smtp', null);
+    }
+
     public function test_appends_password_block_when_template_has_no_senha_placeholder(): void
     {
         Mail::fake();
@@ -45,7 +57,7 @@ class AccessEmailPasswordBlockTest extends TestCase
 
         $order->load(['product', 'user']);
         $ok = app(AccessEmailService::class)->sendForOrder($order, true);
-        $this->assertTrue($ok);
+        $this->assertTrue($ok->success);
 
         Mail::assertSent(AccessGrantedMail::class, function (AccessGrantedMail $mail) use ($plain) {
             return str_contains($mail->htmlBody, $plain)

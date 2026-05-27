@@ -22,6 +22,38 @@ class SalesAchievementsService
     }
 
     /**
+     * @return array<int, float> tenant_id => total
+     */
+    public function getValidSalesTotalsGrouped(): array
+    {
+        if (! Schema::hasTable('orders')) {
+            return [];
+        }
+
+        $rows = Order::query()
+            ->where('status', 'completed')
+            ->where(function ($q) {
+                $q->where('approved_manually', false)
+                    ->orWhereNull('approved_manually');
+            })
+            ->whereNotNull('gateway')
+            ->where('gateway', '!=', 'manual')
+            ->selectRaw('tenant_id, SUM(amount) as total')
+            ->groupBy('tenant_id')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $row) {
+            $tid = (int) ($row->tenant_id ?? 0);
+            if ($tid > 0) {
+                $out[$tid] = round((float) $row->total, 2);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * @return array{total_valid_sales: float, current_achievement: array|null, next_achievement: array|null, progress_percent: float, achievements: array}
      */
     public function getProgressForTenant(?int $tenantId): array

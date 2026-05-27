@@ -549,13 +549,14 @@ class VendasController extends Controller
             return response()->json(['success' => false, 'message' => 'Pedido não encontrado.'], 404);
         }
 
-        if ($accessEmailService->sendForOrder($order, true)) {
+        $result = $accessEmailService->sendForOrder($order, true);
+        if ($result->success) {
             return response()->json(['success' => true]);
         }
 
         return response()->json([
             'success' => false,
-            'message' => 'Não foi possível reenviar o e-mail. Verifique se o produto possui template de e-mail configurado.',
+            'message' => $result->message,
         ], 422);
     }
 

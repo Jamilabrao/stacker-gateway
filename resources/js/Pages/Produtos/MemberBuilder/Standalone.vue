@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, reactive, nextTick, onMounted, watch } from 'vue';
 import axios from 'axios';
+import Draggable from 'vuedraggable';
 import MemberBuilderPreview from '@/components/member-builder/MemberBuilderPreview.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -30,6 +31,7 @@ import {
     BookOpen,
     Trophy,
     BarChart3,
+    GripVertical,
 } from 'lucide-vue-next';
 import {
     communityPageIconComponents,
@@ -302,6 +304,32 @@ watch(
         }
     },
     { immediate: true }
+);
+
+/** Cópia reativa da árvore (aba Módulos) para drag-and-drop; ressincroniza após reload e mutações nos props. */
+function cloneMemberSectionsStructure(sections) {
+    try {
+        const parsed = JSON.parse(JSON.stringify(sections ?? []));
+        for (const s of parsed) {
+            if (!Array.isArray(s.modules)) s.modules = [];
+            for (const m of s.modules) {
+                if (!Array.isArray(m.lessons)) m.lessons = [];
+            }
+        }
+        return parsed;
+    } catch {
+        return [];
+    }
+}
+
+const courseStructureSections = ref(cloneMemberSectionsStructure(props.produto.sections));
+
+watch(
+    () => props.produto.sections,
+    (next) => {
+        courseStructureSections.value = cloneMemberSectionsStructure(next);
+    },
+    { deep: true }
 );
 
 const headerItems = computed({
@@ -596,7 +624,7 @@ const lessonPdfUploading = ref(false);
 const modulosSelectedModule = computed(() => {
     const id = modulosSelectedModuleId.value;
     if (!id) return null;
-    for (const s of props.produto.sections ?? []) {
+    for (const s of courseStructureSections.value ?? []) {
         const mod = s.modules?.find((m) => m.id === id);
         if (mod) return mod;
     }
@@ -610,7 +638,7 @@ onMounted(() => {
     if (!moduleParam || t !== 'modulos') return;
 
     const moduleId = Number.isNaN(Number(moduleParam)) ? moduleParam : Number(moduleParam);
-    const exists = (props.produto.sections ?? []).some((section) =>
+    const exists = (courseStructureSections.value ?? []).some((section) =>
         (section.modules ?? []).some((mod) => mod.id === moduleId)
     );
     if (exists) {
@@ -634,7 +662,7 @@ function selectModuleForAulas(moduleId) {
     modulosSelectedModuleId.value = moduleId;
     modulosLessonForm.value = null;
 
-    const section = props.produto.sections?.find((s) => s.modules?.some((m) => m.id === moduleId));
+    const section = courseStructureSections.value?.find((s) => s.modules?.some((m) => m.id === moduleId));
     if (section?.id) {
         expandedSections.value = new Set([...expandedSections.value, section.id]);
     }
@@ -800,7 +828,7 @@ function toggleModule(moduleId) {
 }
 
 function expandAllModulos() {
-    const sections = props.produto.sections ?? [];
+    const sections = courseStructureSections.value ?? [];
     expandedSections.value = new Set(sections.map((s) => s.id));
     expandedModules.value = new Set(
         sections.flatMap((s) => (s.modules ?? []).map((m) => m.id))
@@ -906,7 +934,7 @@ async function saveModuleTitle() {
     const id = editingModuleId.value;
     if (!id) return;
     const mod = editingModule.value;
-    const section = props.produto.sections?.find((s) => s.modules?.some((m) => m.id === id));
+    const section = courseStructureSections.value?.find((s) => s.modules?.some((m) => m.id === id));
     const sectionType = section?.section_type ?? 'courses';
     const payload = { title: editingModuleTitle.value };
     if (sectionType === 'courses') {
@@ -942,15 +970,17 @@ async function setModuleShowTitleOnCover(value) {
     if (!id) return;
     try {
         await axios.put(`${base.value}/modules/${id}`, { show_title_on_cover: value }, { headers: headers() });
-        const mod = props.produto.sections?.flatMap((s) => s.modules ?? []).find((m) => m.id === id);
-        if (mod) mod.show_title_on_cover = value;
+        const modClone = courseStructureSections.value?.flatMap((s) => s.modules ?? []).find((m) => m.id === id);
+        if (modClone) modClone.show_title_on_cover = value;
+        const modProp = props.produto.sections?.flatMap((s) => s.modules ?? []).find((m) => m.id === id);
+        if (modProp) modProp.show_title_on_cover = value;
     } catch (_) {}
 }
 
 const editingModule = computed(() => {
     const id = editingModuleId.value;
     if (!id) return null;
-    for (const s of props.produto.sections ?? []) {
+    for (const s of courseStructureSections.value ?? []) {
         const mod = s.modules?.find((m) => m.id === id);
         if (mod) return mod;
     }
@@ -960,7 +990,7 @@ const editingModule = computed(() => {
 const editingModuleSection = computed(() => {
     const id = editingModuleId.value;
     if (!id) return null;
-    return props.produto.sections?.find((s) => s.modules?.some((m) => m.id === id)) ?? null;
+    return courseStructureSections.value?.find((s) => s.modules?.some((m) => m.id === id)) ?? null;
 });
 
 const moduleThumbnailUploading = ref(false);
@@ -998,6 +1028,52 @@ const headers = () => ({
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
 });
+
+const memberReorderSaving = ref(false);
+
+function memberReorderIdsEqual(a, b) {
+    return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
+async function persistMemberStructureReorder(body) {
+    if (memberReorderSaving.value) return;
+    memberReorderSaving.value = true;
+    try {
+        await axios.post(`${base.value}/reorder`, body, { headers: headers() });
+        reload();
+    } catch (_) {
+        courseStructureSections.value = cloneMemberSectionsStructure(props.produto.sections);
+    } finally {
+        memberReorderSaving.value = false;
+    }
+}
+
+function onMemberSectionsReorderEnd() {
+    const ids = courseStructureSections.value.map((s) => s.id);
+    const original = (props.produto.sections ?? []).map((s) => s.id);
+    if (memberReorderIdsEqual(ids, original)) return;
+    persistMemberStructureReorder({ scope: 'sections', ordered_ids: ids });
+}
+
+function onMemberModulesReorderEnd(sectionId) {
+    const section = courseStructureSections.value.find((s) => s.id === sectionId);
+    if (!section?.modules) return;
+    const ids = section.modules.map((m) => m.id);
+    const origSection = (props.produto.sections ?? []).find((s) => s.id === sectionId);
+    const origIds = (origSection?.modules ?? []).map((m) => m.id);
+    if (memberReorderIdsEqual(ids, origIds)) return;
+    persistMemberStructureReorder({ scope: 'modules', section_id: sectionId, ordered_ids: ids });
+}
+
+function onMemberLessonsReorderEnd() {
+    const mid = modulosSelectedModuleId.value;
+    if (!mid || !modulosSelectedModule.value?.lessons) return;
+    const ids = modulosSelectedModule.value.lessons.map((l) => l.id);
+    const origMod = (props.produto.sections ?? []).flatMap((s) => s.modules ?? []).find((m) => m.id === mid);
+    const origIds = (origMod?.lessons ?? []).map((l) => l.id);
+    if (memberReorderIdsEqual(ids, origIds)) return;
+    persistMemberStructureReorder({ scope: 'lessons', module_id: mid, ordered_ids: ids });
+}
 
 async function saveConfig() {
     processing.value = true;
@@ -1317,7 +1393,7 @@ async function deleteSection(sectionId) {
     });
 }
 function openModuleModal(sectionId) {
-    const section = props.produto.sections?.find((s) => s.id === sectionId);
+    const section = courseStructureSections.value?.find((s) => s.id === sectionId);
     moduleModalSectionId.value = sectionId;
     moduleModalSectionType.value = section?.section_type ?? 'courses';
     moduleModalCoverMode.value = section?.cover_mode ?? 'vertical';
@@ -1402,10 +1478,18 @@ async function confirmNewModule() {
                 newModule = { ...newModule, thumbnail: up.data.url };
             }
         }
+        if (!Array.isArray(newModule.lessons)) newModule.lessons = [];
         const section = props.produto.sections?.find((s) => s.id === sectionId);
         if (section) {
             if (!section.modules) section.modules = [];
             section.modules.push(newModule);
+        }
+        const sectionClone = courseStructureSections.value.find((s) => s.id === sectionId);
+        if (sectionClone) {
+            if (!sectionClone.modules) sectionClone.modules = [];
+            sectionClone.modules.push(JSON.parse(JSON.stringify(newModule)));
+        }
+        if (section || sectionClone) {
             expandedSections.value = new Set([...expandedSections.value, sectionId]);
             expandedModules.value = new Set([...expandedModules.value, newModule.id]);
         }
@@ -2073,13 +2157,33 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             <button type="button" class="text-xs text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300" @click="expandAllModulos">Expandir tudo</button>
                             <button type="button" class="text-xs text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300" @click="collapseAllModulos">Recolher tudo</button>
                         </div>
-                        <div class="space-y-2">
-                            <template v-for="section in produto.sections" :key="section.id">
+                        <p v-if="memberReorderSaving" class="mb-2 text-xs text-sky-600 dark:text-sky-400">Salvando ordem…</p>
+                        <Draggable
+                            v-model="courseStructureSections"
+                            tag="div"
+                            :component-data="{ class: 'space-y-2' }"
+                            item-key="id"
+                            handle=".mb-drag-handle--section"
+                            :animation="160"
+                            ghost-class="opacity-60"
+                            :disabled="memberReorderSaving"
+                            @end="onMemberSectionsReorderEnd"
+                        >
+                            <template #item="{ element: section }">
                                 <div class="min-w-0 rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
                                     <div class="flex min-w-0 items-start gap-2 py-2 px-3">
                                         <button type="button" class="mt-0.5 shrink-0 rounded p-0.5 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300" @click="toggleSection(section.id)" aria-label="Expandir ou recolher">
                                             <ChevronRight v-if="!expandedSections.has(section.id)" class="h-4 w-4" />
                                             <ChevronDown v-else class="h-4 w-4" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="mb-drag-handle--section mt-0.5 shrink-0 cursor-grab rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 active:cursor-grabbing dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                                            title="Arrastar para reordenar"
+                                            aria-label="Arrastar seção"
+                                            @click.prevent
+                                        >
+                                            <GripVertical class="h-4 w-4" />
                                         </button>
                                         <div class="min-w-0 flex-1 flex flex-col gap-2">
                                             <!-- Tags sempre em cima -->
@@ -2141,10 +2245,19 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                     <div v-if="expandedSections.has(section.id)" class="min-w-0 border-t border-zinc-200 bg-zinc-50/50 px-3 pb-3 pt-2 dark:border-zinc-700 dark:bg-zinc-800/30">
                                         <!-- Seção tipo Cursos/Aulas: grid de cards de módulos -->
                                         <template v-if="(section.section_type ?? 'courses') === 'courses'">
-                                            <div class="grid grid-cols-3 gap-2">
+                                            <Draggable
+                                                v-model="section.modules"
+                                                tag="div"
+                                                :component-data="{ class: 'grid grid-cols-3 gap-2' }"
+                                                item-key="id"
+                                                handle=".mb-drag-handle--module"
+                                                :animation="160"
+                                                ghost-class="opacity-60"
+                                                :disabled="memberReorderSaving"
+                                                @end="onMemberModulesReorderEnd(section.id)"
+                                            >
+                                                <template #item="{ element: mod }">
                                                 <div
-                                                    v-for="mod in section.modules"
-                                                    :key="mod.id"
                                                     class="flex flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm transition dark:border-zinc-700 dark:bg-zinc-800/80"
                                                     :class="{ 'ring-2 ring-sky-500/50 dark:ring-sky-400/40': modulosSelectedModuleId === mod.id }"
                                                 >
@@ -2161,12 +2274,16 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                         </div>
                                                     </button>
                                                     <div class="flex items-center gap-0.5 border-t border-zinc-200 p-1 dark:border-zinc-700">
+                                                        <button type="button" class="mb-drag-handle--module shrink-0 cursor-grab rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 active:cursor-grabbing dark:hover:bg-zinc-700 dark:hover:text-zinc-300" title="Arrastar para reordenar" aria-label="Arrastar módulo" @click.prevent>
+                                                            <GripVertical class="h-3 w-3" />
+                                                        </button>
                                                         <Button size="sm" variant="outline" class="!py-0.5 !text-[10px] flex-1 min-w-0" @click.stop="selectModuleForAulas(mod.id)">Aulas</Button>
                                                         <button type="button" class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-300" title="Editar módulo" @click.stop="openModuleEdit(mod)"><Pencil class="h-3 w-3" /></button>
                                                         <button type="button" class="rounded p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Remover módulo" @click.stop="deleteModule(mod.id)"><Trash2 class="h-3 w-3" /></button>
                                                     </div>
                                                 </div>
-                                            </div>
+                                                </template>
+                                            </Draggable>
                                             <!-- Edição do módulo (quando editingModuleId está neste módulo da seção) -->
                                             <template v-for="mod in section.modules" :key="'edit-' + mod.id">
                                                 <div v-if="editingModuleId === mod.id" class="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-800/50">
@@ -2236,10 +2353,24 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         </template>
                                         <!-- Seção tipo Outros produtos -->
                                         <template v-else-if="(section.section_type ?? 'courses') === 'products'">
-                                            <template v-for="mod in section.modules" :key="mod.id">
-                                                <div class="ml-2 mt-2 min-w-0 rounded-md border border-zinc-200 bg-white/80 dark:border-zinc-600 dark:bg-zinc-800/50">
+                                            <Draggable
+                                                v-model="section.modules"
+                                                tag="div"
+                                                :component-data="{ class: 'ml-2 mt-2 space-y-2' }"
+                                                item-key="id"
+                                                handle=".mb-drag-handle--module-list"
+                                                :animation="160"
+                                                ghost-class="opacity-60"
+                                                :disabled="memberReorderSaving"
+                                                @end="onMemberModulesReorderEnd(section.id)"
+                                            >
+                                                <template #item="{ element: mod }">
+                                                <div class="min-w-0 rounded-md border border-zinc-200 bg-white/80 dark:border-zinc-600 dark:bg-zinc-800/50">
                                                     <div class="flex min-w-0 flex-wrap items-center gap-2 py-1.5 px-2">
                                                         <span class="flex shrink-0 items-center gap-1 rounded bg-zinc-100/80 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"><ShoppingBag class="h-3 w-3" /> Produto</span>
+                                                        <button type="button" class="mb-drag-handle--module-list shrink-0 cursor-grab rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 active:cursor-grabbing dark:hover:bg-zinc-700 dark:hover:text-zinc-300" title="Arrastar para reordenar" aria-label="Arrastar módulo" @click.prevent>
+                                                            <GripVertical class="h-3.5 w-3.5" />
+                                                        </button>
                                                         <template v-if="editingModuleId === mod.id">
                                                             <div class="flex min-w-0 flex-1 flex-col gap-2">
                                                                 <input v-model="editingModuleTitle" type="text" :class="inputClass" class="!py-1.5 !text-xs min-w-0 w-full" placeholder="Título" @keydown.enter="saveModuleTitle" @keydown.escape="cancelEdit" />
@@ -2297,14 +2428,29 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                         </template>
                                                     </div>
                                                 </div>
-                                            </template>
+                                                </template>
+                                            </Draggable>
                                         </template>
                                         <!-- Seção tipo Links externos -->
                                         <template v-else>
-                                            <template v-for="mod in section.modules" :key="mod.id">
-                                                <div class="ml-2 mt-2 min-w-0 rounded-md border border-zinc-200 bg-white/80 dark:border-zinc-600 dark:bg-zinc-800/50">
+                                            <Draggable
+                                                v-model="section.modules"
+                                                tag="div"
+                                                :component-data="{ class: 'ml-2 mt-2 space-y-2' }"
+                                                item-key="id"
+                                                handle=".mb-drag-handle--module-list"
+                                                :animation="160"
+                                                ghost-class="opacity-60"
+                                                :disabled="memberReorderSaving"
+                                                @end="onMemberModulesReorderEnd(section.id)"
+                                            >
+                                                <template #item="{ element: mod }">
+                                                <div class="min-w-0 rounded-md border border-zinc-200 bg-white/80 dark:border-zinc-600 dark:bg-zinc-800/50">
                                                     <div class="flex min-w-0 flex-wrap items-center gap-2 py-1.5 px-2">
                                                         <span class="flex shrink-0 items-center gap-1 rounded bg-zinc-100/80 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"><ExternalLink class="h-3 w-3" /> Link</span>
+                                                        <button type="button" class="mb-drag-handle--module-list shrink-0 cursor-grab rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 active:cursor-grabbing dark:hover:bg-zinc-700 dark:hover:text-zinc-300" title="Arrastar para reordenar" aria-label="Arrastar módulo" @click.prevent>
+                                                            <GripVertical class="h-3.5 w-3.5" />
+                                                        </button>
                                                         <template v-if="editingModuleId === mod.id">
                                                             <div class="flex min-w-0 flex-1 flex-col gap-2">
                                                                 <input v-model="editingModuleTitle" type="text" :class="inputClass" class="!py-1.5 !text-xs min-w-0 w-full" placeholder="Título" @keydown.enter="saveModuleTitle" @keydown.escape="cancelEdit" />
@@ -2354,14 +2500,15 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                         </template>
                                                     </div>
                                                 </div>
-                                            </template>
+                                                </template>
+                                            </Draggable>
                                         </template>
                                         <p v-if="!section.modules?.length" class="ml-4 mt-2 text-xs text-zinc-400 dark:text-zinc-500">Nenhum módulo. Clique em + Módulo.</p>
                                     </div>
                                 </div>
                             </template>
-                            <p v-if="!produto.sections?.length" class="rounded-lg border border-dashed border-zinc-300 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">Nenhuma seção. Clique em &quot;Nova seção&quot; para começar.</p>
-                        </div>
+                        </Draggable>
+                            <p v-if="!courseStructureSections?.length" class="rounded-lg border border-dashed border-zinc-300 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">Nenhuma seção. Clique em &quot;Nova seção&quot; para começar.</p>
                             </div>
 
                             <!-- Backdrop mobile: fecha o sidebar ao clicar (só abaixo de lg) -->
@@ -2385,14 +2532,32 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                     <p v-if="modulosSelectedModule" class="mb-3 truncate text-xs text-zinc-500 dark:text-zinc-400">{{ modulosSelectedModule.title }}</p>
 
                                     <template v-if="!modulosLessonForm">
-                                        <ul class="space-y-1">
+                                        <Draggable
+                                            v-if="modulosSelectedModule"
+                                            v-model="modulosSelectedModule.lessons"
+                                            tag="ul"
+                                            :component-data="{ class: 'space-y-1' }"
+                                            item-key="id"
+                                            handle=".mb-drag-handle--lesson"
+                                            :animation="160"
+                                            ghost-class="opacity-60"
+                                            :disabled="memberReorderSaving"
+                                            @end="onMemberLessonsReorderEnd"
+                                        >
+                                            <template #item="{ element: lesson }">
                                             <li
-                                                v-for="lesson in (modulosSelectedModule?.lessons ?? [])"
-                                                :key="lesson.id"
-                                                class="flex cursor-pointer items-center justify-between gap-2 rounded-lg py-2 px-2 text-sm transition hover:bg-zinc-200/80 dark:hover:bg-zinc-700/50"
-                                                @click="openModulosLessonForm(lesson)"
+                                                class="flex items-center justify-between gap-2 rounded-lg py-2 px-2 text-sm transition hover:bg-zinc-200/80 dark:hover:bg-zinc-700/50"
                                             >
-                                                <span class="flex min-w-0 flex-1 items-center gap-2 truncate">
+                                                <button
+                                                    type="button"
+                                                    class="mb-drag-handle--lesson shrink-0 cursor-grab rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 active:cursor-grabbing dark:hover:bg-zinc-600 dark:hover:text-zinc-300"
+                                                    title="Arrastar para reordenar"
+                                                    aria-label="Arrastar aula"
+                                                    @click.prevent
+                                                >
+                                                    <GripVertical class="h-4 w-4" />
+                                                </button>
+                                                <span class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate" @click="openModulosLessonForm(lesson)">
                                                     <FileVideo v-if="lesson.type === 'video'" class="h-4 w-4 shrink-0 text-zinc-500" />
                                                     <Link v-else-if="lesson.type === 'link'" class="h-4 w-4 shrink-0 text-zinc-500" />
                                                     <FileText v-else class="h-4 w-4 shrink-0 text-zinc-500" />
@@ -2400,7 +2565,8 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                 </span>
                                                 <button type="button" class="shrink-0 rounded p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" title="Remover aula" @click.stop="deleteLesson(lesson.id)"><Trash2 class="h-3 w-3" /></button>
                                             </li>
-                                        </ul>
+                                            </template>
+                                        </Draggable>
                                         <p v-if="!modulosSelectedModule?.lessons?.length" class="py-3 text-xs text-zinc-500 dark:text-zinc-400">Nenhuma aula neste módulo.</p>
                                         <Button size="sm" class="mt-3 w-full" @click="openModulosLessonForm(null)">
                                             <Plus class="mr-2 h-4 w-4" />

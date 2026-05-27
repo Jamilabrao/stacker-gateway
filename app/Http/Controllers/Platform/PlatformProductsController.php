@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
+use App\Services\ProductDeliverablePreviewService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -15,6 +16,10 @@ use Inertia\Response;
 
 class PlatformProductsController extends Controller
 {
+    public function __construct(
+        protected ProductDeliverablePreviewService $deliverablePreview,
+    ) {}
+
     public function index(Request $request): Response
     {
         $q = trim((string) $request->query('q', ''));
@@ -30,7 +35,7 @@ class PlatformProductsController extends Controller
 
         if (Schema::hasTable('products') && Schema::hasColumn('products', 'admin_blocked')) {
             $query = Product::query()
-                ->with(['tenantOwner:id,name,email'])
+                ->with(['tenantOwner:id,name,email', 'memberAreaDomain'])
                 ->orderByDesc('created_at');
 
             if ($q !== '') {
@@ -51,6 +56,8 @@ class PlatformProductsController extends Controller
                     'name' => $p->name,
                     'checkout_slug' => $p->checkout_slug,
                     'type' => $p->type,
+                    'type_label' => $this->deliverablePreview->typeLabel((string) $p->type),
+                    'deliverable_preview' => $this->deliverablePreview->forAdmin($p),
                     'price' => (float) $p->price,
                     'currency' => $p->currency ?? 'BRL',
                     'is_active' => (bool) $p->is_active,

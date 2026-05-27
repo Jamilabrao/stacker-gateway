@@ -92,7 +92,15 @@ function amountClass(n) {
             {{ page.props.flash.success }}
         </p>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                <p class="text-xs uppercase text-zinc-500" title="Pedidos concluídos via gateway (exclui aprovação manual)">
+                    Vendas totais
+                </p>
+                <p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
+                    {{ formatBRL(merchant.vendas_totais) }}
+                </p>
+            </div>
             <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800">
                 <p class="text-xs uppercase text-zinc-500">Disponível</p>
                 <p

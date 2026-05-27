@@ -6,10 +6,12 @@ use App\Mail\AccessGrantedMail;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Support\AccessEmailSendResult;
 use App\Support\EmailLogoHtml;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\URL;
 
 class AccessEmailService
 {
@@ -18,10 +20,7 @@ class AccessEmailService
         protected MemberAreaResolver $memberAreaResolver,
     ) {}
 
-    /**
-     * Send access email for an order. Returns true on success, false otherwise.
-     */
-    public function sendForOrder(Order $order, bool $force = false): bool
+    public function sendForOrder(Order $order, bool $force = false): AccessEmailSendResult
     {
         Log::info('AccessEmailService: tentando enviar e-mail de acesso.', ['order_id' => $order->id]);
 
@@ -30,7 +29,10 @@ class AccessEmailService
         if (! $product) {
             Log::warning('AccessEmailService: e-mail não enviado — pedido sem produto.', ['order_id' => $order->id]);
 
-            return false;
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_NO_PRODUCT,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_NO_PRODUCT)
+            );
         }
 
         $productType = $product->type;
@@ -50,7 +52,10 @@ class AccessEmailService
                 'product_type' => $productType,
             ]);
 
-            return false;
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_LINK_PAGAMENTO,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_LINK_PAGAMENTO)
+            );
         }
 
         if ($product->type === Product::TYPE_PRODUTO_FISICO) {
@@ -73,11 +78,14 @@ class AccessEmailService
                 'product_type' => $productType,
             ]);
 
-            return false;
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_INVALID_EMAIL,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_INVALID_EMAIL)
+            );
         }
 
         $customerName = $order->user?->name ?? explode('@', $customerEmail)[0] ?? 'Cliente';
-        $linkAcesso = $this->resolveAccessLinkForProduct($product);
+        $linkAcesso = $this->resolveAccessLinkForProduct($product, $order->user);
 
         if (config('app.debug') && $product->type === Product::TYPE_AREA_MEMBROS) {
             Log::debug('AccessEmailService: link_acesso', ['order_id' => $order->id, 'link' => $linkAcesso]);
@@ -111,7 +119,6 @@ class AccessEmailService
             ]);
         }
 
-        // Usar o tenant do produto como fonte de verdade
         $tenantIdForMail = $order->tenant_id ?? $product->tenant_id;
         $isRenewal = (bool) $order->is_renewal;
 
@@ -123,7 +130,7 @@ class AccessEmailService
                 'tenant_id_for_mail' => $tenantIdForMail,
             ]);
 
-            return true;
+            return AccessEmailSendResult::ok();
         }
 
         if ($isRenewal) {
@@ -143,8 +150,6 @@ class AccessEmailService
             ];
             $subject = str_replace(array_keys($replace), array_values($replace), $subject);
             $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
-            // A logo do e-mail deve sempre refletir a marca configurada no admin (branding global/tenant).
-            // Mantemos o campo de logo do template (por compatibilidade), mas priorizamos o branding.
             $brandingLogo = BrandingEmailData::forTenant($tenantIdForMail)['logo_url'] ?? null;
             if (is_string($brandingLogo) && $brandingLogo !== '') {
                 $bodyHtml = $this->prependLogoToBody($brandingLogo, $bodyHtml);
@@ -157,51 +162,35 @@ class AccessEmailService
             }
         }
 
-        try {
-            $sent = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template);
-            if (! $sent) {
-                return false;
-            }
-
-            Cache::put($cacheKey, true, $cacheTtl);
-
-            Log::info($isRenewal ? 'AccessEmailService: e-mail de renovação enviado.' : 'AccessEmailService: e-mail de acesso enviado.', [
-                'order_id' => $order->id,
-                'product_type' => $productType,
-                'tenant_id_for_mail' => $tenantIdForMail,
-                'to' => $customerEmail,
-            ]);
-
-            if ($passwordCacheKey !== null) {
-                Cache::forget($passwordCacheKey);
-            }
-
-            $meta = $order->metadata ?? [];
-            if (! empty($meta['access_password_temp'])) {
-                unset($meta['access_password_temp']);
-                $order->update(['metadata' => $meta]);
-            }
-
-            return true;
-        } catch (\Throwable $e) {
-            $message = $e->getMessage();
-            $context = [
-                'order_id' => $order->id,
-                'product_type' => $productType,
-                'tenant_id_for_mail' => $tenantIdForMail,
-                'message' => $message,
-            ];
-            if (str_contains($message, '554') && str_contains($message, 'hPanel')) {
-                $context['hint'] = 'Hostinger rejeitou o envio: conta/SMTP pode estar desativada no hPanel. Ative a conta de e-mail e o envio por SMTP em Email no hPanel.';
-            }
-            Log::error('AccessEmailService: e-mail não enviado — exceção ao enviar.', $context);
-
-            return false;
+        $sendResult = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template);
+        if (! $sendResult->success) {
+            return $sendResult;
         }
+
+        Cache::put($cacheKey, true, $cacheTtl);
+
+        Log::info($isRenewal ? 'AccessEmailService: e-mail de renovação enviado.' : 'AccessEmailService: e-mail de acesso enviado.', [
+            'order_id' => $order->id,
+            'product_type' => $productType,
+            'tenant_id_for_mail' => $tenantIdForMail,
+            'to' => $customerEmail,
+        ]);
+
+        if ($passwordCacheKey !== null) {
+            Cache::forget($passwordCacheKey);
+        }
+
+        $meta = $order->metadata ?? [];
+        if (! empty($meta['access_password_temp'])) {
+            unset($meta['access_password_temp']);
+            $order->update(['metadata' => $meta]);
+        }
+
+        return AccessEmailSendResult::ok();
     }
 
     /**
-     * Tenta SMTP do tenant (ou .env); se falhar, SMTP global em /plataforma/configuracoes (tenant_id null).
+     * Tenta SMTP do tenant (se configurado) e depois SMTP global da plataforma.
      */
     private function sendAccessMailableWithFallback(
         string $subject,
@@ -209,7 +198,38 @@ class AccessEmailService
         string $customerEmail,
         ?int $tenantIdForMail,
         array $template
-    ): bool {
+    ): AccessEmailSendResult {
+        $attempts = [];
+
+        if ($tenantIdForMail !== null && $this->mailConfig->isEmailConfigured($tenantIdForMail)) {
+            $attempts[] = [
+                'label' => 'smtp_tenant',
+                'apply' => function () use ($tenantIdForMail): void {
+                    $this->mailConfig->applyMailerConfigForTenant($tenantIdForMail, [], null);
+                },
+            ];
+        }
+
+        if ($this->mailConfig->isEmailConfigured(null)) {
+            $attempts[] = [
+                'label' => 'smtp_plataforma_global',
+                'apply' => function (): void {
+                    $this->mailConfig->applyPlatformGlobalMailerConfig();
+                },
+            ];
+        }
+
+        if ($attempts === []) {
+            Log::warning('AccessEmailService: nenhum SMTP configurado.', [
+                'tenant_id_for_mail' => $tenantIdForMail,
+            ]);
+
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_SMTP_NOT_CONFIGURED,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_SMTP_NOT_CONFIGURED)
+            );
+        }
+
         $resolveFrom = function () use ($template) {
             $fromAddress = config('mail.from.address');
             $fromName = ! empty($template['from_name']) ? $template['from_name'] : (config('mail.from.name') ?? '');
@@ -217,33 +237,20 @@ class AccessEmailService
             return [$fromAddress, $fromName];
         };
 
-        $attempts = [
-            [
-                'label' => 'smtp_tenant',
-                'apply' => function () use ($tenantIdForMail): void {
-                    $this->mailConfig->applyMailerConfigForTenant($tenantIdForMail, [], null);
-                },
-            ],
-            [
-                'label' => 'smtp_plataforma_global',
-                'apply' => function (): void {
-                    if (! $this->mailConfig->isEmailConfigured(null)) {
-                        throw new \RuntimeException('SMTP global da plataforma não configurado (settings tenant_id null).');
-                    }
-                    $this->mailConfig->applyPlatformGlobalMailerConfig();
-                },
-            ],
-        ];
+        $lastError = null;
 
         foreach ($attempts as $attempt) {
             try {
                 $attempt['apply']();
+                $this->mailConfig->assertSmtpHostIsConfigured();
                 Mail::purge('smtp');
                 [$fromAddress, $fromName] = $resolveFrom();
                 Log::info('AccessEmailService: enviando.', [
                     'via' => $attempt['label'],
                     'tenant_id_for_mail' => $tenantIdForMail,
-                    'provider' => $this->mailConfig->getProviderForTenant($tenantIdForMail),
+                    'provider' => $this->mailConfig->getProviderForTenant(
+                        $attempt['label'] === 'smtp_plataforma_global' ? null : $tenantIdForMail
+                    ),
                     'host' => config('mail.mailers.smtp.host'),
                     'from' => $fromAddress,
                     'from_name' => $fromName,
@@ -252,54 +259,60 @@ class AccessEmailService
                 $mailable->from($fromAddress, $fromName);
                 Mail::mailer('smtp')->to($customerEmail)->send($mailable);
 
-                return true;
+                return AccessEmailSendResult::ok();
             } catch (\Throwable $e) {
+                $lastError = $e->getMessage();
                 Log::warning('AccessEmailService: tentativa de envio falhou.', [
                     'via' => $attempt['label'],
                     'order_tenant' => $tenantIdForMail,
-                    'message' => $e->getMessage(),
+                    'message' => $lastError,
                 ]);
             }
         }
 
-        return false;
+        return AccessEmailSendResult::fail(
+            AccessEmailSendResult::REASON_SMTP_SEND_FAILED,
+            AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_SMTP_SEND_FAILED, $lastError)
+        );
     }
 
     /**
      * Return the access link for an order (same link used in the access email).
-     * For TYPE_LINK: deliverable_link from config; for TYPE_AREA_MEMBROS: base URL (custom domain or /m/slug).
      */
     public function getAccessLinkForOrder(Order $order): string
     {
-        $order->loadMissing(['product']);
+        $order->loadMissing(['product', 'user']);
         $product = $order->product;
         if (! $product) {
             return '';
         }
 
-        return $this->resolveAccessLinkForProduct($product);
+        return $this->resolveAccessLinkForProduct($product, $order->user);
     }
 
     /**
      * Link usado no e-mail de acesso e na página de obrigado.
-     * Área de membros: login da plataforma (/login) para listar todos os produtos em /area-membros.
      */
-    public function resolveAccessLinkForProduct(Product $product): string
+    public function resolveAccessLinkForProduct(Product $product, ?User $user = null): string
     {
         if ($product->type === Product::TYPE_AREA_MEMBROS) {
+            if ($user instanceof User) {
+                return $this->resolveMemberAreaMagicLink($product, $user);
+            }
+
             return $this->resolvePlatformLoginLink();
         }
 
         return $this->resolveLinkAcesso($product);
     }
 
-    /**
-     * Send access email for a user who was manually granted access to a product.
-     */
-    public function sendForUserProduct(User $user, Product $product): bool
+    public function sendForUserProduct(User $user, Product $product): AccessEmailSendResult
     {
         if ($product->type === Product::TYPE_LINK_PAGAMENTO) {
-            return false;
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_LINK_PAGAMENTO,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_LINK_PAGAMENTO)
+            );
         }
 
         $config = $product->checkout_config ?? [];
@@ -308,16 +321,26 @@ class AccessEmailService
         $bodyHtml = (string) ($template['body_html'] ?? '');
 
         if ($bodyHtml === '') {
-            return false;
+            $bodyHtml = (string) (Product::defaultEmailTemplate()['body_html'] ?? '');
+        }
+
+        if ($bodyHtml === '') {
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_EMPTY_TEMPLATE,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_EMPTY_TEMPLATE)
+            );
         }
 
         $customerEmail = $user->email;
         if (! $customerEmail || ! filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
-            return false;
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_INVALID_EMAIL,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_INVALID_EMAIL)
+            );
         }
 
         $customerName = $user->name ?: explode('@', $customerEmail)[0] ?? 'Cliente';
-        $linkAcesso = $this->resolveAccessLinkForProduct($product);
+        $linkAcesso = $this->resolveAccessLinkForProduct($product, $user);
 
         $replace = [
             '{nome_cliente}' => $customerName,
@@ -329,7 +352,10 @@ class AccessEmailService
         $subject = str_replace(array_keys($replace), array_values($replace), $subject);
         $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
 
-        if (! empty($template['logo_url'])) {
+        $brandingLogo = BrandingEmailData::forTenant($product->tenant_id)['logo_url'] ?? null;
+        if (is_string($brandingLogo) && $brandingLogo !== '') {
+            $bodyHtml = $this->prependLogoToBody($brandingLogo, $bodyHtml);
+        } elseif (! empty($template['logo_url'])) {
             $bodyHtml = $this->prependLogoToBody($template['logo_url'], $bodyHtml);
         }
 
@@ -344,24 +370,65 @@ class AccessEmailService
 
             return is_string($link) ? $link : '';
         }
-        if ($product->type === Product::TYPE_AREA_MEMBROS) {
-            $slug = $product->checkout_slug ?? '';
-            if ($slug !== '') {
-                try {
-                    return $this->memberAreaResolver->baseUrlForProduct($product);
-                } catch (\Throwable $e) {
-                    Log::warning('AccessEmailService: baseUrlForProduct falhou, usando fallback.', [
-                        'product_id' => $product->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-                $appUrl = rtrim(config('app.url'), '/');
 
-                return $appUrl.'/m/'.$slug;
+        return '';
+    }
+
+    private function resolveMemberAreaMagicLink(Product $product, User $user): string
+    {
+        $base = $this->memberAreaResolver->baseUrlForProduct($product);
+        $expiresAt = now()->addDays(7);
+        $appUrl = rtrim((string) config('app.url'), '/');
+        $appScheme = parse_url($appUrl, PHP_URL_SCHEME) ?: null;
+
+        $useHostAccess = true;
+        $path = parse_url($base, PHP_URL_PATH);
+        if (is_string($path) && str_starts_with(trim($path, '/'), 'm/')) {
+            $useHostAccess = false;
+        }
+
+        $slugForSignedPathAccess = null;
+        if (! $useHostAccess) {
+            $basePath = parse_url($base, PHP_URL_PATH);
+            if (is_string($basePath) && $basePath !== '') {
+                $segments = explode('/', trim($basePath, '/'));
+                if (($segments[0] ?? null) === 'm' && ! empty($segments[1])) {
+                    $slugForSignedPathAccess = (string) $segments[1];
+                }
+            }
+            if ($slugForSignedPathAccess === null || $slugForSignedPathAccess === '') {
+                $slugForSignedPathAccess = (string) ($product->checkout_slug ?? '');
             }
         }
 
-        return '';
+        $originalRoot = $appUrl;
+        $originalScheme = $appScheme;
+
+        try {
+            if ($useHostAccess) {
+                $scheme = parse_url($base, PHP_URL_SCHEME);
+                if (is_string($scheme) && $scheme !== '') {
+                    URL::forceScheme($scheme);
+                }
+                URL::forceRootUrl(rtrim($base, '/'));
+
+                return URL::temporarySignedRoute('member-area.magic-access.host', $expiresAt, [
+                    'u' => $user->id,
+                    'p' => $product->id,
+                ]);
+            }
+
+            return URL::temporarySignedRoute('member-area.magic-access', $expiresAt, [
+                'slug' => $slugForSignedPathAccess,
+                'u' => $user->id,
+                'p' => $product->id,
+            ]);
+        } finally {
+            URL::forceRootUrl($originalRoot);
+            if (is_string($originalScheme) && $originalScheme !== '') {
+                URL::forceScheme($originalScheme);
+            }
+        }
     }
 
     private function resolvePlatformLoginLink(): string
@@ -371,11 +438,10 @@ class AccessEmailService
 
     private function prependLogoToBody(string $logoUrl, string $bodyHtml): string
     {
-        // Evita duplicar caso o HTML já tenha sido prefixado por este helper.
         if (str_contains($bodyHtml, 'data-email-logo="1"')) {
             return $bodyHtml;
         }
-        // Fundo branco explícito: clientes (ex.: Outlook) e pré-visualizações escuras tratam alpha como preto.
+
         return EmailLogoHtml::wrap($logoUrl).$bodyHtml;
     }
 
@@ -383,7 +449,7 @@ class AccessEmailService
     {
         $block = '<div style="margin:24px 0 0;padding:20px;background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;">'
             .'<p style="margin:0 0 10px;font-size:14px;line-height:1.5;color:#92400e;"><strong>Guarde seus dados de acesso</strong></p>'
-            .'<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">Use o botão acima para fazer login. Após entrar, você verá todos os seus produtos em Minha área. Se preferir, faça login com:</p>'
+            .'<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">O botão de acesso acima entra automaticamente na sua conta. Se você sair ou usar outro aparelho, faça login na área de membros com:</p>'
             .'<p style="margin:0 0 10px;font-size:14px;color:#0f172a;"><strong>E-mail:</strong> '.e($email).'</p>'
             .'<p style="margin:0;font-size:15px;color:#0f172a;font-family:Consolas,\'Courier New\',monospace;font-weight:600;letter-spacing:0.02em;word-break:break-all;"><strong>Senha:</strong> '.e($password).'</p>'
             .'</div>';
@@ -401,18 +467,21 @@ class AccessEmailService
         return '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;font-family:\'Segoe UI\',Tahoma,sans-serif;background:#f8fafc;padding:32px 24px;"><tr><td style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid #e2e8f0;"><h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">Olá, '.e($customerName).'!</h1></td></tr><tr><td style="padding:28px 32px;"><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Seu pagamento de <strong>'.e($productName).'</strong> foi confirmado.</p><p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#334155;">Este produto é entregue em uma <strong>área de membros externa</strong>. Em instantes você receberá o acesso.</p><p style="margin:0;font-size:14px;line-height:1.6;color:#64748b;">Se você não receber o acesso em alguns minutos, entre em contato com o suporte do vendedor.</p></td></tr><tr><td style="padding:20px 32px;background:#f1f5f9;border-radius:0 0 12px 12px;"><p style="margin:0;font-size:13px;color:#64748b;">Qualquer dúvida, responda este e-mail.</p></td></tr></table></td></tr></table>';
     }
 
-    private function sendPhysicalProductConfirmationEmail(Order $order, Product $product, bool $force): bool
+    private function sendPhysicalProductConfirmationEmail(Order $order, Product $product, bool $force): AccessEmailSendResult
     {
         $customerEmail = $order->email ?: $order->user?->email;
         if (! $customerEmail || ! filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
-            return false;
+            return AccessEmailSendResult::fail(
+                AccessEmailSendResult::REASON_INVALID_EMAIL,
+                AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_INVALID_EMAIL)
+            );
         }
 
         $customerName = $order->user?->name ?? explode('@', $customerEmail)[0] ?? 'Cliente';
         $tenantIdForMail = $order->tenant_id ?? $product->tenant_id;
         $cacheKey = 'access_email_sent.'.$order->id;
         if (! $force && Cache::has($cacheKey)) {
-            return true;
+            return AccessEmailSendResult::ok();
         }
 
         $subject = 'Pedido confirmado — '.$product->name;
@@ -424,21 +493,12 @@ class AccessEmailService
 
         $template = array_merge(Product::defaultEmailTemplate(), ($product->checkout_config ?? [])['email_template'] ?? []);
 
-        try {
-            $sent = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template);
-            if ($sent) {
-                Cache::put($cacheKey, true, now()->addHours(1));
-            }
-
-            return $sent;
-        } catch (\Throwable $e) {
-            Log::error('AccessEmailService: falha no e-mail de produto físico.', [
-                'order_id' => $order->id,
-                'message' => $e->getMessage(),
-            ]);
-
-            return false;
+        $sendResult = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template);
+        if ($sendResult->success) {
+            Cache::put($cacheKey, true, now()->addHours(1));
         }
+
+        return $sendResult;
     }
 
     private function buildPhysicalProductConfirmationBody(Order $order, string $customerName, string $productName): string

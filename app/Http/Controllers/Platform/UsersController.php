@@ -12,6 +12,7 @@ use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\MerchantWalletAdminBlockService;
+use App\Services\SalesAchievementsService;
 use App\Services\PlatformAuditService;
 use App\Support\PercentDecimal;
 use Illuminate\Http\RedirectResponse;
@@ -28,6 +29,10 @@ class UsersController extends Controller
     use BuildsMerchantWalletProps;
     use ProvidesPlatformGatewayProps;
 
+    public function __construct(
+        protected SalesAchievementsService $salesAchievements,
+    ) {}
+
     public function index(): Response
     {
         $users = User::query()
@@ -37,6 +42,7 @@ class UsersController extends Controller
 
         $tenantIds = $users->pluck('tenant_id')->filter()->unique()->values();
         $wallets = collect();
+        $salesTotals = $this->salesAchievements->getValidSalesTotalsGrouped();
         if (Schema::hasTable('tenant_wallets')) {
             $wallets = TenantWallet::query()
                 ->whereIn('tenant_id', $tenantIds)
@@ -44,10 +50,10 @@ class UsersController extends Controller
                 ->keyBy('tenant_id');
         }
 
-        $rows = $users->map(function (User $u) use ($wallets) {
+        $rows = $users->map(function (User $u) use ($wallets, $salesTotals) {
             $tid = $u->tenant_id ?? $u->id;
-            $w = $wallets->get($tid);
             $tidInt = (int) $tid;
+            $w = $wallets->get($tid);
             $medTotal = $tidInt > 0 ? MerchantWalletAdminBlockService::totalMedHoldAmountForTenant($tidInt) : 0.0;
 
             $walletAdmin = null;
@@ -74,6 +80,7 @@ class UsersController extends Controller
                 'merchant_gateway_order' => $u->merchant_gateway_order ?? [],
                 'saldo_disponivel' => $w ? (float) $w->available_balance : 0.0,
                 'saldo_pix' => $w ? (float) $w->pending_balance : 0.0,
+                'vendas_totais' => $salesTotals[$tidInt] ?? 0.0,
                 'med_total' => $medTotal,
                 'wallet_admin' => $walletAdmin,
                 'created_at' => $u->created_at?->toIso8601String(),
@@ -106,6 +113,7 @@ class UsersController extends Controller
                 'kyc_status' => Schema::hasColumn('users', 'kyc_status') ? ($user->kyc_status ?? User::KYC_NOT_SUBMITTED) : null,
                 'created_at' => $user->created_at?->toIso8601String(),
                 'tenant_id' => $tenantId,
+                'vendas_totais' => round($this->salesAchievements->getValidSalesTotal($tenantId), 2),
             ],
             'wallet' => $this->walletPayloadForTenant($tenantId),
             'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),

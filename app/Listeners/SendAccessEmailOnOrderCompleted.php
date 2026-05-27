@@ -18,9 +18,13 @@ class SendAccessEmailOnOrderCompleted
         Log::info('SendAccessEmailOnOrderCompleted: disparando envio de e-mail de acesso.', ['order_id' => $order->id]);
 
         try {
-            $sent = $this->accessEmailService->sendForOrder($order);
-            if (! $sent) {
-                Log::warning('SendAccessEmailOnOrderCompleted: sendForOrder retornou false.', ['order_id' => $order->id]);
+            $result = $this->accessEmailService->sendForOrder($order);
+            if (! $result->success) {
+                Log::warning('SendAccessEmailOnOrderCompleted: sendForOrder falhou.', [
+                    'order_id' => $order->id,
+                    'reason' => $result->reason,
+                    'message' => $result->message,
+                ]);
             }
         } catch (\Throwable $e) {
             Log::error('SendAccessEmailOnOrderCompleted: exceção ao enviar e-mail.', [

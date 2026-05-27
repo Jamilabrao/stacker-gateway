@@ -6,6 +6,7 @@ import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
+import { formatPriceForInput, normalizeMoneyInput } from '@/lib/moneyDecimal';
 import {
     LayoutDashboard,
     Settings,
@@ -141,7 +142,7 @@ const form = useForm({
     description: props.produto.description ?? '',
     type: props.produto.type,
     billing_type: props.produto.billing_type ?? 'one_time',
-    price: props.produto.price_brl ?? props.produto.price,
+    price: formatPriceForInput(props.produto.price_brl ?? props.produto.price),
     base_interval: props.produto.base_interval ?? (props.produto.subscription_plans?.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0]?.interval) ?? 'monthly',
     currency: props.produto.currency ?? 'BRL',
     is_active: props.produto.is_active,
@@ -531,7 +532,7 @@ function openNewOffer() {
 function openEditOffer(offer) {
     editingOffer.value = offer;
     offerForm.name = offer.name;
-    offerForm.price = offer.price;
+    offerForm.price = formatPriceForInput(offer.price);
     offerForm.currency = offer.currency || 'BRL';
     offerFormVisible.value = true;
 }
@@ -541,17 +542,19 @@ function closeOfferForm() {
     offerForm.reset();
 }
 function submitOffer() {
-    if (editingOffer.value) {
-        offerForm.put(`/produtos/${props.produto.id}/offers/${editingOffer.value.id}`, {
+    const url = editingOffer.value
+        ? `/produtos/${props.produto.id}/offers/${editingOffer.value.id}`
+        : `/produtos/${props.produto.id}/offers`;
+    const method = editingOffer.value ? 'put' : 'post';
+    offerForm
+        .transform((data) => ({ ...data, price: normalizeMoneyInput(data.price) }))
+        [method](url, {
             preserveScroll: true,
-            onSuccess: () => { closeOfferForm(); router.reload(); },
+            onSuccess: () => {
+                closeOfferForm();
+                router.reload();
+            },
         });
-    } else {
-        offerForm.post(`/produtos/${props.produto.id}/offers`, {
-            preserveScroll: true,
-            onSuccess: () => { closeOfferForm(); router.reload(); },
-        });
-    }
 }
 function confirmDestroyOffer(offer) {
     if (!window.confirm(`Remover a oferta "${offer.name}"?`)) return;
@@ -578,7 +581,7 @@ function openNewPlan() {
 function openEditPlan(plan) {
     editingPlan.value = plan;
     planForm.name = plan.name;
-    planForm.price = plan.price;
+    planForm.price = formatPriceForInput(plan.price);
     planForm.currency = plan.currency || 'BRL';
     planForm.interval = plan.interval;
     planFormVisible.value = true;
@@ -589,17 +592,19 @@ function closePlanForm() {
     planForm.reset();
 }
 function submitPlan() {
-    if (editingPlan.value) {
-        planForm.put(`/produtos/${props.produto.id}/subscription-plans/${editingPlan.value.id}`, {
+    const url = editingPlan.value
+        ? `/produtos/${props.produto.id}/subscription-plans/${editingPlan.value.id}`
+        : `/produtos/${props.produto.id}/subscription-plans`;
+    const method = editingPlan.value ? 'put' : 'post';
+    planForm
+        .transform((data) => ({ ...data, price: normalizeMoneyInput(data.price) }))
+        [method](url, {
             preserveScroll: true,
-            onSuccess: () => { closePlanForm(); router.reload(); },
+            onSuccess: () => {
+                closePlanForm();
+                router.reload();
+            },
         });
-    } else {
-        planForm.post(`/produtos/${props.produto.id}/subscription-plans`, {
-            preserveScroll: true,
-            onSuccess: () => { closePlanForm(); router.reload(); },
-        });
-    }
 }
 function confirmDestroyPlan(plan) {
     if (!window.confirm(`Remover o plano "${plan.name}"?`)) return;
@@ -639,7 +644,7 @@ function openEditOrderBump(bump) {
     bumpForm.target_product_offer_id = bump.target_product_offer_id != null ? String(bump.target_product_offer_id) : '';
     bumpForm.title = bump.title;
     bumpForm.description = bump.description ?? '';
-    bumpForm.price_override = bump.price_override != null ? String(bump.price_override) : '';
+    bumpForm.price_override = bump.price_override != null ? formatPriceForInput(bump.price_override) : '';
     bumpForm.cta_title = bump.cta_title;
     showOrderBumpModal.value = true;
 }
@@ -654,7 +659,7 @@ function submitOrderBump() {
         target_product_offer_id: bumpForm.target_product_offer_id || null,
         title: bumpForm.title,
         description: bumpForm.description || null,
-        price_override: bumpForm.price_override ? parseFloat(bumpForm.price_override) : null,
+        price_override: bumpForm.price_override ? normalizeMoneyInput(bumpForm.price_override) : null,
         cta_title: bumpForm.cta_title,
     };
     if (editingBump.value) {
@@ -1028,7 +1033,7 @@ function submit() {
         fd.append('description', form.description);
         fd.append('type', form.type);
         fd.append('billing_type', form.billing_type);
-        fd.append('price', form.price);
+        fd.append('price', String(normalizeMoneyInput(form.price)));
         if (form.billing_type === 'subscription') {
             fd.append('base_interval', form.base_interval || 'monthly');
         }
@@ -1069,6 +1074,7 @@ function submit() {
             if (data.billing_type === 'subscription') {
                 data.base_interval = data.base_interval || 'monthly';
             }
+            data.price = normalizeMoneyInput(data.price);
             data.refund_policy_days = data.refund_enabled ? Number(data.refund_policy_days || 7) : null;
             if (data.type === 'produto_fisico') {
                 data.physical_free_shipping = !!data.physical_free_shipping;
@@ -1265,8 +1271,9 @@ function submit() {
                                 <input
                                     v-model="form.price"
                                     type="number"
-                                    step="0.01"
+                                    step="any"
                                     min="0"
+                                    inputmode="decimal"
                                     required
                                     placeholder="0,00"
                                     :class="inputClass"
@@ -1340,7 +1347,7 @@ function submit() {
                                     <p class="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ editingOffer ? t('products.edit.edit_offer', 'Editar oferta') : t('products.edit.new_offer', 'Nova oferta') }}</p>
                                     <div class="grid gap-3 sm:grid-cols-[1fr,1fr,auto]">
                                         <input v-model="offerForm.name" type="text" required :class="inputClass" placeholder="Nome (ex: Básico)" />
-                                        <input v-model="offerForm.price" type="number" step="0.01" min="0" required :class="inputClass" placeholder="Preço" />
+                                        <input v-model="offerForm.price" type="number" step="any" min="0" inputmode="decimal" required :class="inputClass" placeholder="Preço" />
                                         <select v-model="offerForm.currency" :class="inputClass + ' min-w-0'">
                                             <option value="BRL">BRL</option>
                                             <option value="EUR">EUR</option>
@@ -1396,7 +1403,7 @@ function submit() {
                                     <p class="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ editingPlan ? t('products.edit.edit_plan', 'Editar plano') : t('products.edit.new_plan', 'Novo plano') }}</p>
                                     <div class="grid gap-3 sm:grid-cols-2">
                                         <input v-model="planForm.name" type="text" required :class="inputClass" placeholder="Nome (ex: Mensal)" />
-                                        <input v-model="planForm.price" type="number" step="0.01" min="0" required :class="inputClass" placeholder="Preço" />
+                                        <input v-model="planForm.price" type="number" step="any" min="0" inputmode="decimal" required :class="inputClass" placeholder="Preço" />
                                         <select v-model="planForm.currency" :class="inputClass">
                                             <option value="BRL">BRL</option>
                                             <option value="EUR">EUR</option>
@@ -2404,7 +2411,7 @@ function submit() {
                                 </div>
                                 <div>
                                     <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Preço com desconto (opcional)</label>
-                                    <input v-model="bumpForm.price_override" type="number" step="0.01" min="0" :class="inputClass" placeholder="Deixe vazio para usar o preço do produto" />
+                                    <input v-model="bumpForm.price_override" type="number" step="any" min="0" inputmode="decimal" :class="inputClass" placeholder="Deixe vazio para usar o preço do produto" />
                                     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Se não preencher, será usado o preço do produto ou da oferta selecionada.</p>
                                 </div>
                                 <div>
