@@ -16,6 +16,10 @@ import {
     Repeat,
 } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import {
+    formatPercentForInput,
+    normalizeMerchantFeeRulesForSubmit,
+} from '@/lib/percentDecimal';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -279,8 +283,9 @@ function onGatewaySaved() {
 
 function feeBlock(key) {
     const r = props.merchant_fee_rules?.[key] || {};
+    const percentRaw = r.percent ?? 0;
     return {
-        percent: r.percent ?? 0,
+        percent: formatPercentForInput(percentRaw) || '0',
         fixed: r.fixed ?? 0,
     };
 }
@@ -299,10 +304,15 @@ const feeForm = useForm({
 });
 
 function submitFees() {
-    feeForm.put('/plataforma/financeiro/taxas', {
-        preserveScroll: true,
-        onSuccess: () => feeForm.clearErrors(),
-    });
+    feeForm
+        .transform((data) => ({
+            ...data,
+            merchant_fee_rules: normalizeMerchantFeeRulesForSubmit(data.merchant_fee_rules),
+        }))
+        .put('/plataforma/financeiro/taxas', {
+            preserveScroll: true,
+            onSuccess: () => feeForm.clearErrors(),
+        });
 }
 
 function settlementBlock(key) {
@@ -837,11 +847,12 @@ function submitSettlement() {
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">PIX</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="feeForm.merchant_fee_rules.pix.percent"
+                                                v-model="feeForm.merchant_fee_rules.pix.percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
-                                                step="0.01"
+                                                step="any"
+                                                inputmode="decimal"
                                                 class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
                                             />
                                         </td>
@@ -859,11 +870,12 @@ function submitSettlement() {
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">API — PIX</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="feeForm.merchant_fee_rules.api_pix.percent"
+                                                v-model="feeForm.merchant_fee_rules.api_pix.percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
-                                                step="0.01"
+                                                step="any"
+                                                inputmode="decimal"
                                                 class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
                                             />
                                         </td>
@@ -881,11 +893,12 @@ function submitSettlement() {
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">Cartão</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="feeForm.merchant_fee_rules.card.percent"
+                                                v-model="feeForm.merchant_fee_rules.card.percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
-                                                step="0.01"
+                                                step="any"
+                                                inputmode="decimal"
                                                 class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
                                             />
                                         </td>
@@ -903,11 +916,12 @@ function submitSettlement() {
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">Apple Pay</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="feeForm.merchant_fee_rules.apple_pay.percent"
+                                                v-model="feeForm.merchant_fee_rules.apple_pay.percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
-                                                step="0.01"
+                                                step="any"
+                                                inputmode="decimal"
                                                 class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
                                             />
                                         </td>
@@ -925,11 +939,12 @@ function submitSettlement() {
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">Google Pay</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="feeForm.merchant_fee_rules.google_pay.percent"
+                                                v-model="feeForm.merchant_fee_rules.google_pay.percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
-                                                step="0.01"
+                                                step="any"
+                                                inputmode="decimal"
                                                 class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
                                             />
                                         </td>
@@ -947,11 +962,12 @@ function submitSettlement() {
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">Boleto</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="feeForm.merchant_fee_rules.boleto.percent"
+                                                v-model="feeForm.merchant_fee_rules.boleto.percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
-                                                step="0.01"
+                                                step="any"
+                                                inputmode="decimal"
                                                 class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
                                             />
                                         </td>
@@ -969,11 +985,12 @@ function submitSettlement() {
                                         <td class="py-3 font-medium text-zinc-900 dark:text-white">Saque</td>
                                         <td class="py-3 pr-4">
                                             <input
-                                                v-model.number="feeForm.merchant_fee_rules.withdrawal.percent"
+                                                v-model="feeForm.merchant_fee_rules.withdrawal.percent"
                                                 type="number"
                                                 min="0"
                                                 max="100"
-                                                step="0.01"
+                                                step="any"
+                                                inputmode="decimal"
                                                 class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
                                             />
                                         </td>

@@ -4,6 +4,10 @@ import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
 import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck } from 'lucide-vue-next';
+import {
+    formatPercentForInput,
+    normalizeMerchantFeeOverridesForSubmit,
+} from '@/lib/percentDecimal';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -56,7 +60,9 @@ function mergeFeeOverrides(raw) {
     if (!raw || typeof raw !== 'object') return d;
     for (const k of ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal']) {
         if (raw[k] && typeof raw[k] === 'object') {
-            if (raw[k].percent != null && raw[k].percent !== '') d[k].percent = raw[k].percent;
+            if (raw[k].percent != null && raw[k].percent !== '') {
+                d[k].percent = formatPercentForInput(raw[k].percent);
+            }
             if (raw[k].fixed != null && raw[k].fixed !== '') d[k].fixed = raw[k].fixed;
         }
     }
@@ -230,6 +236,7 @@ function submitEdit() {
             return {
                 ...data,
                 merchant_gateway_order: Object.keys(order).length ? order : null,
+                merchant_fees: normalizeMerchantFeeOverridesForSubmit(data.merchant_fees),
             };
         })
         .put(`/plataforma/usuarios/${editUser.value.id}`, {
@@ -475,7 +482,8 @@ function formatBlockUntilForInput(iso) {
                                     type="number"
                                     min="0"
                                     max="100"
-                                    step="0.01"
+                                    step="any"
+                                    inputmode="decimal"
                                     placeholder="%"
                                     class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
                                 />

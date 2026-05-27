@@ -14,6 +14,7 @@ use App\Services\CajuPay\CajuPayPayoutService;
 use App\Services\Spacepag\SpacepagPayoutService;
 use App\Services\Woovi\WooviPayoutService;
 use App\Services\EffectiveMerchantFees;
+use App\Support\PercentDecimal;
 use App\Services\EffectiveSettlementRules;
 use App\Services\ApiPixAccess;
 use App\Services\MerchantWithdrawalService;
@@ -152,7 +153,7 @@ class FinancialController extends Controller
         foreach ($rules as $key) {
             $block = $validated['merchant_fee_rules'][$key] ?? [];
             $out[$key] = [
-                'percent' => round((float) ($block['percent'] ?? 0), 4),
+                'percent' => PercentDecimal::toFloat(PercentDecimal::normalize($block['percent'] ?? 0)),
                 'fixed' => round((float) ($block['fixed'] ?? 0), 2),
             ];
         }

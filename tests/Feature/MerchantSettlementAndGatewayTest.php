@@ -103,6 +103,59 @@ class MerchantSettlementAndGatewayTest extends TestCase
         $this->assertSame('mercadopago', $card['gateway_slug'] ?? null);
     }
 
+    public function test_wallet_credit_applies_fractional_platform_fee_percent(): void
+    {
+        if (! Schema::hasTable('wallet_transactions') || ! Schema::hasTable('tenant_wallets')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 0.99, 'fixed' => 0],
+            'api_pix' => ['percent' => 0, 'fixed' => 0],
+            'card' => ['percent' => 0, 'fixed' => 0],
+            'apple_pay' => ['percent' => 0, 'fixed' => 0],
+            'google_pay' => ['percent' => 0, 'fixed' => 0],
+            'boleto' => ['percent' => 0, 'fixed' => 0],
+            'withdrawal' => ['percent' => 0, 'fixed' => 0],
+        ], null);
+
+        Setting::set('merchant_settlement_rules', [
+            'pix' => ['days_to_available' => 0, 'reserve_percent' => 0],
+            'card' => ['days_to_available' => 0, 'reserve_percent' => 0],
+            'boleto' => ['days_to_available' => 0, 'reserve_percent' => 0],
+        ], null);
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $buyer = User::factory()->create(['role' => User::ROLE_ALUNO]);
+        $product = $this->createTestProduct(['tenant_id' => $seller->id]);
+
+        $order = Order::create([
+            'tenant_id' => $seller->id,
+            'user_id' => $buyer->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 100.00,
+            'email' => $buyer->email,
+            'payment_method' => 'pix',
+            'metadata' => [],
+        ]);
+
+        event(new OrderCompleted($order->fresh()));
+
+        $tx = WalletTransaction::query()
+            ->where('order_id', $order->id)
+            ->where('type', WalletTransaction::TYPE_CREDIT_SALE)
+            ->first();
+
+        $this->assertNotNull($tx);
+        $this->assertEqualsWithDelta(0.99, (float) $tx->amount_fee, 0.001);
+        $this->assertEqualsWithDelta(99.01, (float) $tx->amount_net, 0.001);
+        $meta = is_array($tx->meta) ? $tx->meta : [];
+        $this->assertEqualsWithDelta(0.99, (float) ($meta['percent_applied'] ?? 0), 0.0001);
+    }
+
     public function test_settlement_pending_created_when_delay_configured(): void
     {
         if (! Schema::hasTable('wallet_transactions')) {

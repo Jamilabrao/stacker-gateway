@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\PercentDecimal;
 
 class EffectiveMerchantFees
 {
@@ -47,8 +48,8 @@ class EffectiveMerchantFees
             if (! isset($raw[$k]) || ! is_array($raw[$k])) {
                 continue;
             }
-            $base[$k]['percent'] = (float) ($raw[$k]['percent'] ?? 0);
-            $base[$k]['fixed'] = (float) ($raw[$k]['fixed'] ?? 0);
+            $base[$k]['percent'] = PercentDecimal::toFloat(PercentDecimal::normalize($raw[$k]['percent'] ?? 0));
+            $base[$k]['fixed'] = round((float) ($raw[$k]['fixed'] ?? 0), 2);
         }
         // Primeira configuração / legado: sem bloco `api_pix`, herda PIX checkout.
         if (! isset($raw['api_pix']) || ! is_array($raw['api_pix'])) {
@@ -115,10 +116,10 @@ class EffectiveMerchantFees
                 continue;
             }
             if (array_key_exists('percent', $ov[$k])) {
-                $defaults[$k]['percent'] = (float) $ov[$k]['percent'];
+                $defaults[$k]['percent'] = PercentDecimal::toFloat(PercentDecimal::normalize($ov[$k]['percent']));
             }
             if (array_key_exists('fixed', $ov[$k])) {
-                $defaults[$k]['fixed'] = (float) $ov[$k]['fixed'];
+                $defaults[$k]['fixed'] = round((float) $ov[$k]['fixed'], 2);
             }
         }
 
@@ -147,17 +148,13 @@ class EffectiveMerchantFees
         if ($key === 'pix' && $source !== null && in_array($source, self::API_ORDER_SOURCES, true)) {
             $key = 'api_pix';
         }
-        $percent = $rules[$key]['percent'] ?? 0.0;
-        $fixed = $rules[$key]['fixed'] ?? 0.0;
-        $fee = round($gross * ($percent / 100.0) + $fixed, 2);
-        if ($fee > $gross) {
-            $fee = $gross;
-        }
-        $net = round($gross - $fee, 2);
+        $percent = PercentDecimal::toFloat(PercentDecimal::normalize($rules[$key]['percent'] ?? 0));
+        $fixed = round((float) ($rules[$key]['fixed'] ?? 0), 2);
+        $amounts = PercentDecimal::feeFromGross($gross, PercentDecimal::normalize($percent), $fixed);
 
         return [
-            'fee' => $fee,
-            'net' => $net,
+            'fee' => $amounts['fee'],
+            'net' => $amounts['net'],
             'gross' => $gross,
             'percent' => $percent,
             'fixed' => $fixed,
@@ -172,15 +169,15 @@ class EffectiveMerchantFees
     public static function calculateWithdrawalFee(int $tenantId, float $requestedAmount): array
     {
         $rules = self::forTenant($tenantId);
-        $percent = $rules['withdrawal']['percent'];
-        $fixed = $rules['withdrawal']['fixed'];
-        $fee = round($requestedAmount * ($percent / 100.0) + $fixed, 2);
-        if ($fee > $requestedAmount) {
-            $fee = $requestedAmount;
-        }
-        $net = round($requestedAmount - $fee, 2);
+        $percent = PercentDecimal::toFloat(PercentDecimal::normalize($rules['withdrawal']['percent'] ?? 0));
+        $fixed = round((float) ($rules['withdrawal']['fixed'] ?? 0), 2);
+        $amounts = PercentDecimal::feeFromGross($requestedAmount, PercentDecimal::normalize($percent), $fixed);
 
-        return ['fee' => $fee, 'net' => $net, 'gross' => $requestedAmount];
+        return [
+            'fee' => $amounts['fee'],
+            'net' => $amounts['net'],
+            'gross' => $requestedAmount,
+        ];
     }
 
     /**

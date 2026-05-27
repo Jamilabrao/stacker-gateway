@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\MerchantWalletAdminBlockService;
 use App\Services\PlatformAuditService;
+use App\Support\PercentDecimal;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -315,7 +316,7 @@ class UsersController extends Controller
                         "merchant_fees.$key.percent" => 'O percentual deve estar entre 0 e 100.',
                     ]);
                 }
-                $row['percent'] = round($p, 4);
+                $row['percent'] = PercentDecimal::toFloat(PercentDecimal::normalize($p));
             }
             if (array_key_exists('fixed', $block) && $block['fixed'] !== '' && $block['fixed'] !== null) {
                 $f = (float) $block['fixed'];
