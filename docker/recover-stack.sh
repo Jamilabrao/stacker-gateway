@@ -57,16 +57,32 @@ if [ -n "$PG_CONTAINER" ]; then
   if docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c 'SELECT 1' >/dev/null 2>&1; then
     echo "OK: psql -U $DB_USER -d $DB_NAME"
   else
-    echo "FALHOU: usuário/senha do stack.env não batem com o volume Postgres." >&2
-    echo "  → Não recrie o volume. Ajuste GETFY_DB_USERNAME/GETFY_DB_PASSWORD em $ENV_FILE" >&2
-    echo "    para os valores da instalação original (o mesmo ficheiro no volume getfy_env)." >&2
-    echo "  → Listar roles no Postgres:" >&2
-    docker exec "$PG_CONTAINER" psql -U postgres -d "$DB_NAME" -c '\du' 2>/dev/null \
-      || docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d postgres -c '\du' 2>/dev/null \
-      || true
+    echo "FALHOU: $ENV_FILE não coincide com o volume Postgres (role inexistente ou senha errada)." >&2
+  VOLUME_ENV="$(docker run --rm -v getfy_getfy_env:/v alpine cat /v/stack.env 2>/dev/null || true)"
+  if [ -n "$VOLUME_ENV" ]; then
     echo ""
-    echo "  Credenciais guardadas no volume (se existir):" >&2
-    docker run --rm -v getfy_getfy_env:/v alpine cat /v/stack.env 2>/dev/null | grep GETFY_DB_ || true
+    echo "Credenciais no volume getfy_env (instalação original):" >&2
+    echo "$VOLUME_ENV" | grep GETFY_DB_ || true
+    echo ""
+    echo "A restaurar $ENV_FILE a partir do volume..." >&2
+    printf '%s\n' "$VOLUME_ENV" > "$ENV_FILE"
+    chmod 600 "$ENV_FILE" 2>/dev/null || true
+    unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
+    set -a
+    # shellcheck disable=SC1091
+    . "$ENV_FILE"
+    set +a
+    DB_USER="${GETFY_DB_USERNAME:-getfy}"
+    if docker exec "$PG_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -c 'SELECT 1' >/dev/null 2>&1; then
+      echo "OK após sync: psql -U $DB_USER -d $DB_NAME"
+    else
+      echo "Ainda falhou após sync. Roles no Postgres:" >&2
+      docker exec "$PG_CONTAINER" psql -U postgres -d "$DB_NAME" -c '\du' 2>/dev/null || true
+    fi
+  else
+    echo "  Volume getfy_getfy_env sem stack.env — ajuste GETFY_DB_* manualmente." >&2
+    docker exec "$PG_CONTAINER" psql -U postgres -d "$DB_NAME" -c '\du' 2>/dev/null || true
+  fi
   fi
 else
   echo "Aviso: container postgres não encontrado." >&2

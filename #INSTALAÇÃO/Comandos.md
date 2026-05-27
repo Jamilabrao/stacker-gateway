@@ -82,19 +82,25 @@ sh docker/recover-stack.sh
 Se o passo 2 mostrar **`role does not exist`** ou **`Banco indisponível`**: as credenciais em `.docker/stack.env` não coincidem com o **volume antigo** do Postgres. **Não apagues** `postgres_data`.
 
 ```bash
-# Ver user que o Postgres conhece
-docker exec getfy-postgres-1 psql -U postgres -d getfy -c '\du' 2>/dev/null || true
+# O volume getfy_env tem o user/senha da 1ª instalação; a raiz pode estar errada.
+docker run --rm -v getfy_getfy_env:/v alpine cat /v/stack.env > .docker/stack.env
 
-# Ver credenciais guardadas na instalação (volume)
-docker run --rm -v getfy_getfy_env:/v alpine cat /v/stack.env 2>/dev/null | grep GETFY_DB_
+# Confirmar Postgres (troque o user se o grep mostrar outro)
+docker exec getfy-postgres-1 psql -U "$(grep '^GETFY_DB_USERNAME=' .docker/stack.env | cut -d= -f2)" -d getfy -c 'SELECT 1'
 
-# Editar o stack.env da raiz para bater certo com o volume, depois:
+# .env na raiz (Compose lê isto também)
+grep '^GETFY_DB_' .docker/stack.env > .env
+
 unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD
 set -a && . .docker/stack.env && set +a
 COMPOSE="$(sh docker/detect-compose-files.sh)"
 docker compose -f "$COMPOSE" --env-file .docker/stack.env up -d --force-recreate app queue
-docker compose -f "$COMPOSE" --env-file .docker/stack.env logs app --tail 30
+sleep 12
+docker compose -f "$COMPOSE" --env-file .docker/stack.env logs app --tail 25
 curl -sI --max-time 8 http://127.0.0.1/ | head -5
+```
+
+No teu caso (srv1606943): raiz tinha `getfy_0xvmkpqq` mas o volume tem `getfy_ymlm2rn2` — usar sempre o ficheiro do volume.
 ```
 
 ### Atualizar código depois que o HTTP local voltar
