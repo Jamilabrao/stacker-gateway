@@ -40,24 +40,21 @@ if [ ! -d "$INSTALL_DIR/.git" ]; then
   exit 1
 fi
 
-GIT_BASE=(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR")
-$SUDO "${GIT_BASE[@]}" remote set-url origin "$REPO_URL" >/dev/null 2>&1 || true
-
-HAS_LOCAL_CHANGES=0
-if [ -n "$($SUDO "${GIT_BASE[@]}" status --porcelain 2>/dev/null || true)" ]; then
-  HAS_LOCAL_CHANGES=1
-  $SUDO "${GIT_BASE[@]}" stash push -u -m "getfy-update" >/dev/null 2>&1 || true
-fi
-
-$SUDO "${GIT_BASE[@]}" fetch --all --prune
-$SUDO "${GIT_BASE[@]}" checkout -B "$BRANCH" "origin/$BRANCH"
-$SUDO "${GIT_BASE[@]}" reset --hard "origin/$BRANCH"
-
-if [ "$HAS_LOCAL_CHANGES" -eq 1 ]; then
-  if ! $SUDO "${GIT_BASE[@]}" stash pop >/dev/null 2>&1; then
-    echo "Aviso: havia alterações locais. O script fez stash, mas não conseguiu reaplicar automaticamente." >&2
-    echo "Para ver e resolver manualmente: cd \"$INSTALL_DIR\" && git stash list && git stash show -p" >&2
-  fi
+export GETFY_REPO_URL="$REPO_URL"
+SYNC_SCRIPT="$INSTALL_DIR/docker/git-sync-for-deploy.sh"
+if [ -f "$SYNC_SCRIPT" ]; then
+  $SUDO chmod +x "$SYNC_SCRIPT" 2>/dev/null || true
+  $SUDO env GETFY_REPO_URL="$REPO_URL" sh "$SYNC_SCRIPT" "$INSTALL_DIR" "$BRANCH" "$SUDO"
+else
+  echo "Aviso: git-sync-for-deploy.sh ainda não existe no disco — sync Git mínimo (bootstrap)." >&2
+  GIT_BASE=(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR")
+  $SUDO "${GIT_BASE[@]}" remote set-url origin "$REPO_URL" >/dev/null 2>&1 || true
+  $SUDO "${GIT_BASE[@]}" merge --abort >/dev/null 2>&1 || true
+  $SUDO "${GIT_BASE[@]}" rebase --abort >/dev/null 2>&1 || true
+  $SUDO rm -rf "$INSTALL_DIR/public/build"
+  $SUDO "${GIT_BASE[@]}" reset --hard HEAD >/dev/null 2>&1 || true
+  $SUDO "${GIT_BASE[@]}" fetch --all --prune
+  $SUDO "${GIT_BASE[@]}" reset --hard "origin/$BRANCH"
 fi
 
 cd "$INSTALL_DIR"

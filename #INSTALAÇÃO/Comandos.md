@@ -15,6 +15,20 @@ Comando para Atualização:
 
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy-gateway/main/update.sh)"
 
+Se aparecer `public/build/manifest.json: needs merge` ou `resolve your current index first` (servidor preso antes do fix no GitHub), rode uma vez:
+
+```bash
+cd /opt/getfy
+git merge --abort 2>/dev/null || true
+git rebase --abort 2>/dev/null || true
+rm -rf public/build
+git fetch --all --prune
+git reset --hard origin/main
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy-gateway/main/update.sh)"
+```
+
+Não use `docker compose up` só com `docker-compose.yml` se a instalação foi com Caddy — use sempre o `update.sh` (ele detecta o compose certo).
+
 Qualquer modificação que você fizer no código, após finalizado, basta subir o repositorio para o github novamente, usando o GitHub Desktop ou pelo comando no terminal 
 git add .
 git commit -m update
@@ -42,10 +56,6 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy
 
 
 
-cd /opt/getfy
-set -a
-. .docker/stack.env
-set +a
-docker compose --env-file .docker/stack.env up -d --force-recreate postgres app queue
-docker exec -it getfy-app-1 php artisan config:clear
-curl -I http://127.0.0.1
+# Recuperar stack (só se o update.sh não puder ser usado agora):
+# COMPOSE="$(sh docker/detect-compose-files.sh)"
+# docker compose -f "$COMPOSE" --env-file .docker/stack.env up -d --remove-orphans
