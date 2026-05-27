@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, defineAsyncComponent } from 'vue';
+import { ref, computed, watch, defineAsyncComponent } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
@@ -530,12 +530,43 @@ const selectedProviderId = ref(form.email_provider || 'smtp');
 const sidebarOpen = ref(false);
 const selectedProvider = ref(null);
 
+function applyEmailPublicFieldsFromSettings(s) {
+    if (!s || typeof s !== 'object') {
+        return;
+    }
+    form.email_provider = s.email_provider ?? 'smtp';
+    form.smtp_host = s.smtp_host ?? '';
+    form.smtp_port = s.smtp_port ?? '587';
+    form.smtp_username = s.smtp_username ?? '';
+    form.smtp_encryption = s.smtp_encryption ?? 'tls';
+    form.mail_from_address = s.mail_from_address ?? '';
+    form.mail_from_name = s.mail_from_name ?? '';
+    form.reply_to = s.reply_to ?? '';
+    form.hostinger_smtp_username = s.hostinger_smtp_username ?? '';
+    form.hostinger_mail_from_address = s.hostinger_mail_from_address ?? '';
+    form.hostinger_mail_from_name = s.hostinger_mail_from_name ?? '';
+    form.hostinger_reply_to = s.hostinger_reply_to ?? '';
+    form.sendgrid_mail_from_address = s.sendgrid_mail_from_address ?? '';
+    form.sendgrid_mail_from_name = s.sendgrid_mail_from_name ?? '';
+    form.kyc_notification_emails = s.kyc_notification_emails ?? '';
+}
+
+watch(
+    () => props.settings,
+    () => {
+        applyEmailPublicFieldsFromSettings(props.settings);
+        selectedProviderId.value = form.email_provider || 'smtp';
+    },
+    { deep: true },
+);
+
 function selectProvider(provider) {
     selectedProviderId.value = provider.id;
     form.email_provider = provider.id;
 }
 
 function openProviderConfig(provider) {
+    selectProvider(provider);
     selectedProvider.value = provider;
     sidebarOpen.value = true;
 }

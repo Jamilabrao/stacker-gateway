@@ -96,11 +96,20 @@ class TenantMailConfigService
      * Quando não há usuário logado (ex.: esqueci a senha), as configs de SMTP foram salvas
      * com o tenant_id do infoprodutor. Retorna o primeiro tenant_id que tem smtp_host
      * configurado, ou null para usar fallback do .env.
+     *
+     * IMPORTANTE (Plataforma, tenant_id null): Configurações em Plataforma → E-mail ficam sempre
+     * em settings com tenant_id null. Um ORDER BY tenant_id em PostgreSQL põe NULL por último,
+     * fazendo esta função ignorar essas configs e ler o primeiro infoprodutor com SMTP —
+     * o painel salvava Hostinger/email_provider correto mas o runtime aplicava SMTP de outro tenant.
+     * Por isso, quando há e-mail configurado no escopo global, devolve-se null explicitamente.
      */
     public function resolveTenantIdForMail(?int $tenantId): ?int
     {
         if ($tenantId !== null) {
             return $tenantId;
+        }
+        if ($this->isEmailConfigured(null)) {
+            return null;
         }
         $row = Setting::query()
             ->where('key', 'smtp_host')
