@@ -91,7 +91,7 @@ class SettingsController extends Controller
             'base_path' => base_path(),
             'cron_url' => $cronUrl,
             'settings' => [
-                'email_provider' => Setting::get('email_provider', 'smtp', $tenantId),
+                'email_provider' => $this->normalizeEmailProvider(Setting::get('email_provider', 'smtp', $tenantId)),
                 'smtp_host' => Setting::get('smtp_host', '', $tenantId),
                 'smtp_port' => Setting::get('smtp_port', '587', $tenantId),
                 'smtp_username' => Setting::get('smtp_username', '', $tenantId),
@@ -180,6 +180,9 @@ class SettingsController extends Controller
         ]);
 
         $tenantId = PlatformConfigContext::settingsTenantId();
+
+        $this->persistEmailProviderFromRequest($request, $tenantId);
+
         if ($tenantId === null) {
             if (array_key_exists('checkout_turnstile_enabled', $validated)) {
                 Setting::set(
@@ -239,6 +242,11 @@ class SettingsController extends Controller
 
         $this->validateStorageSettings($validated, $tenantId);
 
+        $activeProvider = $this->normalizeEmailProvider(
+            $request->input('email_provider') ?? Setting::get('email_provider', 'smtp', $tenantId)
+        );
+        $this->maybeSyncHostingerFromAddress($validated, $tenantId, $activeProvider);
+
         foreach ($validated as $key => $value) {
             if (in_array($key, ['smtp_password', 'hostinger_smtp_password', 'sendgrid_api_key', 'storage_s3_secret'], true)) {
                 continue;
@@ -251,6 +259,9 @@ class SettingsController extends Controller
             }
 
             if (in_array($key, $alwaysSetKeys, true) || in_array($key, $emailKeys, true)) {
+                if ($key === 'email_provider' && ! in_array($value, ['smtp', 'hostinger', 'sendgrid'], true)) {
+                    continue;
+                }
                 Setting::set($key, $value ?? '', $tenantId);
             } elseif (in_array($key, $storageKeys, true)) {
                 if ($key === 'storage_s3_url' && is_string($value)) {
@@ -348,5 +359,39 @@ class SettingsController extends Controller
             'privacy_updated' => array_key_exists('legal_privacy_policy_html', $validated),
             'terms_updated' => array_key_exists('legal_terms_of_use_html', $validated),
         ], $request);
+    }
+
+    private function normalizeEmailProvider(mixed $value): string
+    {
+        $v = is_string($value) ? strtolower(trim($value)) : '';
+
+        return in_array($v, ['smtp', 'hostinger', 'sendgrid'], true) ? $v : 'smtp';
+    }
+
+    private function persistEmailProviderFromRequest(Request $request, ?int $tenantId): void
+    {
+        if (! $request->has('email_provider')) {
+            return;
+        }
+
+        Setting::set('email_provider', $this->normalizeEmailProvider($request->input('email_provider')), $tenantId);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function maybeSyncHostingerFromAddress(array $validated, ?int $tenantId, string $provider): void
+    {
+        if ($provider !== 'hostinger') {
+            return;
+        }
+
+        $from = trim((string) ($validated['hostinger_mail_from_address'] ?? ''));
+        $user = trim((string) ($validated['hostinger_smtp_username'] ?? ''));
+        if ($from !== '' || $user === '' || filter_var($user, FILTER_VALIDATE_EMAIL) === false) {
+            return;
+        }
+
+        Setting::set('hostinger_mail_from_address', $user, $tenantId);
     }
 }

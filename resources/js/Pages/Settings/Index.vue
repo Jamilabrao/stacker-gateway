@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, watch, defineAsyncComponent } from 'vue';
-import { useForm, router } from '@inertiajs/vue3';
+import { ref, computed, defineAsyncComponent } from 'vue';
+import { useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
 import {
@@ -309,22 +309,8 @@ async function testConnection() {
     connectionResult.value.status = null;
     connectionResult.value.message = '';
     connectionTesting.value = true;
-    const provider = form.email_provider || 'smtp';
-    const payload = { email_provider: provider };
-    if (provider === 'hostinger') {
-        payload.hostinger_smtp_username = form.hostinger_smtp_username;
-        payload.hostinger_smtp_password = form.hostinger_smtp_password;
-    } else if (provider === 'sendgrid') {
-        payload.sendgrid_api_key = form.sendgrid_api_key;
-        payload.sendgrid_mail_from_address = form.sendgrid_mail_from_address;
-        payload.sendgrid_mail_from_name = form.sendgrid_mail_from_name;
-    } else {
-        payload.smtp_host = form.smtp_host;
-        payload.smtp_port = form.smtp_port;
-        payload.smtp_username = form.smtp_username;
-        payload.smtp_password = form.smtp_password;
-        payload.smtp_encryption = form.smtp_encryption;
-    }
+    const payload = buildEmailSettingsPayload();
+    delete payload.kyc_notification_emails;
     try {
         await window.axios.post('/plataforma/configuracoes/email/connection-test', payload);
         connectionResult.value.status = 'success';
@@ -346,22 +332,8 @@ async function testConnection() {
 async function sendTestEmail() {
     testForm.clearErrors();
     sendTestSending.value = true;
-    const provider = form.email_provider || 'smtp';
-    const payload = { test_to: testForm.test_to, email_provider: provider };
-    if (provider === 'hostinger') {
-        payload.hostinger_smtp_username = form.hostinger_smtp_username;
-        payload.hostinger_smtp_password = form.hostinger_smtp_password;
-    } else if (provider === 'sendgrid') {
-        payload.sendgrid_api_key = form.sendgrid_api_key;
-        payload.sendgrid_mail_from_address = form.sendgrid_mail_from_address;
-        payload.sendgrid_mail_from_name = form.sendgrid_mail_from_name;
-    } else {
-        payload.smtp_host = form.smtp_host;
-        payload.smtp_port = form.smtp_port;
-        payload.smtp_username = form.smtp_username;
-        payload.smtp_password = form.smtp_password;
-        payload.smtp_encryption = form.smtp_encryption;
-    }
+    const payload = { test_to: testForm.test_to, ...buildEmailSettingsPayload() };
+    delete payload.kyc_notification_emails;
     try {
         await window.axios.post('/plataforma/configuracoes/email/send-test', payload);
         sendResult.value.status = 'success';
@@ -526,15 +498,28 @@ const providers = [
     },
 ];
 
-const selectedProviderId = ref(form.email_provider || 'smtp');
+const page = usePage();
 const sidebarOpen = ref(false);
 const selectedProvider = ref(null);
+
+/** Provedor ativo = única fonte de verdade (cartão + envio ao servidor). */
+const activeEmailProvider = computed({
+    get: () => {
+        const v = form.email_provider;
+        return v === 'hostinger' || v === 'sendgrid' || v === 'smtp' ? v : 'smtp';
+    },
+    set: (id) => {
+        form.email_provider = id;
+    },
+});
 
 function applyEmailPublicFieldsFromSettings(s) {
     if (!s || typeof s !== 'object') {
         return;
     }
-    form.email_provider = s.email_provider ?? 'smtp';
+    const provider = s.email_provider;
+    form.email_provider =
+        provider === 'hostinger' || provider === 'sendgrid' || provider === 'smtp' ? provider : 'smtp';
     form.smtp_host = s.smtp_host ?? '';
     form.smtp_port = s.smtp_port ?? '587';
     form.smtp_username = s.smtp_username ?? '';
@@ -551,18 +536,41 @@ function applyEmailPublicFieldsFromSettings(s) {
     form.kyc_notification_emails = s.kyc_notification_emails ?? '';
 }
 
-watch(
-    () => props.settings,
-    () => {
-        applyEmailPublicFieldsFromSettings(props.settings);
-        selectedProviderId.value = form.email_provider || 'smtp';
-    },
-    { deep: true },
-);
+function syncEmailSettingsFromProps() {
+    applyEmailPublicFieldsFromSettings(page.props.settings);
+}
+
+function buildEmailSettingsPayload() {
+    const provider = activeEmailProvider.value;
+    const payload = {
+        email_provider: provider,
+        kyc_notification_emails: form.kyc_notification_emails ?? '',
+    };
+    if (provider === 'hostinger') {
+        payload.hostinger_smtp_username = form.hostinger_smtp_username ?? '';
+        payload.hostinger_smtp_password = form.hostinger_smtp_password ?? '';
+        payload.hostinger_mail_from_address = form.hostinger_mail_from_address ?? '';
+        payload.hostinger_mail_from_name = form.hostinger_mail_from_name ?? '';
+        payload.hostinger_reply_to = form.hostinger_reply_to ?? '';
+    } else if (provider === 'sendgrid') {
+        payload.sendgrid_api_key = form.sendgrid_api_key ?? '';
+        payload.sendgrid_mail_from_address = form.sendgrid_mail_from_address ?? '';
+        payload.sendgrid_mail_from_name = form.sendgrid_mail_from_name ?? '';
+    } else {
+        payload.smtp_host = form.smtp_host ?? '';
+        payload.smtp_port = form.smtp_port ?? '587';
+        payload.smtp_username = form.smtp_username ?? '';
+        payload.smtp_password = form.smtp_password ?? '';
+        payload.smtp_encryption = form.smtp_encryption ?? 'tls';
+        payload.mail_from_address = form.mail_from_address ?? '';
+        payload.mail_from_name = form.mail_from_name ?? '';
+        payload.reply_to = form.reply_to ?? '';
+    }
+    return payload;
+}
 
 function selectProvider(provider) {
-    selectedProviderId.value = provider.id;
-    form.email_provider = provider.id;
+    activeEmailProvider.value = provider.id;
 }
 
 function openProviderConfig(provider) {
@@ -576,10 +584,34 @@ function closeSidebar() {
 }
 
 function saveFromSidebar() {
-    form.put('/plataforma/configuracoes', {
-        preserveScroll: true,
-        onSuccess: () => closeSidebar(),
-    });
+    form
+        .transform(() => buildEmailSettingsPayload())
+        .put('/plataforma/configuracoes', {
+            preserveScroll: true,
+            onSuccess: () => {
+                closeSidebar();
+                syncEmailSettingsFromProps();
+            },
+            onFinish: () => {
+                form.transform((data) => data);
+            },
+        });
+}
+
+function submitSettings() {
+    form.email_provider = activeEmailProvider.value;
+    form
+        .transform((data) => ({
+            ...data,
+            email_provider: activeEmailProvider.value,
+        }))
+        .put('/plataforma/configuracoes', {
+            preserveScroll: true,
+            onSuccess: () => syncEmailSettingsFromProps(),
+            onFinish: () => {
+                form.transform((data) => data);
+            },
+        });
 }
 
 function isProviderConfigured(providerId) {
@@ -656,7 +688,7 @@ const selectClass =
         <form
             v-show="activeTab !== 'update' && activeTab !== 'cron' && activeTab !== 'banners_dashboard' && activeTab !== 'idiomas' && !isPluginTab(activeTab)"
             class="w-full max-w-full space-y-6"
-            @submit.prevent="form.put('/plataforma/configuracoes')"
+            @submit.prevent="submitSettings"
         >
             <!-- Aba E-MAIL -->
             <Transition
@@ -680,14 +712,14 @@ const selectClass =
                                 :title="prov.title"
                                 :logo="prov.logo"
                                 :description="prov.description"
-                                :selected="prov.id === selectedProviderId"
+                                :selected="prov.id === activeEmailProvider"
                                 :configured="isProviderConfigured(prov.id)"
                                 @select="selectProvider(prov)"
                                 @configure="openProviderConfig(prov)"
                             />
                         </div>
                         <div
-                            v-if="selectedProviderId && !isProviderConfigured(selectedProviderId)"
+                            v-if="activeEmailProvider && !isProviderConfigured(activeEmailProvider)"
                             class="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20"
                         >
                             <AlertCircle class="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />

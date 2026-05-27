@@ -23,7 +23,7 @@ class EmailTestController extends Controller
 
         $tenantId = PlatformConfigContext::settingsTenantId();
         $provider = Setting::get('email_provider', 'smtp', $tenantId);
-        $this->mailConfig->applyMailerConfigForTenant($tenantId, [], $provider);
+        $this->applySettingsMailer($tenantId, [], $provider);
         Mail::purge('smtp');
 
         try {
@@ -55,7 +55,7 @@ class EmailTestController extends Controller
         $provider = $validated['email_provider'] ?? Setting::get('email_provider', 'smtp', $tenantId);
         $overrides = $this->buildMailOverridesFromRequest($validated, $provider);
 
-        $this->mailConfig->applyMailerConfigForTenant($tenantId, $overrides, $provider);
+        $this->applySettingsMailer($tenantId, $overrides, $provider);
         Mail::purge('smtp');
 
         try {
@@ -102,6 +102,22 @@ class EmailTestController extends Controller
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * Configurações da plataforma (tenant_id null) não devem passar por resolveTenantIdForMail.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    protected function applySettingsMailer(?int $tenantId, array $overrides, string $provider): void
+    {
+        if ($tenantId === null) {
+            $this->mailConfig->applyPlatformGlobalMailerConfig($overrides, $provider);
+
+            return;
+        }
+
+        $this->mailConfig->applyMailerConfigForTenant($tenantId, $overrides, $provider);
     }
 
     /** Build overrides for applyMailerConfig from request (smtp_* or hostinger_* or sendgrid_*). */
