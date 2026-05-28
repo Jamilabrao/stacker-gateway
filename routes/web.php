@@ -151,6 +151,7 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/webhooks/gateways/pagarme', [\App\Http\Controllers\Webhooks\PagarmeWebhookController::class, 'handle'])->name('webhooks.pagarme');
     Route::post('/webhooks/gateways/cajupay/checkout', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay.checkout');
     Route::post('/webhooks/gateways/cajupay', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay');
+    Route::post('/webhooks/gateways/cajupay/payout', [\App\Http\Controllers\Webhooks\CajuPayPayoutWebhookController::class, 'handle'])->name('webhooks.cajupay.payout');
     Route::post('/checkout/cajupay/webhook', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay.checkout-alias');
     // Dispatcher genérico para gateways de plugins (webhook_handler na definição do gateway)
     Route::post('/webhooks/gateways/{slug}', \App\Http\Controllers\Webhooks\GenericGatewayWebhookController::class)

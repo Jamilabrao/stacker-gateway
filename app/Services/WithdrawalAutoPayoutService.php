@@ -93,13 +93,12 @@ class WithdrawalAutoPayoutService
                 'payout_external_id' => $result['external_id'] ?? null,
                 'payout_meta' => array_filter([
                     'api_status' => $result['status'] ?? null,
-                    'paid_at' => now()->toIso8601String(),
+                    'requested_at' => now()->toIso8601String(),
                     'auto' => true,
                 ]),
             ]);
-            MerchantWithdrawalService::markPaid($withdrawal->fresh());
 
-            return ['ok' => true];
+            return ['ok' => true, 'pending' => true];
         }
 
         $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];

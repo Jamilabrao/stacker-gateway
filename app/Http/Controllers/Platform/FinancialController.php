@@ -234,16 +234,14 @@ class FinancialController extends Controller
                 'payout_external_id' => $result['external_id'] ?? null,
                 'payout_meta' => array_filter([
                     'api_status' => $result['status'] ?? null,
-                    'paid_at' => now()->toIso8601String(),
+                    'requested_at' => now()->toIso8601String(),
                 ]),
             ]);
-
-            MerchantWithdrawalService::markPaid($withdrawal->fresh());
 
             PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'cajupay' => true], $request);
 
             return redirect()->route('plataforma.saques.index')
-                ->with('success', 'Saque enviado via CajuPay e marcado como pago.');
+                ->with('success', 'Saque enviado via CajuPay. Aguardando confirmação para marcar como pago.');
         }
 
         if ($slug === 'spacepag') {
@@ -432,16 +430,14 @@ class FinancialController extends Controller
             'payout_external_id' => $result['external_id'] ?? null,
             'payout_meta' => array_filter([
                 'api_status' => $result['status'] ?? null,
-                'paid_at' => now()->toIso8601String(),
+                'requested_at' => now()->toIso8601String(),
             ]),
         ]);
-
-        MerchantWithdrawalService::markPaid($withdrawal->fresh());
 
         PlatformAuditService::log('platform.withdrawal.cajupay_retry_succeeded', ['withdrawal_id' => $withdrawal->id], $request);
 
         return redirect()->route('plataforma.saques.index')
-            ->with('success', 'Saque reprocessado via CajuPay e marcado como pago.');
+            ->with('success', 'Saque reprocessado via CajuPay. Aguardando confirmação para marcar como pago.');
     }
 
     public function rejectWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse
