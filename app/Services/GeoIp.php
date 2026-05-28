@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -58,15 +59,26 @@ class GeoIp
      */
     public function getSuggestionsForIp(string $ip): array
     {
+        $countryFromHeaders = $this->countryCodeFromRequestHeaders(request());
+        if ($countryFromHeaders !== null) {
+            return [
+                'country_code' => $countryFromHeaders,
+                'suggested_locale' => $this->localeForCountry($countryFromHeaders),
+                'suggested_currency' => $this->currencyForCountry($countryFromHeaders),
+            ];
+        }
+
         $cacheKey = 'geo_ip:'.md5($ip);
         $countryCode = Cache::remember($cacheKey, $this->cacheTtlSeconds, function () use ($ip) {
             return $this->fetchCountryCode($ip);
         });
         if ($countryCode === null) {
+            $localeFromHeaders = $this->localeFromAcceptLanguage(request()->header('Accept-Language'));
+
             return [
                 'country_code' => null,
-                'suggested_locale' => self::LOCALE_PT_BR,
-                'suggested_currency' => self::CURRENCY_BRL, // fallback: Brasil como padrão (localhost/indeterminado)
+                'suggested_locale' => $localeFromHeaders,
+                'suggested_currency' => $this->currencyForLocale($localeFromHeaders),
             ];
         }
         return [
@@ -98,6 +110,59 @@ class GeoIp
     private function localeForCountry(string $countryCode): string
     {
         return self::LOCALE_BY_COUNTRY[$countryCode] ?? self::LOCALE_EN;
+    }
+
+    private function currencyForLocale(string $locale): string
+    {
+        return match ($locale) {
+            self::LOCALE_PT_BR => self::CURRENCY_BRL,
+            default => self::CURRENCY_USD,
+        };
+    }
+
+    private function localeFromAcceptLanguage(?string $acceptLanguage): string
+    {
+        $header = strtolower(trim((string) $acceptLanguage));
+        if ($header === '') {
+            return self::LOCALE_PT_BR;
+        }
+
+        if (str_starts_with($header, 'pt')) {
+            return self::LOCALE_PT_BR;
+        }
+        if (str_starts_with($header, 'es')) {
+            return self::LOCALE_ES;
+        }
+        if (str_starts_with($header, 'en')) {
+            return self::LOCALE_EN;
+        }
+
+        return self::LOCALE_EN;
+    }
+
+    private function countryCodeFromRequestHeaders(?Request $request): ?string
+    {
+        if (! $request) {
+            return null;
+        }
+
+        $candidates = [
+            $request->header('CF-IPCountry'),
+            $request->header('X-Country-Code'),
+            $request->header('CloudFront-Viewer-Country'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $code = strtoupper(trim((string) $candidate));
+            if ($code === '' || $code === 'XX' || $code === 'T1') {
+                continue;
+            }
+            if (preg_match('/^[A-Z]{2}$/', $code) === 1) {
+                return $code;
+            }
+        }
+
+        return null;
     }
 
     private function currencyForCountry(string $countryCode): string

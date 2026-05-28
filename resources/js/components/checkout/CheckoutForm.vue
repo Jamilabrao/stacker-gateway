@@ -385,7 +385,16 @@ const countryCodes = [
 
 function getDefaultCountryCode() {
     const suggested = (props.suggestedCountryCode || '').toUpperCase();
-    if (!suggested) return '55';
+    if (!suggested && typeof navigator !== 'undefined') {
+        const lang = String(navigator.language || '').trim();
+        const region = lang.split('-')[1]?.toUpperCase?.() || '';
+        if (region) {
+            const navFound = countryCodes.find((c) => c.country === region);
+            if (navFound) return navFound.code;
+        }
+    } else if (!suggested) {
+        return '55';
+    }
     const found = countryCodes.find((c) => c.country === suggested);
     return found ? found.code : '55';
 }

@@ -46,6 +46,36 @@ function inferLocaleFromNavigator() {
     return null;
 }
 
+function normalizeCountryCode(value) {
+    const v = String(value || '').trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(v) ? v : null;
+}
+
+function inferCountryFromNavigator() {
+    if (typeof navigator === 'undefined') return null;
+    const raw = String(navigator.language || '').trim();
+    if (!raw) return null;
+    const parts = raw.split('-');
+    if (parts.length < 2) return null;
+    return normalizeCountryCode(parts[1]);
+}
+
+function inferLocaleFromCountry(country) {
+    const code = normalizeCountryCode(country);
+    if (!code) return null;
+    if (code === 'BR') return 'pt_BR';
+    if (['ES', 'MX', 'AR', 'CO', 'CL', 'PE'].includes(code)) return 'es';
+    return 'en';
+}
+
+function inferCurrencyFromCountry(country) {
+    const code = normalizeCountryCode(country);
+    if (!code) return null;
+    if (code === 'BR') return 'BRL';
+    if (EUR_REGIONS.has(code)) return 'EUR';
+    return 'USD';
+}
+
 /** Fallback de moeda pelo `navigator.language` (ex.: pt-BR → BRL, de-DE → EUR). */
 function inferCurrencyFromNavigator() {
     if (typeof navigator === 'undefined') return null;
@@ -113,16 +143,14 @@ export function useCheckoutLocale(options = {}) {
 
     function effectiveSuggestedLocale() {
         const server = normalizeLocale(u(suggestedLocale));
-        const country = u(suggestedCountryCode);
-        if (country) return server;
-        return inferLocaleFromNavigator() || server;
+        const country = normalizeCountryCode(u(suggestedCountryCode)) || inferCountryFromNavigator();
+        return inferLocaleFromCountry(country) || inferLocaleFromNavigator() || server;
     }
 
     function effectiveSuggestedCurrency() {
         const server = String(u(suggestedCurrency) || 'BRL').trim().toUpperCase();
-        const country = u(suggestedCountryCode);
-        if (country) return pickCurrencyCode(server);
-        return pickCurrencyCode(inferCurrencyFromNavigator() || server);
+        const country = normalizeCountryCode(u(suggestedCountryCode)) || inferCountryFromNavigator();
+        return pickCurrencyCode(inferCurrencyFromCountry(country) || inferCurrencyFromNavigator() || server);
     }
 
     function resolveLocale() {
