@@ -152,6 +152,7 @@ class RelatoriosController extends Controller
                 'id' => $s->id,
                 'email' => $s->email,
                 'name' => $s->name,
+                'phone' => $s->phone,
                 'product_name' => $s->product?->name ?? '–',
                 'updated_at' => $s->updated_at?->toIso8601String(),
             ])
@@ -206,6 +207,7 @@ class RelatoriosController extends Controller
                 'Etapa',
                 'E-mail',
                 'Nome',
+                'Telefone',
                 'Produto',
                 'Oferta',
                 'Checkout',
@@ -224,6 +226,7 @@ class RelatoriosController extends Controller
                         $s->step,
                         $s->email ?? '',
                         $s->name ?? '',
+                        $s->phone ?? '',
                         $s->product?->name ?? '',
                         $s->productOffer?->name ?? '',
                         $s->checkout_slug ?? '',

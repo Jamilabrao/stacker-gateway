@@ -589,7 +589,7 @@ function callTrackApi(step, email, name) {
     if (trackTimeout) clearTimeout(trackTimeout);
     trackTimeout = setTimeout(async () => {
         const cpf = (form.cpf || '').replace(/\D/g, '');
-        const phone = (form.phone || '').trim();
+        const phone = (showPhone.value ? `${form.country_code || ''}${phoneDigits.value || ''}` : '').trim();
         try {
             await axios.post('/api/checkout/track', {
                 session_token: props.checkoutSessionToken,
@@ -606,7 +606,7 @@ function callTrackApi(step, email, name) {
     }, 500);
 }
 watch(
-    () => [form.email, form.name, form.cpf, form.phone],
+    () => [form.email, form.name, form.cpf, form.country_code, phoneDigits.value],
     () => {
         const email = (form.email || '').trim();
         const name = (form.name || '').trim();

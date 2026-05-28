@@ -368,7 +368,15 @@ class WebhookEventSubscriber
         if ($event instanceof CartAbandoned) {
             $session = $event->checkoutSession;
             $session->loadMissing('product');
-            $extra['customer'] = WebhookCustomerPayload::fromCheckoutSession($session);
+            $extra['customer'] = [
+                'name' => trim((string) ($session->name ?? '')),
+                'email' => trim((string) ($session->email ?? '')),
+                'phone' => trim((string) ($session->phone ?? '')),
+            ];
+            $extra['product'] = [
+                'id' => $session->product?->id ?? $session->product_id,
+                'name' => $session->product?->name ?? '',
+            ];
             $slug = $session->checkout_slug ?? $session->product?->checkout_slug ?? '';
             $extra['checkout_link'] = $slug ? URL::route('checkout.show', ['slug' => $slug]) : '';
         }

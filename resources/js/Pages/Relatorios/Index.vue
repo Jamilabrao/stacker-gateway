@@ -422,6 +422,7 @@ const chartOptionsFormas = computed(() => ({
                         <tr>
                             <th class="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500 dark:text-zinc-400">E-mail</th>
                             <th class="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500 dark:text-zinc-400">Nome</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500 dark:text-zinc-400">Telefone</th>
                             <th class="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500 dark:text-zinc-400">Produto</th>
                             <th class="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-500 dark:text-zinc-400">Atualizado</th>
                         </tr>
@@ -434,11 +435,12 @@ const chartOptionsFormas = computed(() => ({
                         >
                             <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ a.email }}</td>
                             <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ a.name || '–' }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ a.phone || '–' }}</td>
                             <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ a.product_name }}</td>
                             <td class="px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">{{ formatDate(a.updated_at) }}</td>
                         </tr>
                         <tr v-if="!abandonados_com_email.length" class="bg-white dark:bg-zinc-800/60">
-                            <td colspan="4" class="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                            <td colspan="5" class="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
                                 Nenhum abandono com e-mail no período
                             </td>
                         </tr>
