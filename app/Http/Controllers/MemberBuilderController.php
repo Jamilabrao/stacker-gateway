@@ -14,10 +14,13 @@ use App\Models\MemberSection;
 use App\Models\MemberTurma;
 use App\Models\Product;
 use App\Models\User;
+use App\Models\BrandingSetting;
 use App\Models\MemberNotification;
 use App\Models\MemberPushSubscription;
+use App\Http\Middleware\ApplyBrandingConfig;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Arr;
 use App\Services\MemberAreaResolver;
 use App\Services\MemberCommentService;
 use App\Services\StorageService;
@@ -78,7 +81,7 @@ class MemberBuilderController extends Controller
         protected MemberProgressService $memberProgressService
     ) {}
 
-    public function index(Product $produto): View|RedirectResponse
+    public function index(Request $request, Product $produto): View|RedirectResponse
     {
         $this->authorizeProduct($produto);
         if ($produto->type !== Product::TYPE_AREA_MEMBROS) {
@@ -289,6 +292,7 @@ class MemberBuilderController extends Controller
             'dns_target_host' => $dnsTargetHost,
             'dns_target_ip' => $dnsTargetIp,
             'upload_limits' => UploadLimits::memberBuilderForFrontend(),
+            'platform_app_name' => $this->platformAppNameForBuilder($request),
         ]);
     }
 
@@ -363,6 +367,10 @@ class MemberBuilderController extends Controller
             $config['gamification'] = $config['gamification'] ?? ['enabled' => false, 'achievements' => []];
             $config['gamification']['achievements'] = array_values($incoming['gamification']['achievements']);
         }
+
+        $this->normalizeCertificateConfig($config, $produto);
+        $this->validateCertificateConfig($config);
+
         $pwa = $config['pwa'] ?? [];
         $vapidWarning = null;
         if (! empty($pwa['push_enabled'])) {
@@ -1415,6 +1423,112 @@ class MemberBuilderController extends Controller
             return strtr($key, ['+' => '-', '/' => '_']);
         }
         return $key;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function normalizeCertificateConfig(array &$config, Product $produto): void
+    {
+        $certificate = $config['certificate'] ?? [];
+        if (! is_array($certificate)) {
+            $certificate = [];
+        }
+
+        $textKeys = [
+            'title',
+            'signature_text',
+            'duration_text',
+            'platform_name',
+            'header_text',
+            'recipient_intro_text',
+            'completion_text',
+            'issued_on_text',
+            'instructor_label_text',
+            'platform_label_text',
+            'duration_label_text',
+        ];
+
+        foreach ($textKeys as $key) {
+            $certificate[$key] = trim((string) Arr::get($certificate, $key, ''));
+        }
+
+        if ((bool) ($certificate['enabled'] ?? false)) {
+            $defaults = Product::defaultMemberAreaConfig()['certificate'] ?? [];
+            if (trim((string) ($certificate['title'] ?? '')) === '') {
+                $certificate['title'] = trim((string) $produto->name) !== '' ? trim((string) $produto->name) : 'Certificado';
+            }
+            if (trim((string) ($certificate['signature_text'] ?? '')) === '') {
+                $certificate['signature_text'] = 'Instrutor';
+            }
+            foreach ([
+                'header_text',
+                'recipient_intro_text',
+                'completion_text',
+                'issued_on_text',
+                'instructor_label_text',
+                'platform_label_text',
+                'duration_label_text',
+            ] as $key) {
+                if (trim((string) ($certificate[$key] ?? '')) === '') {
+                    $certificate[$key] = trim((string) ($defaults[$key] ?? ''));
+                }
+            }
+        }
+
+        $config['certificate'] = $certificate;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function validateCertificateConfig(array $config): void
+    {
+        $certificate = $config['certificate'] ?? [];
+        if (! is_array($certificate)) {
+            return;
+        }
+        if (! ((bool) ($certificate['enabled'] ?? false))) {
+            return;
+        }
+
+        $required = [
+            'title' => 'Nome do certificado',
+            'signature_text' => 'Texto da assinatura',
+            'duration_text' => 'Duração do curso',
+        ];
+
+        $errors = [];
+        foreach ($required as $key => $label) {
+            $value = trim((string) ($certificate[$key] ?? ''));
+            if ($value === '') {
+                $errors["member_area_config.certificate.{$key}"] = "{$label} é obrigatório quando o certificado estiver habilitado.";
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    private function platformAppNameForBuilder(Request $request): string
+    {
+        $global = BrandingSetting::query()->whereNull('tenant_id')->first();
+        $globalData = is_array($global?->data) ? $global->data : [];
+        $tenantData = [];
+        $user = $request->user();
+        if ($user !== null && $user->tenant_id !== null) {
+            $tenant = BrandingSetting::query()->where('tenant_id', $user->tenant_id)->first();
+            $tenantData = is_array($tenant?->data) ? $tenant->data : [];
+        }
+        $merged = ApplyBrandingConfig::mergeLayers($globalData, $tenantData);
+        $name = trim((string) ($merged['app_name'] ?? ''));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return trim((string) config('getfy.app_name', config('app.name'))) ?: 'Getfy';
     }
 
     private function authorizeProduct(Product $produto): void

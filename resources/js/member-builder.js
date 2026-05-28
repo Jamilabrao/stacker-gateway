@@ -19,5 +19,6 @@ if (data?.produto) {
         dns_target_host: data.dns_target_host ?? null,
         dns_target_ip: data.dns_target_ip ?? null,
         upload_limits: data.upload_limits ?? { image_max_mb: 10, badge_max_mb: 5, pdf_max_mb: 50 },
+        platform_app_name: data.platform_app_name ?? '',
     }).mount('#member-builder-app');
 }

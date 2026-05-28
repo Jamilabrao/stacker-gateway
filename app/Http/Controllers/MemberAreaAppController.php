@@ -12,6 +12,7 @@ use App\Models\MemberInternalProduct;
 use App\Models\MemberLesson;
 use App\Models\MemberModule;
 use App\Models\MemberSection;
+use App\Models\BrandingSetting;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
@@ -657,6 +658,10 @@ class MemberAreaAppController extends Controller
 
         $certificateAvailable = $issued !== null;
         $certTitle = ! empty($certConfig['title']) ? $certConfig['title'] : $product->name;
+        $globalBranding = BrandingSetting::query()->whereNull('tenant_id')->first();
+        $globalBrandingData = is_array($globalBranding?->data) ? $globalBranding->data : [];
+        $globalPlatformName = trim((string) ($globalBrandingData['app_name'] ?? ''));
+        $platformName = $globalPlatformName !== '' ? $globalPlatformName : (string) config('app.name');
 
         $certificatePayload = [
             'title' => $certTitle,
@@ -666,7 +671,14 @@ class MemberAreaAppController extends Controller
             'signature_text' => $certConfig['signature_text'] ?? '',
             'duration_text' => $certConfig['duration_text'] ?? '',
             'font_family' => $certConfig['font_family'] ?? 'sans-serif',
-            'platform_name' => ! empty($certConfig['platform_name']) ? $certConfig['platform_name'] : config('app.name'),
+            'platform_name' => $platformName,
+            'header_text' => trim((string) ($certConfig['header_text'] ?? '')) !== '' ? $certConfig['header_text'] : 'Certificado de conclusão',
+            'recipient_intro_text' => trim((string) ($certConfig['recipient_intro_text'] ?? '')) !== '' ? $certConfig['recipient_intro_text'] : 'Certificamos que',
+            'completion_text' => trim((string) ($certConfig['completion_text'] ?? '')) !== '' ? $certConfig['completion_text'] : 'completou com sucesso o curso em',
+            'issued_on_text' => trim((string) ($certConfig['issued_on_text'] ?? '')) !== '' ? $certConfig['issued_on_text'] : 'em',
+            'instructor_label_text' => trim((string) ($certConfig['instructor_label_text'] ?? '')) !== '' ? $certConfig['instructor_label_text'] : 'Assinatura do Instrutor',
+            'platform_label_text' => trim((string) ($certConfig['platform_label_text'] ?? '')) !== '' ? $certConfig['platform_label_text'] : 'Plataforma de Cursos',
+            'duration_label_text' => trim((string) ($certConfig['duration_label_text'] ?? '')) !== '' ? $certConfig['duration_label_text'] : 'Duração',
             'primary_color' => $certConfig['primary_color'] ?? null,
             'background_image_url' => $certConfig['background_image_url'] ?? null,
             'background_overlay_enabled' => (bool) ($certConfig['background_overlay_enabled'] ?? false),

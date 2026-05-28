@@ -52,6 +52,8 @@ const props = defineProps({
         type: Object,
         default: () => ({ image_max_mb: 10, badge_max_mb: 5, pdf_max_mb: 50 }),
     },
+    /** Nome da aplicação (Personalização global/plataforma), usado no preview do certificado. */
+    platform_app_name: { type: String, default: '' },
 });
 
 const uploadLimits = computed(() => ({
@@ -142,6 +144,63 @@ const memberAreaFullLink = computed(() => {
     return props.produto.member_area_url || `${base}/m/${props.produto.checkout_slug}`;
 });
 
+const CERTIFICATE_TEXT_DEFAULTS = {
+    header_text: 'Certificado de conclusão',
+    recipient_intro_text: 'Certificamos que',
+    completion_text: 'completou com sucesso o curso em',
+    issued_on_text: 'em',
+    instructor_label_text: 'Assinatura do Instrutor',
+    platform_label_text: 'Plataforma de Cursos',
+    duration_label_text: 'Duração',
+};
+
+function mergeCertificateSection(stored = {}) {
+    const base = {
+        enabled: false,
+        title: '',
+        release_mode: 'completion_percent',
+        completion_percent: 100,
+        days_after_access: 0,
+        signature_text: '',
+        font_family: 'sans-serif',
+        duration_text: '',
+        platform_name: '',
+        primary_color: '',
+        background_image_url: '',
+        background_overlay_enabled: false,
+        background_overlay_color: '#000000',
+        background_overlay_opacity: 50,
+        text_color: '',
+        title_color: '',
+        signature_font_family: 'Dancing Script',
+        print_format: 'A4',
+        ...CERTIFICATE_TEXT_DEFAULTS,
+    };
+    const merged = { ...base, ...(stored && typeof stored === 'object' ? stored : {}) };
+    for (const [key, value] of Object.entries(CERTIFICATE_TEXT_DEFAULTS)) {
+        if (!String(merged[key] ?? '').trim()) {
+            merged[key] = value;
+        }
+    }
+    return merged;
+}
+
+function applyCertificateDefaults(config, productName = '') {
+    const cert = config?.certificate;
+    if (!cert?.enabled) return;
+    if (!String(cert.title ?? '').trim()) {
+        cert.title = String(productName || '').trim() || 'Certificado';
+    }
+    if (!String(cert.signature_text ?? '').trim()) {
+        cert.signature_text = 'Instrutor';
+    }
+    for (const [key, value] of Object.entries(CERTIFICATE_TEXT_DEFAULTS)) {
+        if (!String(cert[key] ?? '').trim()) {
+            cert[key] = value;
+        }
+    }
+}
+
 const defaultConfig = () => ({
     theme: { primary: '#0ea5e9', background: '#18181b', text: '#f8fafc', sidebar_bg: '#27272a', ...props.produto.member_area_config?.theme },
     hero: { title: '', subtitle: '', image_url: '', image_url_desktop: '', image_url_mobile: '', overlay: false, ...props.produto.member_area_config?.hero },
@@ -161,27 +220,7 @@ const defaultConfig = () => ({
         ...props.produto.member_area_config?.login,
     },
     pwa: { name: '', short_name: '', theme_color: '#0ea5e9', push_enabled: false, ...props.produto.member_area_config?.pwa },
-    certificate: {
-        enabled: false,
-        title: '',
-        release_mode: 'completion_percent',
-        completion_percent: 100,
-        days_after_access: 0,
-        signature_text: '',
-        font_family: 'sans-serif',
-        duration_text: '',
-        platform_name: '',
-        primary_color: '',
-        background_image_url: '',
-        background_overlay_enabled: false,
-        background_overlay_color: '#000000',
-        background_overlay_opacity: 50,
-        text_color: '',
-        title_color: '',
-        signature_font_family: 'Dancing Script',
-        print_format: 'A4',
-        ...props.produto.member_area_config?.certificate,
-    },
+    certificate: mergeCertificateSection(props.produto.member_area_config?.certificate),
     community_enabled: props.produto.member_area_config?.community_enabled ?? false,
     community_users_can_delete_own_posts: props.produto.member_area_config?.community_users_can_delete_own_posts ?? true,
     comments_enabled: props.produto.member_area_config?.comments_enabled ?? false,
@@ -194,6 +233,15 @@ const configForm = reactive({
     domain_type: props.produto.member_area_domain?.type ?? 'path',
     domain_value: props.produto.member_area_domain?.value ?? props.produto.checkout_slug ?? '',
 });
+
+watch(
+    () => configForm.member_area_config?.certificate?.enabled,
+    (enabled) => {
+        if (enabled) {
+            applyCertificateDefaults(configForm.member_area_config, props.produto.name);
+        }
+    }
+);
 
 const tabs = [
     { id: 'aparencia', label: 'Aparência', icon: Palette, hasPreview: true, previewMode: 'area' },
@@ -1079,6 +1127,13 @@ async function saveConfig() {
     processing.value = true;
     try {
         const cleanedConfig = JSON.parse(JSON.stringify(configForm.member_area_config));
+        applyCertificateDefaults(cleanedConfig, props.produto.name);
+        applyCertificateDefaults(configForm.member_area_config, props.produto.name);
+        const certValidationError = validateCertificateConfig(cleanedConfig);
+        if (certValidationError) {
+            alert(certValidationError);
+            return;
+        }
         if (cleanedConfig.sidebar?.items && Array.isArray(cleanedConfig.sidebar.items)) {
             cleanedConfig.sidebar.items.forEach((item) => normalizeHeaderMenuItem(item));
         }
@@ -1113,11 +1168,31 @@ async function saveConfig() {
         url.searchParams.set('_', String(Date.now()));
         window.location.href = url.toString();
     } catch (err) {
-        const msg = err?.response?.data?.message ?? err?.response?.data?.errors ?? err?.message ?? 'Erro ao salvar.';
-        alert(Array.isArray(msg) ? Object.values(msg).flat().join('\n') : (typeof msg === 'object' ? JSON.stringify(msg) : msg));
+        const data = err?.response?.data;
+        if (data?.errors && typeof data.errors === 'object') {
+            alert(Object.values(data.errors).flat().join('\n'));
+            return;
+        }
+        const msg = data?.message ?? err?.message ?? 'Erro ao salvar.';
+        alert(typeof msg === 'object' ? JSON.stringify(msg) : msg);
     } finally {
         processing.value = false;
     }
+}
+
+function validateCertificateConfig(config) {
+    const cert = config?.certificate || {};
+    if (!cert.enabled) return '';
+    const requiredFields = [
+        ['title', 'Nome do certificado'],
+        ['signature_text', 'Texto da assinatura'],
+        ['duration_text', 'Duração do curso'],
+    ];
+    const missing = requiredFields
+        .filter(([key]) => !String(cert[key] ?? '').trim())
+        .map(([, label]) => label);
+    if (!missing.length) return '';
+    return `Preencha os campos obrigatórios do certificado:\n- ${missing.join('\n- ')}`;
 }
 
 const uploadHeaders = () => ({
@@ -2935,7 +3010,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             <Toggle v-model="configForm.member_area_config.certificate.enabled" label="Habilitar certificado" />
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Nome do certificado</label>
-                                <input v-model="configForm.member_area_config.certificate.title" type="text" :class="inputClass" placeholder="Deixe vazio para usar o nome do produto" />
+                                <input v-model="configForm.member_area_config.certificate.title" type="text" :class="inputClass" placeholder="Obrigatório" />
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Liberar certificado quando</label>
@@ -2956,7 +3031,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Duração do curso</label>
-                                <input v-model="configForm.member_area_config.certificate.duration_text" type="text" :class="inputClass" placeholder="Ex: 40 horas" />
+                                <input v-model="configForm.member_area_config.certificate.duration_text" type="text" :class="inputClass" placeholder="Obrigatório (ex: 40 horas)" />
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Fonte</label>
@@ -2968,11 +3043,38 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Texto da assinatura</label>
-                                <input v-model="configForm.member_area_config.certificate.signature_text" type="text" :class="inputClass" placeholder="Ex: Diretor, Escola XYZ" />
+                                <input v-model="configForm.member_area_config.certificate.signature_text" type="text" :class="inputClass" placeholder="Obrigatório (ex: Diretor, Escola XYZ)" />
                             </div>
                             <div>
-                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Nome da plataforma</label>
-                                <input v-model="configForm.member_area_config.certificate.platform_name" type="text" :class="inputClass" placeholder="Deixe vazio para usar o nome do sistema" />
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Texto do cabeçalho</label>
+                                <input v-model="configForm.member_area_config.certificate.header_text" type="text" :class="inputClass" placeholder="Obrigatório" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Texto de introdução</label>
+                                <input v-model="configForm.member_area_config.certificate.recipient_intro_text" type="text" :class="inputClass" placeholder="Obrigatório (ex: Certificamos que)" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Texto de conclusão</label>
+                                <input v-model="configForm.member_area_config.certificate.completion_text" type="text" :class="inputClass" placeholder="Obrigatório" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Prefixo da data de emissão</label>
+                                <input v-model="configForm.member_area_config.certificate.issued_on_text" type="text" :class="inputClass" placeholder="Obrigatório (ex: em)" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Rótulo da assinatura</label>
+                                <input v-model="configForm.member_area_config.certificate.instructor_label_text" type="text" :class="inputClass" placeholder="Obrigatório" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Rótulo da plataforma</label>
+                                <input v-model="configForm.member_area_config.certificate.platform_label_text" type="text" :class="inputClass" placeholder="Obrigatório" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Rótulo da duração</label>
+                                <input v-model="configForm.member_area_config.certificate.duration_label_text" type="text" :class="inputClass" placeholder="Obrigatório" />
+                            </div>
+                            <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600 dark:border-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-300">
+                                Nome da plataforma agora vem da configuração global em <strong>Configurações &gt; Personalização &gt; Nome da aplicação</strong>.
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Cor primária</label>
@@ -3311,6 +3413,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                         :key="previewKey"
                         :mode="previewMode"
                         :config="configForm.member_area_config"
+                        :platform-app-name="platform_app_name"
                         :product-name="produto.name"
                         :sections="produto.sections ?? []"
                         :internal-products="produto.internal_products ?? []"

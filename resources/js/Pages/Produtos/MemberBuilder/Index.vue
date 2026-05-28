@@ -39,6 +39,9 @@ const props = defineProps({
     app_url: { type: String, default: '' },
 });
 
+const page = usePage();
+const platformAppName = computed(() => String(page.props.appSettings?.app_name || '').trim());
+
 const activeTab = ref('aparencia');
 
 const configForm = useForm({
@@ -651,6 +654,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                     :mode="previewMode"
                     :config="configForm.member_area_config"
                     :product-name="produto.name"
+                    :platform-app-name="platformAppName"
                 />
             </div>
         </div>
