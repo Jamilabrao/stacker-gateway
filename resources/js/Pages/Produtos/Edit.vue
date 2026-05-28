@@ -1331,10 +1331,10 @@ function submit() {
                                             </a>
                                         </div>
                                         <div class="flex gap-1.5">
-                                            <Button size="sm" variant="outline" class="h-8 w-8 p-0" @click="openEditOffer(offer)">
+                                            <Button type="button" size="sm" variant="outline" class="h-8 w-8 p-0" @click="openEditOffer(offer)">
                                                 <Pencil class="h-3.5 w-3.5" />
                                             </Button>
-                                            <Button size="sm" variant="outline" class="h-8 w-8 p-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30" @click="confirmDestroyOffer(offer)">
+                                            <Button type="button" size="sm" variant="outline" class="h-8 w-8 p-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30" @click="confirmDestroyOffer(offer)">
                                                 <Trash2 class="h-3.5 w-3.5" />
                                             </Button>
                                         </div>
@@ -1387,10 +1387,10 @@ function submit() {
                                             </a>
                                         </div>
                                         <div class="flex gap-1.5">
-                                            <Button size="sm" variant="outline" class="h-8 w-8 p-0" @click="openEditPlan(plan)">
+                                            <Button type="button" size="sm" variant="outline" class="h-8 w-8 p-0" @click="openEditPlan(plan)">
                                                 <Pencil class="h-3.5 w-3.5" />
                                             </Button>
-                                            <Button size="sm" variant="outline" class="h-8 w-8 p-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30" @click="confirmDestroyPlan(plan)">
+                                            <Button type="button" size="sm" variant="outline" class="h-8 w-8 p-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30" @click="confirmDestroyPlan(plan)">
                                                 <Trash2 class="h-3.5 w-3.5" />
                                             </Button>
                                         </div>
