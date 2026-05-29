@@ -1,0 +1,19 @@
+<?php
+    $scheme = config('getfy.panel_color_scheme', \App\Support\PanelColorScheme::defaults());
+?>
+<script>
+(function(){try{
+    var policy=<?php echo json_encode($scheme, 15, 512) ?>;
+    var isDark=false;
+    var stored=null;
+    if(!policy.locked){stored=localStorage.getItem('theme');}
+    if(policy.locked){
+        if(policy.mode==='system'){isDark=window.matchMedia('(prefers-color-scheme: dark)').matches;}
+        else{isDark=policy.mode==='dark';}
+    }else if(stored==='light'||stored==='dark'){isDark=stored==='dark';}
+    else if(policy.mode==='system'){isDark=window.matchMedia('(prefers-color-scheme: dark)').matches;}
+    else{isDark=policy.mode==='dark';}
+    document.documentElement.classList.toggle('dark',isDark);
+}catch(_){}})();
+</script>
+<?php /**PATH C:\laragon\www\getfy-gateway\resources\views/partials/panel-theme-init.blade.php ENDPATH**/ ?>

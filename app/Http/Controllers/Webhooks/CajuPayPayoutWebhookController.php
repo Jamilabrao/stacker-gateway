@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Http\Controllers\Controller;
 use App\Models\GatewayCredential;
 use App\Models\Withdrawal;
+use App\Services\CajuPay\CajuPayPayoutStatuses;
 use App\Services\MerchantWithdrawalService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -87,40 +88,13 @@ class CajuPayPayoutWebhookController extends Controller
             'payout_meta' => array_filter($meta, fn ($value) => $value !== null && $value !== ''),
         ]);
 
-        if (! $this->isPaidConfirmation($eventType, $status)) {
+        if (! CajuPayPayoutStatuses::isPaidConfirmation($eventType, $status)) {
             return response('ok', 200);
         }
 
         MerchantWithdrawalService::markPaid($withdrawal->fresh());
 
         return response('ok', 200);
-    }
-
-    private function isPaidConfirmation(string $eventType, string $status): bool
-    {
-        $paidEvents = [
-            'payout.paid',
-            'payout.completed',
-            'withdrawal.paid',
-            'withdrawal.completed',
-            'transfer.paid',
-            'transfer.completed',
-        ];
-        if ($eventType !== '' && in_array($eventType, $paidEvents, true)) {
-            return true;
-        }
-
-        $paidStatuses = [
-            'paid',
-            'completed',
-            'success',
-            'succeeded',
-            'settled',
-            'done',
-            'liquidated',
-        ];
-
-        return $status !== '' && in_array($status, $paidStatuses, true);
     }
 
     /**

@@ -215,6 +215,12 @@ function safePluginSectionHtml(html) {
 
                     <!-- Step 2: Formulário -->
                     <form v-else class="space-y-4" @submit.prevent="submit">
+                        <p
+                            v-if="form.errors.image || (form.hasErrors && !form.errors.name && !form.errors.price)"
+                            class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+                        >
+                            {{ form.errors.image || Object.values(form.errors)[0] }}
+                        </p>
                         <div>
                             <button
                                 type="button"
@@ -324,6 +330,9 @@ function safePluginSectionHtml(html) {
                             />
                             <p v-if="form.image" class="mt-1 text-sm text-zinc-500">
                                 {{ form.image.name }}
+                            </p>
+                            <p v-if="form.errors.image" class="mt-1 text-sm text-red-600 dark:text-red-400">
+                                {{ form.errors.image }}
                             </p>
                         </div>
                         <div class="flex items-center gap-2">

@@ -4,6 +4,7 @@ import { Link } from '@inertiajs/vue3';
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
+import MemberCertificateHighlight from '@/components/member-area/MemberCertificateHighlight.vue';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -46,8 +47,6 @@ const props = defineProps({
     continue_watching: { type: Array, default: () => [] },
     internal_products: { type: Array, default: () => [] },
     community_enabled: { type: Boolean, default: false },
-    certificate_enabled: { type: Boolean, default: false },
-    can_issue_certificate: { type: Boolean, default: false },
     base_url: { type: String, default: '' },
     slug: { type: String, required: true },
 });
@@ -94,6 +93,8 @@ const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%
                 </p>
             </div>
         </section>
+
+        <MemberCertificateHighlight :slug="slug" />
 
         <!-- Continuar assistindo (carrossel: um item por seção) -->
         <section v-if="continue_watching?.length" class="space-y-4">
@@ -291,16 +292,6 @@ const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%
             </div>
         </section>
 
-        <!-- Certificado -->
-        <section v-if="certificate_enabled && can_issue_certificate" class="flex flex-wrap gap-4">
-            <Link
-                :href="`/m/${slug}/certificado`"
-                class="inline-flex items-center gap-2 rounded-xl border border-[var(--ma-primary)] bg-[var(--ma-primary)]/20 px-4 py-3 text-[var(--ma-primary)] transition hover:bg-[var(--ma-primary)]/30"
-            >
-                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" /></svg>
-                Emitir certificado
-            </Link>
-        </section>
         </div>
     </div>
 </template>

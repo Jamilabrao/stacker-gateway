@@ -32,30 +32,35 @@ class ApplyBrandingConfig
             return $next($request);
         }
 
+        $hasBrandingTable = false;
         try {
-            if (! Schema::hasTable('branding_settings')) {
-                return $next($request);
-            }
+            $hasBrandingTable = Schema::hasTable('branding_settings');
         } catch (\Throwable) {
-            return $next($request);
+            $hasBrandingTable = false;
         }
 
-        $data = $this->effectiveData($request);
-        $merge = [];
-        foreach (self::CONFIG_KEYS as $jsonKey => $configKey) {
-            $v = $data[$jsonKey] ?? null;
-            if (is_string($v) && $v !== '') {
-                $merge[$configKey] = $v;
+        if ($hasBrandingTable) {
+            $data = $this->effectiveData($request);
+            $merge = [];
+            foreach (self::CONFIG_KEYS as $jsonKey => $configKey) {
+                $v = $data[$jsonKey] ?? null;
+                if (is_string($v) && $v !== '') {
+                    $merge[$configKey] = $v;
+                }
             }
-        }
-        if ($merge !== []) {
-            config($merge);
+            if ($merge !== []) {
+                config($merge);
+            }
+
+            try {
+                \App\Support\PanelPushSettings::applyToConfig();
+            } catch (\Throwable) {
+                // ignore during install / partial schema
+            }
         }
 
         try {
-            if (Schema::hasTable('branding_settings')) {
-                \App\Support\PanelPushSettings::applyToConfig();
-            }
+            \App\Support\PanelColorScheme::applyToConfig();
         } catch (\Throwable) {
             // ignore during install / partial schema
         }

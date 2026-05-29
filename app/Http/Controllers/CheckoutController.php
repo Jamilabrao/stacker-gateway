@@ -346,21 +346,24 @@ class CheckoutController extends Controller
         $affiliateRef = (string) $request->query('ref', '');
         $payload['conversion_pixels'] = AffiliateConversionPixels::forProductAndRef($product, $affiliateRef);
 
+        $isBuilderPreview = $request->query('preview') === '1';
         $sessionToken = Str::uuid()->toString();
-        CheckoutSession::create(array_merge([
-            'tenant_id' => $product->tenant_id,
-            'product_id' => $product->id,
-            'product_offer_id' => $resolved['offer']?->id,
-            'subscription_plan_id' => $resolved['plan']?->id,
-            'checkout_slug' => $resolved['checkout_slug'],
-            'session_token' => $sessionToken,
-            'step' => CheckoutSession::STEP_VISIT,
-            'customer_ip' => $request->ip(),
-        ], CheckoutSession::trackingFromQuery($request)));
+        if (! $isBuilderPreview) {
+            CheckoutSession::create(array_merge([
+                'tenant_id' => $product->tenant_id,
+                'product_id' => $product->id,
+                'product_offer_id' => $resolved['offer']?->id,
+                'subscription_plan_id' => $resolved['plan']?->id,
+                'checkout_slug' => $resolved['checkout_slug'],
+                'session_token' => $sessionToken,
+                'step' => CheckoutSession::STEP_VISIT,
+                'customer_ip' => $request->ip(),
+            ], CheckoutSession::trackingFromQuery($request)));
+        }
         $payload['checkout_session_token'] = $sessionToken;
 
         /** Preview ao vivo no Builder (iframe): o front confia neste flag, não só na query (Inertia pode alterar URL). */
-        $payload['checkout_builder_preview'] = $request->query('preview') === '1';
+        $payload['checkout_builder_preview'] = $isBuilderPreview;
 
         $payload['affiliate_ref'] = $affiliateRef;
         $payload['turnstile'] = CheckoutTurnstileSettings::publicConfig();

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\GatewayCredential;
 use App\Models\User;
+use App\Jobs\ReconcileCajuPayWithdrawalJob;
 use App\Jobs\ReconcileSpacepagWithdrawalJob;
 use App\Jobs\ReconcileWooviWithdrawalJob;
 use App\Models\Withdrawal;
@@ -97,6 +98,9 @@ class WithdrawalAutoPayoutService
                     'auto' => true,
                 ]),
             ]);
+
+            ReconcileCajuPayWithdrawalJob::dispatch($withdrawal->fresh()->id)
+                ->delay(now()->addMinutes(2));
 
             return ['ok' => true, 'pending' => true];
         }

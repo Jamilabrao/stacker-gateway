@@ -106,34 +106,23 @@ class RelatoriosController extends Controller
         }
 
         $abandonadosVisit = (clone $sessionsQuery)
-            ->where('step', CheckoutSession::STEP_VISIT)
-            ->whereNull('order_id')
+            ->whereAbandonmentVisitEligible()
             ->count();
 
         $abandonadosForm = (clone $sessionsQuery)
-            ->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
-            ->where('updated_at', '<=', now()->subMinutes(10))
-            ->where(function ($q) {
-                $q->whereNull('order_id')
-                    ->orWhereDoesntHave('order', fn ($orderQuery) => $orderQuery->where('status', 'completed'));
-            })
+            ->whereAbandonmentFormEligible()
             ->count();
 
         $converted = (clone $sessionsQuery)
-            ->where('step', CheckoutSession::STEP_CONVERTED)
+            ->whereFunnelConversionCompleted()
             ->count();
 
         $abandonadosTotal = $abandonadosVisit + $abandonadosForm;
-        $totalSessions = $abandonadosVisit + $abandonadosForm + $converted;
+        $totalSessions = (clone $sessionsQuery)->count();
         $taxaConversao = $totalSessions > 0 ? round((float) $converted / $totalSessions * 100, 1) : 0.0;
 
         $abandonadosComEmail = CheckoutSession::forTenant($tenantId)
-            ->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
-            ->where('updated_at', '<=', now()->subMinutes(10))
-            ->where(function ($q) {
-                $q->whereNull('order_id')
-                    ->orWhereDoesntHave('order', fn ($orderQuery) => $orderQuery->where('status', 'completed'));
-            })
+            ->whereAbandonmentFormEligible()
             ->whereNotNull('email')
             ->where('email', '!=', '');
         if ($start && $end) {
@@ -261,15 +250,9 @@ class RelatoriosController extends Controller
 
         return $q->where(function ($outer) {
             $outer->where(function ($visit) {
-                $visit->where('step', CheckoutSession::STEP_VISIT)
-                    ->whereNull('order_id');
+                $visit->whereAbandonmentVisitEligible();
             })->orWhere(function ($form) {
-                $form->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
-                    ->where('updated_at', '<=', now()->subMinutes(10))
-                    ->where(function ($q) {
-                        $q->whereNull('order_id')
-                            ->orWhereDoesntHave('order', fn ($orderQuery) => $orderQuery->where('status', 'completed'));
-                    });
+                $form->whereAbandonmentFormEligible();
             });
         });
     }

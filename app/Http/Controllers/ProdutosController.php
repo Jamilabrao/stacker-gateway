@@ -25,6 +25,7 @@ use App\Services\TeamAccessService;
 use App\Support\HtmlSanitizer;
 use App\Support\MoneyDecimal;
 use App\Gateways\GatewayRegistry;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -153,8 +154,16 @@ class ProdutosController extends Controller
             $validated['description'] = HtmlSanitizer::plainTextMultiline($validated['description'], 20000) ?: null;
         }
 
-        $validated['tenant_id'] = auth()->user()->tenant_id;
-        $validated['slug'] = $validated['slug'] ?? Str::slug($validated['name']);
+        $tenantId = auth()->user()->tenant_id;
+        if ($tenantId === null) {
+            return back()->with('error', 'Conta sem tenant configurado. Atualize a página ou entre em contato com o suporte.')->withInput();
+        }
+
+        $validated['tenant_id'] = $tenantId;
+        $baseSlug = trim((string) ($validated['slug'] ?? '')) !== ''
+            ? Str::slug($validated['slug'])
+            : Str::slug($validated['name']);
+        $validated['slug'] = $this->makeUniqueProductSlug($tenantId, $baseSlug);
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
         $validated['price'] = MoneyDecimal::storageFromBrl(
             (float) $validated['price'],
@@ -175,17 +184,37 @@ class ProdutosController extends Controller
         unset($validated['image']);
         $deliverableLink = $validated['deliverable_link'] ?? null;
         unset($validated['deliverable_link']);
-        $product = Product::create($validated);
 
-        if ($request->has('deliverable_link')) {
-            $config = $product->checkout_config ?? [];
-            $config['deliverable_link'] = $deliverableLink ?? '';
-            $product->update(['checkout_config' => $config]);
-        }
+        try {
+            $product = DB::transaction(function () use ($request, $validated, $deliverableLink) {
+                $product = Product::create($validated);
 
-        if ($request->hasFile('image')) {
-            $path = app(StorageService::class)->putFile('products', $request->file('image'));
-            $product->update(['image' => $path]);
+                if ($request->has('deliverable_link')) {
+                    $config = $product->checkout_config ?? [];
+                    $config['deliverable_link'] = $deliverableLink ?? '';
+                    $product->update(['checkout_config' => $config]);
+                }
+
+                if ($request->hasFile('image')) {
+                    $path = app(StorageService::class)->putFile('products', $request->file('image'));
+                    $product->update(['image' => $path]);
+                }
+
+                return $product;
+            });
+        } catch (\RuntimeException $e) {
+            return back()
+                ->withErrors(['image' => $e->getMessage()])
+                ->with('error', $e->getMessage())
+                ->withInput();
+        } catch (QueryException $e) {
+            if ($this->isDuplicateProductSlugException($e)) {
+                return back()
+                    ->withErrors(['name' => 'Já existe um produto com este nome ou slug. Escolha outro nome.'])
+                    ->withInput();
+            }
+
+            throw $e;
         }
 
         event(new ProductCreated($product));
@@ -1132,6 +1161,27 @@ class ProdutosController extends Controller
     private function productRates(): array
     {
         return config('products.rates', ['brl_eur' => 0.16, 'brl_usd' => 0.18]);
+    }
+
+    private function makeUniqueProductSlug(int $tenantId, string $baseSlug): string
+    {
+        $slug = $baseSlug !== '' ? $baseSlug : 'produto';
+        $candidate = $slug;
+        $n = 0;
+        while (Product::forTenant($tenantId)->where('slug', $candidate)->exists()) {
+            $n++;
+            $candidate = $slug.'-'.$n;
+        }
+
+        return $candidate;
+    }
+
+    private function isDuplicateProductSlugException(QueryException $e): bool
+    {
+        $message = strtolower($e->getMessage());
+
+        return str_contains($message, 'duplicate')
+            && (str_contains($message, 'slug') || str_contains($message, 'products.tenant_id'));
     }
 
     private function productToArray(Product $p, array $rates): array

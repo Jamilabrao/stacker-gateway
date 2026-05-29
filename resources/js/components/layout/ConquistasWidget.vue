@@ -3,10 +3,13 @@ import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import { usePage } from '@inertiajs/vue3';
 import { formatCompactCurrency } from '@/lib/utils';
+import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
 
 const props = defineProps({
     variant: { type: String, default: 'header' }, // 'header' | 'sidebar' | 'dashboard'
 });
+
+const { isAurora, isKawaii, isThemedShell } = useSellerDashboardTemplate();
 
 const page = usePage();
 const progress = computed(() => page.props.achievementsProgress ?? null);
@@ -53,6 +56,7 @@ const panelNavPrefetch = ['hover', 'click'];
         :class="{
             'flex-col items-stretch gap-2': props.variant === 'sidebar',
             'w-full rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-700': props.variant === 'dashboard',
+            '!border-0 !bg-transparent !p-0 hover:!bg-transparent': isAurora && props.variant === 'sidebar',
         }"
         title="Conquistas"
     >
@@ -82,8 +86,9 @@ const panelNavPrefetch = ['hover', 'click'];
             ]"
         >
             <p
-                v-if="props.variant === 'header' || props.variant === 'dashboard'"
+                v-if="props.variant === 'header' || props.variant === 'dashboard' || (isThemedShell && props.variant === 'sidebar')"
                 class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400"
+                :class="isAurora && props.variant === 'sidebar' ? 'aurora-fg-muted' : isKawaii && props.variant === 'sidebar' ? 'kawaii-fg-muted' : ''"
             >
                 FATURAMENTO
             </p>

@@ -27,9 +27,13 @@ class CheckoutSession extends Model
 
     public const STEP_CONVERTED = 'converted';
 
+    /** Janela após interação no checkout para contar abandono (relatórios) e disparar webhook. */
+    public const ABANDONMENT_GRACE_MINUTES = 10;
+
     protected $fillable = [
         'tenant_id', 'product_id', 'product_offer_id', 'subscription_plan_id',
-        'checkout_slug', 'session_token', 'step', 'email', 'name', 'cpf', 'phone',
+        'checkout_slug', 'session_token', 'step', 'form_started_at', 'form_filled_at',
+        'email', 'name', 'cpf', 'phone',
         'customer_ip', 'order_id',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'sck', 'src',
         'abandoned_webhook_fired_at',
@@ -38,8 +42,55 @@ class CheckoutSession extends Model
     protected function casts(): array
     {
         return [
+            'form_started_at' => 'datetime',
+            'form_filled_at' => 'datetime',
             'abandoned_webhook_fired_at' => 'datetime',
         ];
+    }
+
+    public static function abandonmentEligibilityCutoff(): \Illuminate\Support\Carbon
+    {
+        return now()->subMinutes(self::ABANDONMENT_GRACE_MINUTES);
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>
+     */
+    public function scopeWhereAbandonmentVisitEligible($query)
+    {
+        return $query
+            ->where('step', self::STEP_VISIT)
+            ->whereNull('order_id')
+            ->where('created_at', '<=', self::abandonmentEligibilityCutoff());
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>
+     */
+    public function scopeWhereAbandonmentFormEligible($query)
+    {
+        $cutoff = self::abandonmentEligibilityCutoff();
+
+        return $query
+            ->whereIn('step', [self::STEP_FORM_STARTED, self::STEP_FORM_FILLED])
+            ->whereNull('order_id')
+            ->whereRaw(
+                'COALESCE(form_filled_at, form_started_at, updated_at, created_at) <= ?',
+                [$cutoff]
+            );
+    }
+
+    /**
+     * Sessão com venda efetivamente aprovada (pedido completed), não apenas checkout iniciado/pendente.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>
+     */
+    public function scopeWhereFunnelConversionCompleted($query)
+    {
+        return $query->whereHas('order', fn ($orderQuery) => $orderQuery->where('status', 'completed'));
     }
 
     public function product(): BelongsTo

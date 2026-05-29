@@ -14,7 +14,10 @@ use App\Services\PlatformI18nService;
 use App\Services\ApiPixAccess;
 use App\Services\CajuPay\CajuPayMedService;
 use App\Services\LegalDocumentsService;
+use App\Services\MemberProgressService;
 use App\Services\PhysicalProductAccess;
+use App\Support\PanelColorScheme;
+use App\Support\SellerDashboardTemplate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
@@ -155,6 +158,7 @@ class HandleInertiaRequests extends Middleware
 
         $memberNotificationsUnreadCount = 0;
         $memberPushSubscribed = false;
+        $memberCertificate = ['enabled' => false];
         if ($user && $isMemberArea) {
             $product = $request->route('product') ?? $request->attributes->get('member_area_product');
             if ($product) {
@@ -165,6 +169,27 @@ class HandleInertiaRequests extends Middleware
                 $memberPushSubscribed = MemberPushSubscription::where('user_id', $user->id)
                     ->where('product_id', $product->id)
                     ->exists();
+
+                $eligibility = app(MemberProgressService::class)->certificateEligibility($product, $user);
+                if ($eligibility['enabled']) {
+                    $memberCertificate = [
+                        'enabled' => true,
+                        'ready' => $eligibility['eligible'],
+                        'issued' => $eligibility['already_issued'],
+                        'progress_percent' => $eligibility['progress_percent'],
+                        'required_percent' => $eligibility['required_percent'],
+                        'release' => [
+                            'mode' => $eligibility['release_mode'],
+                            'required_percent' => $eligibility['required_percent'],
+                            'percent_met' => $eligibility['percent_met'],
+                            'days_after_access' => $eligibility['days_after_access'],
+                            'days_elapsed' => $eligibility['days_elapsed'],
+                            'days_remaining' => $eligibility['days_remaining'],
+                            'days_met' => $eligibility['days_met'],
+                            'unlocks_at' => $eligibility['unlocks_at'],
+                        ],
+                    ];
+                }
             }
         }
 
@@ -239,7 +264,11 @@ class HandleInertiaRequests extends Middleware
             'med_open_count' => $medOpenCount,
             'member_notifications_unread_count' => $memberNotificationsUnreadCount,
             'member_push_subscribed' => $memberPushSubscribed,
+            'member_certificate' => $memberCertificate,
             'customer_panel' => $customerPanel,
+            'seller_dashboard_template' => ($user && $user->canAccessSellerPanel() && ! $customerPanel)
+                ? SellerDashboardTemplate::current()
+                : SellerDashboardTemplate::DEFAULT,
             'api_pix_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? ApiPixAccess::effectiveForTenant($tenantId)
                 : false,
@@ -310,6 +339,7 @@ class HandleInertiaRequests extends Middleware
             'favicon_url' => $favicon,
             'pwa_icon_192' => config('getfy.pwa_icon_192'),
             'pwa_icon_512' => config('getfy.pwa_icon_512'),
+            'panel_color_scheme' => PanelColorScheme::current(),
         ];
     }
 }

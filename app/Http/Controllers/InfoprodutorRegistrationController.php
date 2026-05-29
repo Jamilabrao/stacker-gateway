@@ -49,8 +49,11 @@ class InfoprodutorRegistrationController extends Controller
             return redirect('/docker-setup');
         }
         $user = Auth::user();
-        if (! $user instanceof User || ! $user->isCliente()) {
-            return redirect()->route('dashboard');
+        if (! $user instanceof User) {
+            return redirect()->route('login');
+        }
+        if (! $user->isCliente()) {
+            return redirect($user->defaultAuthenticatedHomeUrl());
         }
 
         return Inertia::render('Auth/RegisterWizard', [
@@ -287,7 +290,7 @@ class InfoprodutorRegistrationController extends Controller
             'address_state' => strtoupper($validated['address_state']),
             'monthly_revenue_range' => $validated['monthly_revenue_range'],
             'kyc_status' => User::KYC_NOT_SUBMITTED,
-            'account_status' => 'approved',
+            'account_status' => 'pending',
             'seller_onboarded_at' => now(),
         ]);
 
@@ -323,10 +326,10 @@ class InfoprodutorRegistrationController extends Controller
         }
 
         $msg = $inviteAccepted
-            ? 'Conta criada e co-produção ativada. Complete a verificação de identidade (KYC) para liberar o Financeiro.'
-            : 'Conta criada. Complete a verificação de identidade (KYC) para liberar o Financeiro.';
+            ? 'Conta criada e co-produção ativada. Envie seus documentos de verificação (KYC) para acessar o painel.'
+            : 'Conta criada. Envie seus documentos de verificação de identidade (KYC) para acessar o painel do infoprodutor.';
 
-        return redirect()->intended('/dashboard')->with('success', $msg);
+        return redirect('/financeiro?tab=seus-dados')->with('success', $msg);
     }
 
     /**
@@ -437,7 +440,7 @@ class InfoprodutorRegistrationController extends Controller
             'address_state' => strtoupper($validated['address_state']),
             'monthly_revenue_range' => $validated['monthly_revenue_range'],
             'kyc_status' => User::KYC_NOT_SUBMITTED,
-            'account_status' => 'approved',
+            'account_status' => 'pending',
             'seller_onboarded_at' => now(),
         ]);
 
@@ -470,10 +473,10 @@ class InfoprodutorRegistrationController extends Controller
         }
 
         $msg = $inviteAccepted
-            ? 'Conta de infoprodutor ativada e co-produção vinculada. Complete o KYC para o Financeiro.'
-            : 'Parabéns! Sua conta de infoprodutor está ativa. Complete o KYC para o Financeiro.';
+            ? 'Conta de infoprodutor ativada e co-produção vinculada. Envie seus documentos de verificação (KYC) para acessar o painel.'
+            : 'Conta de infoprodutor criada. Envie seus documentos de verificação (KYC) para acessar o painel.';
 
-        return redirect()->intended('/dashboard')->with('success', $msg);
+        return redirect('/financeiro?tab=seus-dados')->with('success', $msg);
     }
 
     private function recordLegalConsent(User $user): void

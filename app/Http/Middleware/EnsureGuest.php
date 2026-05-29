@@ -14,16 +14,6 @@ class EnsureGuest
             return $next($request);
         }
         $user = $request->user();
-        if ($user->canAccessPlatformPanel()) {
-            return redirect()->route('plataforma.dashboard');
-        }
-        if ($user->canAccessSellerPanel()) {
-            return redirect('/dashboard');
-        }
-        if ($user->canAccessCustomerPanel()) {
-            return redirect('/painel-cliente');
-        }
-
-        return redirect('/area-membros');
+        return redirect($user->defaultAuthenticatedHomeUrl());
     }
 }

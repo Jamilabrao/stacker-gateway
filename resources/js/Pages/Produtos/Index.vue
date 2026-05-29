@@ -5,7 +5,10 @@ import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import ProdutosTabs from '@/components/produtos/ProdutosTabs.vue';
 import ProdutoCreateSidebar from '@/components/produtos/ProdutoCreateSidebar.vue';
+import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
+import AuroraPageSection from '@/components/aurora/AuroraPageSection.vue';
 import { useI18n } from '@/composables/useI18n';
+import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
 import {
     MoreVertical,
     Pencil,
@@ -18,6 +21,7 @@ import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
+const { pageClass, mobileCardClass, isKawaii, isAurora } = usePanelThemeClasses();
 
 const props = defineProps({
     produtos: { type: [Array, Object], default: () => [] },
@@ -97,26 +101,29 @@ function pluginActions(productId) {
 </script>
 
 <template>
-    <div class="space-y-6">
-        <div>
-            <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{{ t('sidebar.products', 'Produtos') }}</h1>
-            <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                {{ t('products.subtitle', 'Gerencie seus produtos, ofertas e acessos de checkout.') }}
-            </p>
-        </div>
+    <div :class="pageClass">
+        <AuroraPageHeader
+            :title="t('sidebar.products', 'Produtos')"
+            :subtitle="t('products.subtitle', 'Gerencie seus produtos, ofertas e acessos de checkout.')"
+        />
 
         <ProdutosTabs />
-        <div class="flex justify-end">
-            <Button @click="openSidebar">
-                Novo produto
-            </Button>
-        </div>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <AuroraPageSection>
+            <div class="flex justify-end">
+                <Button @click="openSidebar">
+                    Novo produto
+                </Button>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div
                 v-for="p in produtosList"
                 :key="p.id"
-                class="group relative flex flex-row gap-3 rounded-xl border border-zinc-200 bg-white p-3 pr-2 shadow-sm transition hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800"
+                :class="[
+                    'group relative flex flex-row gap-3 p-3 pr-2 transition',
+                    mobileCardClass,
+                ]"
             >
                 <!-- Coluna da imagem: clicável → edição -->
                 <Link
@@ -239,6 +246,19 @@ function pluginActions(productId) {
             </div>
         </div>
 
+            <div
+                v-if="!produtosList.length"
+                class="flex flex-col items-center justify-center rounded-xl border border-dashed py-16"
+                :class="isAurora ? 'border-[var(--aurora-border)]' : isKawaii ? 'border-[var(--kawaii-border)]' : 'border-zinc-300 dark:border-zinc-700'"
+            >
+                <Package class="h-14 w-14 text-zinc-400 dark:text-zinc-500" />
+                <p class="mt-3 text-zinc-600 dark:text-zinc-400">Nenhum produto ainda.</p>
+                <Button class="mt-4" @click="openSidebar">
+                    Criar primeiro produto
+                </Button>
+            </div>
+        </AuroraPageSection>
+
         <nav
             v-if="produtos?.links?.length > 3"
             class="flex items-center justify-center gap-2"
@@ -262,17 +282,6 @@ function pluginActions(productId) {
                 @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
             />
         </nav>
-
-        <div
-            v-if="!produtosList.length"
-            class="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-300 py-16 dark:border-zinc-700"
-        >
-            <Package class="h-14 w-14 text-zinc-400 dark:text-zinc-500" />
-            <p class="mt-3 text-zinc-600 dark:text-zinc-400">Nenhum produto ainda.</p>
-            <Button class="mt-4" @click="openSidebar">
-                Criar primeiro produto
-            </Button>
-        </div>
     </div>
 
     <!-- Modal de confirmação de exclusão -->

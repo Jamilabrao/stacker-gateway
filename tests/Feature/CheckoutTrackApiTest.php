@@ -42,6 +42,7 @@ class CheckoutTrackApiTest extends TestCase
         $this->assertSame(CheckoutSession::STEP_FORM_STARTED, $session->step);
         $this->assertSame('buyer@example.com', $session->email);
         $this->assertSame('Comprador Teste', $session->name);
+        $this->assertNotNull($session->form_started_at);
     }
 
     public function test_track_returns_success_when_session_missing(): void

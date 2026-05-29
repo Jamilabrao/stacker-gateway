@@ -1,8 +1,10 @@
 <script setup>
-import { computed, ref, watch, watchEffect, provide, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, watchEffect, provide, onBeforeUnmount, onMounted } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 import { useSidebarProvider } from '@/composables/useSidebar';
 import { usePanelPushSubscribe } from '@/composables/usePanelPushSubscribe';
+import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
+import { useThemedPageHeading } from '@/composables/useThemedPageHeading';
 import AppSidebar from '@/components/layout/AppSidebar.vue';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import MobileBottomNav from '@/components/layout/MobileBottomNav.vue';
@@ -13,9 +15,18 @@ import FlashToast from '@/components/layout/FlashToast.vue';
 import CloudBillingBanner from '@/components/layout/CloudBillingBanner.vue';
 import KycBanner from '@/components/layout/KycBanner.vue';
 
-const { isExpanded } = useSidebarProvider();
+const { isExpanded, setExpanded } = useSidebarProvider();
 usePanelPushSubscribe();
+const { isAurora, isKawaii, isThemedShell, templateId } = useSellerDashboardTemplate();
+const { clearHeading } = useThemedPageHeading();
 const page = usePage();
+
+watch(
+    () => page.url,
+    () => {
+        clearHeading();
+    },
+);
 const customerPanel = computed(() => !!page.props.customer_panel);
 const pageTitle = computed(() => page.props.pageTitle ?? null);
 const pageTitleBadge = computed(() => page.props.pageTitleBadge ?? null);
@@ -46,6 +57,61 @@ function onNotificationsUnreadCountUpdate(count) {
 watchEffect(() => {
     const primary = page.props.appSettings?.theme_primary || '#0ea5e9';
     document.documentElement.style.setProperty('--color-primary', primary);
+});
+
+function applyThemedSidebarExpanded() {
+    if (isThemedShell.value && typeof window !== 'undefined' && window.innerWidth >= 1024) {
+        setExpanded(true);
+    }
+}
+
+onMounted(() => {
+    applyThemedSidebarExpanded();
+});
+
+watch(isThemedShell, () => {
+    applyThemedSidebarExpanded();
+});
+
+const shellDataAttrs = computed(() => {
+    if (customerPanel.value) {
+        return {};
+    }
+    return {
+        'data-seller-template': templateId.value,
+    };
+});
+
+const mainOffsetClass = computed(() => {
+    if (customerPanel.value) {
+        return isExpanded.value ? 'lg:ml-[260px]' : 'lg:ml-[64px]';
+    }
+    if (isThemedShell.value) {
+        return 'lg:ml-[276px]';
+    }
+    return isExpanded.value ? 'lg:ml-[260px]' : 'lg:ml-[64px]';
+});
+
+const contentShellClass = computed(() => {
+    if (isThemedShell.value && !customerPanel.value) {
+        const prefix = isKawaii.value ? 'kawaii-content-shell' : 'aurora-content-shell';
+        return `${prefix} flex min-h-0 flex-1 flex-col overflow-hidden rounded-none`;
+    }
+    return 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-zinc-800';
+});
+
+const mainAreaPaddingClass = computed(() => {
+    if (isThemedShell.value && !customerPanel.value) {
+        return 'p-3 pt-2 md:p-4 md:pt-2 lg:px-6 lg:pb-6 lg:pt-3';
+    }
+    return 'p-3 md:p-4 lg:p-6';
+});
+
+const mainContentPaddingClass = computed(() => {
+    if (isThemedShell.value && !customerPanel.value) {
+        return 'flex-1 px-4 pb-24 pt-2 md:px-6 md:pt-2 lg:pb-8';
+    }
+    return 'flex-1 px-4 pb-24 pt-4 md:px-6 md:pt-6 lg:pb-8';
 });
 
 const dashboardCurrentBanner = computed(() => {
@@ -87,15 +153,20 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="min-h-screen bg-zinc-100 dark:bg-zinc-900">
+    <div
+        class="min-h-screen"
+        :class="[
+            isThemedShell && !customerPanel ? 'seller-shell-root' : 'bg-zinc-100 dark:bg-zinc-900',
+            isKawaii && !customerPanel ? 'kawaii-shell-root' : '',
+        ]"
+        v-bind="shellDataAttrs"
+    >
         <AppSidebar />
         <slot name="sidebar-after-nav" />
         <Backdrop />
         <div
-            class="flex min-h-screen flex-col transition-all duration-300 ease-in-out p-3 md:p-4 lg:p-6"
-            :class="[
-                isExpanded ? 'lg:ml-[260px]' : 'lg:ml-[64px]',
-            ]"
+            class="flex min-h-screen flex-col transition-all duration-300 ease-in-out"
+            :class="[mainOffsetClass, mainAreaPaddingClass]"
         >
             <div class="flex w-full shrink-0 flex-col gap-2">
                 <div v-if="!customerPanel" class="-mx-3 md:-mx-4 lg:-mx-6">
@@ -108,6 +179,7 @@ onBeforeUnmount(() => {
             <div
                 v-if="isSellerDashboard && dashboardBanners.length"
                 class="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40"
+                :class="isThemedShell ? (isKawaii ? 'kawaii-card border' : 'aurora-surface aurora-divider border') : ''"
             >
                 <div class="relative">
                     <img
@@ -139,10 +211,8 @@ onBeforeUnmount(() => {
                 @unread-count-update="onNotificationsUnreadCountUpdate"
             />
             <MobileBottomNav v-if="!customerPanel" />
-            <div
-                class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-zinc-800"
-            >
-                <main class="flex-1 px-4 pb-24 pt-4 md:px-6 md:pt-6 lg:pb-8">
+            <div :class="contentShellClass">
+                <main :class="mainContentPaddingClass">
                     <div
                         class="w-full"
                         :class="[

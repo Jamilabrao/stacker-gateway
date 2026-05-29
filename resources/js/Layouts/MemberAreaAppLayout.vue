@@ -4,7 +4,7 @@ import { Link, usePage, Head, router } from '@inertiajs/vue3';
 import PwaInstallPrompt from '@/components/member-area/PwaInstallPrompt.vue';
 import MemberAreaNotificationsPanel from '@/components/member-area/MemberAreaNotificationsPanel.vue';
 import Button from '@/components/ui/Button.vue';
-import { Bell, ChevronDown, User, X, Camera, Lock, CheckCircle, AlertCircle, Menu, Trophy } from 'lucide-vue-next';
+import { Bell, ChevronDown, User, X, Camera, Lock, CheckCircle, AlertCircle, Menu, Trophy, Award } from 'lucide-vue-next';
 import { resolveMemberAreaHref as buildMemberAreaHref } from '@/utils/memberAreaHref';
 
 const page = usePage();
@@ -25,6 +25,13 @@ const sidebarItems = computed(() => sidebar.value?.items ?? [
 ]);
 
 const certificateEnabled = computed(() => (config.value?.certificate ?? {})?.enabled ?? false);
+const memberCertificate = computed(() => props.value?.member_certificate ?? { enabled: false });
+const certificateNavReady = computed(() => memberCertificate.value.ready === true);
+const certificateNavIssued = computed(() => memberCertificate.value.issued === true);
+const isCertificadoPage = computed(() => {
+    const url = page.url || '';
+    return url.includes('/certificado');
+});
 
 const gamificationEnabled = computed(() => (config.value?.gamification ?? {})?.enabled ?? false);
 const gamificationAchievements = computed(() => props.value?.gamification_achievements ?? []);
@@ -544,6 +551,25 @@ watch(
                         </Link>
                     </template>
                     <Link
+                        v-if="certificateEnabled"
+                        :href="certificadoHref"
+                        class="relative inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium drop-shadow transition hover:bg-white/10"
+                        :class="isCertificadoPage ? 'bg-white/15 text-white' : 'text-white/90'"
+                    >
+                        <Award class="h-4 w-4 shrink-0" />
+                        Meu certificado
+                        <span
+                            v-if="certificateNavReady"
+                            class="absolute -right-0.5 -top-0.5 flex h-2 w-2 rounded-full bg-amber-400 ring-2 ring-zinc-900 animate-pulse"
+                            aria-hidden="true"
+                        />
+                        <span
+                            v-else-if="certificateNavIssued"
+                            class="absolute -right-0.5 -top-0.5 flex h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-zinc-900"
+                            aria-hidden="true"
+                        />
+                    </Link>
+                    <Link
                         v-if="config?.community_enabled"
                         :href="communityHref"
                         class="rounded-lg px-3 py-2 text-sm font-medium text-white/90 drop-shadow hover:bg-white/10"
@@ -748,6 +774,21 @@ watch(
                                 {{ item.title }}
                             </Link>
                         </template>
+                        <Link
+                            v-if="certificateEnabled"
+                            :href="certificadoHref"
+                            class="relative flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white"
+                            @click="closeMobileMenu"
+                        >
+                            <Award class="h-4 w-4 shrink-0 text-amber-400/90" />
+                            Meu certificado
+                            <span
+                                v-if="certificateNavReady"
+                                class="ml-auto rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300"
+                            >
+                                Pronto
+                            </span>
+                        </Link>
                         <Link
                             v-if="config?.community_enabled"
                             :href="communityHref"

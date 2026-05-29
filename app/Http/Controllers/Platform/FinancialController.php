@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
+use App\Jobs\ReconcileCajuPayWithdrawalJob;
 use App\Jobs\ReconcileSpacepagWithdrawalJob;
 use App\Jobs\ReconcileWooviWithdrawalJob;
 use Plugins\OnlyUp\OnlyUpPayoutService;
@@ -237,6 +238,9 @@ class FinancialController extends Controller
                     'requested_at' => now()->toIso8601String(),
                 ]),
             ]);
+
+            ReconcileCajuPayWithdrawalJob::dispatch($withdrawal->fresh()->id)
+                ->delay(now()->addMinutes(2));
 
             PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'cajupay' => true], $request);
 

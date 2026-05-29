@@ -59,7 +59,7 @@ export function loadCajuPaySdk() {
 
 /**
  * @param {string} containerSelector
- * @param {{ token: string, defaultMethod?: string, initialPayer?: object, baseUrl?: string, onStatus?: (event: any) => void }} opts
+ * @param {{ token: string, defaultMethod?: string, preparePaymentUIOnMount?: boolean, initialPayer?: object, baseUrl?: string, onStatus?: (event: any) => void }} opts
  */
 export async function mountCajuPayCheckout(containerSelector, opts) {
     if (!opts || !opts.token) {
@@ -77,10 +77,14 @@ export async function mountCajuPayCheckout(containerSelector, opts) {
         throw new Error('CajuPay SDK não expõe mountCheckout().');
     }
 
+    const defaultMethod = opts.defaultMethod || 'card';
+    const preparePaymentUIOnMount = opts.preparePaymentUIOnMount ?? (defaultMethod === 'card');
+
     return await instance.mountCheckout(containerSelector, {
         token: opts.token,
-        defaultMethod: opts.defaultMethod || 'card',
+        defaultMethod,
         embeddedOnly: true,
+        preparePaymentUIOnMount,
         initialPayer: opts.initialPayer || undefined,
         onStatus: typeof opts.onStatus === 'function' ? opts.onStatus : undefined,
     });

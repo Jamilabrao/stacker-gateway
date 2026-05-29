@@ -29,7 +29,7 @@ class DashboardController extends Controller
         }
 
         $tenantId = auth()->user()->tenant_id;
-        $cacheKey = 'dashboard:v3:' . ($tenantId ?? 'global') . ':' . $period;
+        $cacheKey = 'dashboard:v4:' . ($tenantId ?? 'global') . ':' . $period;
 
         $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($tenantId, $period) {
             [$start, $end] = $this->rangeForPeriod($period);
@@ -117,8 +117,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * Alinhado a RelatoriosController: conversões = sessões com step converted;
-     * denominador = visitas abandonadas + formulário abandonado + convertidas.
+     * Alinhado a RelatoriosController: abandono com período de graça; taxa = sessões com pedido completed / total de sessões no período.
      *
      * @return array{taxa_conversao: float, abandono_carrinho: int}
      */
@@ -138,25 +137,19 @@ class DashboardController extends Controller
         }
 
         $abandonadosVisit = (clone $sessionsQuery)
-            ->where('step', CheckoutSession::STEP_VISIT)
-            ->whereNull('order_id')
+            ->whereAbandonmentVisitEligible()
             ->count();
 
         $abandonadosForm = (clone $sessionsQuery)
-            ->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
-            ->where('updated_at', '<=', now()->subMinutes(10))
-            ->where(function ($q) {
-                $q->whereNull('order_id')
-                    ->orWhereDoesntHave('order', fn ($orderQuery) => $orderQuery->where('status', 'completed'));
-            })
+            ->whereAbandonmentFormEligible()
             ->count();
 
         $converted = (clone $sessionsQuery)
-            ->where('step', CheckoutSession::STEP_CONVERTED)
+            ->whereFunnelConversionCompleted()
             ->count();
 
         $abandonadosTotal = $abandonadosVisit + $abandonadosForm;
-        $totalSessions = $abandonadosVisit + $abandonadosForm + $converted;
+        $totalSessions = (clone $sessionsQuery)->count();
         $taxaConversao = $totalSessions > 0 ? round((float) $converted / $totalSessions * 100, 1) : 0.0;
 
         return [

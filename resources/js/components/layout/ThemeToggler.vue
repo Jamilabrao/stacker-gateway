@@ -1,26 +1,12 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { usePanelColorScheme } from '@/composables/usePanelColorScheme';
 
-const theme = ref('light');
-
-function setTheme(value) {
-    theme.value = value;
-    document.documentElement.classList.toggle('dark', value === 'dark');
-    try {
-        localStorage.setItem('theme', value);
-    } catch (_) {}
-}
-
-onMounted(() => {
-    const stored = localStorage.getItem('theme');
-    const initial = stored || 'dark';
-    theme.value = initial;
-    document.documentElement.classList.toggle('dark', initial === 'dark');
-});
+const { theme, showToggler, setTheme } = usePanelColorScheme();
 </script>
 
 <template>
     <div
+        v-if="showToggler"
         role="group"
         aria-label="Tema"
         class="flex rounded-full bg-zinc-200/70 p-0.5 dark:bg-zinc-600/50"

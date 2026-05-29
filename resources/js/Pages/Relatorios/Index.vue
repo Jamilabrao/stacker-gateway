@@ -3,7 +3,11 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import VueApexCharts from 'vue3-apexcharts';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
+import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
+import AuroraPageSection from '@/components/aurora/AuroraPageSection.vue';
+import AuroraStatCard from '@/components/aurora/AuroraStatCard.vue';
 import { useI18n } from '@/composables/useI18n';
+import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
 import {
     CircleDollarSign,
     ShoppingCart,
@@ -21,6 +25,21 @@ import {
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
+const {
+    pageClass,
+    iconBtn,
+    btnSecondary,
+    statCard,
+    statCardLabel,
+    statCardValue,
+    tablePanel,
+    filterPanelClass,
+    innerPanelClass,
+    themePrefix,
+    isThemedShell,
+} = usePanelThemeClasses();
+
+const panelCardClass = innerPanelClass;
 
 const valuesVisible = ref(true);
 const isDarkMode = ref(false);
@@ -208,42 +227,57 @@ const chartOptionsFormas = computed(() => ({
 </script>
 
 <template>
-    <div class="space-y-6">
-        <div>
-            <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{{ t('sidebar.reports', 'Relatórios') }}</h1>
-            <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                {{ t('reports.subtitle', 'Analise resultados, receita e indicadores do seu negócio.') }}
-            </p>
-        </div>
+    <div :class="pageClass">
+        <AuroraPageHeader
+            :title="t('sidebar.reports', 'Relatórios')"
+            :subtitle="t('reports.subtitle', 'Analise resultados, receita e indicadores do seu negócio.')"
+        />
 
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <nav class="flex flex-wrap items-center gap-1" :aria-label="t('dashboard.period', 'Período')">
-                <button
-                    v-for="opt in periodOptions"
-                    :key="opt.value"
-                    type="button"
-                    :aria-current="period === opt.value ? 'true' : undefined"
-                    class="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-                    :class="period === opt.value ? 'bg-[var(--color-primary)] text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'"
-                    @click="setPeriod(opt.value)"
+        <AuroraPageSection>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <nav
+                    :class="[
+                        themePrefix
+                            ? `${themePrefix}-subnav flex-wrap`
+                            : 'flex flex-wrap items-center gap-1',
+                    ]"
+                    :aria-label="t('dashboard.period', 'Período')"
                 >
-                    {{ opt.label }}
+                    <button
+                        v-for="opt in periodOptions"
+                        :key="opt.value"
+                        type="button"
+                        :aria-current="period === opt.value ? 'true' : undefined"
+                        :class="[
+                            themePrefix
+                                ? [`${themePrefix}-subnav-item`, period === opt.value && `${themePrefix}-subnav-item-active`]
+                                : 'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                            !themePrefix &&
+                                (period === opt.value
+                                    ? 'bg-[var(--color-primary)] text-white'
+                                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'),
+                        ]"
+                        @click="setPeriod(opt.value)"
+                    >
+                        {{ opt.label }}
+                    </button>
+                </nav>
+                <button
+                    type="button"
+                    :aria-label="valuesVisible ? t('dashboard.hide_values', 'Ocultar valores') : t('dashboard.show_values', 'Mostrar valores')"
+                    class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                    :class="iconBtn"
+                    @click="valuesVisible = !valuesVisible"
+                >
+                    <Eye v-if="valuesVisible" class="h-5 w-5" aria-hidden="true" />
+                    <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
                 </button>
-            </nav>
-            <button
-                type="button"
-                :aria-label="valuesVisible ? t('dashboard.hide_values', 'Ocultar valores') : t('dashboard.show_values', 'Mostrar valores')"
-                class="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                @click="valuesVisible = !valuesVisible"
-            >
-                <Eye v-if="valuesVisible" class="h-5 w-5" aria-hidden="true" />
-                <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
-            </button>
-        </div>
+            </div>
 
         <div
             v-if="period === 'personalizado'"
-            class="flex flex-wrap items-end gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-800/40"
+            class="flex flex-wrap items-end gap-3"
+            :class="filterPanelClass"
         >
             <div>
                 <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ t('common.from', 'De') }}</label>
@@ -270,54 +304,50 @@ const chartOptionsFormas = computed(() => ({
             </button>
         </div>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                    <CircleDollarSign class="h-5 w-5" />
-                    <span class="text-sm font-medium">{{ t('reports.total_revenue', 'Receita total') }}</span>
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <AuroraStatCard
+                    :icon="CircleDollarSign"
+                    :label="t('reports.total_revenue', 'Receita total')"
+                    :value="displayCurrency(receita_total)"
+                />
+                <AuroraStatCard
+                    :icon="ShoppingCart"
+                    :label="t('sidebar.sales', 'Vendas')"
+                    :value="displayNumber(quantidade_vendas)"
+                />
+                <AuroraStatCard
+                    :icon="TrendingUp"
+                    :label="t('dashboard.avg_ticket', 'Ticket médio')"
+                    :value="displayCurrency(ticket_medio)"
+                />
+                <AuroraStatCard
+                    :icon="Users"
+                    :label="t('products.tab_students', 'Alunos')"
+                    :value="displayNumber(total_alunos)"
+                />
+                <AuroraStatCard
+                    :icon="Package"
+                    :label="t('sidebar.products', 'Produtos')"
+                    :value="displayNumber(total_produtos)"
+                />
+                <div :class="statCard">
+                    <div :class="statCardLabel">
+                        <XCircle class="h-5 w-5 text-[var(--color-primary)]" />
+                        <span>{{ t('reports.abandoned_sales', 'Vendas abandonadas') }}</span>
+                    </div>
+                    <p :class="statCardValue">
+                        {{ displayNumber(abandonados_total) }}
+                    </p>
+                    <p class="mt-1 text-xs aurora-fg-muted">
+                        {{ t('reports.rate', 'Taxa') }}: {{ valuesVisible ? `${taxa_conversao}%` : '—' }} {{ t('reports.conversion', 'conversão') }}
+                    </p>
                 </div>
-                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayCurrency(receita_total) }}</p>
             </div>
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                    <ShoppingCart class="h-5 w-5" />
-                    <span class="text-sm font-medium">{{ t('sidebar.sales', 'Vendas') }}</span>
-                </div>
-                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayNumber(quantidade_vendas) }}</p>
-            </div>
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                    <TrendingUp class="h-5 w-5" />
-                    <span class="text-sm font-medium">{{ t('dashboard.avg_ticket', 'Ticket médio') }}</span>
-                </div>
-                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayCurrency(ticket_medio) }}</p>
-            </div>
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                    <Users class="h-5 w-5" />
-                    <span class="text-sm font-medium">{{ t('products.tab_students', 'Alunos') }}</span>
-                </div>
-                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayNumber(total_alunos) }}</p>
-            </div>
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                    <Package class="h-5 w-5" />
-                    <span class="text-sm font-medium">{{ t('sidebar.products', 'Produtos') }}</span>
-                </div>
-                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayNumber(total_produtos) }}</p>
-            </div>
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                    <XCircle class="h-5 w-5" />
-                    <span class="text-sm font-medium">{{ t('reports.abandoned_sales', 'Vendas abandonadas') }}</span>
-                </div>
-                <p class="mt-2 text-xl font-bold text-zinc-900 dark:text-white">{{ displayNumber(abandonados_total) }}</p>
-                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ t('reports.rate', 'Taxa') }}: {{ valuesVisible ? `${taxa_conversao}%` : '—' }} {{ t('reports.conversion', 'conversão') }}</p>
-            </div>
-        </div>
+        </AuroraPageSection>
 
+        <AuroraPageSection>
         <div class="grid gap-4 lg:grid-cols-2">
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
+            <div :class="panelCardClass">
                 <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Receita por período</h2>
                 <div class="mt-4 min-h-[260px]">
                     <VueApexCharts
@@ -332,7 +362,7 @@ const chartOptionsFormas = computed(() => ({
                     </p>
                 </div>
             </div>
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
+            <div :class="panelCardClass">
                 <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Receita por produto (top 10)</h2>
                 <div class="mt-4 min-h-[260px]">
                     <VueApexCharts
@@ -348,9 +378,11 @@ const chartOptionsFormas = computed(() => ({
                 </div>
             </div>
         </div>
+        </AuroraPageSection>
 
+        <AuroraPageSection>
         <div class="grid gap-4 lg:grid-cols-3">
-            <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50 lg:col-span-2">
+            <div :class="[panelCardClass, 'lg:col-span-2']">
                 <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
                     <CreditCard class="h-4 w-4 text-zinc-500" />
                     Formas de pagamento
@@ -373,7 +405,7 @@ const chartOptionsFormas = computed(() => ({
                 </ul>
             </div>
             <div class="space-y-4">
-                <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <div :class="panelCardClass">
                     <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Distribuição</h2>
                     <div class="mt-4 min-h-[160px]">
                         <VueApexCharts
@@ -388,7 +420,7 @@ const chartOptionsFormas = computed(() => ({
                         </p>
                     </div>
                 </div>
-                <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <div :class="panelCardClass">
                     <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
                         <RotateCcw class="h-4 w-4" />
                         <span class="text-sm font-medium">Reembolsos</span>
@@ -398,25 +430,29 @@ const chartOptionsFormas = computed(() => ({
                 </div>
             </div>
         </div>
+        </AuroraPageSection>
 
-        <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
+        <AuroraPageSection flush>
+            <div class="flex flex-wrap items-center justify-between gap-3 p-4 pb-0">
+                <h2 class="flex items-center gap-2 text-sm font-semibold aurora-fg">
                     <XCircle class="h-4 w-4 text-zinc-500" />
                     Vendas abandonadas com e-mail (para recuperação)
                 </h2>
                 <a
                     :href="abandonedExportUrl"
-                    class="inline-flex shrink-0 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    :class="[btnSecondary, 'shrink-0']"
                 >
                     <Download class="h-4 w-4 shrink-0" aria-hidden="true" />
                     {{ t('reports.export_abandoned_csv', 'Exportar carrinhos abandonados (CSV)') }}
                 </a>
             </div>
-            <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <p class="aurora-fg-muted mt-2 px-4 text-xs">
                 {{ t('reports.export_abandoned_hint', 'O arquivo segue o período selecionado acima e inclui visitas sem pedido e formulários não concluídos (mesma regra dos totais de abandono).') }}
             </p>
-            <div class="mt-4 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+            <div
+                class="mt-4 overflow-hidden"
+                :class="tablePanel"
+            >
                 <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
                     <thead class="bg-zinc-100/80 dark:bg-zinc-800/80">
                         <tr>
@@ -447,6 +483,6 @@ const chartOptionsFormas = computed(() => ({
                     </tbody>
                 </table>
             </div>
-        </div>
+        </AuroraPageSection>
     </div>
 </template>

@@ -127,6 +127,22 @@ return Application::configure(basePath: dirname(__DIR__))
             return null;
         });
 
+        $exceptions->render(function (\RuntimeException $e, Request $request) {
+            if (! $request->header('X-Inertia') || ! $request->isMethod('POST') || ! $request->is('produtos')) {
+                return null;
+            }
+
+            $message = trim($e->getMessage());
+            if ($message === '') {
+                return null;
+            }
+
+            return redirect()->back()
+                ->withErrors(['image' => $message])
+                ->with('error', $message)
+                ->withInput();
+        });
+
         // Fallback: se der erro por tabela/view inexistente e APP_AUTO_MIGRATE=true, roda migrate e redireciona para tentar de novo
         $exceptions->render(function (\Throwable $e, Request $request) {
             if (! $request->expectsJson() && filter_var(config('getfy.auto_migrate', false), FILTER_VALIDATE_BOOLEAN)) {
@@ -169,6 +185,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('payments:reconcile-pending --limit=200 --days=45 --min-age-minutes=0')->everyTwoMinutes();
         $schedule->command('withdrawals:reconcile-spacepag --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-woovi --limit=80 --min-age-minutes=0')->everyMinute();
+        $schedule->command('withdrawals:reconcile-cajupay --limit=80 --min-age-minutes=0')->everyTwoMinutes();
         $schedule->command('settlement:release')->everyFiveMinutes();
         $schedule->command('schedule:heartbeat')->everyMinute();
         $schedule->job(new \App\Jobs\QueueHeartbeatJob)->everyMinute();

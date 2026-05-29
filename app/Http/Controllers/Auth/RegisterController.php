@@ -53,7 +53,7 @@ class RegisterController extends Controller
             return redirect()->intended('/dashboard');
         }
 
-        return redirect()->intended('/area-membros');
+        return redirect()->intended('/painel-cliente');
     }
 
     private function publicRegistrationBlocked(): bool

@@ -101,6 +101,7 @@ class KycVerificationsController extends Controller
 
         $user->forceFill([
             'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
             'kyc_rejection_reason' => null,
             'kyc_reviewed_at' => now(),
             'kyc_reviewed_by' => $request->user()?->id,

@@ -9,9 +9,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script>
-        (function(){try{var s=localStorage.getItem('theme');var t=s||'dark';document.documentElement.classList.toggle('dark',t==='dark');}catch(_){}})();
-    </script>
+    @include('partials.panel-theme-init')
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ config('getfy.app_name', config('app.name', 'Getfy')) }}</title>
     @unless($skipPanelPwa)

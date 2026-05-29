@@ -20,8 +20,18 @@ const cardFieldReady = ref(false);
 const cardPrimingInFlight = ref(false);
 
 const containerSelector = computed(() => `#${props.containerId}`);
-const needsPriming = computed(() => ['card', 'apple_pay', 'google_pay'].includes(props.paymentMethod));
 const isCardMethod = computed(() => props.paymentMethod === 'card');
+const isWalletMethod = computed(() => props.paymentMethod === 'apple_pay' || props.paymentMethod === 'google_pay');
+const needsWalletPriming = computed(() => isWalletMethod.value);
+
+function syncPayerFromProps() {
+    if (!controller.value) return;
+    setCajuPayPayer(controller.value, {
+        name: props.initialPayer?.name,
+        email: props.initialPayer?.email,
+        document: props.initialPayer?.document,
+    });
+}
 
 function destroyController() {
     try {
@@ -41,6 +51,49 @@ function destroyController() {
     }
 }
 
+function onSdkStatus(event) {
+    const phase = event?.phase || event?.status || '';
+    if (phase === 'awaiting_card_details' || (isWalletMethod.value && phase === 'awaiting_wallet_confirmation')) {
+        cardFieldReady.value = true;
+    }
+}
+
+async function onCardMountReady() {
+    syncPayerFromProps();
+}
+
+async function primeWalletField() {
+    if (!controller.value || cardPrimingInFlight.value || cardFieldReady.value) return;
+    cardPrimingInFlight.value = true;
+
+    syncPayerFromProps();
+
+    try {
+        if (typeof props.beforeWalletPrime === 'function') {
+            await props.beforeWalletPrime();
+        }
+        await controller.value.confirm();
+        cardFieldReady.value = true;
+        error.value = '';
+    } catch (e) {
+        const msg = (e?.message || e?.error || '').toString().toLowerCase();
+        if (msg.includes('awaiting') || msg.includes('card_details') || msg.includes('wallet')) {
+            cardFieldReady.value = true;
+            error.value = '';
+        } else if (msg.includes('payer_name') || msg.includes('payer_email') || msg.includes('payer_document')) {
+            error.value = 'Preencha seus dados acima para carregar o pagamento.';
+        } else if (msg.includes('method_not_available') || msg.includes('confirm_unavailable_for_method')) {
+            const label = props.paymentMethod === 'apple_pay' ? 'Apple Pay' : 'Google Pay';
+            error.value = `${label} não está disponível para esta conta CajuPay no momento. Selecione outra forma de pagamento (ex.: Cartão).`;
+        } else if (!cardFieldReady.value) {
+            const label = props.paymentMethod === 'apple_pay' ? 'Apple Pay' : 'Google Pay';
+            error.value = e?.message || `Falha ao iniciar o ${label}.`;
+        }
+    } finally {
+        cardPrimingInFlight.value = false;
+    }
+}
+
 async function tryMount() {
     if (!props.sessionToken) {
         if (controller.value) destroyController();
@@ -55,22 +108,21 @@ async function tryMount() {
     try {
         await new Promise((r) => { setTimeout(r, 0); });
         const base = (props.apiBaseUrl || '').trim() || undefined;
+        const defaultMethod = cajupayDefaultMethodFor(props.paymentMethod);
         controller.value = await mountCajuPayCheckout(containerSelector.value, {
             token: props.sessionToken,
             baseUrl: base,
-            defaultMethod: cajupayDefaultMethodFor(props.paymentMethod),
+            defaultMethod,
+            preparePaymentUIOnMount: defaultMethod === 'card',
             initialPayer: props.initialPayer,
-            onStatus: (event) => {
-                const phase = event?.phase || event?.status || '';
-                if (phase === 'awaiting_card_details') {
-                    cardFieldReady.value = true;
-                }
-            },
+            onStatus: onSdkStatus,
         });
         mountedToken.value = props.sessionToken;
 
-        if (needsPriming.value) {
-            await primeCardField();
+        if (isCardMethod.value) {
+            await onCardMountReady();
+        } else if (needsWalletPriming.value) {
+            await primeWalletField();
         } else {
             cardFieldReady.value = true;
         }
@@ -83,51 +135,6 @@ async function tryMount() {
             error.value = raw || 'Não foi possível carregar o checkout CajuPay.';
         }
         controller.value = null;
-    }
-}
-
-async function primeCardField() {
-    if (!controller.value || cardPrimingInFlight.value || cardFieldReady.value) return;
-    cardPrimingInFlight.value = true;
-
-    setCajuPayPayer(controller.value, {
-        name: props.initialPayer?.name,
-        email: props.initialPayer?.email,
-        document: props.initialPayer?.document,
-    });
-
-    try {
-        if (
-            (props.paymentMethod === 'apple_pay' || props.paymentMethod === 'google_pay')
-            && typeof props.beforeWalletPrime === 'function'
-        ) {
-            await props.beforeWalletPrime();
-        }
-        await controller.value.confirm();
-        cardFieldReady.value = true;
-        error.value = '';
-    } catch (e) {
-        const msg = (e?.message || e?.error || '').toString().toLowerCase();
-        if (msg.includes('awaiting') || msg.includes('card_details')) {
-            cardFieldReady.value = true;
-            error.value = '';
-        } else if (msg.includes('payer_name') || msg.includes('payer_email') || msg.includes('payer_document')) {
-            error.value = 'Preencha seus dados acima para carregar o pagamento.';
-        } else if (msg.includes('method_not_available') || msg.includes('confirm_unavailable_for_method')) {
-            const label = props.paymentMethod === 'apple_pay' ? 'Apple Pay'
-                : props.paymentMethod === 'google_pay' ? 'Google Pay'
-                : 'Esse método';
-            error.value = `${label} não está disponível para esta conta CajuPay no momento. Selecione outra forma de pagamento (ex.: Cartão).`;
-        } else if (!cardFieldReady.value) {
-            const label = isCardMethod.value
-                ? 'cartão'
-                : props.paymentMethod === 'apple_pay' ? 'Apple Pay'
-                : props.paymentMethod === 'google_pay' ? 'Google Pay'
-                : 'pagamento';
-            error.value = e?.message || `Falha ao iniciar o ${label}.`;
-        }
-    } finally {
-        cardPrimingInFlight.value = false;
     }
 }
 
@@ -149,23 +156,27 @@ watch(
     }
 );
 
-let primeRetryTimer = null;
+let payerRetryTimer = null;
 watch(
     () => props.initialPayer,
     (val) => {
-        if (!needsPriming.value) return;
         if (!controller.value) return;
-        if (cardFieldReady.value) return;
         const hasMinPayer = (val?.name || '').trim() !== '' && (val?.email || '').trim() !== '';
         if (!hasMinPayer) return;
-        clearTimeout(primeRetryTimer);
-        primeRetryTimer = setTimeout(() => { primeCardField(); }, 400);
+        clearTimeout(payerRetryTimer);
+        payerRetryTimer = setTimeout(() => {
+            if (!controller.value) return;
+            syncPayerFromProps();
+            if (isWalletMethod.value && !cardFieldReady.value && !cardPrimingInFlight.value) {
+                void primeWalletField();
+            }
+        }, 400);
     },
     { deep: true }
 );
 
 onBeforeUnmount(() => {
-    clearTimeout(primeRetryTimer);
+    clearTimeout(payerRetryTimer);
     destroyController();
 });
 
@@ -173,7 +184,7 @@ async function confirm() {
     if (!controller.value) {
         throw new Error('CajuPay: aguarde o checkout terminar de carregar.');
     }
-    if (needsPriming.value && !cardFieldReady.value) {
+    if ((isCardMethod.value || needsWalletPriming.value) && !cardFieldReady.value) {
         const start = Date.now();
         while (!cardFieldReady.value && Date.now() - start < 8000) {
             await new Promise((r) => { setTimeout(r, 100); });

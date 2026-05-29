@@ -103,7 +103,7 @@ class Product extends Model
     protected static function booted(): void
     {
         static::creating(function (Product $product): void {
-            if (empty($product->id)) {
+            if (empty($product->id) && $product->getConnection()->getDriverName() !== 'sqlite') {
                 $product->id = (string) Str::uuid();
             }
             if (empty($product->checkout_slug)) {

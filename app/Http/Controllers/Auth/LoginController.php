@@ -111,10 +111,10 @@ class LoginController extends Controller
             if ($user->canAccessCustomerPanel()) {
                 $request->session()->put('panel_context', 'customer');
 
-                return redirect()->intended('/area-membros');
+                return redirect()->intended('/painel-cliente');
             }
 
-            return redirect()->intended('/area-membros');
+            return redirect()->intended('/painel-cliente');
         }
 
         return back()->withErrors([

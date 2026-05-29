@@ -3,9 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <script>
-            (function(){try{var s=localStorage.getItem('theme');var t=s||'dark';document.documentElement.classList.toggle('dark',t==='dark');}catch(_){}})();
-        </script>
+        @include('partials.panel-theme-init')
         <title>{{ config('app.name', 'Getfy') }}</title>
         <link rel="icon" href="https://cdn.getfy.cloud/collapsed-logo.png" type="image/png">
 

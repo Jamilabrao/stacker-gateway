@@ -72,8 +72,6 @@ class MemberAreaAppController extends Controller
                 'has_access' => $user->products()->where('products.id', $ip->related_product_id)->exists(),
             ])->values()->all(),
             'community_enabled' => (bool) ($config['community_enabled'] ?? false),
-            'certificate_enabled' => (bool) (($config['certificate'] ?? [])['enabled'] ?? false),
-            'can_issue_certificate' => $this->progressService->canIssueCertificate($product, $user),
             'base_url' => $baseUrl,
             'slug' => $slug,
             'push_enabled' => $push['push_enabled'],

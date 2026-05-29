@@ -191,6 +191,36 @@ class User extends Authenticatable
     }
 
     /**
+     * URL inicial após login ou ao acessar a raiz autenticado.
+     */
+    public function defaultAuthenticatedHomeUrl(): string
+    {
+        if ($this->canAccessPlatformPanel()) {
+            return route('plataforma.dashboard');
+        }
+        if ($this->canAccessSellerPanel()) {
+            return '/dashboard';
+        }
+        if ($this->canAccessCustomerPanel()) {
+            return '/painel-cliente';
+        }
+
+        return '/painel-cliente';
+    }
+
+    /**
+     * Destino quando o usuário tenta acessar rotas do painel do vendedor sem permissão.
+     */
+    public function sellerPanelFallbackUrl(): string
+    {
+        if ($this->canAccessCustomerPanel()) {
+            return '/painel-cliente';
+        }
+
+        return route('login');
+    }
+
+    /**
      * Painel operador da plataforma (/plataforma): platform_admin sem tenant, ou papel admin global.
      */
     public function canAccessPlatformPanel(): bool
@@ -256,6 +286,32 @@ class User extends Authenticatable
         $status = $this->kycSubjectUser()->kyc_status;
 
         return $status === self::KYC_APPROVED;
+    }
+
+    /**
+     * Documentos KYC já enviados (em análise ou aprovados).
+     */
+    public function hasSubmittedKyc(): bool
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('users', 'kyc_status')) {
+            return true;
+        }
+
+        $status = $this->kycSubjectUser()->kyc_status;
+
+        return in_array($status, [self::KYC_PENDING_REVIEW, self::KYC_APPROVED], true);
+    }
+
+    /**
+     * Infoprodutor/equipe precisa enviar documentos antes de usar o painel do vendedor.
+     */
+    public function mustSubmitKycBeforeSellerPanel(): bool
+    {
+        if (! $this->canAccessSellerPanel()) {
+            return false;
+        }
+
+        return ! $this->hasSubmittedKyc();
     }
 
     /**

@@ -4,11 +4,15 @@ import { router } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import CupomSidebar from '@/components/produtos/CupomSidebar.vue';
+import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
+import AuroraPageSection from '@/components/aurora/AuroraPageSection.vue';
 import { Pencil, Trash2, Ticket } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
+import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
+const { pageClass, tablePanel } = usePanelThemeClasses();
 
 const props = defineProps({
     cupons: { type: Array, default: () => [] },
@@ -67,14 +71,25 @@ function usosText(c) {
 </script>
 
 <template>
-    <div class="space-y-6">
-        <div class="flex justify-end">
-            <Button @click="openNew">
-                {{ t('coupons.new', 'Novo cupom') }}
-            </Button>
-        </div>
+    <div :class="pageClass">
+        <AuroraPageHeader
+            :title="t('sidebar.coupons', 'Cupons')"
+            :subtitle="t('coupons.subtitle', 'Crie e gerencie cupons de desconto para seus produtos.')"
+        />
 
-        <div class="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
+        <AuroraPageSection>
+            <div class="flex justify-end">
+                <Button @click="openNew">
+                    {{ t('coupons.new', 'Novo cupom') }}
+                </Button>
+            </div>
+
+            <div
+                :class="[
+                    'overflow-hidden',
+                    tablePanel,
+                ]"
+            >
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
                     <thead class="bg-zinc-50 dark:bg-zinc-800/80">
@@ -176,6 +191,7 @@ function usosText(c) {
                 </Button>
             </div>
         </div>
+        </AuroraPageSection>
     </div>
 
     <!-- Modal de confirmação de exclusão -->

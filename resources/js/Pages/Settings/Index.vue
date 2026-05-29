@@ -16,6 +16,7 @@ import {
     Tag,
     Palette,
     Images,
+    LayoutGrid,
     Truck,
     Shield,
     Scale,
@@ -24,6 +25,7 @@ import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
 import BrandingTab from '@/Pages/Settings/Tabs/BrandingTab.vue';
 import DashboardBannersTab from '@/Pages/Settings/Tabs/DashboardBannersTab.vue';
+import DashboardTemplateTab from '@/Pages/Settings/Tabs/DashboardTemplateTab.vue';
 import LanguagesTab from '@/Pages/Settings/Tabs/LanguagesTab.vue';
 import SecurityTab from '@/Pages/Settings/Tabs/SecurityTab.vue';
 import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
@@ -70,7 +72,7 @@ const props = defineProps({
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'lgpd', 'cron', 'update'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'lgpd', 'cron', 'update'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -178,6 +180,7 @@ const coreTabsStatic = [
     { id: 'storage', label: 'Storage', icon: HardDrive },
     { id: 'personalizacao', label: 'Personalização', icon: Palette },
     { id: 'banners_dashboard', label: 'Banners Dashboard', icon: Images },
+    { id: 'template_dashboard', label: 'Template dashboard', icon: LayoutGrid },
     { id: 'idiomas', label: 'Idiomas', icon: Languages },
     { id: 'traducoes', label: 'Traduções', icon: Languages },
     { id: 'moedas', label: 'Moedas', icon: Banknote },
@@ -686,7 +689,7 @@ const selectClass =
         </div>
 
         <form
-            v-show="activeTab !== 'update' && activeTab !== 'cron' && activeTab !== 'banners_dashboard' && activeTab !== 'idiomas' && !isPluginTab(activeTab)"
+            v-show="activeTab !== 'update' && activeTab !== 'cron' && activeTab !== 'banners_dashboard' && activeTab !== 'template_dashboard' && activeTab !== 'idiomas' && !isPluginTab(activeTab)"
             class="w-full max-w-full space-y-6"
             @submit.prevent="submitSettings"
         >
@@ -1221,6 +1224,19 @@ const selectClass =
         >
             <div v-show="activeTab === 'banners_dashboard'" class="w-full max-w-full space-y-6">
                 <DashboardBannersTab />
+            </div>
+        </Transition>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'template_dashboard'" class="w-full max-w-full space-y-6">
+                <DashboardTemplateTab />
             </div>
         </Transition>
 

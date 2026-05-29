@@ -21,7 +21,12 @@ class EnsureSellerPanel
                 ->with('error', 'Use o painel da plataforma.');
         }
         if (! $user->canAccessSellerPanel()) {
-            abort(403, 'Acesso não autorizado.');
+            if ($request->expectsJson()) {
+                abort(403, 'Acesso não autorizado.');
+            }
+
+            return redirect($user->sellerPanelFallbackUrl())
+                ->with('info', 'O painel de vendas é para infoprodutores. Você foi redirecionado para o painel do cliente.');
         }
 
         if ($user->sellerAccountAccessBlocked()) {
@@ -34,6 +39,28 @@ class EnsureSellerPanel
                 ->withErrors(['email' => 'Conta suspensa ou bloqueada. Contate o suporte.']);
         }
 
+        if ($user->mustSubmitKycBeforeSellerPanel() && ! $this->isKycOnboardingRoute($request)) {
+            return redirect('/financeiro?tab=seus-dados')
+                ->with('info', 'Envie seus documentos de verificação de identidade (KYC) para acessar o painel do infoprodutor.');
+        }
+
         return $next($request);
+    }
+
+    private function isKycOnboardingRoute(Request $request): bool
+    {
+        return $request->routeIs(
+            'kyc.upload',
+            'kyc.document',
+            'kyc.finalize',
+            'kyc.store',
+            'financeiro.seller.index',
+            'logout',
+            'panel.switch',
+            'profile.index',
+            'profile.update',
+            'profile.update-username',
+            'profile.update-password',
+        );
     }
 }

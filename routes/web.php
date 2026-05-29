@@ -13,11 +13,11 @@ Route::redirect('/pataform/login', '/plataforma/login', 302);
 Route::redirect('/platfform/login', '/plataforma/login', 302);
 Route::get('/admin', function () {
     $user = auth()->user();
-    if ($user && $user->canAccessPlatformPanel()) {
-        return redirect()->route('plataforma.dashboard');
+    if ($user) {
+        return redirect($user->defaultAuthenticatedHomeUrl());
     }
 
-    return redirect('/dashboard');
+    return redirect('/login');
 })->name('admin.portal');
 
 // Storage: servir arquivos de storage/app/public (sem symlink) — deve ser uma das primeiras rotas
@@ -85,19 +85,7 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
     }
 
     if (auth()->check()) {
-        $user = auth()->user();
-        if ($user->canAccessPlatformPanel()) {
-            return redirect()->route('plataforma.dashboard');
-        }
-        if ($user->canAccessSellerPanel()) {
-            return redirect('/dashboard');
-        }
-
-        if ($user->canAccessCustomerPanel()) {
-            return redirect('/painel-cliente');
-        }
-
-        return redirect('/area-membros');
+        return redirect(auth()->user()->defaultAuthenticatedHomeUrl());
     }
 
     return redirect()->to('/login', 302);
@@ -327,6 +315,10 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/configuracoes/banners-dashboard/data', [\App\Http\Controllers\Platform\DashboardBannerController::class, 'data'])->name('settings.dashboard-banners.data');
         Route::put('/configuracoes/banners-dashboard', [\App\Http\Controllers\Platform\DashboardBannerController::class, 'update'])->name('settings.dashboard-banners.update');
         Route::post('/configuracoes/banners-dashboard/upload', [\App\Http\Controllers\Platform\DashboardBannerController::class, 'upload'])->name('settings.dashboard-banners.upload');
+        Route::get('/configuracoes/template-dashboard/data', [\App\Http\Controllers\Platform\SellerDashboardTemplateController::class, 'data'])->name('settings.dashboard-template.data');
+        Route::put('/configuracoes/template-dashboard', [\App\Http\Controllers\Platform\SellerDashboardTemplateController::class, 'update'])->name('settings.dashboard-template.update');
+        Route::get('/configuracoes/panel-color-scheme/data', [\App\Http\Controllers\Platform\PanelColorSchemeController::class, 'data'])->name('settings.panel-color-scheme.data');
+        Route::put('/configuracoes/panel-color-scheme', [\App\Http\Controllers\Platform\PanelColorSchemeController::class, 'update'])->name('settings.panel-color-scheme.update');
         Route::get('/configuracoes/personalizacao/data', [\App\Http\Controllers\BrandingSettingsController::class, 'data'])->name('settings.branding.data');
         Route::put('/configuracoes/personalizacao', [\App\Http\Controllers\BrandingSettingsController::class, 'update'])->name('settings.branding.update');
         Route::post('/configuracoes/personalizacao/upload', [\App\Http\Controllers\BrandingSettingsController::class, 'upload'])->name('settings.branding.upload');

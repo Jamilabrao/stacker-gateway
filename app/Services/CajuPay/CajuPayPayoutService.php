@@ -310,4 +310,135 @@ class CajuPayPayoutService
 
         return ['ok' => false, 'error' => $msg !== '' ? $msg : 'Erro ao cadastrar chave PIX.'];
     }
+
+    /**
+     * Consulta liquidação do saque na API (fallback ao webhook).
+     *
+     * @return 'paid'|'pending'|'failed'|null
+     */
+    public function getPayoutSettlementStatus(string $externalId): ?string
+    {
+        $externalId = trim($externalId);
+        if ($externalId === '') {
+            return null;
+        }
+
+        $credential = GatewayCredential::resolveForPayment(null, 'cajupay');
+        if ($credential === null || ! $credential->is_connected) {
+            return null;
+        }
+
+        $credentials = $credential->getDecryptedCredentials();
+        if (empty($credentials['public_key'] ?? null) || empty($credentials['secret_key'] ?? null)) {
+            return null;
+        }
+
+        $record = $this->fetchPayoutById($externalId, $credentials);
+        if ($record === null) {
+            $record = $this->fetchPayoutFromList($externalId, $credentials);
+        }
+
+        if ($record === null) {
+            return null;
+        }
+
+        $raw = $this->extractStatusFromPayoutRecord($record);
+
+        return CajuPayPayoutStatuses::settlementStatusFromRaw($raw);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>|null
+     */
+    private function fetchPayoutById(string $externalId, array $credentials): ?array
+    {
+        try {
+            $response = $this->httpForCredentials($credentials)
+                ->get('/api/payouts/'.rawurlencode($externalId));
+
+            if ($response->status() === 404) {
+                return null;
+            }
+
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $data = $response->json();
+            if (! is_array($data)) {
+                return null;
+            }
+
+            if (isset($data['id']) || isset($data['status']) || isset($data['payout_id'])) {
+                return $data;
+            }
+
+            $nested = $data['payout'] ?? $data['data'] ?? null;
+
+            return is_array($nested) ? $nested : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>|null
+     */
+    private function fetchPayoutFromList(string $externalId, array $credentials): ?array
+    {
+        try {
+            $response = $this->httpForCredentials($credentials)
+                ->get('/api/payouts', ['limit' => 50]);
+
+            if (! $response->successful()) {
+                return null;
+            }
+
+            $json = $response->json();
+            if (! is_array($json)) {
+                return null;
+            }
+
+            $items = $json['data'] ?? $json['payouts'] ?? $json['items'] ?? $json;
+            if (! is_array($items)) {
+                return null;
+            }
+
+            foreach ($items as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $id = trim((string) ($item['id'] ?? $item['payout_id'] ?? ''));
+                if ($id !== '' && $id === $externalId) {
+                    return $item;
+                }
+            }
+
+            return null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     */
+    private function extractStatusFromPayoutRecord(array $record): ?string
+    {
+        $candidates = [
+            $record['status'] ?? null,
+            data_get($record, 'state'),
+            data_get($record, 'payout_status'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_scalar($candidate) && trim((string) $candidate) !== '') {
+                return trim((string) $candidate);
+            }
+        }
+
+        return null;
+    }
 }

@@ -48,13 +48,31 @@ class KycRegistrationTest extends TestCase
 
         $response = $this->post('/cadastro', $payload);
 
-        $response->assertRedirect('/dashboard');
+        $response->assertRedirect('/financeiro?tab=seus-dados');
 
         $u = User::query()->where('email', 'vendedor@example.com')->first();
         $this->assertNotNull($u);
         $this->assertSame(User::ROLE_INFOPRODUTOR, $u->role);
         $this->assertSame(User::KYC_NOT_SUBMITTED, $u->kyc_status);
+        $this->assertSame('pending', $u->account_status);
         $this->assertAuthenticatedAs($u);
+    }
+
+    public function test_dashboard_redirects_when_kyc_not_submitted(): void
+    {
+        $seller = User::query()->create([
+            'name' => 'Seller',
+            'email' => 'seller-gate@example.com',
+            'password' => Hash::make('password'),
+            'role' => User::ROLE_INFOPRODUTOR,
+            'kyc_status' => User::KYC_NOT_SUBMITTED,
+            'account_status' => 'pending',
+        ]);
+        $seller->update(['tenant_id' => $seller->id]);
+
+        $this->actingAs($seller)
+            ->get('/dashboard')
+            ->assertRedirect('/financeiro?tab=seus-dados');
     }
 
     public function test_validar_documento_disponivel_para_cpf_livre(): void
@@ -117,7 +135,8 @@ class KycRegistrationTest extends TestCase
             'email' => 'seller@example.com',
             'password' => Hash::make('password'),
             'role' => User::ROLE_INFOPRODUTOR,
-            'kyc_status' => User::KYC_NOT_SUBMITTED,
+            'kyc_status' => User::KYC_PENDING_REVIEW,
+            'account_status' => 'pending',
         ]);
         $seller->update(['tenant_id' => $seller->id]);
 

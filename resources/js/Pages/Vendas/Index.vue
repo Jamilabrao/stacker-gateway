@@ -5,7 +5,11 @@ import axios from 'axios';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import VendasTabs from '@/components/vendas/VendasTabs.vue';
 import VendaDetailSidebar from '@/components/vendas/VendaDetailSidebar.vue';
+import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
+import AuroraPageSection from '@/components/aurora/AuroraPageSection.vue';
+import AuroraStatCard from '@/components/aurora/AuroraStatCard.vue';
 import { useI18n } from '@/composables/useI18n';
+import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
 import {
     Eye,
     EyeOff,
@@ -28,6 +32,16 @@ import { buildWhatsAppUrl, orderCustomerPhone } from '@/lib/whatsappUrl';
 
 defineOptions({ layout: LayoutInfoprodutor });
 const { t } = useI18n();
+const {
+    pageClass,
+    iconBtn,
+    btnSecondary,
+    stackClass,
+    tablePanel,
+    themePrefix,
+    isThemedShell,
+    subnavClass,
+} = usePanelThemeClasses();
 
 const props = defineProps({
     vendas: { type: Object, default: () => ({ data: [], links: [] }) },
@@ -106,13 +120,17 @@ const filterForm = ref({
 
 const advancedFiltersOpen = ref(false);
 const productFilterOpen = ref(false);
+const searchFieldFocused = ref(false);
 let searchTimer = null;
 
 watch(
     () => props.filters,
     (f) => {
         if (!f) return;
-        filterForm.value.q = f.q ?? '';
+        // Não sobrescrever a busca enquanto o usuário digita (evita perder espaços entre palavras).
+        if (!searchFieldFocused.value) {
+            filterForm.value.q = f.q ?? '';
+        }
         filterForm.value.period = f.period ?? 'all';
         filterForm.value.date_from = f.date_from ?? '';
         filterForm.value.date_to = f.date_to ?? '';
@@ -141,6 +159,9 @@ const selectedProductLabels = computed(() => {
 
 function buildQuery(overrides = {}) {
     const f = { ...filterForm.value, ...overrides };
+    if (typeof f.q === 'string') {
+        f.q = f.q.trim();
+    }
     const q = { status_filter: props.status_filter, ...f };
 
     const cleaned = {};
@@ -382,6 +403,15 @@ function onSearchInput() {
     }, 600);
 }
 
+function onSearchBlur() {
+    searchFieldFocused.value = false;
+    const serverQ = props.filters?.q ?? '';
+    const localTrimmed = (filterForm.value.q ?? '').trim();
+    if (serverQ !== localTrimmed) {
+        filterForm.value.q = serverQ;
+    }
+}
+
 function onFilterChange() {
     applyFilters();
 }
@@ -426,119 +456,103 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
 </script>
 
 <template>
-    <div class="space-y-6">
-        <div>
-            <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">{{ t('sidebar.sales', 'Vendas') }}</h1>
-            <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                {{ t('sales.subtitle', 'Acompanhe pedidos, status de pagamento e desempenho comercial.') }}
-            </p>
-        </div>
+    <div :class="pageClass">
+        <AuroraPageHeader
+            :title="t('sidebar.sales', 'Vendas')"
+            :subtitle="t('sales.subtitle', 'Acompanhe pedidos, status de pagamento e desempenho comercial.')"
+        />
 
         <VendasTabs />
 
-        <!-- Cards de métricas -->
-        <div class="space-y-3">
-            <div class="flex justify-end">
+        <AuroraPageSection>
+            <div class="flex items-center justify-between gap-3">
+                <p class="aurora-section-title">
+                    {{ t('sales.metrics.summary', 'Resumo do período') }}
+                </p>
                 <button
                     type="button"
                     :aria-label="valuesVisible ? t('dashboard.hide_values', 'Ocultar valores') : t('dashboard.show_values', 'Mostrar valores')"
-                    class="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                    :class="iconBtn"
                     @click="valuesVisible = !valuesVisible"
                 >
                     <Eye v-if="valuesVisible" class="h-5 w-5" aria-hidden="true" />
                     <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
                 </button>
             </div>
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div
-                    class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50"
-                >
-                    <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                        <ShoppingCart class="h-5 w-5" />
-                        <span class="text-sm font-medium">{{ t('sales.metrics.found_sales', 'Vendas encontradas') }}</span>
-                    </div>
-                    <p class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
-                        {{ displayNumber(stats.vendas_encontradas ?? 0) }}
-                    </p>
-                </div>
-                <div
-                    class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50"
-                >
-                    <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                        <CircleDollarSign class="h-5 w-5" />
-                        <span class="text-sm font-medium">{{ t('sales.metrics.net_amount', 'Valor líquido') }}</span>
-                    </div>
-                    <p class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
-                        {{ displayCurrency(stats.valor_liquido ?? 0) }}
-                    </p>
-                </div>
-                <div
-                    class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50"
-                >
-                    <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                        <Banknote class="h-5 w-5" />
-                        <span class="text-sm font-medium">{{ t('sales.metrics.pix_sales', 'Vendas no PIX') }}</span>
-                    </div>
-                    <p class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
-                        {{ displayNumber(stats.vendas_pix ?? 0) }}
-                    </p>
-                </div>
-                <div
-                    class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50"
-                >
-                    <div class="flex items-center gap-2 text-zinc-600 dark:text-zinc-400">
-                        <CreditCard class="h-5 w-5" />
-                        <span class="text-sm font-medium">{{ t('sales.metrics.card_sales', 'Vendas no cartão') }}</span>
-                    </div>
-                    <p class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
-                        {{ displayNumber(stats.vendas_cartao ?? 0) }}
-                    </p>
-                </div>
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <AuroraStatCard
+                    :icon="ShoppingCart"
+                    :label="t('sales.metrics.found_sales', 'Vendas encontradas')"
+                    :value="displayNumber(stats.vendas_encontradas ?? 0)"
+                />
+                <AuroraStatCard
+                    :icon="CircleDollarSign"
+                    :label="t('sales.metrics.net_amount', 'Valor líquido')"
+                    :value="displayCurrency(stats.valor_liquido ?? 0)"
+                />
+                <AuroraStatCard
+                    :icon="Banknote"
+                    :label="t('sales.metrics.pix_sales', 'Vendas no PIX')"
+                    :value="displayNumber(stats.vendas_pix ?? 0)"
+                />
+                <AuroraStatCard
+                    :icon="CreditCard"
+                    :label="t('sales.metrics.card_sales', 'Vendas no cartão')"
+                    :value="displayNumber(stats.vendas_cartao ?? 0)"
+                />
             </div>
-        </div>
+        </AuroraPageSection>
 
-        <!-- Abas de filtro e exportação -->
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <nav
-                class="inline-flex rounded-xl bg-zinc-100/80 p-1 dark:bg-zinc-800/80"
-                :aria-label="t('sidebar.sales', 'Vendas')"
-            >
-                <button
-                    v-for="opt in filterOptions"
-                    :key="opt.value"
-                    type="button"
-                    :aria-current="status_filter === opt.value ? 'true' : undefined"
+        <AuroraPageSection>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <nav
                     :class="[
-                        'rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
-                        status_filter === opt.value
-                            ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
-                            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
+                        themePrefix
+                            ? `${themePrefix}-subnav`
+                            : 'inline-flex rounded-xl bg-zinc-100/80 p-1 dark:bg-zinc-800/80',
                     ]"
-                    @click="setFilter(opt.value)"
+                    :aria-label="t('sales.filter.label', 'Filtro de status')"
                 >
-                    {{ opt.label }}
-                </button>
-            </nav>
-            <div class="flex items-center gap-2">
-                <a
-                    :href="exportCsvUrl"
-                    class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                >
-                    <Download class="h-4 w-4" />
-                    {{ t('sales.export.csv', 'Exportar CSV') }}
-                </a>
-                <a
-                    :href="exportXlsUrl"
-                    class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                >
-                    <Download class="h-4 w-4" />
-                    {{ t('sales.export.xls', 'Exportar XLS') }}
-                </a>
+                    <button
+                        v-for="opt in filterOptions"
+                        :key="opt.value"
+                        type="button"
+                        :aria-current="status_filter === opt.value ? 'true' : undefined"
+                        :class="[
+                            themePrefix
+                                ? [`${themePrefix}-subnav-item`, status_filter === opt.value && `${themePrefix}-subnav-item-active`]
+                                : [
+                                    'rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
+                                    status_filter === opt.value
+                                        ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
+                                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
+                                ],
+                        ]"
+                        @click="setFilter(opt.value)"
+                    >
+                        {{ opt.label }}
+                    </button>
+                </nav>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a
+                        :href="exportCsvUrl"
+                        :class="btnSecondary"
+                    >
+                        <Download class="h-4 w-4" />
+                        {{ t('sales.export.csv', 'Exportar CSV') }}
+                    </a>
+                    <a
+                        :href="exportXlsUrl"
+                        :class="btnSecondary"
+                    >
+                        <Download class="h-4 w-4" />
+                        {{ t('sales.export.xls', 'Exportar XLS') }}
+                    </a>
+                </div>
             </div>
-        </div>
 
-        <!-- Busca e filtros -->
-        <div class="space-y-3">
+        <div :class="stackClass">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="relative w-full max-w-xl">
                     <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
@@ -547,6 +561,8 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                         type="text"
                         class="w-full rounded-xl border border-zinc-200 bg-white py-2 pl-10 pr-10 text-sm text-zinc-900 shadow-sm transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
                         :placeholder="t('sales.search_placeholder', 'Buscar por cliente, e-mail, pedido, produto...')"
+                        @focus="searchFieldFocused = true"
+                        @blur="onSearchBlur"
                         @input="onSearchInput"
                     />
                     <button
@@ -561,7 +577,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 </div>
                 <button
                     type="button"
-                    class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    :class="btnSecondary"
                     @click="clearFilters"
                 >
                     {{ t('sales.clear_filters', 'Limpar filtros') }}
@@ -739,9 +755,11 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 </div>
             </div>
         </div>
+        </AuroraPageSection>
 
+        <AuroraPageSection flush>
         <!-- Tabela de vendas -->
-        <div class="sm:hidden space-y-3">
+        <div :class="['sm:hidden space-y-3', isThemedShell && 'p-4']">
             <div
                 v-for="v in vendasList"
                 :key="v.id"
@@ -842,7 +860,12 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
             </div>
         </div>
 
-        <div class="hidden overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700 dark:bg-zinc-800/80 sm:block">
+        <div
+            :class="[
+                'hidden sm:block',
+                tablePanel,
+            ]"
+        >
             <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-700">
                 <thead class="bg-zinc-50 dark:bg-zinc-800">
                     <tr>
@@ -956,6 +979,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 </tbody>
             </table>
         </div>
+        </AuroraPageSection>
 
         <!-- Paginação -->
         <nav

@@ -314,12 +314,13 @@ const isCajuPaySdkFlow = computed(() => ['card', 'apple_pay', 'google_pay'].incl
     && currentMethodGatewaySlug.value === 'cajupay');
 const isCajuPayWalletSdk = computed(() => isCajuPaySdkFlow.value
     && (form.payment_method === 'apple_pay' || form.payment_method === 'google_pay'));
-const isCardGatewayStripe = computed(() => cardGatewaySlug.value === 'stripe');
-const isCardGatewayEfi = computed(() => cardGatewaySlug.value === 'efi');
-const isCardGatewayMercadopago = computed(() => cardGatewaySlug.value === 'mercadopago');
-const isCardGatewayAsaas = computed(() => cardGatewaySlug.value === 'asaas');
-const isCardGatewayPagarme = computed(() => cardGatewaySlug.value === 'pagarme');
-const isCardGatewayCajupay = computed(() => cardGatewaySlug.value === 'cajupay');
+const isCardMethodSelected = computed(() => form.payment_method === 'card');
+const isCardGatewayStripe = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'stripe');
+const isCardGatewayEfi = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'efi');
+const isCardGatewayMercadopago = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'mercadopago');
+const isCardGatewayAsaas = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'asaas');
+const isCardGatewayPagarme = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'pagarme');
+const isCardGatewayCajupay = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'cajupay');
 const isCardPaymentFamily = computed(() => ['card', 'apple_pay', 'google_pay'].includes(form.payment_method));
 const isCajupayCardOnly = computed(() => isCajuPaySdkFlow.value && form.payment_method === 'card');
 const isCajupayCheckoutUi = computed(() => isCajuPaySdkFlow.value);
@@ -356,8 +357,7 @@ const showDeliveryAddressBlock = computed(() => props.requiresShipping);
 const showBillingAddressBlock = computed(
     () =>
         !props.requiresShipping &&
-        (form.payment_method === 'boleto' ||
-            (['card', 'apple_pay', 'google_pay'].includes(form.payment_method) && isCardGatewayPagarme.value))
+        (form.payment_method === 'boleto' || isCardGatewayPagarme.value)
 );
 
 const pagarmeTokenizeFormId = CHECKOUT_PAGARME_TOKENIZE_FORM_ID;
@@ -592,6 +592,7 @@ watch(
 let trackTimeout = null;
 const trackStepSent = ref({ form_started: false, form_filled: false });
 function callTrackApi(step, email, name) {
+    if (props.checkoutBuilderPreview) return;
     if (!props.checkoutSessionToken) return;
     if (trackStepSent.value[step]) return;
     trackStepSent.value[step] = true;
@@ -662,7 +663,7 @@ watch(
     () => Object.keys(form.errors || {}).length,
     (count) => {
         if (count > 0 && (form.payment_method === 'pix' || form.payment_method === 'pix_auto' || form.payment_method === 'boleto'
-            || (['card', 'apple_pay', 'google_pay'].includes(form.payment_method) && isCardGatewayPagarme.value))) {
+            || isCardGatewayPagarme.value)) {
             showEditForm.value = true;
         }
     }
@@ -965,7 +966,7 @@ function onCardExpInput(e, part) {
     }
 }
 function onCardCvvInput(e) {
-    const max = cardGatewaySlug.value === 'pagarme' ? 4 : 3;
+    const max = isCardGatewayPagarme.value ? 4 : 3;
     cardCvv.value = (e.target.value || '').replace(/\D/g, '').slice(0, max);
 }
 

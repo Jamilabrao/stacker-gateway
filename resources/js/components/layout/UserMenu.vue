@@ -13,6 +13,21 @@ const isPlatformAdmin = computed(() => !!page.props.auth?.is_platform_admin);
 const customerPanel = computed(() => !!page.props.customer_panel);
 const panelSwitch = computed(() => user.value?.panel_switch ?? {});
 
+const isCustomerAreaPath = computed(() => {
+    const path = (page.url || '').replace(/^\//, '').split('?')[0];
+    return (
+        path === 'area-membros'
+        || path.startsWith('area-membros/')
+        || path === 'painel-cliente'
+        || path.startsWith('painel-cliente/')
+    );
+});
+
+const isClienteRole = computed(() => {
+    const r = user.value?.role;
+    return r === 'cliente' || r === 'aluno';
+});
+
 /** Compras/aluno: mostrar no painel do vendedor mesmo se panel_switch vier incompleto do backend. */
 const showPainelAluno = computed(() => {
     if (!user.value || isPlatformAdmin.value) return false;
@@ -22,14 +37,24 @@ const showPainelAluno = computed(() => {
     return r === 'infoprodutor' || r === 'team';
 });
 
-/** Voltar ao painel do vendedor quando está em /painel-cliente ou /area-membros. */
+/** Virar / voltar ao painel do vendedor em área de comprador. */
 const showPainelInfoprodutor = computed(() => {
     if (!user.value || isPlatformAdmin.value) return false;
-    if (!customerPanel.value) return false;
+    if (!(customerPanel.value || isCustomerAreaPath.value)) return false;
     if (panelSwitch.value?.seller) return true;
     const r = user.value.role;
     return r === 'infoprodutor' || r === 'team';
 });
+
+const sellerPanelButtonTitle = computed(() =>
+    isClienteRole.value ? 'Virar infoprodutor' : 'Painel do infoprodutor'
+);
+
+const sellerPanelButtonSubtitle = computed(() =>
+    isClienteRole.value
+        ? 'Cadastro e verificação (KYC)'
+        : 'Dashboard, vendas e produtos'
+);
 
 function switchToCustomer() {
     router.post('/painel/trocar', { to: 'customer' });
@@ -134,8 +159,8 @@ onUnmounted(() => {
                 class="mt-2 flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 @click="switchToSeller(); closeDropdown()"
             >
-                <span>Painel do infoprodutor</span>
-                <span class="text-xs font-normal text-zinc-500 dark:text-zinc-400">Dashboard, vendas e produtos</span>
+                <span>{{ sellerPanelButtonTitle }}</span>
+                <span class="text-xs font-normal text-zinc-500 dark:text-zinc-400">{{ sellerPanelButtonSubtitle }}</span>
             </button>
             <Link
                 v-if="!isPlatformAdmin && (user.role === 'infoprodutor' || user.role === 'admin' || user.role === 'team')"
