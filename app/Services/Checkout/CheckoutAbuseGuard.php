@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -296,8 +297,19 @@ final class CheckoutAbuseGuard
             default => 'Não foi possível processar o pedido. Tente novamente.',
         };
 
-        if ($request->expectsJson() || $request->header('X-Inertia')) {
-            abort($status, $message);
+        // Inertia form.post: ValidationException exibe erro no formulário (abort(422) vira página Symfony).
+        if ($request->header('X-Inertia')) {
+            $exception = ValidationException::withMessages([
+                'payment_method' => [$message],
+            ]);
+            if ($status !== Response::HTTP_UNPROCESSABLE_ENTITY) {
+                $exception->status($status);
+            }
+            throw $exception;
+        }
+
+        if ($request->expectsJson()) {
+            response()->json(['message' => $message], $status)->throwResponse();
         }
 
         abort($status, $message);

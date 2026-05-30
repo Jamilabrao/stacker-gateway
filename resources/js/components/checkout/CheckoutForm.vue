@@ -2054,6 +2054,10 @@ function submit() {
     if (!validateCajuPayCustomerFields()) {
         return;
     }
+    if (!props.checkoutSessionToken?.trim()) {
+        form.setError('payment_method', 'Sessão de checkout inválida. Recarregue a página e tente novamente.');
+        return;
+    }
     if (turnstileActive.value && !turnstileToken.value) {
         form.setError('payment_method', 'Aguarde a verificação de segurança ou tente novamente.');
         return;
@@ -2074,10 +2078,10 @@ function submit() {
         idempotency_key: checkoutIdempotencyKey.value,
         website: honeypotWebsite.value,
         turnstile_token: turnstileActive.value ? turnstileToken.value : '',
+        checkout_session_token: props.checkoutSessionToken?.trim() || '',
     };
     if (props.productOfferId) payload.product_offer_id = props.productOfferId;
     if (props.subscriptionPlanId) payload.subscription_plan_id = props.subscriptionPlanId;
-    if (props.checkoutSessionToken) payload.checkout_session_token = props.checkoutSessionToken;
     if (props.displayCurrency) payload.display_currency = props.displayCurrency;
     if (Array.isArray(props.orderBumpIds) && props.orderBumpIds.length > 0) {
         payload.order_bump_ids = props.orderBumpIds.map((id) => (typeof id === 'number' ? id : parseInt(id, 10))).filter((n) => !Number.isNaN(n));
@@ -2101,6 +2105,16 @@ function submit() {
     }
     appendUtmsAndAffiliate(payload);
     form.transform(() => payload).post('/checkout', {
+        onError: (errors) => {
+            const msg = errors?.payment_method
+                || errors?.checkout_session_token
+                || errors?.turnstile_token
+                || errors?.email
+                || (typeof errors === 'object' && Object.values(errors).flat?.()[0]);
+            if (msg && !form.errors.payment_method) {
+                form.setError('payment_method', Array.isArray(msg) ? msg[0] : msg);
+            }
+        },
         onFinish: () => {
             checkoutSubmitting.value = false;
         },
@@ -3069,6 +3083,9 @@ function submit() {
             </div>
 
             <p v-if="form.errors.product_id" class="text-sm font-medium text-red-600">{{ form.errors.product_id }}</p>
+            <p v-if="form.errors.payment_method" class="mb-2 text-sm font-medium text-red-600" role="alert">
+                {{ form.errors.payment_method }}
+            </p>
             <div v-if="turnstileActive" class="mb-3">
                 <CheckoutTurnstile
                     ref="turnstileRef"

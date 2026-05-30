@@ -83,7 +83,7 @@ return [
     ],
 
     'checkout_security' => [
-        'min_seconds_before_pay' => max(0, (int) env('CHECKOUT_MIN_SECONDS_BEFORE_PAY', 4)),
+        'min_seconds_before_pay' => max(0, (int) env('CHECKOUT_MIN_SECONDS_BEFORE_PAY', 2)),
         'duplicate_pending_minutes' => max(1, (int) env('CHECKOUT_DUPLICATE_PENDING_MINUTES', 15)),
         'max_pending_per_email' => max(1, (int) env('CHECKOUT_MAX_PENDING_PER_EMAIL', 3)),
         'session_max_age_hours' => max(1, (int) env('CHECKOUT_SESSION_MAX_AGE_HOURS', 2)),

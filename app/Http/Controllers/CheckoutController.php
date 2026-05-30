@@ -929,14 +929,18 @@ class CheckoutController extends Controller
                 return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.pix', ['token' => $pixToken]));
             } catch (\Throwable $e) {
                 $this->rollbackFailedOrder($order, $e);
+                $msg = $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.';
                 if ($request->expectsJson()) {
                     return response()->json([
                         'success' => false,
-                        'message' => $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.',
+                        'message' => $msg,
                     ], 422);
                 }
+                if ($request->header('X-Inertia')) {
+                    return back()->withErrors(['payment_method' => $msg])->withInput();
+                }
 
-                return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.');
+                return back()->with('error', $msg);
             }
         }
 
