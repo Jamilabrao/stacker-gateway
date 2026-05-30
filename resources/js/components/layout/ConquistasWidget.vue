@@ -4,6 +4,7 @@ import { Link } from '@inertiajs/vue3';
 import { usePage } from '@inertiajs/vue3';
 import { formatCompactCurrency } from '@/lib/utils';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
+import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
 
 const props = defineProps({
     variant: { type: String, default: 'header' }, // 'header' | 'sidebar' | 'dashboard'
@@ -43,8 +44,6 @@ const totalLabel = computed(() => {
     const total = progress.value?.total_valid_sales ?? 0;
     return formatCompactCurrency(total);
 });
-
-const panelNavPrefetch = ['hover', 'click'];
 </script>
 
 <template>

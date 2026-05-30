@@ -6,6 +6,7 @@ use App\Events\BoletoGenerated;
 use App\Events\OrderCompleted;
 use App\Events\PixGenerated;
 use App\Listeners\CreditTenantWalletOnOrderCompleted;
+use App\Listeners\ForgetInertiaSharedCacheOnOrderCompleted;
 use App\Listeners\IncrementCouponUsageOnOrderCompleted;
 use App\Listeners\SendAccessEmailOnOrderCompleted;
 use App\Listeners\SendPanelPushOnBoletoGenerated;
@@ -140,6 +141,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Event::listen(OrderCompleted::class, CreditTenantWalletOnOrderCompleted::class);
+        Event::listen(OrderCompleted::class, ForgetInertiaSharedCacheOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, IncrementCouponUsageOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, SendAccessEmailOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, SendPanelPushOnOrderCompleted::class);

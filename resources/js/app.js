@@ -1,7 +1,7 @@
 import './bootstrap';
 import { config as inertiaConfig } from '@inertiajs/core';
 
-inertiaConfig.set('prefetch.hoverDelay', 40);
+inertiaConfig.set('prefetch.hoverDelay', 200);
 
 // Migração: versões antigas registravam /painel-sw.js com scope "/" e isso pode interceptar checkout + scripts de terceiros (Meta Pixel).
 // Aqui removemos automaticamente o registro legado (scope raiz) quando existir.
@@ -50,13 +50,6 @@ if (!skipPanelPwa && typeof navigator !== 'undefined' && navigator.serviceWorker
     });
 }
 
-// Vidstack Player 1.x (Web Components) – estilos e registros antes do Vue
-import 'vidstack/player/styles/default/theme.css';
-import 'vidstack/player/styles/default/layouts/audio.css';
-import 'vidstack/player/styles/default/layouts/video.css';
-import 'vidstack/player';
-import 'vidstack/player/layouts';
-import 'vidstack/player/ui';
 import { createInertiaApp, usePage } from '@inertiajs/vue3';
 import { createApp as createVueApp, h } from 'vue';
 import { watchEffect } from 'vue';

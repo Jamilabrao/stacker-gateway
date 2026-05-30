@@ -88,3 +88,55 @@ export function normalizeMerchantFeeOverridesForSubmit(fees) {
     }
     return Object.keys(out).length ? out : null;
 }
+
+const SETTLEMENT_OVERRIDE_KEYS = ['pix', 'card', 'apple_pay', 'google_pay', 'boleto'];
+
+/**
+ * Overrides opcionais de liquidação (infoprodutor): só envia campos preenchidos.
+ *
+ * @param {Record<string, { days_to_available?: unknown, reserve_percent?: unknown, reserve_hold_days?: unknown }>} overrides
+ */
+export function normalizeMerchantSettlementOverridesForSubmit(overrides) {
+    if (!overrides || typeof overrides !== 'object') {
+        return null;
+    }
+    const out = {};
+    for (const key of SETTLEMENT_OVERRIDE_KEYS) {
+        const block = overrides[key];
+        if (!block || typeof block !== 'object') {
+            continue;
+        }
+        const hasDays =
+            block.days_to_available !== '' &&
+            block.days_to_available !== null &&
+            block.days_to_available !== undefined;
+        const hasReserve =
+            block.reserve_percent !== '' &&
+            block.reserve_percent !== null &&
+            block.reserve_percent !== undefined;
+        const hasHold =
+            block.reserve_hold_days !== '' &&
+            block.reserve_hold_days !== null &&
+            block.reserve_hold_days !== undefined;
+        if (!hasDays && !hasReserve && !hasHold) {
+            continue;
+        }
+        const row = {};
+        if (hasDays) {
+            const d = parseInt(String(block.days_to_available), 10);
+            row.days_to_available = Number.isFinite(d) ? Math.max(0, Math.min(365, d)) : 0;
+        }
+        if (hasReserve) {
+            const r = parseFloat(String(block.reserve_percent).replace(',', '.'));
+            row.reserve_percent = Number.isFinite(r) ? Math.round(Math.min(100, Math.max(0, r)) * 100) / 100 : 0;
+        }
+        if (hasHold) {
+            const h = parseInt(String(block.reserve_hold_days), 10);
+            row.reserve_hold_days = Number.isFinite(h) ? Math.max(0, Math.min(365, h)) : 0;
+        }
+        if (Object.keys(row).length) {
+            out[key] = row;
+        }
+    }
+    return Object.keys(out).length ? out : null;
+}

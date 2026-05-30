@@ -100,12 +100,16 @@ class EffectiveMerchantFees
     public static function forTenant(int $tenantId): array
     {
         $defaults = self::platformDefaults();
+        // tenant_id em pedidos/carteira é o id do infoprodutor dono; overrides ficam em users.merchant_fees.
         $owner = User::query()
-            ->where('tenant_id', $tenantId)
+            ->where('id', $tenantId)
             ->where('role', User::ROLE_INFOPRODUTOR)
             ->first();
         if ($owner === null) {
-            $owner = User::query()->where('id', $tenantId)->where('role', User::ROLE_INFOPRODUTOR)->first();
+            $owner = User::query()
+                ->where('tenant_id', $tenantId)
+                ->where('role', User::ROLE_INFOPRODUTOR)
+                ->first();
         }
         if ($owner === null || empty($owner->merchant_fees) || ! is_array($owner->merchant_fees)) {
             return $defaults;

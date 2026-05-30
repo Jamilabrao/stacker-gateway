@@ -7,6 +7,7 @@ import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck } from 'lucide-vue-next';
 import {
     formatPercentForInput,
     normalizeMerchantFeeOverridesForSubmit,
+    normalizeMerchantSettlementOverridesForSubmit,
 } from '@/lib/percentDecimal';
 
 defineOptions({ layout: LayoutPlatform });
@@ -196,19 +197,22 @@ const isEditModalOpen = computed(() => editUser.value !== null);
 
 function openEditModal(u) {
     editUser.value = u;
-    editForm.name = u.name;
-    editForm.email = u.email;
-    editForm.password = '';
-    editForm.password_confirmation = '';
-    editForm.account_status = u.account_status || 'approved';
     const wa = u.wallet_admin;
-    editForm.admin_withdrawal_blocked = !!(wa && wa.admin_withdrawal_blocked);
-    editForm.admin_blocked_amount =
-        wa && wa.admin_blocked_amount != null && wa.admin_blocked_amount !== '' ? String(wa.admin_blocked_amount) : '';
-    editForm.admin_block_until = formatBlockUntilForInput(wa?.admin_block_until);
-    editForm.admin_block_note = wa?.admin_block_note || '';
-    editForm.merchant_fees = mergeFeeOverrides(u.merchant_fees);
-    editForm.merchant_settlement_overrides = mergeSettlementOverrides(u.merchant_settlement_overrides);
+    editForm.defaults({
+        name: u.name,
+        email: u.email,
+        password: '',
+        password_confirmation: '',
+        account_status: u.account_status || 'approved',
+        admin_withdrawal_blocked: !!(wa && wa.admin_withdrawal_blocked),
+        admin_blocked_amount:
+            wa && wa.admin_blocked_amount != null && wa.admin_blocked_amount !== '' ? String(wa.admin_blocked_amount) : '',
+        admin_block_until: formatBlockUntilForInput(wa?.admin_block_until),
+        admin_block_note: wa?.admin_block_note || '',
+        merchant_fees: mergeFeeOverrides(u.merchant_fees),
+        merchant_settlement_overrides: mergeSettlementOverrides(u.merchant_settlement_overrides),
+    });
+    editForm.reset();
     syncMerchantPrimaryFromUser(u);
     editForm.clearErrors();
 }
@@ -237,6 +241,9 @@ function submitEdit() {
                 ...data,
                 merchant_gateway_order: Object.keys(order).length ? order : null,
                 merchant_fees: normalizeMerchantFeeOverridesForSubmit(data.merchant_fees),
+                merchant_settlement_overrides: normalizeMerchantSettlementOverridesForSubmit(
+                    data.merchant_settlement_overrides
+                ),
             };
         })
         .put(`/plataforma/usuarios/${editUser.value.id}`, {

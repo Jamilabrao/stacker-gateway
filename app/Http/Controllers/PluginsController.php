@@ -120,6 +120,7 @@ class PluginsController extends Controller
         }
 
         PlatformAuditService::log('platform.plugin.register', ['slug' => $slug]);
+        \App\Services\InertiaSharedPropsCache::forgetPluginPanelData();
 
         return redirect()->route('plataforma.plugins.index')->with('success', 'Plugin instalado.');
     }

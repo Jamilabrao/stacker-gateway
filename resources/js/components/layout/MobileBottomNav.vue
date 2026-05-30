@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import { LayoutDashboard, CircleDollarSign, Package, Cable } from 'lucide-vue-next';
 import { usePwaInstall } from '@/composables/usePwaInstall';
+import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
 
 const DEFAULT_LOGO = 'https://cdn.getfy.cloud/collapsed-logo.png';
 
@@ -52,8 +53,6 @@ function navLinkClass(href) {
             : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200',
     ];
 }
-
-const panelNavPrefetch = ['hover', 'click'];
 
 function onScroll() {
     if (typeof window === 'undefined') return;

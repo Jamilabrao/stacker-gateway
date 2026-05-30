@@ -40,7 +40,8 @@ const iconMap = {
     CodeXml,
 };
 
-export const panelNavPrefetch = ['hover', 'click'];
+/** Hover only — evita rajadas de prefetch ao clicar e competir com a navegação real. */
+export const panelNavPrefetch = 'hover';
 
 export function useAppSidebarNav() {
     const page = usePage();

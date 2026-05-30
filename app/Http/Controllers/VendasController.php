@@ -11,6 +11,7 @@ use App\Services\EffectiveMerchantFees;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
@@ -317,41 +318,56 @@ class VendasController extends Controller
         ];
     }
 
-    public function index(Request $request): InertiaResponse
+    /**
+     * @return array<string, mixed>
+     */
+    private function orderToVendaArray(Order $o): array
     {
-        $tenantId = auth()->user()->tenant_id;
-        [$filteredQuery, $statusFilter] = $this->buildFilteredQuery($request, $tenantId);
+        $arr = $o->toArray();
+        $arr['gateway_label'] = $o->paymentMethodDisplayLabel();
+        $arr['product_display_name'] = $this->productDisplayName($o);
+        $arr['checkout_url'] = url('/c/'.$o->getCheckoutSlug());
+        $arr['payment_type_label'] = $this->paymentTypeLabel($o);
+        $breakdown = $this->orderFeeBreakdown($o);
+        $arr['amount_total'] = $breakdown['gross'];
+        $arr['amount_gross'] = $breakdown['gross'];
+        $arr['amount_fee'] = $breakdown['fee'];
+        $arr['amount_net'] = $breakdown['net'];
 
-        $vendas = $filteredQuery
-            ->with([
-                'product:id,name,slug,checkout_slug',
-                'user:id,name,email',
-                'productOffer:id,name,checkout_slug',
-                'subscriptionPlan:id,name,checkout_slug',
-                'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
-                'orderItems.product:id,name',
-                'orderItems.productOffer:id,name',
-                'orderItems.subscriptionPlan:id,name',
-                'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
-            ])
-            ->orderByDesc('created_at')
-            ->paginate(20)
-            ->withQueryString()
-            ->through(function (Order $o) {
-                $arr = $o->toArray();
-                $arr['gateway_label'] = $o->paymentMethodDisplayLabel();
-                $arr['product_display_name'] = $this->productDisplayName($o);
-                $arr['checkout_url'] = url('/c/'.$o->getCheckoutSlug());
-                $arr['payment_type_label'] = $this->paymentTypeLabel($o);
-                $breakdown = $this->orderFeeBreakdown($o);
-                $arr['amount_total'] = $breakdown['gross'];
-                $arr['amount_gross'] = $breakdown['gross'];
-                $arr['amount_fee'] = $breakdown['fee'];
-                $arr['amount_net'] = $breakdown['net'];
+        return $arr;
+    }
 
-                return $arr;
-            });
+    /**
+     * @return array{vendas_encontradas: int, valor_liquido: float, vendas_pix: int, vendas_cartao: int, vendas_boleto: int}
+     */
+    private function resolveVendasStats(Request $request, int $tenantId, string $statusFilter): array
+    {
+        $cacheKey = 'vendas.stats.'.$tenantId.'.'.md5(json_encode([
+            'status_filter' => $statusFilter,
+            'q' => $this->normalizeString($request->query('q')),
+            'period' => $this->normalizeString($request->query('period')) ?? 'all',
+            'date_from' => $this->normalizeString($request->query('date_from')),
+            'date_to' => $this->normalizeString($request->query('date_to')),
+            'product_ids' => $this->normalizeProductIds($request),
+            'offer_id' => $this->normalizeString((string) ($request->query('offer_id') ?? '')),
+            'payment_method' => $this->normalizeString($request->query('payment_method')) ?? 'all',
+            'payment_status' => $this->normalizeString($request->query('payment_status')) ?? 'all',
+            'utm_source' => $this->normalizeString($request->query('utm_source')),
+            'utm_medium' => $this->normalizeString($request->query('utm_medium')),
+            'utm_campaign' => $this->normalizeString($request->query('utm_campaign')),
+            'team' => auth()->user()?->isTeam() ? app(TeamAccessService::class)->allowedProductIdsFor(auth()->user()) : null,
+        ]));
 
+        return Cache::remember($cacheKey, 60, function () use ($request, $tenantId) {
+            return $this->computeVendasStats($request, $tenantId);
+        });
+    }
+
+    /**
+     * @return array{vendas_encontradas: int, valor_liquido: float, vendas_pix: int, vendas_cartao: int, vendas_boleto: int}
+     */
+    private function computeVendasStats(Request $request, int $tenantId): array
+    {
         [$statsQuery] = $this->buildFilteredQuery($request, $tenantId);
 
         $vendasEncontradas = (clone $statsQuery)->count();
@@ -359,6 +375,7 @@ class VendasController extends Controller
         $valorLiquido = 0.0;
         (clone $statsQuery)
             ->where('status', 'completed')
+            ->select(['id', 'tenant_id', 'amount', 'payment_method', 'gateway', 'metadata'])
             ->with(['orderItems:id,order_id,amount'])
             ->chunkById(200, function ($orders) use (&$valorLiquido) {
                 foreach ($orders as $order) {
@@ -396,13 +413,38 @@ class VendasController extends Controller
             })
             ->count();
 
-        $stats = [
+        return [
             'vendas_encontradas' => $vendasEncontradas,
             'valor_liquido' => round($valorLiquido, 2),
             'vendas_pix' => $vendasPix,
             'vendas_cartao' => $vendasCartao,
             'vendas_boleto' => $vendasBoleto,
         ];
+    }
+
+    public function index(Request $request): InertiaResponse
+    {
+        $tenantId = auth()->user()->tenant_id;
+        [$filteredQuery, $statusFilter] = $this->buildFilteredQuery($request, $tenantId);
+
+        $vendas = $filteredQuery
+            ->with([
+                'product:id,name,slug,checkout_slug',
+                'user:id,name,email',
+                'productOffer:id,name,checkout_slug',
+                'subscriptionPlan:id,name,checkout_slug',
+                'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
+                'orderItems.product:id,name',
+                'orderItems.productOffer:id,name',
+                'orderItems.subscriptionPlan:id,name',
+                'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
+            ])
+            ->orderByDesc('created_at')
+            ->paginate(20)
+            ->withQueryString()
+            ->through(fn (Order $o) => $this->orderToVendaArray($o));
+
+        $stats = $this->resolveVendasStats($request, (int) $tenantId, $statusFilter);
 
         $productsQuery = Product::forTenant($tenantId)->orderBy('name');
         if (auth()->user()->isTeam()) {

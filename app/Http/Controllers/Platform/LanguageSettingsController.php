@@ -121,6 +121,8 @@ class LanguageSettingsController extends Controller
             );
         }
 
+        \App\Services\InertiaSharedPropsCache::forgetI18nMessages($locale);
+
         return response()->json(['ok' => true]);
     }
 
@@ -149,6 +151,8 @@ class LanguageSettingsController extends Controller
                 'value' => (string) ($targetDefaults[$key] ?? $ptValue),
             ]);
         }
+
+        \App\Services\InertiaSharedPropsCache::forgetI18nMessages($locale);
 
         return response()->json(['ok' => true]);
     }

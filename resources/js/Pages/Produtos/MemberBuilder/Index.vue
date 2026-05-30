@@ -115,7 +115,6 @@ async function sendPushNotification() {
     }
 }
 
-const page = usePage();
 const baseUrlForLink = computed(() => props.app_url || (page.props.app_url ?? '') || (typeof window !== 'undefined' ? window.location.origin : '') || '');
 const memberAreaFullLink = computed(() => {
     const type = configForm.domain_type;

@@ -1,10 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, provide } from 'vue';
+import { ref, computed, onMounted, provide, shallowRef, defineAsyncComponent } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
-import DashboardViewDefault from '@/components/dashboard/DashboardViewDefault.vue';
-import DashboardViewAurora from '@/components/dashboard/DashboardViewAurora.vue';
-import DashboardViewKawaii from '@/components/dashboard/DashboardViewKawaii.vue';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
 
@@ -12,6 +9,21 @@ defineOptions({ layout: LayoutInfoprodutor });
 
 const page = usePage();
 const { isDefault, isAurora, isKawaii } = useSellerDashboardTemplate();
+
+const dashboardView = shallowRef(null);
+
+function resolveDashboardView() {
+    if (isKawaii.value) {
+        return defineAsyncComponent(() => import('@/components/dashboard/DashboardViewKawaii.vue'));
+    }
+    if (isAurora.value) {
+        return defineAsyncComponent(() => import('@/components/dashboard/DashboardViewAurora.vue'));
+    }
+
+    return defineAsyncComponent(() => import('@/components/dashboard/DashboardViewDefault.vue'));
+}
+
+dashboardView.value = resolveDashboardView();
 const hasAchievementsProgress = computed(() => !!(page.props.achievementsProgress ?? null));
 const { t } = useI18n();
 
@@ -197,20 +209,9 @@ const sharedViewProps = computed(() => ({
 </script>
 
 <template>
-    <DashboardViewDefault
-        v-if="isDefault"
-        v-bind="sharedViewProps"
-        @update:period="setPeriod"
-        @toggle-values="valuesVisible = !valuesVisible"
-    />
-    <DashboardViewAurora
-        v-else-if="isAurora"
-        v-bind="sharedViewProps"
-        @update:period="setPeriod"
-        @toggle-values="valuesVisible = !valuesVisible"
-    />
-    <DashboardViewKawaii
-        v-else-if="isKawaii"
+    <component
+        :is="dashboardView"
+        v-if="dashboardView"
         v-bind="sharedViewProps"
         @update:period="setPeriod"
         @toggle-values="valuesVisible = !valuesVisible"

@@ -5,15 +5,11 @@ namespace App\Http\Middleware;
 use App\Models\User;
 use App\Models\MemberNotification;
 use App\Models\MemberPushSubscription;
-use App\Models\PanelNotification;
-use App\Plugins\PluginRegistry;
-use App\Services\SalesAchievementsService;
+use App\Services\InertiaSharedPropsCache;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Services\PlatformI18nService;
 use App\Services\ApiPixAccess;
-use App\Services\CajuPay\CajuPayMedService;
-use App\Services\LegalDocumentsService;
 use App\Services\MemberProgressService;
 use App\Services\PhysicalProductAccess;
 use App\Support\PanelColorScheme;
@@ -110,9 +106,11 @@ class HandleInertiaRequests extends Middleware
         $vapidPublic = null;
         $firebaseClientConfig = null;
         $settingsPluginTabs = [];
+        $sharedCache = app(InertiaSharedPropsCache::class);
         if ($user && ($user->canAccessSellerPanel() || $user->canAccessPlatformPanel())) {
-            $settingsPluginTabs = PluginRegistry::getSettingsTabs();
-            $pluginNavItems = PluginRegistry::getMenuItems();
+            $pluginData = $sharedCache->pluginPanelData();
+            $settingsPluginTabs = $pluginData['settings_plugin_tabs'];
+            $pluginNavItems = $pluginData['pluginNavItems'];
             // Itens de menu de plugins podem apontar para rotas da plataforma (/plataforma/*).
             // Esses links não devem aparecer no painel do infoprodutor/equipe.
             if ($user->canAccessSellerPanel() && ! $user->canAccessPlatformPanel()) {
@@ -129,26 +127,23 @@ class HandleInertiaRequests extends Middleware
                 'firebase' => $pushClient['firebase'] ?? null,
                 'firebase_web_vapid_key' => $pushClient['firebase_web_vapid_key'] ?? null,
             ] : null;
-            $installed = PluginRegistry::installed();
-            $plugins = array_map(fn ($p) => [
-                'slug' => $p['slug'],
-                'name' => $p['name'],
-                'version' => $p['version'],
-                'is_enabled' => $p['is_enabled'],
-            ], $installed);
+            $plugins = $pluginData['plugins'];
         }
         if ($user && $user->canAccessSellerPanel()) {
-            $achievementsProgress = app(SalesAchievementsService::class)->getProgressForTenant($user->tenant_id);
+            $achievementsProgress = $sharedCache->achievementsProgress(
+                $user->tenant_id !== null ? (int) $user->tenant_id : null
+            );
         }
 
         $notificationsUnreadCount = 0;
-        if ($user && $user->canAccessSellerPanel()) {
-            $notificationsUnreadCount = PanelNotification::forUser($user->id)->unread()->count();
-        }
-
         $medOpenCount = 0;
-        if ($user && $user->canAccessSellerPanel() && $user->tenant_id) {
-            $medOpenCount = app(CajuPayMedService::class)->openCountForTenant((int) $user->tenant_id);
+        if ($user && $user->canAccessSellerPanel()) {
+            $headerCounts = $sharedCache->headerCounts(
+                (int) $user->id,
+                $user->tenant_id !== null ? (int) $user->tenant_id : null
+            );
+            $notificationsUnreadCount = $headerCounts['notifications_unread_count'];
+            $medOpenCount = $headerCounts['med_open_count'];
         }
 
         $path = $request->path();
@@ -196,7 +191,6 @@ class HandleInertiaRequests extends Middleware
         $kycSubject = null;
         if ($user && $user->canAccessSellerPanel() && Schema::hasColumn('users', 'kyc_status')) {
             $kycSubject = $user->kycSubjectUser();
-            $kycSubject->refresh();
         }
 
         // UI do “painel aluno” só nas URLs de comprador; não misturar com sessão panel_context
@@ -275,7 +269,7 @@ class HandleInertiaRequests extends Middleware
             'physical_products_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? PhysicalProductAccess::globalEnabled()
                 : false,
-            'legal' => app(LegalDocumentsService::class)->publicLinks(),
+            'legal' => $sharedCache->legalPublicLinks(),
         ];
 
         if ($user && ($user->canAccessSellerPanel() || $user->canAccessPlatformPanel())) {
@@ -284,7 +278,7 @@ class HandleInertiaRequests extends Middleware
             $shared['i18n'] = [
                 'locale' => $locale,
                 'available_languages' => $i18n->activeLanguages(),
-                'messages' => $i18n->messagesFor($locale, 'seller'),
+                'messages' => $sharedCache->i18nMessages($locale, 'seller'),
             ];
         }
 

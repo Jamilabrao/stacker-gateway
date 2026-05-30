@@ -250,6 +250,9 @@ export function usePanelPushSubscribe() {
     let permissionCheckInterval = null;
 
     onMounted(() => {
+        if (!pushEnabled.value) {
+            return;
+        }
         if (isStandalone.value && notificationPermission.value === 'default') {
             permissionCheckInterval = setInterval(() => {
                 if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {

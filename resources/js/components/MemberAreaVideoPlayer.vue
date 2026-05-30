@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { getVideoProviderType } from '@/lib/utils';
-import { Maximize2, Minimize2, Play, Pause, Settings } from 'lucide-vue-next';
+import { ensureVidstackLoaded } from '@/lib/vidstackLoader';
+import { Maximize2, Minimize2, Play, Pause, Monitor, Gauge } from 'lucide-vue-next';
 
 const props = defineProps({
     src: { type: String, default: '' },
@@ -29,6 +30,26 @@ const isYoutube = computed(() => providerType.value === 'youtube' && !!props.src
 const useVidstackFallback = ref(false);
 const useLegacyYoutube = computed(() => isYoutube.value && !useVidstackFallback.value);
 const showVidstackPlayer = computed(() => !!props.src?.trim() && (!isYoutube.value || useVidstackFallback.value));
+const vidstackReady = ref(false);
+
+watch(
+    showVidstackPlayer,
+    async (show) => {
+        if (!show) {
+            return;
+        }
+        if (vidstackReady.value) {
+            return;
+        }
+        try {
+            await ensureVidstackLoaded();
+            vidstackReady.value = true;
+        } catch (_) {
+            vidstackReady.value = false;
+        }
+    },
+    { immediate: true }
+);
 const isMobile = ref(false);
 let mobileMql = null;
 function onMobileQueryChange(e) {
@@ -59,7 +80,8 @@ const hasYoutubePlaylist = computed(() => {
 });
 
 // ---------------------------------------------------------------------------
-// YouTube legacy player (IFrame API) with quality selector.
+// YouTube legacy player (IFrame API) — qualidade e velocidade via API.
+// Velocidade em embed YouTube/Vimeo via Vidstack pode ficar indisponível (limitação do provider).
 // ---------------------------------------------------------------------------
 const youtubeMountEl = ref(null);
 let ytPlayer = null;
@@ -69,18 +91,15 @@ let ytProgressTimer = null;
 let ytControlsHideTimer = null;
 
 const QUALITY_STORAGE_KEY = 'member-area-youtube-quality';
-const QUALITY_LABELS = {
-    auto: 'Auto',
-    small: '240p',
-    medium: '360p',
-    large: '480p',
-    hd720: '720p',
-    hd1080: '1080p',
-    highres: 'Alta',
-};
+const SPEED_STORAGE_KEY = 'member-area-youtube-speed';
+const DEFAULT_PLAYBACK_SPEED = 1;
+const SPEED_OPTIONS_FALLBACK = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const qualityMenuOpen = ref(false);
+const speedMenuOpen = ref(false);
 const selectedQuality = ref('auto');
+const selectedSpeed = ref(DEFAULT_PLAYBACK_SPEED);
+const availableSpeeds = ref([...SPEED_OPTIONS_FALLBACK]);
 const lastQualityError = ref(null);
 const ytIsPlaying = ref(false);
 const ytCurrentTime = ref(0);
@@ -148,6 +167,93 @@ function saveQuality(q) {
     } catch (_) {}
 }
 
+function getSavedSpeed() {
+    try {
+        const raw = localStorage.getItem(SPEED_STORAGE_KEY);
+        const n = parseFloat(raw);
+        return Number.isFinite(n) && n > 0 ? n : DEFAULT_PLAYBACK_SPEED;
+    } catch (_) {
+        return DEFAULT_PLAYBACK_SPEED;
+    }
+}
+
+function saveSpeed(rate) {
+    try {
+        localStorage.setItem(SPEED_STORAGE_KEY, String(rate));
+    } catch (_) {}
+}
+
+function formatSpeedLabel(rate) {
+    const r = Number(rate);
+    if (!Number.isFinite(r)) return '1x';
+    if (r === 1) return '1x';
+    const text = Number.isInteger(r) ? String(r) : String(r).replace('.', ',');
+    return `${text}x`;
+}
+
+function refreshAvailableSpeeds() {
+    if (!ytPlayer || typeof ytPlayer.getAvailablePlaybackRates !== 'function') {
+        availableSpeeds.value = [...SPEED_OPTIONS_FALLBACK];
+        return;
+    }
+    try {
+        const rates = ytPlayer.getAvailablePlaybackRates();
+        if (Array.isArray(rates) && rates.length > 0) {
+            availableSpeeds.value = rates
+                .filter((r) => Number.isFinite(Number(r)) && Number(r) > 0)
+                .map((r) => Number(r))
+                .sort((a, b) => a - b);
+            return;
+        }
+    } catch (_) {}
+    availableSpeeds.value = [...SPEED_OPTIONS_FALLBACK];
+}
+
+function resolveSpeedForVideo(requested) {
+    const rates = availableSpeeds.value;
+    if (!rates.length) return DEFAULT_PLAYBACK_SPEED;
+    const n = Number(requested);
+    if (rates.includes(n)) return n;
+    return rates.reduce((best, curr) => (Math.abs(curr - n) < Math.abs(best - n) ? curr : best), rates[0]);
+}
+
+function applyYoutubeSpeed(rate) {
+    if (!ytPlayer) return;
+    const r = resolveSpeedForVideo(rate);
+    try {
+        if (typeof ytPlayer.setPlaybackRate === 'function') {
+            ytPlayer.setPlaybackRate(r);
+            const applied = ytPlayer.getPlaybackRate?.();
+            selectedSpeed.value = Number.isFinite(applied) && applied > 0 ? applied : r;
+        }
+    } catch (_) {}
+}
+
+function setSpeed(rate) {
+    const r = resolveSpeedForVideo(rate);
+    selectedSpeed.value = r;
+    saveSpeed(r);
+    speedMenuOpen.value = false;
+    applyYoutubeSpeed(r);
+}
+
+function closeYtMenus() {
+    qualityMenuOpen.value = false;
+    speedMenuOpen.value = false;
+}
+
+function toggleQualityMenu() {
+    const next = !qualityMenuOpen.value;
+    closeYtMenus();
+    qualityMenuOpen.value = next;
+}
+
+function toggleSpeedMenu() {
+    const next = !speedMenuOpen.value;
+    closeYtMenus();
+    speedMenuOpen.value = next;
+}
+
 function clearYtFallbackTimer() {
     if (ytFallbackTimer) {
         clearTimeout(ytFallbackTimer);
@@ -185,7 +291,8 @@ function destroyYoutubePlayer() {
         if (ytPlayer && typeof ytPlayer.destroy === 'function') ytPlayer.destroy();
     } catch (_) {}
     ytPlayer = null;
-    qualityMenuOpen.value = false;
+    closeYtMenus();
+    availableSpeeds.value = [...SPEED_OPTIONS_FALLBACK];
     lastQualityError.value = null;
     ytIsPlaying.value = false;
     ytCurrentTime.value = 0;
@@ -250,6 +357,7 @@ async function initYoutubePlayer() {
     ytFallbackTimer = setTimeout(() => enableVidstackFallback(), YT_LEGACY_INIT_TIMEOUT_MS);
 
     selectedQuality.value = getSavedQuality();
+    selectedSpeed.value = getSavedSpeed();
     try {
         await loadYoutubeApiOnce();
     } catch (_) {
@@ -288,6 +396,11 @@ async function initYoutubePlayer() {
                 ytReady.value = true;
                 ytLoading.value = false;
                 clearYtFallbackTimer();
+                refreshAvailableSpeeds();
+                const speedToApply = resolveSpeedForVideo(getSavedSpeed());
+                selectedSpeed.value = speedToApply;
+                saveSpeed(speedToApply);
+                applyYoutubeSpeed(speedToApply);
                 // Aplicar qualidade em diferentes momentos melhora a chance de pegar (como na antiga).
                 applyYoutubeQuality(selectedQuality.value);
                 ytApplyQualityTimer = setTimeout(() => applyYoutubeQuality(selectedQuality.value), 800);
@@ -309,6 +422,7 @@ async function initYoutubePlayer() {
                     ytIsPlaying.value = true;
                     ytPosterVisible.value = false;
                     scheduleHideControls();
+                    applyYoutubeSpeed(selectedSpeed.value);
                     if (ytApplyQualityTimer) clearTimeout(ytApplyQualityTimer);
                     ytApplyQualityTimer = setTimeout(() => applyYoutubeQuality(selectedQuality.value), 500);
                 }
@@ -392,10 +506,14 @@ function seekToPct(pct) {
 }
 
 function onYoutubeOverlayInteract() {
-    // Mostra/fecha menu com interação no overlay (não no iframe).
-    if (qualityMenuOpen.value) {
-        qualityMenuOpen.value = false;
+    // Fecha menus com interação no overlay (não no iframe).
+    if (qualityMenuOpen.value || speedMenuOpen.value) {
+        closeYtMenus();
     }
+}
+
+function isSpeedSelected(rate) {
+    return Math.abs(Number(selectedSpeed.value) - Number(rate)) < 0.01;
 }
 
 function onScrubStart() {
@@ -677,6 +795,38 @@ const showFullscreenOverlay = computed(() => {
 
 const useNativeCrossOrigin = computed(() => providerType.value === 'native');
 
+/** Taxas alinhadas ao menu YouTube legado; embeds podem ignorar algumas taxas. */
+const vidstackPlaybackRates = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+const vidstackLayoutTranslations = {
+    Settings: 'Configurações',
+    Playback: 'Reprodução',
+    Speed: 'Velocidade',
+    Quality: 'Qualidade',
+    Normal: 'Normal',
+    Loop: 'Repetir',
+    Captions: 'Legendas',
+    Accessibility: 'Acessibilidade',
+    Audio: 'Áudio',
+    Auto: 'Automático',
+    'Auto Quality': 'Qualidade automática',
+    'Caption Styles': 'Estilo das legendas',
+    Chapters: 'Capítulos',
+    'Closed-Captions Off': 'Legendas desligadas',
+    'Closed-Captions On': 'Legendas ligadas',
+    Download: 'Download',
+    Mute: 'Mudo',
+    Unmute: 'Ativar som',
+    Pause: 'Pausar',
+    Play: 'Reproduzir',
+    Fullscreen: 'Tela cheia',
+    'Enter Fullscreen': 'Entrar em tela cheia',
+    'Exit Fullscreen': 'Sair da tela cheia',
+    'Seek Backward': 'Voltar',
+    'Seek Forward': 'Avançar',
+    'Playback Rate': 'Velocidade',
+};
+
 function onEnded() {
     emit('ended');
 }
@@ -780,15 +930,59 @@ function onContextMenu(e) {
                     </button>
 
                     <div class="yt-menu-wrap">
-                        <button type="button" class="yt-icon-btn" aria-label="Qualidade" @click="qualityMenuOpen = !qualityMenuOpen">
-                            <Settings class="h-4 w-4" aria-hidden="true" />
+                        <button
+                            type="button"
+                            class="yt-icon-btn"
+                            aria-label="Qualidade do vídeo"
+                            :aria-expanded="qualityMenuOpen"
+                            @click="toggleQualityMenu"
+                        >
+                            <Monitor class="h-4 w-4" aria-hidden="true" />
                         </button>
-                        <div v-if="qualityMenuOpen" class="yt-quality-menu" role="menu" aria-label="Qualidade do vídeo">
-                            <button type="button" class="yt-quality-item" :class="{ active: selectedQuality === 'auto' }" @click="setQuality('auto')">Auto</button>
-                            <button type="button" class="yt-quality-item" :class="{ active: selectedQuality === 'medium' }" @click="setQuality('medium')">360p</button>
-                            <button type="button" class="yt-quality-item" :class="{ active: selectedQuality === 'large' }" @click="setQuality('large')">480p</button>
-                            <button type="button" class="yt-quality-item" :class="{ active: selectedQuality === 'hd720' }" @click="setQuality('hd720')">720p</button>
-                            <button type="button" class="yt-quality-item" :class="{ active: selectedQuality === 'hd1080' }" @click="setQuality('hd1080')">1080p</button>
+                        <div
+                            v-if="qualityMenuOpen"
+                            class="yt-settings-menu"
+                            role="menu"
+                            aria-label="Qualidade do vídeo"
+                            @pointerdown.stop
+                        >
+                            <button type="button" class="yt-settings-item" :class="{ active: selectedQuality === 'auto' }" role="menuitem" @click="setQuality('auto')">Auto</button>
+                            <button type="button" class="yt-settings-item" :class="{ active: selectedQuality === 'medium' }" role="menuitem" @click="setQuality('medium')">360p</button>
+                            <button type="button" class="yt-settings-item" :class="{ active: selectedQuality === 'large' }" role="menuitem" @click="setQuality('large')">480p</button>
+                            <button type="button" class="yt-settings-item" :class="{ active: selectedQuality === 'hd720' }" role="menuitem" @click="setQuality('hd720')">720p</button>
+                            <button type="button" class="yt-settings-item" :class="{ active: selectedQuality === 'hd1080' }" role="menuitem" @click="setQuality('hd1080')">1080p</button>
+                        </div>
+                    </div>
+
+                    <div class="yt-menu-wrap">
+                        <button
+                            type="button"
+                            class="yt-icon-btn yt-speed-btn"
+                            aria-label="Velocidade de reprodução"
+                            :aria-expanded="speedMenuOpen"
+                            @click="toggleSpeedMenu"
+                        >
+                            <Gauge class="h-4 w-4" aria-hidden="true" />
+                            <span class="yt-speed-btn-label">{{ formatSpeedLabel(selectedSpeed) }}</span>
+                        </button>
+                        <div
+                            v-if="speedMenuOpen"
+                            class="yt-settings-menu"
+                            role="menu"
+                            aria-label="Velocidade de reprodução"
+                            @pointerdown.stop
+                        >
+                            <button
+                                v-for="rate in availableSpeeds"
+                                :key="rate"
+                                type="button"
+                                class="yt-settings-item"
+                                :class="{ active: isSpeedSelected(rate) }"
+                                role="menuitem"
+                                @click="setSpeed(rate)"
+                            >
+                                {{ formatSpeedLabel(rate) }}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -803,7 +997,7 @@ function onContextMenu(e) {
         </div>
 
         <media-player
-            v-else-if="showVidstackPlayer"
+            v-else-if="showVidstackPlayer && vidstackReady"
             ref="playerRef"
             class="player"
             :src="vidstackSrc"
@@ -819,7 +1013,10 @@ function onContextMenu(e) {
             <media-provider>
                 <media-poster v-if="posterUrl" class="vds-poster" :src="posterUrl" alt="" />
             </media-provider>
-            <media-video-layout>
+            <media-video-layout
+                :translations="vidstackLayoutTranslations"
+                :playback-rates="vidstackPlaybackRates"
+            >
                 <media-airplay-button slot="airPlayButton">
                     <media-icon type="airplay" />
                 </media-airplay-button>
@@ -1055,9 +1252,11 @@ function onContextMenu(e) {
 .yt-menu-wrap {
     position: relative;
 }
-.yt-quality-menu {
+.yt-settings-menu {
     pointer-events: auto;
     width: 180px;
+    max-height: min(70vh, 280px);
+    overflow-y: auto;
     border-radius: 12px;
     background: rgba(0, 0, 0, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1069,7 +1268,23 @@ function onContextMenu(e) {
     right: 0;
     bottom: calc(100% + 10px);
 }
-.yt-quality-item {
+.yt-speed-btn {
+    width: auto;
+    min-width: 34px;
+    padding: 0 8px;
+    gap: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.yt-speed-btn-label {
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    user-select: none;
+}
+.yt-settings-item {
     width: 100%;
     text-align: left;
     padding: 8px 10px;
@@ -1080,9 +1295,13 @@ function onContextMenu(e) {
     background: transparent;
     border: 1px solid transparent;
 }
-.yt-quality-item.active {
+.yt-settings-item.active {
     background: rgba(255, 255, 255, 0.12);
     border-color: rgba(255, 255, 255, 0.18);
+}
+.yt-settings-item:focus-visible {
+    outline: 2px solid rgba(78, 156, 246, 0.9);
+    outline-offset: 1px;
 }
 .yt-quality-error {
     pointer-events: none;

@@ -49,11 +49,14 @@ class EffectiveSettlementRules
         }
         $defaults = self::platformDefaults()[$methodKey];
         $owner = User::query()
-            ->where('tenant_id', $tenantId)
+            ->where('id', $tenantId)
             ->where('role', User::ROLE_INFOPRODUTOR)
             ->first();
         if ($owner === null) {
-            $owner = User::query()->where('id', $tenantId)->where('role', User::ROLE_INFOPRODUTOR)->first();
+            $owner = User::query()
+                ->where('tenant_id', $tenantId)
+                ->where('role', User::ROLE_INFOPRODUTOR)
+                ->first();
         }
         if ($owner === null) {
             return $defaults;

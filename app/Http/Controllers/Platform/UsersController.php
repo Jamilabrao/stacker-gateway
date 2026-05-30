@@ -242,19 +242,20 @@ class UsersController extends Controller
             $user->account_status = $validated['account_status'];
         }
 
-        if ($request->has('merchant_fees')) {
+        $all = $request->all();
+        if (array_key_exists('merchant_fees', $all)) {
             $user->merchant_fees = $this->normalizeMerchantFeesOverrides(
                 is_array($request->input('merchant_fees')) ? $request->input('merchant_fees') : null
             );
         }
 
-        if ($request->has('merchant_settlement_overrides')) {
+        if (array_key_exists('merchant_settlement_overrides', $all)) {
             $user->merchant_settlement_overrides = $this->normalizeMerchantSettlementOverrides(
                 is_array($request->input('merchant_settlement_overrides')) ? $request->input('merchant_settlement_overrides') : null
             );
         }
 
-        if ($request->has('merchant_gateway_order')) {
+        if (array_key_exists('merchant_gateway_order', $all)) {
             $user->merchant_gateway_order = $this->normalizeMerchantGatewayOrder(
                 is_array($request->input('merchant_gateway_order')) ? $request->input('merchant_gateway_order') : null
             );

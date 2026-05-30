@@ -1,11 +1,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
+import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
 
 const page = usePage();
 const dropdownOpen = ref(false);
-
-const panelNavPrefetch = ['hover', 'click'];
 const dropdownRef = ref(null);
 
 const user = computed(() => page.props.auth?.user ?? null);
