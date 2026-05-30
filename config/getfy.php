@@ -89,10 +89,18 @@ return [
         'session_max_age_hours' => max(1, (int) env('CHECKOUT_SESSION_MAX_AGE_HOURS', 2)),
         'server_idempotency_ttl_seconds' => max(30, (int) env('CHECKOUT_SERVER_IDEMPOTENCY_TTL', 120)),
         'rate_limits' => [
-            'pay_per_minute' => max(1, (int) env('CHECKOUT_RATE_PAY_PER_MINUTE', 10)),
-            'pix_per_minute' => max(1, (int) env('CHECKOUT_RATE_PIX_PER_MINUTE', env('CHECKOUT_RATE_PIX_PER_FIVE_MINUTES', 3))),
-            'pix_email_per_ten_minutes' => max(1, (int) env('CHECKOUT_RATE_PIX_EMAIL_PER_TEN_MINUTES', 3)),
-            'cajupay_session_per_minute' => max(1, (int) env('CHECKOUT_RATE_CAJUPAY_SESSION_PER_MINUTE', 15)),
+            /** Boleto, pix_auto e demais métodos (exceto pix/cartão/wallets). */
+            'pay_per_minute' => max(1, (int) env('CHECKOUT_RATE_PAY_PER_MINUTE', 20)),
+            /** Máx. de PIX gerados por minuto por IP (POST /checkout, payment_method=pix). */
+            'pix_per_minute' => max(1, (int) env('CHECKOUT_RATE_PIX_PER_MINUTE', 5)),
+            /** Máx. de PIX por e-mail a cada 10 minutos (anti-abuso por conta). */
+            'pix_email_per_ten_minutes' => max(1, (int) env('CHECKOUT_RATE_PIX_EMAIL_PER_TEN_MINUTES', 5)),
+            /** Cartão / Apple Pay / Google Pay no POST /checkout. */
+            'card_per_minute' => max(1, (int) env('CHECKOUT_RATE_CARD_PER_MINUTE', 15)),
+            /** Explorar métodos CajuPay (trocar cartão/wallet) — não consome limite de PIX. */
+            'cajupay_session_per_minute' => max(1, (int) env('CHECKOUT_RATE_CAJUPAY_SESSION_PER_MINUTE', 30)),
+            /** Materializar pedido antes do confirm do SDK CajuPay. */
+            'cajupay_confirm_per_minute' => max(1, (int) env('CHECKOUT_RATE_CAJUPAY_CONFIRM_PER_MINUTE', 15)),
             'track_per_minute' => max(1, (int) env('CHECKOUT_RATE_TRACK_PER_MINUTE', 30)),
             'coupon_per_minute' => max(1, (int) env('CHECKOUT_RATE_COUPON_PER_MINUTE', 20)),
             'shipping_quote_per_minute' => max(1, (int) env('CHECKOUT_RATE_SHIPPING_QUOTE_PER_MINUTE', 30)),

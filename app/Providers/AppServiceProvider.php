@@ -85,7 +85,12 @@ class AppServiceProvider extends ServiceProvider
         $checkoutLimits = config('getfy.checkout_security.rate_limits', []);
 
         RateLimiter::for('checkout-pay', function (Request $request) use ($checkoutLimits) {
-            return Limit::perMinute((int) ($checkoutLimits['pay_per_minute'] ?? 10))
+            $method = strtolower((string) $request->input('payment_method', ''));
+            if (in_array($method, ['pix', 'card', 'apple_pay', 'google_pay'], true)) {
+                return Limit::none();
+            }
+
+            return Limit::perMinute((int) ($checkoutLimits['pay_per_minute'] ?? 20))
                 ->by($request->ip());
         });
 
@@ -95,7 +100,17 @@ class AppServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
-            return Limit::perMinute((int) ($checkoutLimits['pix_per_minute'] ?? 3))
+            return Limit::perMinute((int) ($checkoutLimits['pix_per_minute'] ?? 5))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('checkout-card', function (Request $request) use ($checkoutLimits) {
+            $method = strtolower((string) $request->input('payment_method', ''));
+            if (! in_array($method, ['card', 'apple_pay', 'google_pay'], true)) {
+                return Limit::none();
+            }
+
+            return Limit::perMinute((int) ($checkoutLimits['card_per_minute'] ?? 15))
                 ->by($request->ip());
         });
 
@@ -109,12 +124,17 @@ class AppServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
-            return Limit::perMinutes(10, (int) ($checkoutLimits['pix_email_per_ten_minutes'] ?? 3))
+            return Limit::perMinutes(10, (int) ($checkoutLimits['pix_email_per_ten_minutes'] ?? 5))
                 ->by('pix-email:'.sha1($email));
         });
 
         RateLimiter::for('checkout-cajupay-session', function (Request $request) use ($checkoutLimits) {
-            return Limit::perMinute((int) ($checkoutLimits['cajupay_session_per_minute'] ?? 15))
+            return Limit::perMinute((int) ($checkoutLimits['cajupay_session_per_minute'] ?? 30))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('checkout-cajupay-confirm', function (Request $request) use ($checkoutLimits) {
+            return Limit::perMinute((int) ($checkoutLimits['cajupay_confirm_per_minute'] ?? 15))
                 ->by($request->ip());
         });
 

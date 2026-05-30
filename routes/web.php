@@ -155,13 +155,13 @@ Route::get('/plugins/{slug}/assets/{path}', \App\Http\Controllers\PluginAssetCon
 Route::get('/renovar/{token}', [\App\Http\Controllers\RenewalController::class, 'show'])->name('renewal.show')->where('token', '[a-zA-Z0-9]{32,64}');
 Route::post('/renovar', [\App\Http\Controllers\RenewalController::class, 'process'])
     ->name('renewal.process')
-    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email']);
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email', 'throttle:checkout-card']);
 
 // Checkout Pro (API): página hospedada – dados do cliente na sessão
 Route::get('/api-checkout/{token}', [\App\Http\Controllers\ApiCheckoutController::class, 'show'])->name('api-checkout.show')->where('token', '[a-zA-Z0-9\-]{36,64}');
 Route::post('/api-checkout/pay', [\App\Http\Controllers\ApiCheckoutController::class, 'process'])
     ->name('api-checkout.process')
-    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email']);
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email', 'throttle:checkout-card']);
 Route::get('/api-checkout/card-confirm', [\App\Http\Controllers\ApiCheckoutController::class, 'cardConfirm'])->name('api-checkout.card-confirm');
 Route::get('/api-checkout/obrigado', [\App\Http\Controllers\ApiCheckoutController::class, 'thankYou'])->name('api-checkout.thank-you');
 
@@ -179,19 +179,19 @@ Route::post('/checkout/shipping-quote', [\App\Http\Controllers\CheckoutControlle
 Route::post('/checkout/pixel/purchase-ack', [\App\Http\Controllers\CheckoutController::class, 'purchasePixelAck'])->name('checkout.pixel.purchase-ack')->middleware('throttle:120,1');
 Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])
     ->name('checkout.process')
-    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email']);
+    ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email', 'throttle:checkout-card']);
 Route::match(['get', 'post', 'put', 'patch', 'delete', 'options'], '/checkout/cajupay/sdk-api/{path?}', [\App\Http\Controllers\CajuPaySdkProxyController::class, '__invoke'])
     ->where('path', '.*')
     ->name('checkout.cajupay.sdk-api');
 Route::post('/checkout/cajupay/session', [\App\Http\Controllers\CheckoutController::class, 'cajupaySession'])
     ->name('checkout.cajupay.session')
-    ->middleware(['throttle:checkout-pay', 'throttle:checkout-cajupay-session']);
+    ->middleware('throttle:checkout-cajupay-session');
 Route::post('/checkout/cajupay/confirm-order', [\App\Http\Controllers\CheckoutController::class, 'cajupayConfirmOrder'])
     ->name('checkout.cajupay.confirm-order')
-    ->middleware('throttle:checkout-pay');
+    ->middleware('throttle:checkout-cajupay-confirm');
 Route::post('/checkout/cajupay/sdk-session', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'createSession'])
     ->name('checkout.cajupay.sdk-session')
-    ->middleware(['throttle:checkout-pay', 'throttle:checkout-cajupay-session']);
+    ->middleware('throttle:checkout-cajupay-session');
 Route::get('/checkout/cajupay/session-status', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'sessionStatus'])
     ->name('checkout.cajupay.session-status')
     ->middleware('throttle:60,1');

@@ -1173,7 +1173,7 @@ function scheduleEnsureCajuPaySession() {
     if (cajupaySessionDebounce) clearTimeout(cajupaySessionDebounce);
     cajupaySessionDebounce = setTimeout(() => {
         ensureCajuPaySession({ silent: true });
-    }, 500);
+    }, 800);
 }
 
 async function pollCajuPayOrderStatus() {
