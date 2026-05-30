@@ -12,6 +12,14 @@ export function normalizeMoneyInput(value) {
     return Math.round(n * 100) / 100;
 }
 
+/** Exibe valor monetário no input (pt-BR): 1.5 → "1,50". */
+export function formatMoneyForDisplayBr(value) {
+    if (value === null || value === undefined || value === '') {
+        return '';
+    }
+    return formatPriceForInput(value).replace('.', ',');
+}
+
 /** Preço para input: sempre 2 casas decimais, sem ruído de float. */
 export function formatPriceForInput(value) {
     if (value === null || value === undefined || value === '') {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { router, useForm, usePage } from '@inertiajs/vue3';
 import axios from 'axios';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
@@ -16,10 +16,22 @@ import {
     Repeat,
 } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
+import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import {
     formatPercentForInput,
     normalizeMerchantFeeRulesForSubmit,
 } from '@/lib/percentDecimal';
+
+const feeMethodRows = [
+    { key: 'pix', label: 'PIX' },
+    { key: 'api_pix', label: 'API — PIX' },
+    { key: 'card', label: 'Cartão' },
+    { key: 'apple_pay', label: 'Apple Pay' },
+    { key: 'google_pay', label: 'Google Pay' },
+    { key: 'boleto', label: 'Boleto' },
+    { key: 'withdrawal', label: 'Saque' },
+];
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -290,6 +302,50 @@ function feeBlock(key) {
     };
 }
 
+function buildFeeRulesFromProps() {
+    const out = {};
+    for (const row of feeMethodRows) {
+        out[row.key] = feeBlock(row.key);
+    }
+    return out;
+}
+
+const feePercentRefs = {};
+const feeFixedRefs = {};
+
+function setFeePercentRef(key, el) {
+    if (el) {
+        feePercentRefs[key] = el;
+    } else {
+        delete feePercentRefs[key];
+    }
+}
+
+function setFeeFixedRef(key, el) {
+    if (el) {
+        feeFixedRefs[key] = el;
+    } else {
+        delete feeFixedRefs[key];
+    }
+}
+
+function flushFeeInputs() {
+    for (const row of feeMethodRows) {
+        feePercentRefs[row.key]?.commit?.();
+        feeFixedRefs[row.key]?.commit?.();
+    }
+}
+
+function updateFeeField(key, field, value) {
+    feeForm.merchant_fee_rules = {
+        ...feeForm.merchant_fee_rules,
+        [key]: {
+            ...feeForm.merchant_fee_rules[key],
+            [field]: value,
+        },
+    };
+}
+
 const feeForm = useForm({
     merchant_fee_rules: {
         pix: feeBlock('pix'),
@@ -304,6 +360,7 @@ const feeForm = useForm({
 });
 
 function submitFees() {
+    flushFeeInputs();
     feeForm
         .transform((data) => ({
             ...data,
@@ -311,7 +368,15 @@ function submitFees() {
         }))
         .put('/plataforma/financeiro/taxas', {
             preserveScroll: true,
-            onSuccess: () => feeForm.clearErrors(),
+            onSuccess: async () => {
+                feeForm.clearErrors();
+                await nextTick();
+                feeForm.defaults({
+                    merchant_fee_rules: buildFeeRulesFromProps(),
+                    api_pix_enabled: props.api_pix_enabled,
+                });
+                feeForm.reset();
+            },
         });
 }
 
@@ -826,11 +891,15 @@ function submitSettlement() {
                     <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                         Taxas padrão (plataforma)
                     </h2>
-                    <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+                    <p class="mb-2 text-sm text-zinc-600 dark:text-zinc-400">
                         Percentual e valor fixo por transação. <strong class="font-medium text-zinc-800 dark:text-zinc-200">PIX / cartão / Apple Pay / Google Pay / boleto</strong> valem para o checkout próprio da plataforma
                         (Apple Pay e Google Pay via CajuPay SDK usam as taxas próprias; se não configuradas, herdam a taxa de <strong class="font-medium">cartão</strong> até você definir valores distintos).
                         <strong class="font-medium text-zinc-800 dark:text-zinc-200">API — PIX</strong> aplica-se só ao PIX criado pela API REST ou pelo link de checkout hospedado gerado pela API (cartão e boleto usam sempre as taxas de checkout).
                         Cada infoprodutor pode sobrescrever em Infoprodutores → editar.
+                    </p>
+                    <p class="mb-6 text-xs text-zinc-500 dark:text-zinc-400">
+                        <strong>Percentual:</strong> valor de 0 a 100 (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">2,50</code> = 2,5% sobre o bruto).
+                        <strong class="ml-2">Fixo:</strong> valor em <em>reais</em>, não centavos (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">1,50</code> = R$ 1,50 por transação).
                     </p>
                     <form class="space-y-6" @submit.prevent="submitFees">
                         <div class="overflow-x-auto">
@@ -838,169 +907,25 @@ function submitSettlement() {
                                 <thead class="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-600">
                                     <tr>
                                         <th class="pb-2 pr-4">Canal</th>
-                                        <th class="pb-2 pr-4">% sobre o bruto</th>
-                                        <th class="pb-2">Fixo (R$)</th>
+                                        <th class="pb-2 pr-4">Percentual (%)</th>
+                                        <th class="pb-2">Valor fixo</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-zinc-100 dark:divide-zinc-700">
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">PIX</td>
+                                    <tr v-for="row in feeMethodRows" :key="'fee-' + row.key">
+                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">{{ row.label }}</td>
                                         <td class="py-3 pr-4">
-                                            <input
-                                                v-model="feeForm.merchant_fee_rules.pix.percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                inputmode="decimal"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            <FeePercentInput
+                                                :ref="(el) => setFeePercentRef(row.key, el)"
+                                                :model-value="feeForm.merchant_fee_rules[row.key].percent"
+                                                @update:model-value="(v) => updateFeeField(row.key, 'percent', v)"
                                             />
                                         </td>
                                         <td class="py-3">
-                                            <input
-                                                v-model.number="feeForm.merchant_fee_rules.pix.fixed"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">API — PIX</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model="feeForm.merchant_fee_rules.api_pix.percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                inputmode="decimal"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="feeForm.merchant_fee_rules.api_pix.fixed"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Cartão</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model="feeForm.merchant_fee_rules.card.percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                inputmode="decimal"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="feeForm.merchant_fee_rules.card.fixed"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Apple Pay</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model="feeForm.merchant_fee_rules.apple_pay.percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                inputmode="decimal"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="feeForm.merchant_fee_rules.apple_pay.fixed"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Google Pay</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model="feeForm.merchant_fee_rules.google_pay.percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                inputmode="decimal"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="feeForm.merchant_fee_rules.google_pay.fixed"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Boleto</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model="feeForm.merchant_fee_rules.boleto.percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                inputmode="decimal"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="feeForm.merchant_fee_rules.boleto.fixed"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td class="py-3 font-medium text-zinc-900 dark:text-white">Saque</td>
-                                        <td class="py-3 pr-4">
-                                            <input
-                                                v-model="feeForm.merchant_fee_rules.withdrawal.percent"
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="any"
-                                                inputmode="decimal"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
-                                            />
-                                        </td>
-                                        <td class="py-3">
-                                            <input
-                                                v-model.number="feeForm.merchant_fee_rules.withdrawal.fixed"
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                            <FeeFixedInput
+                                                :ref="(el) => setFeeFixedRef(row.key, el)"
+                                                :model-value="feeForm.merchant_fee_rules[row.key].fixed"
+                                                @update:model-value="(v) => updateFeeField(row.key, 'fixed', v)"
                                             />
                                         </td>
                                     </tr>

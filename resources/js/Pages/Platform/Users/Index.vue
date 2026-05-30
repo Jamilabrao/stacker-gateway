@@ -3,6 +3,8 @@ import { ref, computed, reactive } from 'vue';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
+import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
+import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck } from 'lucide-vue-next';
 import {
     formatPercentForInput,
@@ -193,6 +195,42 @@ const editForm = useForm({
     merchant_settlement_overrides: defaultSettlementOverrides(),
 });
 
+const feePercentRefs = {};
+const feeFixedRefs = {};
+
+function setFeePercentRef(key, el) {
+    if (el) {
+        feePercentRefs[key] = el;
+    } else {
+        delete feePercentRefs[key];
+    }
+}
+
+function setFeeFixedRef(key, el) {
+    if (el) {
+        feeFixedRefs[key] = el;
+    } else {
+        delete feeFixedRefs[key];
+    }
+}
+
+function flushFeeInputs() {
+    for (const row of feeOverrideRows) {
+        feePercentRefs[row.key]?.commit?.();
+        feeFixedRefs[row.key]?.commit?.();
+    }
+}
+
+function updateMerchantFeeField(key, field, value) {
+    editForm.merchant_fees = {
+        ...editForm.merchant_fees,
+        [key]: {
+            ...editForm.merchant_fees[key],
+            [field]: value,
+        },
+    };
+}
+
 const isEditModalOpen = computed(() => editUser.value !== null);
 
 function openEditModal(u) {
@@ -223,6 +261,7 @@ function closeEditModal() {
 
 function submitEdit() {
     if (!editUser.value) return;
+    flushFeeInputs();
     editForm
         .transform((data) => {
             const order = {};
@@ -482,7 +521,13 @@ function formatBlockUntilForInput(iso) {
                         <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Taxas (opcional)</p>
                         <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
                             Sobrescreve os padrões em Financeiro → Taxas. Só o PIX tem taxa separada para API (REST ou link de checkout pela API); cartão e boleto usam as linhas Cartão / Boleto. Deixe em branco para herdar.
+                            Percentual de 0 a 100 (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">2,5</code> = 2,5%). Fixo em reais (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">1,50</code> = R$ 1,50).
                         </p>
+                        <div class="hidden gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500 sm:grid sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] dark:text-zinc-400">
+                            <span>Canal</span>
+                            <span>Percentual (%)</span>
+                            <span>Valor fixo (R$)</span>
+                        </div>
                         <div class="space-y-3 text-sm">
                             <div
                                 v-for="row in feeOverrideRows"
@@ -490,23 +535,17 @@ function formatBlockUntilForInput(iso) {
                                 class="grid gap-2 sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] sm:items-center"
                             >
                                 <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
-                                <input
-                                    v-model="editForm.merchant_fees[row.key].percent"
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    step="any"
-                                    inputmode="decimal"
-                                    placeholder="%"
-                                    class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
+                                <FeePercentInput
+                                    :ref="(el) => setFeePercentRef(row.key, el)"
+                                    :model-value="editForm.merchant_fees[row.key].percent"
+                                    allow-empty
+                                    @update:model-value="(v) => updateMerchantFeeField(row.key, 'percent', v)"
                                 />
-                                <input
-                                    v-model="editForm.merchant_fees[row.key].fixed"
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    placeholder="Fixo R$"
-                                    class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
+                                <FeeFixedInput
+                                    :ref="(el) => setFeeFixedRef(row.key, el)"
+                                    :model-value="editForm.merchant_fees[row.key].fixed"
+                                    allow-empty
+                                    @update:model-value="(v) => updateMerchantFeeField(row.key, 'fixed', v)"
                                 />
                             </div>
                         </div>

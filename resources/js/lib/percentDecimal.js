@@ -12,6 +12,15 @@ export function normalizePercentInput(value) {
     return Math.round(n * 10000) / 10000;
 }
 
+/** Exibe percentual no input (pt-BR): 2.5 → "2,5". */
+export function formatPercentForDisplayBr(value) {
+    const s = formatPercentForInput(value);
+    if (s === '') {
+        return '';
+    }
+    return s.replace('.', ',');
+}
+
 /** Exibe percentual vindo do servidor sem ruído de float. */
 export function formatPercentForInput(value) {
     if (value === null || value === undefined || value === '') {
