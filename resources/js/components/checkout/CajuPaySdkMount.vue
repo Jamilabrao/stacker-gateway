@@ -15,14 +15,25 @@ const props = defineProps({
 
 const error = ref('');
 const controller = ref(null);
-const mountedToken = ref('');
+const mountedKey = ref('');
 const cardFieldReady = ref(false);
 const cardPrimingInFlight = ref(false);
+/** Invalida mounts obsoletos quando token/baseUrl/método mudam durante await assíncrono. */
+let mountGeneration = 0;
 
 const containerSelector = computed(() => `#${props.containerId}`);
 const isCardMethod = computed(() => props.paymentMethod === 'card');
 const isWalletMethod = computed(() => props.paymentMethod === 'apple_pay' || props.paymentMethod === 'google_pay');
 const needsWalletPriming = computed(() => isWalletMethod.value);
+
+function buildMountKey() {
+    const token = (props.sessionToken || '').trim();
+    if (!token) return '';
+    const base = (props.apiBaseUrl || '').trim();
+    const method = props.paymentMethod || '';
+
+    return `${token}|${base}|${method}`;
+}
 
 function syncPayerFromProps() {
     if (!controller.value) return;
@@ -40,7 +51,7 @@ function destroyController() {
         // ignore
     }
     controller.value = null;
-    mountedToken.value = '';
+    mountedKey.value = '';
     cardFieldReady.value = false;
     cardPrimingInFlight.value = false;
     const el = typeof document !== 'undefined' ? document.querySelector(containerSelector.value) : null;
@@ -95,21 +106,28 @@ async function primeWalletField() {
 }
 
 async function tryMount() {
-    if (!props.sessionToken) {
+    const key = buildMountKey();
+    if (!key) {
+        mountGeneration += 1;
         if (controller.value) destroyController();
 
         return;
     }
-    if (mountedToken.value === props.sessionToken) {
+    if (mountedKey.value === key && controller.value) {
         return;
     }
+
+    const generation = ++mountGeneration;
     error.value = '';
-    if (controller.value) destroyController();
+    destroyController();
+
     try {
         await new Promise((r) => { setTimeout(r, 0); });
+        if (generation !== mountGeneration) return;
+
         const base = (props.apiBaseUrl || '').trim() || undefined;
         const defaultMethod = cajupayDefaultMethodFor(props.paymentMethod);
-        controller.value = await mountCajuPayCheckout(containerSelector.value, {
+        const nextController = await mountCajuPayCheckout(containerSelector.value, {
             token: props.sessionToken,
             baseUrl: base,
             defaultMethod,
@@ -117,7 +135,17 @@ async function tryMount() {
             initialPayer: props.initialPayer,
             onStatus: onSdkStatus,
         });
-        mountedToken.value = props.sessionToken;
+
+        if (generation !== mountGeneration) {
+            try {
+                nextController?.destroy?.();
+            } catch (_) { /* ignore */ }
+
+            return;
+        }
+
+        controller.value = nextController;
+        mountedKey.value = key;
 
         if (isCardMethod.value) {
             await onCardMountReady();
@@ -126,7 +154,13 @@ async function tryMount() {
         } else {
             cardFieldReady.value = true;
         }
+
+        if (generation !== mountGeneration) {
+            destroyController();
+        }
     } catch (e) {
+        if (generation !== mountGeneration) return;
+
         const raw = (e?.message || '').toString();
         const lower = raw.toLowerCase();
         if (lower.includes('cors') || lower.includes('failed to fetch') || lower.includes('network')) {
@@ -135,25 +169,16 @@ async function tryMount() {
             error.value = raw || 'Não foi possível carregar o checkout CajuPay.';
         }
         controller.value = null;
+        mountedKey.value = '';
     }
 }
 
-watch(() => props.sessionToken, () => { tryMount(); }, { immediate: true });
-watch(() => props.paymentMethod, () => {
-    if (props.sessionToken) {
-        mountedToken.value = '';
-        tryMount();
-    }
-});
-
 watch(
-    () => props.apiBaseUrl,
+    () => [props.sessionToken, props.apiBaseUrl, props.paymentMethod],
     () => {
-        if (props.sessionToken) {
-            mountedToken.value = '';
-            tryMount();
-        }
-    }
+        void tryMount();
+    },
+    { immediate: true },
 );
 
 let payerRetryTimer = null;
@@ -172,10 +197,11 @@ watch(
             }
         }, 400);
     },
-    { deep: true }
+    { deep: true },
 );
 
 onBeforeUnmount(() => {
+    mountGeneration += 1;
     clearTimeout(payerRetryTimer);
     destroyController();
 });
