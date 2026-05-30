@@ -58,14 +58,22 @@ export default defineConfig({
                     if (id.includes('@codemirror') || id.includes('/codemirror')) {
                         return 'vendor-codemirror';
                     }
-                    if (id.includes('@inertiajs') || id.includes('/vue/') || id.includes('\\vue\\')) {
+                    // Ecossistema Vue em um único chunk — evita dependência circular vendor-vue ↔ vendor-misc
+                    // (que quebra /criar-admin e outras páginas com "Cannot access before initialization").
+                    if (
+                        id.includes('@inertiajs') ||
+                        id.includes('/vue/') ||
+                        id.includes('\\vue\\') ||
+                        id.includes('@vue/') ||
+                        id.includes('pinia') ||
+                        id.includes('radix-vue') ||
+                        id.includes('lucide-vue') ||
+                        id.includes('@floating-ui')
+                    ) {
                         return 'vendor-vue';
                     }
-                    if (id.includes('lucide-vue-next')) {
-                        return 'vendor-icons';
-                    }
 
-                    return 'vendor-misc';
+                    return undefined;
                 },
             },
         },
