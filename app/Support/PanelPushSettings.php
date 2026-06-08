@@ -51,9 +51,12 @@ final class PanelPushSettings
         $provider = self::normalizeProvider((string) ($stored['push_provider'] ?? self::PROVIDER_VAPID));
 
         $vapidPublic = VapidEnvKeys::normalize(
-            self::stringOrNull($stored['pwa_vapid_public'] ?? null) ?? env('PWA_VAPID_PUBLIC')
+            self::stringOrNull($stored['pwa_vapid_public'] ?? null)
+            ?? config('getfy.pwa.vapid_public')
+            ?? env('PWA_VAPID_PUBLIC')
         );
         $vapidPrivate = self::decryptIfNeeded($stored['pwa_vapid_private'] ?? null)
+            ?? config('getfy.pwa.vapid_private')
             ?? VapidEnvKeys::normalize(env('PWA_VAPID_PRIVATE'));
 
         $firebase = [
@@ -280,6 +283,20 @@ final class PanelPushSettings
     public static function activeProvider(): string
     {
         return self::normalizeProvider((string) config('getfy.pwa.push_provider', self::PROVIDER_VAPID));
+    }
+
+    /**
+     * Versão para cache-bust do service worker (muda quando VAPID ou release mudam).
+     */
+    public static function swCacheVersion(): string
+    {
+        $parts = [
+            (string) config('getfy.version', '1'),
+            (string) config('getfy.pwa.push_provider', self::PROVIDER_VAPID),
+            (string) (config('getfy.pwa.vapid_public') ?? ''),
+        ];
+
+        return substr(hash('sha256', implode('|', $parts)), 0, 12);
     }
 
     private static function stringOrNull(mixed $value): ?string

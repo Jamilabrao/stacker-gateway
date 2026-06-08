@@ -2,20 +2,25 @@
 
 namespace App\Http\Controllers\Platform;
 
+use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Controller;
 use App\Models\KycDocument;
 use App\Models\User;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformEmailNotifications;
+use App\Support\KycRequiredDocuments;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class KycVerificationsController extends Controller
 {
+    use RequiresPlatformStepUp;
     public function index(Request $request): Response
     {
         $filter = (string) $request->query('status', 'pending_review');
@@ -30,6 +35,8 @@ class KycVerificationsController extends Controller
             $q->where('kyc_status', User::KYC_REJECTED);
         } elseif ($filter === 'not_submitted') {
             $q->where('kyc_status', User::KYC_NOT_SUBMITTED);
+        } elseif ($filter === 'needs_document_review' && Schema::hasColumn('users', 'kyc_needs_document_review')) {
+            $q->where('kyc_needs_document_review', true);
         }
         // 'all' = sem filtro extra
 
@@ -99,13 +106,27 @@ class KycVerificationsController extends Controller
         abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
         abort_unless($user->kyc_status === User::KYC_PENDING_REVIEW, 422);
 
-        $user->forceFill([
+        $this->validatePlatformStepUp($request, redirectRoute: 'plataforma.kyc.show');
+
+        if (! KycRequiredDocuments::hasAllRequired($user)) {
+            $missing = implode(', ', KycRequiredDocuments::missingLabelsForUser($user));
+            throw ValidationException::withMessages([
+                'kyc' => 'Documentos obrigatórios ausentes: '.$missing.'.',
+            ]);
+        }
+
+        $attrs = [
             'kyc_status' => User::KYC_APPROVED,
             'account_status' => 'approved',
             'kyc_rejection_reason' => null,
             'kyc_reviewed_at' => now(),
             'kyc_reviewed_by' => $request->user()?->id,
-        ])->save();
+        ];
+        if (Schema::hasColumn('users', 'kyc_needs_document_review')) {
+            $attrs['kyc_needs_document_review'] = false;
+        }
+
+        $user->forceFill($attrs)->save();
 
         PlatformAuditService::log('platform.kyc.approved', ['merchant_id' => $user->id], $request);
 
@@ -118,6 +139,8 @@ class KycVerificationsController extends Controller
     {
         abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
         abort_unless($user->kyc_status === User::KYC_PENDING_REVIEW, 422);
+
+        $this->validatePlatformStepUp($request, redirectRoute: 'plataforma.kyc.show');
 
         $validated = $request->validate([
             'reason' => ['required', 'string', 'max:2000'],

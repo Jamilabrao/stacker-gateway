@@ -51,6 +51,8 @@ const pushSettings = reactive({
 const pushStats = reactive({
     subscribers_count: 0,
     subscribers_by_provider: { vapid: 0, fcm: 0 },
+    stale_subscriptions_count: 0,
+    idle_subscriptions_count: 0,
     vapid_valid: false,
     fcm_valid: false,
     push_enabled: false,
@@ -93,6 +95,8 @@ async function loadPush() {
         pushSettings.firebase_web_vapid_key = push.firebase_web_vapid_key || '';
         pushStats.subscribers_count = res.data?.subscribers_count ?? 0;
         pushStats.subscribers_by_provider = res.data?.subscribers_by_provider ?? { vapid: 0, fcm: 0 };
+        pushStats.stale_subscriptions_count = res.data?.stale_subscriptions_count ?? 0;
+        pushStats.idle_subscriptions_count = res.data?.idle_subscriptions_count ?? 0;
         pushStats.vapid_valid = !!push.vapid_valid;
         pushStats.fcm_valid = !!push.fcm_valid;
         pushStats.push_enabled = !!push.push_enabled;
@@ -170,6 +174,7 @@ async function generateVapid() {
         pushStats.pwa_vapid_private_configured = true;
         pushStats.vapid_valid = true;
         if (res.data?.message) error.value = res.data.message;
+        await loadPush();
     } catch (e) {
         error.value = e?.response?.data?.message || 'Erro ao gerar VAPID.';
     } finally {
@@ -385,6 +390,18 @@ onMounted(load);
                             {{ pushStats.push_enabled ? 'Push ativo' : 'Push inativo' }}
                         </span>
                     </div>
+                    <p
+                        v-if="pushStats.stale_subscriptions_count > 0"
+                        class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+                    >
+                        {{ pushStats.stale_subscriptions_count }} inscrição(ões) desatualizada(s) (chave VAPID ou provedor incompatível). Peça reativação no painel.
+                    </p>
+                    <p
+                        v-if="pushStats.idle_subscriptions_count > 0"
+                        class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-600 dark:bg-zinc-900/50 dark:text-zinc-400"
+                    >
+                        {{ pushStats.idle_subscriptions_count }} dispositivo(s) sem entrega nos últimos 7 dias — podem estar inativos.
+                    </p>
                     <div>
                         <label class="block text-sm font-medium">Provedor</label>
                         <select v-model="pushSettings.push_provider" class="mt-1.5 rounded-xl border border-zinc-300 px-4 py-2.5 dark:border-zinc-600 dark:bg-zinc-900">
@@ -452,6 +469,7 @@ onMounted(load);
                             <tr>
                                 <th class="py-2 pr-4">Usuário</th>
                                 <th class="py-2 pr-4">Provedor</th>
+                                <th class="py-2 pr-4">Status</th>
                                 <th class="py-2 pr-4">Atualizado</th>
                                 <th class="py-2" />
                             </tr>
@@ -463,13 +481,18 @@ onMounted(load);
                                     <div class="text-xs text-zinc-500">{{ row.user_email }}</div>
                                 </td>
                                 <td class="py-2 pr-4 uppercase">{{ row.provider }}</td>
+                                <td class="py-2 pr-4 text-xs">
+                                    <span v-if="row.is_stale" class="text-amber-700 dark:text-amber-300">Reativar</span>
+                                    <span v-else-if="row.is_idle" class="text-zinc-500">Inativo</span>
+                                    <span v-else class="text-green-700 dark:text-green-400">OK</span>
+                                </td>
                                 <td class="py-2 pr-4 text-xs">{{ row.updated_at ? new Date(row.updated_at).toLocaleString() : '—' }}</td>
                                 <td class="py-2 text-right">
                                     <button type="button" class="text-red-600 text-xs" @click="deleteSubscriber(row.id)">Remover</button>
                                 </td>
                             </tr>
                             <tr v-if="!subscribers.length">
-                                <td colspan="4" class="py-6 text-center text-zinc-500">Nenhum inscrito.</td>
+                                <td colspan="5" class="py-6 text-center text-zinc-500">Nenhum inscrito.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -492,7 +515,7 @@ onMounted(load);
                         {{ sendingPush ? 'Enviando...' : 'Enviar para todos' }}
                     </Button>
                     <p v-if="pushResult" class="text-sm text-zinc-600">
-                        Enviados: {{ pushResult.sent }} / {{ pushResult.total }} — Falhas: {{ pushResult.failed }} — Expirados: {{ pushResult.expired }}
+                        Enviados: {{ pushResult.sent }} / {{ pushResult.total }} — Falhas: {{ pushResult.failed }} — Expirados: {{ pushResult.expired }} — Inválidos: {{ pushResult.invalid ?? 0 }}
                     </p>
                 </div>
             </section>

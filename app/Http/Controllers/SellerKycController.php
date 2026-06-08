@@ -222,25 +222,9 @@ class SellerKycController extends Controller
             return redirect(self::financeiroKycTabUrl())->with('info', 'Seus documentos já estão em análise.');
         }
 
-        $requiredKinds = [KycDocument::KIND_RG_FRONT, KycDocument::KIND_RG_BACK];
-        if ($subject->person_type === 'pj') {
-            $requiredKinds[] = KycDocument::KIND_COMPANY_DOCUMENT;
-        }
-
-        $existing = KycDocument::query()
-            ->where('user_id', $subject->id)
-            ->whereIn('kind', $requiredKinds)
-            ->pluck('kind')
-            ->all();
-
-        $missing = array_diff($requiredKinds, $existing);
+        $missing = \App\Support\KycRequiredDocuments::missingKindsForUser($subject);
         if ($missing !== []) {
-            $labels = [
-                KycDocument::KIND_RG_FRONT => 'RG (frente)',
-                KycDocument::KIND_RG_BACK => 'RG (verso)',
-                KycDocument::KIND_COMPANY_DOCUMENT => 'documento da empresa',
-            ];
-            $list = implode(', ', array_map(fn ($k) => $labels[$k] ?? $k, $missing));
+            $list = implode(', ', \App\Support\KycRequiredDocuments::missingLabelsForUser($subject));
 
             return redirect(self::financeiroKycTabUrl())->with('error', 'Envie todos os documentos antes de concluir: '.$list.'.');
         }

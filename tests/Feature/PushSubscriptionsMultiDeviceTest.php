@@ -2,24 +2,28 @@
 
 namespace Tests\Feature;
 
-use App\Http\Middleware\EnsureInstalled;
 use App\Models\MemberPushSubscription;
 use App\Models\PanelPushSubscription;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Support\Str;
+use Tests\Concerns\UsesTestVapidKeys;
 use Tests\TestCase;
 
 class PushSubscriptionsMultiDeviceTest extends TestCase
 {
+    use UsesTestVapidKeys;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setUpPushFeatureTests();
+        $this->configureTestVapidPush();
+    }
+
     public function test_panel_allows_multiple_subscriptions_per_user(): void
     {
-        $this->withoutMiddleware(EnsureInstalled::class);
-
-        $user = User::factory()->create([
-            'role' => User::ROLE_INFOPRODUTOR,
-            'tenant_id' => 1,
-        ]);
+        $user = $this->createSellerUser();
 
         $payload1 = [
             'endpoint' => 'https://example.com/push/endpoint-1',
@@ -40,8 +44,6 @@ class PushSubscriptionsMultiDeviceTest extends TestCase
 
     public function test_member_area_allows_multiple_subscriptions_per_user_and_product(): void
     {
-        $this->withoutMiddleware(EnsureInstalled::class);
-
         $user = User::factory()->create([
             'role' => User::ROLE_ALUNO,
             'tenant_id' => 1,

@@ -6,24 +6,25 @@ use App\Models\PanelPushSubscription;
 use App\Models\User;
 use App\Support\PanelPushSettings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesTestVapidKeys;
 use Tests\TestCase;
 
 class PanelPushSubscribeTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesTestVapidKeys;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setUpPushFeatureTests();
+    }
 
     public function test_vapid_push_subscribe_stores_subscription(): void
     {
-        $keys = PanelPushSettings::generateVapidKeyPair();
-        config([
-            'getfy.pwa.push_provider' => PanelPushSettings::PROVIDER_VAPID,
-            'getfy.pwa.vapid_public' => $keys['publicKey'],
-            'getfy.pwa.vapid_private' => $keys['privateKey'],
-        ]);
+        $keys = $this->configureTestVapidPush();
 
-        $user = User::factory()->create([
-            'role' => User::ROLE_INFOPRODUTOR,
-        ]);
+        $user = $this->createSellerUser();
 
         $response = $this->actingAs($user)->postJson('/painel/push-subscribe', [
             'endpoint' => 'https://fcm.googleapis.com/fcm/send/test-endpoint-abc',
@@ -37,6 +38,7 @@ class PanelPushSubscribeTest extends TestCase
         $this->assertDatabaseHas('panel_push_subscriptions', [
             'user_id' => $user->id,
             'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'vapid_public_key' => $keys['publicKey'],
         ]);
     }
 
@@ -63,9 +65,7 @@ class PanelPushSubscribeTest extends TestCase
         $row->update(['data' => $data]);
         PanelPushSettings::applyToConfig();
 
-        $user = User::factory()->create([
-            'role' => User::ROLE_INFOPRODUTOR,
-        ]);
+        $user = $this->createSellerUser();
 
         $response = $this->actingAs($user)->postJson('/painel/push-subscribe', [
             'provider' => 'fcm',

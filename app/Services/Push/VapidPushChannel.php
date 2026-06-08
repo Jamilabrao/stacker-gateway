@@ -94,6 +94,11 @@ class VapidPushChannel implements PanelPushChannel
                         $sub->delete();
                     } else {
                         $failedCount++;
+                        Log::warning('VapidPushChannel: push rejeitado', [
+                            'subscription_id' => $sub->id,
+                            'reason' => $report->getReason(),
+                            'status_code' => method_exists($report, 'getStatusCode') ? $report->getStatusCode() : null,
+                        ]);
                     }
                 } catch (\Throwable $e) {
                     $failedCount++;

@@ -41,18 +41,15 @@ class SpacepagWebhookController extends Controller
             }
 
             if ($this->isSpacepagWithdrawalPaidEvent($eventNormalized, $eventLower, $request)) {
-                if ($withdrawal->status === 'pending') {
+                if (in_array($withdrawal->status, ['pending', 'processing'], true)) {
                     MerchantWithdrawalService::markPaid($withdrawal->fresh());
                 }
             } elseif ($this->isSpacepagWithdrawalCancelledEvent($eventNormalized, $request)) {
-                if ($withdrawal->status === 'pending') {
-                    $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
-                    $withdrawal->update([
-                        'payout_meta' => $meta + [
-                            'webhook_cancelled' => true,
-                            'cancelled_at' => now()->toIso8601String(),
-                        ],
-                    ]);
+                if (in_array($withdrawal->status, ['pending', 'processing'], true)) {
+                    MerchantWithdrawalService::markFailed(
+                        $withdrawal->fresh(),
+                        'Payout Spacepag cancelado (webhook).'
+                    );
                 }
             }
 

@@ -5,10 +5,19 @@ namespace Tests\Feature;
 use App\Models\PanelPushSubscription;
 use App\Models\User;
 use App\Support\QueueSyncDispatch;
+use Tests\Concerns\UsesTestVapidKeys;
 use Tests\TestCase;
 
 class PlatformBroadcastTest extends TestCase
 {
+    use UsesTestVapidKeys;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setUpPushFeatureTests();
+    }
+
     public function test_push_broadcast_returns_422_without_subscriptions(): void
     {
         $admin = User::factory()->create([
@@ -58,5 +67,34 @@ class PlatformBroadcastTest extends TestCase
         config(['queue.default' => 'sync']);
 
         $this->assertTrue(QueueSyncDispatch::shouldRunSynchronously());
+    }
+
+    public function test_push_broadcast_returns_ok_false_when_no_push_delivered(): void
+    {
+        $this->configureTestVapidPush();
+
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $seller = $this->createSellerUser();
+        PanelPushSubscription::create([
+            'user_id' => $seller->id,
+            'tenant_id' => 1,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'vapid_public_key' => 'stale-key',
+            'endpoint' => 'https://push.example/invalid',
+            'keys' => ['auth' => 'auth', 'p256dh' => 'p256dh'],
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson(route('plataforma.app.push.send'), [
+                'title' => 'Aviso',
+                'body' => 'Teste',
+            ])
+            ->assertOk()
+            ->assertJsonPath('ok', false)
+            ->assertJsonPath('result.sent', 0);
     }
 }

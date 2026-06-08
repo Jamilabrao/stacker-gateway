@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PlatformPaymentMethods;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -151,6 +152,59 @@ class Order extends Model
             'google_pay' => 'Google Pay',
             'boleto' => 'Boleto',
             default => self::gatewaySlugDisplayLabel($this->gateway),
+        };
+    }
+
+    /**
+     * Rótulo amigável para push de venda (ex.: "Cartão de crédito", "PIX").
+     */
+    public function paymentMethodPushLabel(): string
+    {
+        $key = $this->resolveCheckoutPaymentMethodKey();
+        if ($key !== null) {
+            foreach (PlatformPaymentMethods::labelsForAdmin() as $row) {
+                if ($row['key'] === $key) {
+                    return $row['label'];
+                }
+            }
+        }
+
+        return $this->paymentMethodDisplayLabel();
+    }
+
+    public function saleApprovedPushTitle(): string
+    {
+        return 'Venda aprovada ('.$this->paymentMethodPushLabel().')';
+    }
+
+    public function saleApprovedPushBody(): string
+    {
+        $productName = $this->product?->name ?? 'Produto';
+        $amount = number_format((float) $this->amount, 2, ',', '.');
+
+        return "{$productName} - R$ {$amount}";
+    }
+
+    /**
+     * Chave normalizada do método escolhido no checkout (metadata ou coluna payment_method).
+     */
+    public function resolveCheckoutPaymentMethodKey(): ?string
+    {
+        $meta = $this->metadata ?? [];
+        $m = isset($meta['checkout_payment_method']) ? strtolower(trim((string) $meta['checkout_payment_method'])) : '';
+        if ($m !== '') {
+            return $m;
+        }
+
+        $column = strtolower(trim((string) ($this->payment_method ?? '')));
+        if ($column === '') {
+            return null;
+        }
+
+        return match ($column) {
+            'credit_card', 'creditcard', 'card' => 'card',
+            'pix', 'pix_auto', 'boleto', 'apple_pay', 'google_pay' => $column,
+            default => null,
         };
     }
 

@@ -22,7 +22,7 @@ const {
     openIosInstructions,
 } = usePwaInstall(slug);
 
-const { registerAndSubscribe, pushRegistered, lastPushError } = usePanelPushSubscribe();
+const { registerAndSubscribe, pushRegistered, needsPermission } = usePanelPushSubscribe();
 const page = usePage();
 const appName = computed(() => page.props.appSettings?.app_name || 'Getfy');
 const pushEnabled = computed(() => !!page.props.push_enabled);
@@ -44,12 +44,11 @@ function wasNotificationPromptDismissedRecently() {
     }
 }
 
-function shouldShowNotificationPromptInStandalone() {
+function shouldShowNotificationPrompt() {
     if (typeof window === 'undefined' || typeof Notification === 'undefined') return false;
     return (
-        isStandalone.value &&
         pushEnabled.value &&
-        Notification.permission === 'default' &&
+        (Notification.permission === 'default' || needsPermission.value) &&
         !pushRegistered.value &&
         !wasNotificationPromptDismissedRecently()
     );
@@ -98,13 +97,13 @@ async function allowNotifications() {
 let iosPromptTimer = null;
 let notificationPromptTimer = null;
 onMounted(() => {
+    notificationPromptTimer = setTimeout(() => {
+        if (shouldShowNotificationPrompt()) {
+            showNotificationPromptAfterInstall.value = true;
+        }
+    }, isStandalone.value ? 400 : 2500);
+
     if (isStandalone.value) {
-        // Atrasar um pouco para o layout estabilizar e pushRegistered (se outro componente chamar) ter valor estável
-        notificationPromptTimer = setTimeout(() => {
-            if (shouldShowNotificationPromptInStandalone()) {
-                showNotificationPromptAfterInstall.value = true;
-            }
-        }, 400);
         return;
     }
     registerListener();

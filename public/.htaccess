@@ -5,6 +5,15 @@
 
     RewriteEngine On
 
+    # Service workers: nunca cachear (evita PWA preso em versão antiga após deploy)
+    <FilesMatch "^(painel-sw|firebase-messaging-sw|member-area-sw)\.js$">
+        <IfModule mod_headers.c>
+            Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+            Header set Pragma "no-cache"
+            Header set Expires "0"
+        </IfModule>
+    </FilesMatch>
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

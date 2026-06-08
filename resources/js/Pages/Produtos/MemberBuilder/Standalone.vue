@@ -174,6 +174,9 @@ function mergeCertificateSection(stored = {}) {
         title_color: '',
         signature_font_family: 'Dancing Script',
         print_format: 'A4',
+        font_scale: 100,
+        duration_enabled: true,
+        body_template: '',
         ...CERTIFICATE_TEXT_DEFAULTS,
     };
     const merged = { ...base, ...(stored && typeof stored === 'object' ? stored : {}) };
@@ -1186,8 +1189,10 @@ function validateCertificateConfig(config) {
     const requiredFields = [
         ['title', 'Nome do certificado'],
         ['signature_text', 'Texto da assinatura'],
-        ['duration_text', 'Duração do curso'],
     ];
+    if (cert.duration_enabled !== false) {
+        requiredFields.push(['duration_text', 'Duração do curso']);
+    }
     const missing = requiredFields
         .filter(([key]) => !String(cert[key] ?? '').trim())
         .map(([, label]) => label);
@@ -3030,8 +3035,35 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Conta a partir da data em que o aluno ganhou acesso (compra/matrícula).</p>
                             </div>
                             <div>
-                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Duração do curso</label>
-                                <input v-model="configForm.member_area_config.certificate.duration_text" type="text" :class="inputClass" placeholder="Obrigatório (ex: 40 horas)" />
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Tamanho do texto</label>
+                                <select v-model.number="configForm.member_area_config.certificate.font_scale" :class="inputClass">
+                                    <option :value="75">75% — menor</option>
+                                    <option :value="100">100% — padrão</option>
+                                    <option :value="125">125% — maior</option>
+                                    <option :value="150">150% — muito maior</option>
+                                </select>
+                                <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Afeta a visualização e a exportação em PDF.</p>
+                            </div>
+                            <Toggle v-model="configForm.member_area_config.certificate.duration_enabled" label="Exibir carga horária" />
+                            <div v-if="configForm.member_area_config.certificate.duration_enabled !== false">
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Carga horária / duração do curso</label>
+                                <input v-model="configForm.member_area_config.certificate.duration_text" type="text" :class="inputClass" placeholder="Ex: 40 horas" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Nome da plataforma (opcional)</label>
+                                <input v-model="configForm.member_area_config.certificate.platform_name" type="text" :class="inputClass" placeholder="Deixe vazio para usar o nome global da plataforma" />
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Texto completo (opcional)</label>
+                                <textarea
+                                    v-model="configForm.member_area_config.certificate.body_template"
+                                    rows="3"
+                                    :class="inputClass"
+                                    placeholder="Certificamos que [ALUNO] concluiu com sucesso o curso [CURSO] em [DATA]."
+                                />
+                                <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                    Se preenchido, substitui o bloco central. Placeholders: [ALUNO], [CURSO], [DATA], [PLATAFORMA], [CARGA_HORARIA].
+                                </p>
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Fonte</label>
@@ -3069,12 +3101,13 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Rótulo da plataforma</label>
                                 <input v-model="configForm.member_area_config.certificate.platform_label_text" type="text" :class="inputClass" placeholder="Obrigatório" />
                             </div>
-                            <div>
+                            <div v-if="configForm.member_area_config.certificate.duration_enabled !== false">
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Rótulo da duração</label>
                                 <input v-model="configForm.member_area_config.certificate.duration_label_text" type="text" :class="inputClass" placeholder="Obrigatório" />
                             </div>
                             <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600 dark:border-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-300">
-                                Nome da plataforma agora vem da configuração global em <strong>Configurações &gt; Personalização &gt; Nome da aplicação</strong>.
+                                Se o nome da plataforma estiver vazio, usa o valor de <strong>Configurações &gt; Personalização &gt; Nome da aplicação</strong>.
+                                Os campos de introdução/conclusão abaixo só aparecem quando o texto completo opcional estiver vazio.
                             </div>
                             <div>
                                 <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Cor primária</label>

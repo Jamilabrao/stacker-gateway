@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ApiApplication;
 use App\Models\Order;
 use App\Services\ApiPixAccess;
+use App\Services\MerchantOperationalGuard;
 use App\Jobs\PollCajuPayPixRefundJob;
 use App\Services\OrderRefundGatewayBridge;
 use App\Services\PlatformOrderAdminService;
@@ -23,6 +24,8 @@ class PixController extends Controller
         if (! ApiPixAccess::effectiveForTenant($app->tenant_id)) {
             abort(403, 'API PIX disabled for this tenant.');
         }
+        MerchantOperationalGuard::assertCanAcceptPayments((int) $app->tenant_id);
+
         return $app;
     }
 

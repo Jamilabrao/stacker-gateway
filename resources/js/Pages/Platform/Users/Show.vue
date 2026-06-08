@@ -2,6 +2,7 @@
 import { Link, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import WalletAdjustForm from '@/components/platform/WalletAdjustForm.vue';
+import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
 import { BadgeCheck } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
@@ -13,6 +14,8 @@ const props = defineProps({
     wallet: { type: Object, default: null },
     withdrawals: { type: Array, default: () => [] },
     wallet_transactions: { type: Array, default: () => [] },
+    effective_merchant_fees: { type: Array, default: () => [] },
+    admin_notes: { type: Array, default: () => [] },
 });
 
 function formatBRL(value) {
@@ -51,6 +54,19 @@ function amountClass(n) {
     if (v > 0) return 'text-emerald-700 dark:text-emerald-300';
     if (v < 0) return 'text-red-600 dark:text-red-400';
     return 'text-zinc-600 dark:text-zinc-400';
+}
+
+function formatFeePreview(percent, fixed) {
+    const p = Number(percent) || 0;
+    const f = Number(fixed) || 0;
+    const parts = [];
+    if (p > 0) {
+        parts.push(`${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 }).format(p)}%`);
+    }
+    if (f > 0) {
+        parts.push(`R$ ${new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(f)}`);
+    }
+    return parts.length ? parts.join(' + ') : '0%';
 }
 </script>
 
@@ -146,6 +162,44 @@ function amountClass(n) {
             </span>
             <span v-if="wallet.wallet_admin.admin_block_note"> {{ wallet.wallet_admin.admin_block_note }}</span>
         </div>
+
+        <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <h2 class="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">Taxas efetivas</h2>
+            <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                Valores em produção para este infoprodutor (overrides + herança da plataforma).
+            </p>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="border-b border-zinc-100 text-xs uppercase text-zinc-500 dark:border-zinc-700">
+                        <tr>
+                            <th class="px-3 py-2">Canal</th>
+                            <th class="px-3 py-2 text-right">Taxa efetiva</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr
+                            v-for="row in effective_merchant_fees"
+                            :key="row.key"
+                            class="border-b border-zinc-50 dark:border-zinc-800"
+                        >
+                            <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">{{ row.label }}</td>
+                            <td class="px-3 py-2 text-right tabular-nums text-zinc-900 dark:text-white">
+                                {{ formatFeePreview(row.percent, row.fixed) }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="rounded-2xl border border-amber-200/80 bg-amber-50/30 p-6 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20">
+            <h2 class="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">Observações internas</h2>
+            <MerchantAdminNotesPanel
+                :merchant-user-id="merchant.id"
+                :initial-notes="admin_notes"
+                :initial-count="admin_notes.length"
+            />
+        </section>
 
         <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <h2 class="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">Ajuste manual de saldo</h2>

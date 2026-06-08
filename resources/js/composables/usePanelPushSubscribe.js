@@ -2,6 +2,21 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import axios from 'axios';
 import { usePage } from '@inertiajs/vue3';
 
+const VAPID_STORAGE_KEY = 'panel_vapid_public';
+
+const pushSubscribing = ref(false);
+const pushRegistered = ref(false);
+const lastPushError = ref(null);
+const needsPermission = ref(false);
+const pushNeedsResubscribe = ref(false);
+const swUpdateApplied = ref(false);
+
+let firebaseApp = null;
+let firebaseMessaging = null;
+let permissionCheckInterval = null;
+let swLifecycleRegistered = false;
+let mountCount = 0;
+
 function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -11,8 +26,31 @@ function urlBase64ToUint8Array(base64String) {
     return outputArray;
 }
 
-let firebaseApp = null;
-let firebaseMessaging = null;
+function getStoredVapidPublic() {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+        return localStorage.getItem(VAPID_STORAGE_KEY);
+    } catch {
+        return null;
+    }
+}
+
+function setStoredVapidPublic(value) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        if (value) {
+            localStorage.setItem(VAPID_STORAGE_KEY, value);
+        } else {
+            localStorage.removeItem(VAPID_STORAGE_KEY);
+        }
+    } catch {}
+}
+
+function vapidKeyChanged(currentPublic) {
+    if (!currentPublic) return false;
+    const stored = getStoredVapidPublic();
+    return stored !== null && stored !== currentPublic;
+}
 
 async function loadFirebaseModules() {
     const { initializeApp } = await import('firebase/app');
@@ -20,8 +58,54 @@ async function loadFirebaseModules() {
     return { initializeApp, getMessaging, getToken, onMessage, isSupported };
 }
 
+function buildVersionedSwUrl(baseUrl, version) {
+    if (!baseUrl) return '/painel-sw.js';
+    if (!version) return baseUrl;
+    const sep = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${sep}v=${encodeURIComponent(version)}`;
+}
+
+function resolvePanelSwUrl(pageProps) {
+    const base = pageProps?.pwa_sw_url ?? '/painel-sw.js';
+    const version = pageProps?.pwa_sw_version ?? null;
+    return buildVersionedSwUrl(base, version);
+}
+
+function resolveFirebaseSwUrl(pageProps) {
+    const version = pageProps?.pwa_sw_version ?? null;
+    return buildVersionedSwUrl('/firebase-messaging-sw.js', version);
+}
+
+function registerSwLifecycleOnce(getCheckExistingSubscription) {
+    if (swLifecycleRegistered || typeof navigator === 'undefined' || !navigator.serviceWorker) {
+        return;
+    }
+    swLifecycleRegistered = true;
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        swUpdateApplied.value = true;
+        const check = getCheckExistingSubscription();
+        if (typeof check === 'function') {
+            check().catch(() => {});
+        }
+    });
+
+    navigator.serviceWorker.ready.then((registration) => {
+        registration.addEventListener('updatefound', () => {
+            const installing = registration.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', () => {
+                if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                    installing.postMessage({ type: 'SKIP_WAITING' });
+                }
+            });
+        });
+    }).catch(() => {});
+}
+
 /**
  * Registra SW e inscreve push do painel (VAPID ou Firebase conforme push_provider).
+ * Estado compartilhado entre AppLayout, PwaInstallPrompt e NotificationsPanel.
  */
 export function usePanelPushSubscribe() {
     const page = usePage();
@@ -29,9 +113,8 @@ export function usePanelPushSubscribe() {
     const pushProvider = computed(() => page.props.push_provider ?? 'vapid');
     const vapidPublic = computed(() => page.props.vapid_public ?? null);
     const firebaseClientConfig = computed(() => page.props.firebase_client_config ?? null);
-    const pushSubscribing = ref(false);
-    const pushRegistered = ref(false);
-    const lastPushError = ref(null);
+    const panelSwUrl = computed(() => resolvePanelSwUrl(page.props));
+    const firebaseSwUrl = computed(() => resolveFirebaseSwUrl(page.props));
 
     function serializeSubscription(sub) {
         const p256dh = sub?.getKey?.('p256dh');
@@ -49,6 +132,10 @@ export function usePanelPushSubscribe() {
         const payload = serializeSubscription(sub);
         if (!payload.endpoint || !payload.keys?.p256dh || !payload.keys?.auth) return false;
         const { data } = await axios.post('/painel/push-subscribe', payload);
+        if (data?.success) {
+            setStoredVapidPublic(vapidPublic.value);
+            pushNeedsResubscribe.value = false;
+        }
         return !!data?.success;
     }
 
@@ -58,17 +145,51 @@ export function usePanelPushSubscribe() {
             provider: 'fcm',
             fcm_token: token,
         });
+        if (data?.success) {
+            pushNeedsResubscribe.value = false;
+        }
         return !!data?.success;
+    }
+
+    async function registerPanelSw() {
+        if (typeof navigator === 'undefined' || !navigator.serviceWorker) return null;
+        try {
+            return await navigator.serviceWorker.register(panelSwUrl.value, { scope: '/painel/' });
+        } catch (e) {
+            console.warn('Panel SW registration failed:', e);
+            return null;
+        }
     }
 
     async function registerFirebaseSw() {
         if (typeof navigator === 'undefined' || !navigator.serviceWorker) return null;
         try {
-            return await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/painel/' });
+            return await navigator.serviceWorker.register(firebaseSwUrl.value, { scope: '/painel/' });
         } catch (e) {
             console.warn('Firebase SW registration failed:', e);
             return null;
         }
+    }
+
+    async function ensureVapidSubscription(reg) {
+        const existing = await reg.pushManager.getSubscription?.();
+        const currentKey = vapidPublic.value;
+
+        if (existing && currentKey && vapidKeyChanged(currentKey)) {
+            try {
+                await existing.unsubscribe();
+            } catch (_) {}
+        }
+
+        let sub = await reg.pushManager.getSubscription?.();
+        if (!sub) {
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(currentKey),
+            });
+        }
+
+        return sub;
     }
 
     async function subscribeFcm() {
@@ -106,9 +227,7 @@ export function usePanelPushSubscribe() {
             return false;
         }
 
-        onMessage(firebaseMessaging, () => {
-            // foreground: centro de notificações / reload opcional
-        });
+        onMessage(firebaseMessaging, () => {});
 
         return syncFcmToServer(token);
     }
@@ -119,9 +238,8 @@ export function usePanelPushSubscribe() {
             return false;
         }
 
-        try {
-            await navigator.serviceWorker.register('/painel-sw.js', { scope: '/painel/' });
-        } catch (e) {
+        const reg = await registerPanelSw();
+        if (!reg) {
             lastPushError.value = 'service_worker_registration_failed';
             return false;
         }
@@ -131,30 +249,33 @@ export function usePanelPushSubscribe() {
             return false;
         }
 
-        const reg = await navigator.serviceWorker.getRegistration('/painel/');
         if (!reg?.pushManager) {
             lastPushError.value = 'service_worker_not_found';
             return false;
         }
 
-        const existing = await reg.pushManager.getSubscription?.();
-        if (existing) {
-            return syncVapidToServer(existing);
+        try {
+            const sub = await ensureVapidSubscription(reg);
+            return syncVapidToServer(sub);
+        } catch (e) {
+            if (e?.name === 'NotAllowedError') {
+                lastPushError.value = 'notification_permission_denied';
+            } else {
+                lastPushError.value = 'subscription_failed';
+                console.warn('Panel push subscribe failed:', e);
+            }
+            return false;
         }
-
-        const sub = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublic.value),
-        });
-        return syncVapidToServer(sub);
     }
 
     async function registerAndSubscribe() {
         lastPushError.value = null;
+        needsPermission.value = false;
         pushRegistered.value = false;
 
         if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
             lastPushError.value = 'notification_permission_default';
+            needsPermission.value = true;
             return false;
         }
         if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
@@ -197,8 +318,34 @@ export function usePanelPushSubscribe() {
     async function checkExistingSubscription() {
         lastPushError.value = null;
         pushRegistered.value = false;
-        if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') return false;
+        needsPermission.value = false;
+
+        if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            needsPermission.value = pushEnabled.value;
+            return false;
+        }
+        if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+            return false;
+        }
         if (!pushEnabled.value) return false;
+
+        try {
+            const { data } = await axios.get('/painel/notifications', { params: { per_page: 1 } });
+            if (data?.push_needs_resubscribe) {
+                pushNeedsResubscribe.value = true;
+            }
+            if (data?.push_subscribed && !data?.push_needs_resubscribe) {
+                pushRegistered.value = true;
+                pushNeedsResubscribe.value = false;
+                if (vapidPublic.value) {
+                    setStoredVapidPublic(vapidPublic.value);
+                }
+                return true;
+            }
+            if (data?.push_needs_resubscribe) {
+                return registerAndSubscribe();
+            }
+        } catch (_) {}
 
         try {
             if (pushProvider.value === 'fcm') {
@@ -220,9 +367,15 @@ export function usePanelPushSubscribe() {
                 return synced;
             }
 
-            await navigator.serviceWorker.register('/painel-sw.js', { scope: '/painel/' });
+            await registerPanelSw();
             const reg = await navigator.serviceWorker.getRegistration('/painel/');
-            const existing = await reg?.pushManager?.getSubscription?.();
+            if (!reg?.pushManager) return false;
+
+            if (vapidPublic.value && vapidKeyChanged(vapidPublic.value)) {
+                return registerAndSubscribe();
+            }
+
+            const existing = await reg.pushManager.getSubscription?.();
             if (existing) {
                 const synced = await syncVapidToServer(existing);
                 pushRegistered.value = synced;
@@ -247,13 +400,15 @@ export function usePanelPushSubscribe() {
         );
     });
 
-    let permissionCheckInterval = null;
-
     onMounted(() => {
+        mountCount += 1;
+        registerSwLifecycleOnce(checkExistingSubscription);
+
         if (!pushEnabled.value) {
             return;
         }
         if (isStandalone.value && notificationPermission.value === 'default') {
+            needsPermission.value = true;
             permissionCheckInterval = setInterval(() => {
                 if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
                     clearInterval(permissionCheckInterval);
@@ -273,13 +428,20 @@ export function usePanelPushSubscribe() {
     });
 
     onUnmounted(() => {
-        if (permissionCheckInterval) clearInterval(permissionCheckInterval);
+        mountCount = Math.max(0, mountCount - 1);
+        if (mountCount === 0 && permissionCheckInterval) {
+            clearInterval(permissionCheckInterval);
+            permissionCheckInterval = null;
+        }
     });
 
     return {
         pushSubscribing,
         pushRegistered,
         lastPushError,
+        needsPermission,
+        pushNeedsResubscribe,
+        swUpdateApplied,
         notificationPermission,
         isStandalone,
         pushProvider,

@@ -99,7 +99,6 @@ class EffectiveMerchantFees
      */
     public static function forTenant(int $tenantId): array
     {
-        $defaults = self::platformDefaults();
         // tenant_id em pedidos/carteira é o id do infoprodutor dono; overrides ficam em users.merchant_fees.
         $owner = User::query()
             ->where('id', $tenantId)
@@ -112,22 +111,82 @@ class EffectiveMerchantFees
                 ->first();
         }
         if ($owner === null || empty($owner->merchant_fees) || ! is_array($owner->merchant_fees)) {
+            return self::platformDefaults();
+        }
+
+        return self::fromOverrides($owner->merchant_fees);
+    }
+
+    /**
+     * Taxas efetivas a partir dos overrides crus (null/vazio = herdar só da plataforma).
+     *
+     * @param  array<string, mixed>|null  $rawOverrides
+     * @return array{
+     *     pix: array{percent: float, fixed: float},
+     *     api_pix: array{percent: float, fixed: float},
+     *     card: array{percent: float, fixed: float},
+     *     apple_pay: array{percent: float, fixed: float},
+     *     google_pay: array{percent: float, fixed: float},
+     *     boleto: array{percent: float, fixed: float},
+     *     withdrawal: array{percent: float, fixed: float}
+     * }
+     */
+    public static function fromOverrides(?array $rawOverrides): array
+    {
+        $defaults = self::platformDefaults();
+        if (! is_array($rawOverrides) || $rawOverrides === []) {
             return $defaults;
         }
-        $ov = $owner->merchant_fees;
         foreach (self::RULE_KEYS as $k) {
-            if (! isset($ov[$k]) || ! is_array($ov[$k])) {
+            if (! isset($rawOverrides[$k]) || ! is_array($rawOverrides[$k])) {
                 continue;
             }
-            if (array_key_exists('percent', $ov[$k])) {
-                $defaults[$k]['percent'] = PercentDecimal::toFloat(PercentDecimal::normalize($ov[$k]['percent']));
+            if (array_key_exists('percent', $rawOverrides[$k])) {
+                $defaults[$k]['percent'] = PercentDecimal::toFloat(PercentDecimal::normalize($rawOverrides[$k]['percent']));
             }
-            if (array_key_exists('fixed', $ov[$k])) {
-                $defaults[$k]['fixed'] = round((float) $ov[$k]['fixed'], 2);
+            if (array_key_exists('fixed', $rawOverrides[$k])) {
+                $defaults[$k]['fixed'] = round((float) $rawOverrides[$k]['fixed'], 2);
             }
         }
 
-        return $defaults;
+        return self::applyDerivedInheritance($defaults, $rawOverrides);
+    }
+
+    /**
+     * Herda canais derivados do pai efetivo quando o infoprodutor não definiu o filho explicitamente.
+     *
+     * @param  array<string, array{percent: float, fixed: float}>  $effective
+     * @param  array<string, mixed>|null  $rawOverrides
+     * @return array<string, array{percent: float, fixed: float}>
+     */
+    private static function applyDerivedInheritance(array $effective, ?array $rawOverrides): array
+    {
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'api_pix')) {
+            $effective['api_pix'] = $effective['pix'];
+        }
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'apple_pay')) {
+            $effective['apple_pay'] = $effective['card'];
+        }
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'google_pay')) {
+            $effective['google_pay'] = $effective['card'];
+        }
+
+        return $effective;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $rawOverrides
+     */
+    private static function overrideBlockIsExplicit(?array $rawOverrides, string $key): bool
+    {
+        if (! is_array($rawOverrides) || ! isset($rawOverrides[$key]) || ! is_array($rawOverrides[$key])) {
+            return false;
+        }
+
+        $block = $rawOverrides[$key];
+
+        return (array_key_exists('percent', $block) && $block['percent'] !== '' && $block['percent'] !== null)
+            || (array_key_exists('fixed', $block) && $block['fixed'] !== '' && $block['fixed'] !== null);
     }
 
     /**

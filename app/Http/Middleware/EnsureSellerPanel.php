@@ -39,9 +39,9 @@ class EnsureSellerPanel
                 ->withErrors(['email' => 'Conta suspensa ou bloqueada. Contate o suporte.']);
         }
 
-        if ($user->mustSubmitKycBeforeSellerPanel() && ! $this->isKycOnboardingRoute($request)) {
+        if ($user->mustStayOnKycOnboardingRoutes() && ! $this->isKycOnboardingRoute($request)) {
             return redirect('/financeiro?tab=seus-dados')
-                ->with('info', 'Envie seus documentos de verificação de identidade (KYC) para acessar o painel do infoprodutor.');
+                ->with('info', $user->sellerPanelRestrictedMessage());
         }
 
         return $next($request);

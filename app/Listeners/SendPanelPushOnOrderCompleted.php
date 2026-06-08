@@ -17,10 +17,9 @@ class SendPanelPushOnOrderCompleted
         $order = $event->order;
 
         try {
-            $productName = $order->product?->name ?? 'Produto';
-            $amount = number_format((float) $order->amount, 2, ',', '.');
-            $title = 'Venda aprovada!';
-            $body = "{$productName} - R$ {$amount}";
+            $order->loadMissing('product');
+            $title = $order->saleApprovedPushTitle();
+            $body = $order->saleApprovedPushBody();
             $url = url('/vendas?order=' . $order->id);
 
             $this->panelPushService->sendAndPersistToTenant(

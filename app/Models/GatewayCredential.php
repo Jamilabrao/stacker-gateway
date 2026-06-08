@@ -13,13 +13,31 @@ class GatewayCredential extends Model
         'gateway_slug',
         'credentials',
         'is_connected',
+        'is_enabled',
     ];
 
     protected function casts(): array
     {
         return [
             'is_connected' => 'boolean',
+            'is_enabled' => 'boolean',
         ];
+    }
+
+    public function isEnabledForPayments(): bool
+    {
+        return ($this->is_enabled ?? true) === true;
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\GatewayCredential>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<\App\Models\GatewayCredential>
+     */
+    public function scopeEnabledForPayments($query)
+    {
+        return $query->where(function ($q) {
+            $q->where('is_enabled', true)->orWhereNull('is_enabled');
+        });
     }
 
     public function scopeForTenant($query, ?int $tenantId)
@@ -41,6 +59,7 @@ class GatewayCredential extends Model
             $c = static::forTenant($tenantId)
                 ->where('gateway_slug', $gatewaySlug)
                 ->where('is_connected', true)
+                ->enabledForPayments()
                 ->first();
             if ($c !== null) {
                 return $c;
@@ -50,6 +69,7 @@ class GatewayCredential extends Model
         return static::forTenant(null)
             ->where('gateway_slug', $gatewaySlug)
             ->where('is_connected', true)
+            ->enabledForPayments()
             ->first();
     }
 
@@ -61,6 +81,7 @@ class GatewayCredential extends Model
         $global = static::forTenant(null)
             ->where('gateway_slug', $gatewaySlug)
             ->where('is_connected', true)
+            ->enabledForPayments()
             ->first();
         if ($global !== null) {
             return $global;
@@ -69,6 +90,7 @@ class GatewayCredential extends Model
             return static::forTenant($tenantId)
                 ->where('gateway_slug', $gatewaySlug)
                 ->where('is_connected', true)
+                ->enabledForPayments()
                 ->first();
         }
 
@@ -99,6 +121,7 @@ class GatewayCredential extends Model
     {
         $global = static::forTenant(null)
             ->where('is_connected', true)
+            ->enabledForPayments()
             ->get()
             ->keyBy('gateway_slug');
         if ($tenantId === null) {
@@ -106,6 +129,7 @@ class GatewayCredential extends Model
         }
         $forTenant = static::forTenant($tenantId)
             ->where('is_connected', true)
+            ->enabledForPayments()
             ->get()
             ->keyBy('gateway_slug');
 
@@ -121,6 +145,7 @@ class GatewayCredential extends Model
     {
         $global = static::forTenant(null)
             ->where('is_connected', true)
+            ->enabledForPayments()
             ->get()
             ->keyBy('gateway_slug');
         if ($tenantId === null) {
@@ -128,6 +153,7 @@ class GatewayCredential extends Model
         }
         $forTenant = static::forTenant($tenantId)
             ->where('is_connected', true)
+            ->enabledForPayments()
             ->get()
             ->keyBy('gateway_slug');
         $merged = collect();

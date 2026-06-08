@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { CreditCard } from 'lucide-vue-next';
 import PixInOutBadges from '@/components/settings/PixInOutBadges.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 import {
     TooltipRoot,
     TooltipTrigger,
@@ -15,9 +16,23 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    showEnabledToggle: {
+        type: Boolean,
+        default: false,
+    },
+    togglingEnabled: {
+        type: Boolean,
+        default: false,
+    },
 });
 
-const emit = defineEmits(['click']);
+const emit = defineEmits(['click', 'toggle-enabled']);
+
+const isEnabled = computed(() => props.gateway.is_enabled !== false);
+
+const canToggleEnabled = computed(
+    () => props.showEnabledToggle && props.gateway.is_configured
+);
 
 const methodLabels = {
     pix: 'PIX',
@@ -164,22 +179,42 @@ const hasMultipleCountries = computed(() => countries.value != null);
                     {{ method }}
                 </span>
             </div>
-            <div class="mt-1.5 flex items-center gap-2 text-xs">
-                <span
-                    v-if="gateway.is_connected"
-                    class="text-emerald-600 dark:text-emerald-400"
+            <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2 text-xs">
+                    <span
+                        v-if="gateway.is_configured && !isEnabled"
+                        class="text-rose-600 dark:text-rose-400"
+                    >
+                        Desativado
+                    </span>
+                    <span
+                        v-else-if="gateway.is_connected"
+                        class="text-emerald-600 dark:text-emerald-400"
+                    >
+                        Conectado
+                    </span>
+                    <span
+                        v-else-if="gateway.is_configured"
+                        class="text-amber-600 dark:text-amber-400"
+                    >
+                        Configurado
+                    </span>
+                    <span v-else class="text-zinc-500 dark:text-zinc-400">
+                        Não configurado
+                    </span>
+                </div>
+                <div
+                    v-if="canToggleEnabled"
+                    class="shrink-0"
+                    @click.stop
                 >
-                    Conectado
-                </span>
-                <span
-                    v-else-if="gateway.is_configured"
-                    class="text-amber-600 dark:text-amber-400"
-                >
-                    Configurado
-                </span>
-                <span v-else class="text-zinc-500 dark:text-zinc-400">
-                    Não configurado
-                </span>
+                    <Toggle
+                        :model-value="isEnabled"
+                        :disabled="togglingEnabled"
+                        :label="isEnabled ? 'Ativo' : 'Inativo'"
+                        @update:model-value="emit('toggle-enabled', $event)"
+                    />
+                </div>
             </div>
         </div>
     </button>

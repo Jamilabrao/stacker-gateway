@@ -13,7 +13,7 @@ use Inertia\Response;
 
 class WithdrawalsController extends Controller
 {
-    private const WITHDRAWAL_STATUS_OPTIONS = ['all', 'pending', 'paid', 'rejected'];
+    private const WITHDRAWAL_STATUS_OPTIONS = ['all', 'pending', 'paid', 'rejected', 'failed'];
 
     public function index(Request $request): Response
     {

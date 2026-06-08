@@ -9,6 +9,7 @@ import AppSidebar from '@/components/layout/AppSidebar.vue';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import MobileBottomNav from '@/components/layout/MobileBottomNav.vue';
 import PwaInstallPrompt from '@/components/layout/PwaInstallPrompt.vue';
+import PushNotificationsBanner from '@/components/layout/PushNotificationsBanner.vue';
 import NotificationsPanel from '@/components/layout/NotificationsPanel.vue';
 import Backdrop from '@/components/layout/Backdrop.vue';
 import FlashToast from '@/components/layout/FlashToast.vue';
@@ -207,6 +208,9 @@ onBeforeUnmount(() => {
                 </div>
             </div>
             <FlashToast />
+            <div v-if="!customerPanel" class="px-4 pt-3 lg:px-6">
+                <PushNotificationsBanner />
+            </div>
             <PwaInstallPrompt />
             <NotificationsPanel
                 v-if="!customerPanel"

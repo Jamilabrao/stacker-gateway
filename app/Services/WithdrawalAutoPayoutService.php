@@ -11,6 +11,7 @@ use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayPayoutService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
+use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Services\Spacepag\SpacepagPayoutService;
 use App\Services\Woovi\WooviPayoutService;
 use Plugins\OnlyUp\OnlyUpPayoutService;
@@ -26,21 +27,31 @@ class WithdrawalAutoPayoutService
      */
     public function attemptAutoPayout(Withdrawal $withdrawal): array
     {
-        $slug = PlatformPayoutGateway::activeSlug();
-        if ($slug === 'cajupay') {
-            return $this->attemptCajuPay($withdrawal);
-        }
-        if ($slug === 'spacepag') {
-            return $this->attemptSpacepag($withdrawal);
-        }
-        if ($slug === 'woovi') {
-            return $this->attemptWoovi($withdrawal);
-        }
-        if ($slug === 'onlyup') {
-            return $this->attemptOnlyUp($withdrawal);
+        if (! WithdrawalPolicyService::autoWithdrawalEnabled()) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'auto_withdrawal_disabled'];
         }
 
-        return ['ok' => false, 'skipped' => true, 'reason' => 'no_payout_gateway'];
+        $locked = MerchantWithdrawalService::beginPayoutApproval((int) $withdrawal->id);
+        if ($locked === null) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'not_pending'];
+        }
+
+        $withdrawal = $locked;
+
+        $slug = PlatformPayoutGateway::activeSlug();
+        $result = match ($slug) {
+            'cajupay' => $this->attemptCajuPay($withdrawal),
+            'spacepag' => $this->attemptSpacepag($withdrawal),
+            'woovi' => $this->attemptWoovi($withdrawal),
+            'onlyup' => $this->attemptOnlyUp($withdrawal),
+            default => ['ok' => false, 'skipped' => true, 'reason' => 'no_payout_gateway'],
+        };
+
+        if (! ($result['ok'] ?? false)) {
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+        }
+
+        return $result;
     }
 
     /**
@@ -48,8 +59,8 @@ class WithdrawalAutoPayoutService
      */
     public function attemptCajuPay(Withdrawal $withdrawal): array
     {
-        if ($withdrawal->status !== 'pending') {
-            return ['ok' => false, 'skipped' => true, 'reason' => 'not_pending'];
+        if ($withdrawal->status !== MerchantWithdrawalService::STATUS_PROCESSING) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'not_processing'];
         }
 
         $cred = GatewayCredential::resolveForPayment(null, 'cajupay');
@@ -142,8 +153,8 @@ class WithdrawalAutoPayoutService
      */
     public function attemptSpacepag(Withdrawal $withdrawal): array
     {
-        if ($withdrawal->status !== 'pending') {
-            return ['ok' => false, 'skipped' => true, 'reason' => 'not_pending'];
+        if ($withdrawal->status !== MerchantWithdrawalService::STATUS_PROCESSING) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'not_processing'];
         }
 
         $cred = GatewayCredential::resolveForPayment(null, 'spacepag');
@@ -214,8 +225,8 @@ class WithdrawalAutoPayoutService
      */
     public function attemptWoovi(Withdrawal $withdrawal): array
     {
-        if ($withdrawal->status !== 'pending') {
-            return ['ok' => false, 'skipped' => true, 'reason' => 'not_pending'];
+        if ($withdrawal->status !== MerchantWithdrawalService::STATUS_PROCESSING) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'not_processing'];
         }
 
         $cred = GatewayCredential::resolveForPayment(null, 'woovi');
@@ -286,8 +297,8 @@ class WithdrawalAutoPayoutService
      */
     public function attemptOnlyUp(Withdrawal $withdrawal): array
     {
-        if ($withdrawal->status !== 'pending') {
-            return ['ok' => false, 'skipped' => true, 'reason' => 'not_pending'];
+        if ($withdrawal->status !== MerchantWithdrawalService::STATUS_PROCESSING) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'not_processing'];
         }
 
         $cred = GatewayCredential::resolveForPayment(null, 'onlyup');

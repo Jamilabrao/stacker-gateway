@@ -12,6 +12,7 @@ use App\Services\Payout\PlatformPayoutGateway;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class MerchantWithdrawalService
@@ -23,6 +24,8 @@ class MerchantWithdrawalService
     public const STATUS_PAID = 'paid';
 
     public const STATUS_REJECTED = 'rejected';
+
+    public const STATUS_FAILED = 'failed';
 
     /**
      * Reserva o saque para aprovação/envio PIX (evita duplo clique / requests paralelos).
@@ -64,9 +67,7 @@ class MerchantWithdrawalService
      */
     public static function requestWithdrawal(User $user, float $amount, string $bucket, ?string $notes = null): Withdrawal
     {
-        if (! $user->isInfoprodutor()) {
-            abort(403, 'Apenas o titular da conta pode solicitar saques.');
-        }
+        MerchantOperationalGuard::assertCanRequestWithdrawal($user);
 
         $tenantId = (int) ($user->tenant_id ?? $user->id);
         if ($tenantId < 1) {
@@ -201,9 +202,68 @@ class MerchantWithdrawalService
         });
     }
 
+    public static function markFailed(Withdrawal $withdrawal, string $reason, bool $refundWallet = true): void
+    {
+        if (! in_array($withdrawal->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
+            return;
+        }
+
+        DB::transaction(function () use ($withdrawal, $reason, $refundWallet) {
+            $locked = Withdrawal::query()->whereKey($withdrawal->id)->lockForUpdate()->first();
+            if ($locked === null || ! in_array($locked->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
+                return;
+            }
+
+            if ($refundWallet) {
+                self::creditWalletRefund($locked, 'failed', ['failure_reason' => $reason]);
+            }
+
+            $meta = is_array($locked->payout_meta) ? $locked->payout_meta : [];
+            $meta['failed_at'] = now()->toIso8601String();
+            $meta['failure_reason'] = $reason;
+
+            $locked->payout_meta = $meta;
+            $locked->failed_reason = Str::limit($reason, 500, '');
+            $locked->status = self::STATUS_FAILED;
+            $locked->save();
+        });
+    }
+
     public static function reject(Withdrawal $withdrawal, ?string $adminNote = null): void
     {
-        if ($withdrawal->status !== self::STATUS_PENDING) {
+        if (! in_array($withdrawal->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
+            return;
+        }
+
+        DB::transaction(function () use ($withdrawal, $adminNote) {
+            $locked = Withdrawal::query()->whereKey($withdrawal->id)->lockForUpdate()->first();
+            if ($locked === null || ! in_array($locked->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
+                return;
+            }
+
+            self::creditWalletRefund($locked, 'rejected', ['admin_note' => $adminNote]);
+
+            $note = trim((string) ($locked->notes ?? ''));
+            if ($adminNote !== null && $adminNote !== '') {
+                $note .= ($note !== '' ? "\n\n" : '').'[Rejeitado] '.$adminNote;
+            }
+            $locked->notes = $note !== '' ? $note : null;
+            $locked->status = self::STATUS_REJECTED;
+            $locked->save();
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $metaExtra
+     */
+    private static function creditWalletRefund(Withdrawal $withdrawal, string $phase, array $metaExtra = []): void
+    {
+        $alreadyRefunded = WalletTransaction::query()
+            ->where('withdrawal_id', $withdrawal->id)
+            ->where('type', WalletTransaction::TYPE_WITHDRAWAL_REFUND)
+            ->exists();
+
+        if ($alreadyRefunded) {
             return;
         }
 
@@ -214,41 +274,26 @@ class MerchantWithdrawalService
             $col = 'available_pix';
         }
 
-        DB::transaction(function () use ($withdrawal, $tenantId, $col, $adminNote) {
-            $withdrawal->refresh();
-            if ($withdrawal->status !== 'pending') {
-                return;
-            }
+        $gross = (float) $withdrawal->amount;
 
-            $gross = (float) $withdrawal->amount;
+        $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->lockForUpdate()->first();
+        if ($wallet !== null && Schema::hasColumn('tenant_wallets', $col)) {
+            $wallet->{$col} = round((float) ($wallet->{$col} ?? 0) + $gross, 2);
+            self::syncAggregateBalance($wallet);
+            $wallet->save();
+        }
 
-            $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->lockForUpdate()->first();
-            if ($wallet !== null && Schema::hasColumn('tenant_wallets', $col)) {
-                $wallet->{$col} = round((float) ($wallet->{$col} ?? 0) + $gross, 2);
-                self::syncAggregateBalance($wallet);
-                $wallet->save();
-            }
-
-            $note = trim((string) ($withdrawal->notes ?? ''));
-            if ($adminNote !== null && $adminNote !== '') {
-                $note .= ($note !== '' ? "\n\n" : '').'[Rejeitado] '.$adminNote;
-            }
-            $withdrawal->notes = $note !== '' ? $note : null;
-            $withdrawal->status = 'rejected';
-            $withdrawal->save();
-
-            WalletTransaction::query()->create([
-                'tenant_id' => $tenantId,
-                'order_id' => null,
-                'withdrawal_id' => $withdrawal->id,
-                'bucket' => (string) $withdrawal->bucket,
-                'type' => WalletTransaction::TYPE_WITHDRAWAL_REFUND,
-                'amount_gross' => $gross,
-                'amount_fee' => 0,
-                'amount_net' => $gross,
-                'meta' => ['phase' => 'rejected', 'admin_note' => $adminNote],
-            ]);
-        });
+        WalletTransaction::query()->create([
+            'tenant_id' => $tenantId,
+            'order_id' => null,
+            'withdrawal_id' => $withdrawal->id,
+            'bucket' => (string) $withdrawal->bucket,
+            'type' => WalletTransaction::TYPE_WITHDRAWAL_REFUND,
+            'amount_gross' => $gross,
+            'amount_fee' => 0,
+            'amount_net' => $gross,
+            'meta' => array_merge(['phase' => $phase], $metaExtra),
+        ]);
     }
 
     private static function syncAggregateBalance(TenantWallet $wallet): void

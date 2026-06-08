@@ -13,6 +13,7 @@ defineProps({
 
 const filters = [
     { value: 'pending_review', label: 'Pendentes' },
+    { value: 'needs_document_review', label: 'Revisão de docs' },
     { value: 'all', label: 'Todos' },
     { value: 'rejected', label: 'Rejeitados' },
     { value: 'not_submitted', label: 'Sem envio' },

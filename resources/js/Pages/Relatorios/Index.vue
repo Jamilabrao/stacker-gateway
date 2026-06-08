@@ -447,7 +447,7 @@ const chartOptionsFormas = computed(() => ({
                 </a>
             </div>
             <p class="aurora-fg-muted mt-2 px-4 text-xs">
-                {{ t('reports.export_abandoned_hint', 'O arquivo segue o período selecionado acima e inclui visitas sem pedido e formulários não concluídos (mesma regra dos totais de abandono).') }}
+                {{ t('reports.export_abandoned_hint', 'Inclui apenas formulários abandonados com e-mail (1 registro por e-mail e produto no período).') }}
             </p>
             <div
                 class="mt-4 overflow-hidden"

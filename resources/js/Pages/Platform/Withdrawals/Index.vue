@@ -1,8 +1,9 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutPlatform });
@@ -29,8 +30,16 @@ const withdrawalFilterChips = [
     { withdrawal_status: 'all', label: 'Todos os saques' },
     { withdrawal_status: 'pending', label: 'Pendente' },
     { withdrawal_status: 'paid', label: 'Aprovado' },
+    { withdrawal_status: 'failed', label: 'Falhou (estornado)' },
     { withdrawal_status: 'rejected', label: 'Rejeitado' },
 ];
+
+const stepUpOpen = ref(false);
+const stepUpLoading = ref(false);
+const stepUpAction = ref(null);
+const stepUpWithdrawalId = ref(null);
+const stepUpManual = ref(false);
+const stepUpRequirePin = ref(false);
 
 function selectWithdrawalFilter(withdrawalStatus) {
     router.get(
@@ -49,21 +58,63 @@ function bucketLabel(b) {
     return map[b] || b || '—';
 }
 
-function approveWithdrawal(id, manual = false) {
-    const msg = manual
-        ? 'Marcar como pago manualmente (sem enviar pela API CajuPay)?'
-        : 'Enviar o saque via CajuPay (PIX cadastrado do infoprodutor) e marcar como pago?';
-    if (!confirm(msg)) return;
-    router.post(
-        `/plataforma/financeiro/saques/${id}/aprovar`,
-        { payout_manual: manual },
-        { preserveScroll: true }
-    );
+function openApproveStepUp(id, manual = false) {
+    stepUpWithdrawalId.value = id;
+    stepUpManual.value = manual;
+    stepUpAction.value = 'approve';
+    stepUpRequirePin.value = manual;
+    stepUpOpen.value = true;
 }
 
-function rejectWithdrawal(id) {
-    const note = window.prompt('Motivo da rejeição (opcional). O saldo será devolvido ao infoprodutor.') || '';
-    router.post(`/plataforma/financeiro/saques/${id}/rejeitar`, { admin_note: note }, { preserveScroll: true });
+function openRejectStepUp(id) {
+    stepUpWithdrawalId.value = id;
+    stepUpAction.value = 'reject';
+    stepUpManual.value = false;
+    stepUpRequirePin.value = false;
+    stepUpOpen.value = true;
+}
+
+function closeStepUp() {
+    stepUpOpen.value = false;
+    stepUpLoading.value = false;
+}
+
+function onStepUpConfirm(payload) {
+    const id = stepUpWithdrawalId.value;
+    if (!id) return;
+    stepUpLoading.value = true;
+
+    if (stepUpAction.value === 'approve') {
+        router.post(
+            `/plataforma/financeiro/saques/${id}/aprovar`,
+            {
+                payout_manual: stepUpManual.value,
+                totp_code: payload.totp_code,
+                manual_approval_pin: payload.manual_approval_pin,
+                manual_confirm_external: payload.manual_confirm_external,
+            },
+            {
+                preserveScroll: true,
+                onFinish: () => closeStepUp(),
+            }
+        );
+        return;
+    }
+
+    const note =
+        window.prompt('Motivo da rejeição (opcional). O saldo será devolvido ao infoprodutor.') || '';
+    router.post(
+        `/plataforma/financeiro/saques/${id}/rejeitar`,
+        {
+            admin_note: note,
+            totp_code: payload.totp_code,
+            manual_approval_pin: payload.manual_approval_pin,
+        },
+        {
+            preserveScroll: true,
+            onFinish: () => closeStepUp(),
+        }
+    );
 }
 
 function reprocessCajuPayWithdrawal(id) {
@@ -87,6 +138,7 @@ function withdrawalStatusLabel(status) {
         processing: 'Processando',
         paid: 'Aprovado',
         rejected: 'Rejeitado',
+        failed: 'Falhou (estornado)',
     };
     return map[status] ?? status ?? '—';
 }
@@ -94,6 +146,7 @@ function withdrawalStatusLabel(status) {
 function withdrawalStatusBadgeClass(status) {
     if (status === 'paid') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200';
     if (status === 'pending' || status === 'processing') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
+    if (status === 'failed') return 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200';
     if (status === 'rejected') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200';
     return 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
 }
@@ -231,14 +284,19 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                         >
                                             Reprocessar
                                         </Button>
-                                        <Button type="button" size="sm" @click="approveWithdrawal(w.id, false)">
+                                        <Button type="button" size="sm" @click="openApproveStepUp(w.id, false)">
                                             Pago (CajuPay)
                                         </Button>
-                                        <Button type="button" size="sm" variant="secondary" @click="approveWithdrawal(w.id, true)">
+                                        <Button type="button" size="sm" variant="secondary" @click="openApproveStepUp(w.id, true)">
                                             Pago manual
                                         </Button>
-                                        <Button type="button" size="sm" variant="secondary" @click="rejectWithdrawal(w.id)">
+                                        <Button type="button" size="sm" variant="secondary" @click="openRejectStepUp(w.id)">
                                             Rejeitar
+                                        </Button>
+                                    </div>
+                                    <div v-else-if="w.status === 'processing'" class="flex flex-wrap justify-end gap-2">
+                                        <Button type="button" size="sm" variant="secondary" @click="openRejectStepUp(w.id)">
+                                            Rejeitar e estornar
                                         </Button>
                                     </div>
                                     <span v-else class="text-xs text-zinc-400">—</span>
@@ -288,5 +346,21 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                 @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
             />
         </nav>
+
+        <PlatformStepUpModal
+            :open="stepUpOpen"
+            :loading="stepUpLoading"
+            :require-pin="stepUpRequirePin"
+            :require-external-confirm="stepUpManual"
+            :title="stepUpAction === 'reject' ? 'Rejeitar saque' : stepUpManual ? 'Aprovar manualmente' : 'Aprovar saque'"
+            :description="
+                stepUpManual
+                    ? 'Confirme com 2FA e PIN (se configurado) que o PIX já foi enviado fora do sistema.'
+                    : 'Informe o código 2FA para autorizar esta ação.'
+            "
+            :confirm-label="stepUpAction === 'reject' ? 'Rejeitar' : 'Aprovar'"
+            @close="closeStepUp"
+            @confirm="onStepUpConfirm"
+        />
     </div>
 </template>

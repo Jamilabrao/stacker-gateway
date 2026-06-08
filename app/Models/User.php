@@ -70,6 +70,7 @@ class User extends Authenticatable
         'kyc_rejection_reason',
         'kyc_reviewed_at',
         'kyc_reviewed_by',
+        'kyc_needs_document_review',
         'seller_onboarded_at',
         'privacy_policy_accepted_at',
         'terms_accepted_at',
@@ -283,9 +284,55 @@ class User extends Authenticatable
 
     public function hasApprovedKyc(): bool
     {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('users', 'kyc_status')) {
+            return true;
+        }
+
         $status = $this->kycSubjectUser()->kyc_status;
 
         return $status === self::KYC_APPROVED;
+    }
+
+    public function isAwaitingKycReview(): bool
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('users', 'kyc_status')) {
+            return false;
+        }
+
+        return $this->kycSubjectUser()->kyc_status === self::KYC_PENDING_REVIEW;
+    }
+
+    public function mustCompleteKycOnboarding(): bool
+    {
+        if (! $this->canAccessSellerPanel()) {
+            return false;
+        }
+
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('users', 'kyc_status')) {
+            return false;
+        }
+
+        $status = $this->kycSubjectUser()->kyc_status;
+
+        return in_array($status, [self::KYC_NOT_SUBMITTED, self::KYC_REJECTED], true);
+    }
+
+    public function isMerchantOperationallyApproved(): bool
+    {
+        if (! $this->canAccessSellerPanel()) {
+            return false;
+        }
+
+        $subject = $this->kycSubjectUser();
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'kyc_status')
+            && $subject->kyc_status !== self::KYC_APPROVED) {
+            return false;
+        }
+
+        $accountStatus = (string) ($subject->account_status ?? 'approved');
+
+        return $accountStatus === 'approved';
     }
 
     /**
@@ -304,6 +351,8 @@ class User extends Authenticatable
 
     /**
      * Infoprodutor/equipe precisa enviar documentos antes de usar o painel do vendedor.
+     *
+     * @deprecated Prefer mustCompleteKycOnboarding() + isMerchantOperationallyApproved()
      */
     public function mustSubmitKycBeforeSellerPanel(): bool
     {
@@ -312,6 +361,40 @@ class User extends Authenticatable
         }
 
         return ! $this->hasSubmittedKyc();
+    }
+
+    /**
+     * Painel operacional bloqueado até KYC/conta aprovados (exceto rotas de onboarding).
+     */
+    public function mustStayOnKycOnboardingRoutes(): bool
+    {
+        if (! $this->canAccessSellerPanel()) {
+            return false;
+        }
+
+        if ($this->sellerAccountAccessBlocked()) {
+            return false;
+        }
+
+        return ! $this->isMerchantOperationallyApproved();
+    }
+
+    public function sellerPanelRestrictedMessage(): string
+    {
+        if ($this->mustCompleteKycOnboarding()) {
+            return 'Envie seus documentos de verificação de identidade (KYC) para acessar o painel do infoprodutor.';
+        }
+
+        if ($this->isAwaitingKycReview()) {
+            return 'Documentos em análise. Aguarde a aprovação da plataforma.';
+        }
+
+        $subject = $this->kycSubjectUser();
+        if ((string) ($subject->account_status ?? 'approved') === 'pending') {
+            return 'Sua conta ainda não foi aprovada pela plataforma.';
+        }
+
+        return 'Complete a verificação de identidade (KYC) para acessar o painel do infoprodutor.';
     }
 
     /**
@@ -377,6 +460,7 @@ class User extends Authenticatable
             'payout_settings' => 'array',
             'birth_date' => 'date',
             'kyc_reviewed_at' => 'datetime',
+            'kyc_needs_document_review' => 'boolean',
             'seller_onboarded_at' => 'datetime',
             'privacy_policy_accepted_at' => 'datetime',
             'terms_accepted_at' => 'datetime',

@@ -6,18 +6,22 @@ import { ShieldAlert } from 'lucide-vue-next';
 const page = usePage();
 
 const kycStatus = computed(() => page.props.auth?.user?.kyc_status ?? null);
+const kycOnboardingState = computed(() => page.props.auth?.user?.kyc_onboarding_state ?? null);
 
-/** Aviso enquanto KYC não estiver aprovado (inclui pendente de envio e em análise). */
+/** Aviso enquanto conta não estiver operacionalmente aprovada. */
 const show = computed(() => Boolean(page.props.auth?.user?.needs_kyc_attention));
 
 const message = computed(() => {
-    if (kycStatus.value === 'pending_review') {
-        return 'Seus documentos estão em análise. Quando a verificação for concluída, liberamos saques e dados bancários conforme a política da plataforma.';
+    if (kycOnboardingState.value === 'awaiting_review' || kycStatus.value === 'pending_review') {
+        return 'Seus documentos estão em análise. O painel completo, vendas e saques serão liberados após aprovação da plataforma.';
     }
     if (kycStatus.value === 'rejected') {
         return 'Sua verificação precisa de ajustes. Reenvie os documentos na aba Seus dados (Financeiro).';
     }
-    return 'Complete a verificação de identidade (KYC) para liberar saques.';
+    if (kycOnboardingState.value === 'pending_account') {
+        return 'Sua conta ainda não foi aprovada pela plataforma. Envie os documentos ou aguarde a análise.';
+    }
+    return 'Complete a verificação de identidade (KYC) para acessar o painel do infoprodutor.';
 });
 
 const financeiroKycHref = '/financeiro?tab=seus-dados';

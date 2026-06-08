@@ -22,27 +22,10 @@ class PanelNotificationsController extends Controller
             ->paginate($perPage);
 
         $unreadCount = PanelNotification::forUser($user->id)->unread()->count();
-        $pushSubscribed = PanelPushSubscription::query()
-            ->where('user_id', $user->id)
-            ->where('tenant_id', $user->tenant_id)
-            ->where(function ($q) {
-                $q->where(function ($vapid) {
-                    $vapid->where(function ($p) {
-                        $p->where('provider', PanelPushSubscription::PROVIDER_VAPID)->orWhereNull('provider');
-                    })
-                        ->whereNotNull('endpoint')
-                        ->where('endpoint', '!=', '')
-                        ->whereNotNull('keys->auth')
-                        ->where('keys->auth', '!=', '')
-                        ->whereNotNull('keys->p256dh')
-                        ->where('keys->p256dh', '!=', '');
-                })->orWhere(function ($fcm) {
-                    $fcm->where('provider', PanelPushSubscription::PROVIDER_FCM)
-                        ->whereNotNull('fcm_token')
-                        ->where('fcm_token', '!=', '');
-                });
-            })
-            ->exists();
+        $pushStatus = PanelPushSubscription::pushStatusForUser(
+            (int) $user->id,
+            $user->tenant_id !== null ? (int) $user->tenant_id : null
+        );
 
         return response()->json([
             'data' => $notifications->items(),
@@ -53,7 +36,8 @@ class PanelNotificationsController extends Controller
                 'total' => $notifications->total(),
             ],
             'unread_count' => $unreadCount,
-            'push_subscribed' => $pushSubscribed,
+            'push_subscribed' => $pushStatus['push_subscribed'],
+            'push_needs_resubscribe' => $pushStatus['push_needs_resubscribe'],
         ]);
     }
 

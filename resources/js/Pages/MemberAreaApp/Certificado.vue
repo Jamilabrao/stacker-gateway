@@ -2,6 +2,11 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import { Link } from '@inertiajs/vue3';
+import {
+    resolveCertificateBody,
+    certificateFontCssVars,
+    certificateFontScaleRatio,
+} from '@/lib/certificateText';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -76,11 +81,41 @@ const issuedOnText = computed(() => props.certificate?.issued_on_text || 'em');
 const instructorLabelText = computed(() => props.certificate?.instructor_label_text || 'Assinatura do Instrutor');
 const platformLabelText = computed(() => props.certificate?.platform_label_text || 'Plataforma de Cursos');
 const durationLabelText = computed(() => props.certificate?.duration_label_text || 'Duração');
+const durationEnabled = computed(() => props.certificate?.duration_enabled !== false);
+const hasBodyTemplate = computed(() => String(props.certificate?.body_template || '').trim() !== '');
+
+const certificateTextVars = computed(() => ({
+    aluno: props.recipient_name || 'Aluno',
+    curso: courseTitle.value,
+    data: issuedAtLabel.value || '',
+    plataforma: platformName.value,
+    carga_horaria: durationEnabled.value ? (props.certificate?.duration_text || '') : '',
+}));
+
+const resolvedBodyText = computed(() =>
+    resolveCertificateBody(props.certificate?.body_template, certificateTextVars.value)
+);
+
+const certAreaStyle = computed(() => ({
+    fontFamily: props.certificate?.font_family || 'sans-serif',
+    backgroundColor: certBgUrl.value ? 'transparent' : '#fff',
+    ...certificateFontCssVars(props.certificate?.font_scale ?? 100, false),
+    '--cert-primary': certPrimary.value,
+    '--cert-text': certBgUrl.value ? (props.certificate?.text_color || '#171717') : certTextColor.value,
+    '--cert-title': certBgUrl.value && props.certificate?.title_color ? props.certificate?.title_color : certPrimary.value,
+}));
+
+const printScale = computed(() => {
+    const base = certificateFontScaleRatio(props.certificate?.font_scale ?? 100);
+    return Math.max(base, base * 1.15);
+});
+
 const printStyleText = computed(() => {
     const format = certPrintFormat.value;
     const isA3 = format === 'A3';
     const pageW = isA3 ? '420mm' : '297mm';
     const pageH = isA3 ? '297mm' : '210mm';
+    const scale = printScale.value;
     return `
 @media print {
     @page {
@@ -127,11 +162,19 @@ const printStyleText = computed(() => {
         page-break-inside: avoid;
         box-sizing: border-box !important;
         overflow: hidden !important;
+        --cert-scale: ${scale};
+        --cert-header-size: calc(12px * ${scale});
+        --cert-title-size: calc(28px * ${scale});
+        --cert-body-size: calc(16px * ${scale});
+        --cert-footer-size: calc(13px * ${scale});
+        --cert-watermark-size: calc(48px * ${scale});
     }
-    .certificate-print-area .certificate-corners {
-        border-width: 3px !important;
-        width: 14mm !important;
-        height: 14mm !important;
+    .certificate-print-area .certificate-corners,
+    .certificate-print-area .certificate-watermark {
+        display: none !important;
+    }
+    .certificate-print-area .certificate-signature {
+        font-family: ${certSignatureFont.value || 'cursive'}, cursive !important;
     }
     .certificate-print-area .certificate-inner {
         display: flex !important;
@@ -147,6 +190,10 @@ const printStyleText = computed(() => {
     .certificate-print-area .certificate-footer {
         margin-top: auto !important;
         flex-shrink: 0 !important;
+    }
+    .certificate-print-area .certificate-bg-image {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
     }
 }
 `;
@@ -178,18 +225,16 @@ onUnmounted(() => {
         <h1 class="text-2xl font-bold print:hidden">Certificado de conclusão</h1>
         <div
             class="certificate-print-area relative mx-auto max-w-2xl overflow-hidden rounded-2xl border border-zinc-200 p-8 shadow-md dark:border-zinc-500 print:max-w-none print:rounded-none print:shadow-none"
-            :style="{
-                fontFamily: certificate.font_family || 'sans-serif',
-                backgroundColor: certBgUrl ? 'transparent' : '#fff',
-                backgroundImage: certBgUrl ? `url(${certBgUrl})` : 'none',
-                backgroundSize: certBgUrl ? 'cover' : undefined,
-                backgroundPosition: certBgUrl ? 'center' : undefined,
-                '--cert-primary': certPrimary,
-                '--cert-text': certBgUrl ? (certificate.text_color || '#171717') : certTextColor,
-                '--cert-title': certBgUrl && certificate.title_color ? certificate.title_color : certPrimary,
-            }"
+            :style="certAreaStyle"
         >
-            <!-- Overlay bloqueado: quando certificado ainda não disponível -->
+            <img
+                v-if="certBgUrl"
+                :src="certBgUrl"
+                alt=""
+                class="certificate-bg-image pointer-events-none absolute inset-0 h-full w-full object-cover"
+                style="z-index: 0"
+            />
+
             <div
                 v-if="!certificate_available"
                 class="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center rounded-2xl bg-black/60 p-6 print:hidden"
@@ -206,36 +251,32 @@ onUnmounted(() => {
                 </div>
             </div>
 
-            <!-- Cantos em L decorativos -->
-            <div class="certificate-corners absolute left-0 top-0 h-16 w-16 border-l-4 border-t-4 rounded-tl-lg" style="border-color: var(--cert-primary)" aria-hidden="true" />
-            <div class="certificate-corners absolute right-0 top-0 h-16 w-16 border-r-4 border-t-4 rounded-tr-lg" style="border-color: var(--cert-primary)" aria-hidden="true" />
-            <div class="certificate-corners absolute bottom-0 left-0 h-16 w-16 border-b-4 border-l-4 rounded-bl-lg" style="border-color: var(--cert-primary)" aria-hidden="true" />
-            <div class="certificate-corners absolute bottom-0 right-0 h-16 w-16 border-b-4 border-r-4 rounded-br-lg" style="border-color: var(--cert-primary)" aria-hidden="true" />
+            <div class="certificate-corners absolute left-0 top-0 h-16 w-16 border-l-4 border-t-4 rounded-tl-lg print:hidden" style="border-color: var(--cert-primary)" aria-hidden="true" />
+            <div class="certificate-corners absolute right-0 top-0 h-16 w-16 border-r-4 border-t-4 rounded-tr-lg print:hidden" style="border-color: var(--cert-primary)" aria-hidden="true" />
+            <div class="certificate-corners absolute bottom-0 left-0 h-16 w-16 border-b-4 border-l-4 rounded-bl-lg print:hidden" style="border-color: var(--cert-primary)" aria-hidden="true" />
+            <div class="certificate-corners absolute bottom-0 right-0 h-16 w-16 border-b-4 border-r-4 rounded-br-lg print:hidden" style="border-color: var(--cert-primary)" aria-hidden="true" />
 
-            <!-- Overlay na imagem de fundo -->
             <div
                 v-if="certOverlayEnabled"
                 class="pointer-events-none absolute inset-0"
-                style="z-index: 0"
+                style="z-index: 1"
                 :style="{ backgroundColor: certOverlayColor, opacity: certOverlayOpacity }"
                 aria-hidden="true"
             />
 
-            <!-- Marca d'água -->
             <div
-                class="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.06]"
-                style="z-index: 0;"
+                class="certificate-watermark pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.06] print:hidden"
+                style="z-index: 1"
             >
                 <span
-                    class="text-6xl font-bold whitespace-nowrap"
-                    style="color: var(--cert-primary); transform: rotate(-35deg);"
+                    class="font-bold whitespace-nowrap"
+                    style="color: var(--cert-primary); transform: rotate(-35deg); font-size: var(--cert-watermark-size)"
                 >
                     {{ platformName }}
                 </span>
             </div>
 
-            <div class="certificate-inner relative flex flex-col" style="z-index: 1;">
-                <!-- Cabeçalho: ícone + CERTIFICADO DE CONCLUSÃO -->
+            <div class="certificate-inner relative flex flex-col" style="z-index: 2">
                 <div class="certificate-body flex flex-col items-center text-center">
                     <div class="relative flex h-14 w-14 items-center justify-center rounded-full text-[var(--cert-primary)]">
                         <div class="absolute inset-0 rounded-full" style="background-color: var(--cert-primary); opacity: 0.15" aria-hidden="true" />
@@ -243,45 +284,47 @@ onUnmounted(() => {
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                         </svg>
                     </div>
-                    <p class="mt-3 text-xs font-semibold uppercase tracking-[0.2em]" style="color: var(--cert-text)">
+                    <p class="mt-3 font-semibold uppercase tracking-[0.2em]" style="color: var(--cert-text); font-size: var(--cert-header-size)">
                         {{ headerText }}
                     </p>
                 </div>
 
-                <!-- Título do curso -->
-                <h2 class="mt-6 text-center text-2xl font-bold certificate-body" style="color: var(--cert-title)">
+                <h2 class="mt-6 text-center font-bold certificate-body" style="color: var(--cert-title); font-size: var(--cert-title-size)">
                     {{ courseTitle }}
                 </h2>
 
-                <!-- Bloco central -->
-                <div class="certificate-body mt-8 text-center" style="color: var(--cert-text)">
-                    <p>{{ recipientIntroText }}</p>
-                    <p class="mt-2">
-                        <span class="inline-block border-b-2 px-1 font-bold" style="border-color: var(--cert-primary); color: var(--cert-text)">{{ recipient_name || 'Aluno' }}</span>
-                    </p>
-                    <p class="mt-3">
-                        {{ completionText }} <strong>{{ platformName }}</strong>
-                    </p>
-                    <p v-if="issuedAtLabel" class="mt-2" style="color: var(--cert-text); opacity: 0.9">
-                        {{ issuedOnText }} {{ issuedAtLabel }}
-                    </p>
-                    <p v-else-if="!certificate_available" class="mt-2 print:hidden" style="color: var(--cert-text); opacity: 0.8">
-                        {{ issuedOnText }} --
-                    </p>
-                    <p v-if="certificate.duration_text" class="mt-2" style="opacity: 0.9">
-                        {{ durationLabelText }}: <strong>{{ certificate.duration_text }}</strong>
-                    </p>
+                <div class="certificate-body mt-8 text-center" style="color: var(--cert-text); font-size: var(--cert-body-size)">
+                    <template v-if="hasBodyTemplate">
+                        <p class="whitespace-pre-wrap leading-relaxed">{{ resolvedBodyText }}</p>
+                    </template>
+                    <template v-else>
+                        <p>{{ recipientIntroText }}</p>
+                        <p class="mt-2">
+                            <span class="inline-block border-b-2 px-1 font-bold" style="border-color: var(--cert-primary); color: var(--cert-text)">{{ recipient_name || 'Aluno' }}</span>
+                        </p>
+                        <p class="mt-3">
+                            {{ completionText }} <strong>{{ platformName }}</strong>
+                        </p>
+                        <p v-if="issuedAtLabel" class="mt-2" style="color: var(--cert-text); opacity: 0.9">
+                            {{ issuedOnText }} {{ issuedAtLabel }}
+                        </p>
+                        <p v-else-if="!certificate_available" class="mt-2 print:hidden" style="color: var(--cert-text); opacity: 0.8">
+                            {{ issuedOnText }} --
+                        </p>
+                        <p v-if="durationEnabled && certificate.duration_text" class="mt-2" style="opacity: 0.9">
+                            {{ durationLabelText }}: <strong>{{ certificate.duration_text }}</strong>
+                        </p>
+                    </template>
                 </div>
 
-                <!-- Rodapé em duas colunas -->
-                <div class="certificate-footer mt-12 grid grid-cols-2 gap-8 border-t pt-8" style="border-color: rgba(0,0,0,0.12); color: var(--cert-text)">
+                <div class="certificate-footer mt-12 grid grid-cols-2 gap-8 border-t pt-8" style="border-color: rgba(0,0,0,0.12); color: var(--cert-text); font-size: var(--cert-footer-size)">
                     <div>
-                        <p class="text-xs font-medium uppercase tracking-wide" style="opacity: 0.85">{{ instructorLabelText }}</p>
-                        <p class="mt-1 font-medium" :style="{ fontFamily: certSignatureFont, color: 'var(--cert-text)' }">{{ certificate.signature_text || 'Instrutor' }}</p>
+                        <p class="font-medium uppercase tracking-wide" style="opacity: 0.85">{{ instructorLabelText }}</p>
+                        <p class="certificate-signature mt-1 font-medium" :style="{ fontFamily: certSignatureFont, color: 'var(--cert-text)' }">{{ certificate.signature_text || 'Instrutor' }}</p>
                     </div>
                     <div class="text-right">
                         <p class="font-semibold">{{ platformName }}</p>
-                        <p class="text-sm" style="opacity: 0.85">{{ platformLabelText }}</p>
+                        <p style="opacity: 0.85">{{ platformLabelText }}</p>
                     </div>
                 </div>
             </div>

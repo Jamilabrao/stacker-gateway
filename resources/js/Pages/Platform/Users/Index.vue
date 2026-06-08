@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, reactive } from 'vue';
+import { ref, computed, reactive, watch } from 'vue';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
 import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
 import FeePercentInput from '@/components/ui/FeePercentInput.vue';
-import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck } from 'lucide-vue-next';
+import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
+import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare } from 'lucide-vue-next';
 import {
     formatPercentForInput,
     normalizeMerchantFeeOverridesForSubmit,
@@ -21,12 +22,82 @@ const props = defineProps({
         type: Object,
         default: () => ({ pix: [], card: [], boleto: [], pix_auto: [] }),
     },
+    platform_merchant_fees: { type: Array, default: () => [] },
 });
 
 const page = usePage();
 
 const editUser = ref(null);
 const deletingId = ref(null);
+const feesDirty = ref(false);
+const settlementDirty = ref(false);
+const gatewayOrderDirty = ref(false);
+const initialGatewayPrimary = ref({});
+const adminNotesCountByUser = ref({});
+
+function platformFeesMap() {
+    const map = {};
+    for (const row of props.platform_merchant_fees || []) {
+        map[row.key] = { percent: Number(row.percent) || 0, fixed: Number(row.fixed) || 0 };
+    }
+    for (const k of feeRuleKeys) {
+        if (!map[k]) {
+            map[k] = { percent: 0, fixed: 0 };
+        }
+    }
+    return map;
+}
+
+function overrideBlockIsExplicit(rawOverrides, key) {
+    const block = rawOverrides?.[key];
+    if (!block || typeof block !== 'object') {
+        return false;
+    }
+    const hasPercent = block.percent !== '' && block.percent !== null && block.percent !== undefined;
+    const hasFixed = block.fixed !== '' && block.fixed !== null && block.fixed !== undefined;
+    return hasPercent || hasFixed;
+}
+
+function computeEffectiveFeesPreview(draftOverrides) {
+    const effective = platformFeesMap();
+    if (draftOverrides && typeof draftOverrides === 'object') {
+        for (const k of feeRuleKeys) {
+            const block = draftOverrides[k];
+            if (!block || typeof block !== 'object') {
+                continue;
+            }
+            if (block.percent !== undefined && block.percent !== null) {
+                effective[k].percent = Number(block.percent) || 0;
+            }
+            if (block.fixed !== undefined && block.fixed !== null) {
+                effective[k].fixed = Number(block.fixed) || 0;
+            }
+        }
+        if (!overrideBlockIsExplicit(draftOverrides, 'api_pix')) {
+            effective.api_pix = { ...effective.pix };
+        }
+        if (!overrideBlockIsExplicit(draftOverrides, 'apple_pay')) {
+            effective.apple_pay = { ...effective.card };
+        }
+        if (!overrideBlockIsExplicit(draftOverrides, 'google_pay')) {
+            effective.google_pay = { ...effective.card };
+        }
+    }
+    return feeOverrideRows.map((row) => ({
+        key: row.key,
+        label: row.label,
+        percent: effective[row.key]?.percent ?? 0,
+        fixed: effective[row.key]?.fixed ?? 0,
+    }));
+}
+
+const effectiveFeesPreview = computed(() => {
+    if (!isEditModalOpen.value) {
+        return [];
+    }
+    const draft = normalizeMerchantFeeOverridesForSubmit(editForm.merchant_fees);
+    return computeEffectiveFeesPreview(draft);
+});
 
 function defaultFeeOverrides() {
     return {
@@ -42,13 +113,15 @@ function defaultFeeOverrides() {
 
 const feeOverrideRows = [
     { key: 'pix', label: 'PIX (checkout)' },
-    { key: 'api_pix', label: 'PIX (API)' },
+    { key: 'api_pix', label: 'PIX (API)', inheritHint: 'Se vazio, herda de PIX (checkout)' },
     { key: 'card', label: 'Cartão' },
-    { key: 'apple_pay', label: 'Apple Pay' },
-    { key: 'google_pay', label: 'Google Pay' },
+    { key: 'apple_pay', label: 'Apple Pay', inheritHint: 'Se vazio, herda de Cartão' },
+    { key: 'google_pay', label: 'Google Pay', inheritHint: 'Se vazio, herda de Cartão' },
     { key: 'boleto', label: 'Boleto' },
     { key: 'withdrawal', label: 'Saque' },
 ];
+
+const feeRuleKeys = ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
 
 const settlementOverrideRows = [
     { key: 'pix', label: 'PIX' },
@@ -123,6 +196,19 @@ const merchantGatewayPrimary = reactive({
     boleto: '',
     pix_auto: '',
 });
+
+watch(
+    merchantGatewayPrimary,
+    (current) => {
+        if (!editUser.value) {
+            return;
+        }
+        const initial = initialGatewayPrimary.value;
+        const methods = ['pix', 'card', 'boleto', 'pix_auto'];
+        gatewayOrderDirty.value = methods.some((m) => (current[m] || '') !== (initial[m] || ''));
+    },
+    { deep: true }
+);
 
 /**
  * Mesma ideia da aba Financeiro → Adquirentes: lista completa com redundância (principal primeiro).
@@ -222,6 +308,7 @@ function flushFeeInputs() {
 }
 
 function updateMerchantFeeField(key, field, value) {
+    feesDirty.value = true;
     editForm.merchant_fees = {
         ...editForm.merchant_fees,
         [key]: {
@@ -231,10 +318,30 @@ function updateMerchantFeeField(key, field, value) {
     };
 }
 
+function markSettlementDirty() {
+    settlementDirty.value = true;
+}
+
+function formatFeePreview(percent, fixed) {
+    const p = Number(percent) || 0;
+    const f = Number(fixed) || 0;
+    const parts = [];
+    if (p > 0) {
+        parts.push(`${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 }).format(p)}%`);
+    }
+    if (f > 0) {
+        parts.push(`R$ ${new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(f)}`);
+    }
+    return parts.length ? parts.join(' + ') : '0%';
+}
+
 const isEditModalOpen = computed(() => editUser.value !== null);
 
 function openEditModal(u) {
     editUser.value = u;
+    feesDirty.value = false;
+    settlementDirty.value = false;
+    gatewayOrderDirty.value = false;
     const wa = u.wallet_admin;
     editForm.defaults({
         name: u.name,
@@ -252,7 +359,17 @@ function openEditModal(u) {
     });
     editForm.reset();
     syncMerchantPrimaryFromUser(u);
+    initialGatewayPrimary.value = {
+        pix: merchantGatewayPrimary.pix,
+        card: merchantGatewayPrimary.card,
+        boleto: merchantGatewayPrimary.boleto,
+        pix_auto: merchantGatewayPrimary.pix_auto,
+    };
     editForm.clearErrors();
+}
+
+function onAdminNotesCountChanged(userId, count) {
+    adminNotesCountByUser.value = { ...adminNotesCountByUser.value, [userId]: count };
 }
 
 function closeEditModal() {
@@ -276,14 +393,25 @@ function submitEdit() {
                 }
             }
 
-            return {
-                ...data,
-                merchant_gateway_order: Object.keys(order).length ? order : null,
-                merchant_fees: normalizeMerchantFeeOverridesForSubmit(data.merchant_fees),
-                merchant_settlement_overrides: normalizeMerchantSettlementOverridesForSubmit(
+            const payload = { ...data };
+            if (gatewayOrderDirty.value) {
+                payload.merchant_gateway_order = Object.keys(order).length ? order : null;
+            } else {
+                delete payload.merchant_gateway_order;
+            }
+            if (feesDirty.value) {
+                payload.merchant_fees = normalizeMerchantFeeOverridesForSubmit(data.merchant_fees);
+            } else {
+                delete payload.merchant_fees;
+            }
+            if (settlementDirty.value) {
+                payload.merchant_settlement_overrides = normalizeMerchantSettlementOverridesForSubmit(
                     data.merchant_settlement_overrides
-                ),
-            };
+                );
+            } else {
+                delete payload.merchant_settlement_overrides;
+            }
+            return payload;
         })
         .put(`/plataforma/usuarios/${editUser.value.id}`, {
             preserveScroll: true,
@@ -367,7 +495,17 @@ function formatBlockUntilForInput(iso) {
                 </thead>
                 <tbody>
                     <tr v-for="u in users" :key="u.id" class="border-b border-zinc-100 dark:border-zinc-800">
-                        <td class="px-4 py-3 font-medium text-zinc-900 dark:text-white">{{ u.name }}</td>
+                        <td class="px-4 py-3 font-medium text-zinc-900 dark:text-white">
+                            <span>{{ u.name }}</span>
+                            <span
+                                v-if="(adminNotesCountByUser[u.id] ?? u.admin_notes_count) > 0"
+                                class="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+                                title="Observações internas"
+                            >
+                                <MessageSquare class="h-3 w-3" />
+                                {{ adminNotesCountByUser[u.id] ?? u.admin_notes_count }}
+                            </span>
+                        </td>
                         <td class="max-w-[200px] truncate px-4 py-3 text-zinc-600 dark:text-zinc-300">{{ u.email }}</td>
                         <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">{{ u.document || '—' }}</td>
                         <td class="px-4 py-3">
@@ -534,7 +672,12 @@ function formatBlockUntilForInput(iso) {
                                 :key="row.key"
                                 class="grid gap-2 sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] sm:items-center"
                             >
-                                <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
+                                <div>
+                                    <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
+                                    <p v-if="row.inheritHint" class="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                        {{ row.inheritHint }}
+                                    </p>
+                                </div>
                                 <FeePercentInput
                                     :ref="(el) => setFeePercentRef(row.key, el)"
                                     :model-value="editForm.merchant_fees[row.key].percent"
@@ -547,6 +690,21 @@ function formatBlockUntilForInput(iso) {
                                     allow-empty
                                     @update:model-value="(v) => updateMerchantFeeField(row.key, 'fixed', v)"
                                 />
+                            </div>
+                        </div>
+                        <div class="mt-4 rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
+                            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Taxa efetiva após salvar</p>
+                            <div class="space-y-1 text-xs">
+                                <div
+                                    v-for="row in effectiveFeesPreview"
+                                    :key="'prev-' + row.key"
+                                    class="flex justify-between gap-2 text-zinc-700 dark:text-zinc-300"
+                                >
+                                    <span>{{ row.label }}</span>
+                                    <span class="tabular-nums text-zinc-900 dark:text-white">
+                                        {{ formatFeePreview(row.percent, row.fixed) }}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -570,6 +728,7 @@ function formatBlockUntilForInput(iso) {
                                     step="1"
                                     placeholder="Dias D+N"
                                     class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
+                                    @input="markSettlementDirty"
                                 />
                                 <input
                                     v-model="editForm.merchant_settlement_overrides[row.key].reserve_percent"
@@ -579,6 +738,7 @@ function formatBlockUntilForInput(iso) {
                                     step="0.01"
                                     placeholder="Reserva %"
                                     class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
+                                    @input="markSettlementDirty"
                                 />
                                 <input
                                     v-model="editForm.merchant_settlement_overrides[row.key].reserve_hold_days"
@@ -588,6 +748,7 @@ function formatBlockUntilForInput(iso) {
                                     step="1"
                                     placeholder="Extra reserva (dias)"
                                     class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
+                                    @input="markSettlementDirty"
                                 />
                             </div>
                         </div>
@@ -617,6 +778,15 @@ function formatBlockUntilForInput(iso) {
                                 </div>
                             </template>
                         </div>
+                    </div>
+                    <div v-if="editUser" class="rounded-xl border border-amber-200/80 bg-amber-50/40 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Observações internas</p>
+                        <MerchantAdminNotesPanel
+                            :merchant-user-id="editUser.id"
+                            compact
+                            :initial-count="editUser.admin_notes_count || 0"
+                            @count-changed="(n) => onAdminNotesCountChanged(editUser.id, n)"
+                        />
                     </div>
                     <div class="flex justify-end gap-2 pt-2">
                         <Button type="button" variant="secondary" @click="closeEditModal">Cancelar</Button>

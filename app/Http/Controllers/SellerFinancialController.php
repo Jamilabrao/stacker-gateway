@@ -183,7 +183,7 @@ class SellerFinancialController extends Controller
 
         $subject = $user->kycSubjectUser();
         $kycFinanceLocked = Schema::hasColumn('users', 'kyc_status')
-            && ! $subject->hasApprovedKyc();
+            && ! $subject->isMerchantOperationallyApproved();
 
         return Inertia::render('Financeiro/Index', [
             'wallet' => $walletPayload,
@@ -301,7 +301,7 @@ class SellerFinancialController extends Controller
             abort(403);
         }
 
-        if (Schema::hasColumn('users', 'kyc_status') && ! $user->kycSubjectUser()->hasApprovedKyc()) {
+        if (Schema::hasColumn('users', 'kyc_status') && ! $user->kycSubjectUser()->isMerchantOperationallyApproved()) {
             return redirect()->route('financeiro.seller.index')
                 ->with('error', 'Conclua a verificação de identidade (KYC) para salvar dados de recebimento.');
         }
@@ -416,9 +416,14 @@ class SellerFinancialController extends Controller
         }
 
         $user = $request->user();
-        if (Schema::hasColumn('users', 'kyc_status') && ! $user->kycSubjectUser()->hasApprovedKyc()) {
+        if (Schema::hasColumn('users', 'kyc_status') && ! $user->kycSubjectUser()->isMerchantOperationallyApproved()) {
             return redirect()->route('financeiro.seller.index')
-                ->with('error', 'Conclua a verificação de identidade (KYC) para solicitar saques.');
+                ->with('error', 'Conclua a verificação de identidade (KYC) e aguarde aprovação da plataforma para solicitar saques.');
+        }
+
+        if (! \App\Services\Withdrawal\WithdrawalPolicyService::allowsRequestAt()) {
+            return redirect()->route('financeiro.seller.index')
+                ->with('error', \App\Services\Withdrawal\WithdrawalPolicyService::requestBlockedMessage());
         }
 
         $slug = PlatformPayoutGateway::activeSlug();
@@ -467,7 +472,7 @@ class SellerFinancialController extends Controller
             $validated['notes'] ?? null
         );
 
-        if (PlatformPayoutGateway::isEnabled()) {
+        if (PlatformPayoutGateway::isEnabled() && \App\Services\Withdrawal\WithdrawalPolicyService::autoWithdrawalEnabled()) {
             $auto = app(WithdrawalAutoPayoutService::class)->attemptAutoPayout($withdrawal);
 
             if (($auto['ok'] ?? false) === true) {

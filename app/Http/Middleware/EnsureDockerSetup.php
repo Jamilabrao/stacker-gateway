@@ -26,7 +26,7 @@ class EnsureDockerSetup
         if ($request->is('docker-setup') || $request->is('docker-setup/*')
             || $request->is('install') || $request->is('install/*')
             || $request->is('up')
-            || $request->is('manifest.json') || $request->is('painel-sw.js')
+            || $request->is('manifest.json') || $request->is('painel-sw.js') || $request->is('firebase-messaging-sw.js')
             || $request->is('build/*') || $request->is('storage/*')) {
             return $next($request);
         }

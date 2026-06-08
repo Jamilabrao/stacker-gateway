@@ -3,18 +3,22 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Concerns\BuildsMerchantWalletProps;
+use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
 use App\Services\AdminWalletAdjustmentService;
 use App\Support\PlatformConfigContext;
 use App\Gateways\GatewayRegistry;
+use App\Models\MerchantAdminNote;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\EffectiveMerchantFees;
 use App\Services\MerchantWalletAdminBlockService;
 use App\Services\SalesAchievementsService;
 use App\Services\PlatformAuditService;
 use App\Support\PercentDecimal;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -28,6 +32,7 @@ class UsersController extends Controller
 {
     use BuildsMerchantWalletProps;
     use ProvidesPlatformGatewayProps;
+    use RequiresPlatformStepUp;
 
     public function __construct(
         protected SalesAchievementsService $salesAchievements,
@@ -41,8 +46,17 @@ class UsersController extends Controller
             ->get();
 
         $tenantIds = $users->pluck('tenant_id')->filter()->unique()->values();
+        $userIds = $users->pluck('id');
         $wallets = collect();
         $salesTotals = $this->salesAchievements->getValidSalesTotalsGrouped();
+        $adminNotesCounts = collect();
+        if (Schema::hasTable('merchant_admin_notes')) {
+            $adminNotesCounts = MerchantAdminNote::query()
+                ->whereIn('merchant_user_id', $userIds)
+                ->selectRaw('merchant_user_id, count(*) as aggregate')
+                ->groupBy('merchant_user_id')
+                ->pluck('aggregate', 'merchant_user_id');
+        }
         if (Schema::hasTable('tenant_wallets')) {
             $wallets = TenantWallet::query()
                 ->whereIn('tenant_id', $tenantIds)
@@ -50,7 +64,7 @@ class UsersController extends Controller
                 ->keyBy('tenant_id');
         }
 
-        $rows = $users->map(function (User $u) use ($wallets, $salesTotals) {
+        $rows = $users->map(function (User $u) use ($wallets, $salesTotals, $adminNotesCounts) {
             $tid = $u->tenant_id ?? $u->id;
             $tidInt = (int) $tid;
             $w = $wallets->get($tid);
@@ -83,6 +97,7 @@ class UsersController extends Controller
                 'vendas_totais' => $salesTotals[$tidInt] ?? 0.0,
                 'med_total' => $medTotal,
                 'wallet_admin' => $walletAdmin,
+                'admin_notes_count' => (int) ($adminNotesCounts[$u->id] ?? 0),
                 'created_at' => $u->created_at?->toIso8601String(),
             ];
         });
@@ -93,6 +108,7 @@ class UsersController extends Controller
             'users' => $rows,
             'gateways' => $this->buildGatewaysListForMerchantPicker(),
             'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
+            'platform_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::platformDefaults()),
         ]);
     }
 
@@ -101,6 +117,24 @@ class UsersController extends Controller
         Gate::authorize('manageMerchantForPlatform', $user);
 
         $tenantId = $this->tenantIdForUser($user);
+
+        $adminNotes = [];
+        if (Schema::hasTable('merchant_admin_notes')) {
+            $adminNotes = MerchantAdminNote::query()
+                ->where('merchant_user_id', $user->id)
+                ->with('author:id,name')
+                ->orderByDesc('created_at')
+                ->limit(50)
+                ->get()
+                ->map(fn (MerchantAdminNote $n) => [
+                    'id' => $n->id,
+                    'body' => $n->body,
+                    'created_at' => $n->created_at?->toIso8601String(),
+                    'author' => $n->author ? ['id' => $n->author->id, 'name' => $n->author->name] : null,
+                ])
+                ->values()
+                ->all();
+        }
 
         return Inertia::render('Platform/Users/Show', [
             'merchant' => [
@@ -119,6 +153,26 @@ class UsersController extends Controller
             'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),
             'wallet_transactions' => $this->walletTransactionsPayloadForTenant($tenantId),
             'wallet_transaction_type_labels' => WalletTransaction::typeLabels(),
+            'effective_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::forTenant($tenantId)),
+            'admin_notes' => $adminNotes,
+        ]);
+    }
+
+    public function effectiveFees(Request $request, User $user): JsonResponse
+    {
+        Gate::authorize('manageMerchantForPlatform', $user);
+
+        $tenantId = $this->tenantIdForUser($user);
+        $draft = $request->input('merchant_fees');
+        if (is_array($draft)) {
+            $normalized = $this->normalizeMerchantFeesOverrides($draft);
+            $fees = EffectiveMerchantFees::fromOverrides($normalized);
+        } else {
+            $fees = EffectiveMerchantFees::forTenant($tenantId);
+        }
+
+        return response()->json([
+            'fees' => $this->formatEffectiveFeesForFrontend($fees),
         ]);
     }
 
@@ -126,7 +180,10 @@ class UsersController extends Controller
     {
         Gate::authorize('manageMerchantForPlatform', $user);
 
+        $this->validatePlatformStepUp($request);
+
         $validated = $request->validate([
+            'totp_code' => ['nullable', 'string', 'max:16'],
             'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999'],
             'direction' => ['required', 'string', 'in:credit,debit'],
             'bucket' => ['nullable', 'string', 'in:pix,card,boleto'],
@@ -179,10 +236,10 @@ class UsersController extends Controller
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),
             'role' => User::ROLE_INFOPRODUTOR,
-            'account_status' => 'approved',
+            'account_status' => 'pending',
         ];
         if (Schema::hasColumn('users', 'kyc_status')) {
-            $attrs['kyc_status'] = User::KYC_APPROVED;
+            $attrs['kyc_status'] = User::KYC_NOT_SUBMITTED;
         }
         $user = User::create($attrs);
 
@@ -239,7 +296,15 @@ class UsersController extends Controller
         }
 
         if ($request->has('account_status') && isset($validated['account_status'])) {
-            $user->account_status = $validated['account_status'];
+            $newStatus = $validated['account_status'];
+            if ($newStatus === 'approved'
+                && Schema::hasColumn('users', 'kyc_status')
+                && ($user->kyc_status ?? null) !== User::KYC_APPROVED) {
+                throw ValidationException::withMessages([
+                    'account_status' => 'Aprove a conta somente após verificação KYC em Verificações KYC.',
+                ]);
+            }
+            $user->account_status = $newStatus;
         }
 
         $all = $request->all();
@@ -405,5 +470,35 @@ class UsersController extends Controller
         }
 
         return $out === [] ? null : $out;
+    }
+
+    /**
+     * @param  array<string, array{percent: float, fixed: float}>  $fees
+     * @return list<array{key: string, label: string, percent: float, fixed: float}>
+     */
+    private function formatEffectiveFeesForFrontend(array $fees): array
+    {
+        $labels = [
+            'pix' => 'PIX (checkout)',
+            'api_pix' => 'PIX (API)',
+            'card' => 'Cartão',
+            'apple_pay' => 'Apple Pay',
+            'google_pay' => 'Google Pay',
+            'boleto' => 'Boleto',
+            'withdrawal' => 'Saque',
+        ];
+
+        $rows = [];
+        foreach (['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'] as $key) {
+            $block = $fees[$key] ?? ['percent' => 0.0, 'fixed' => 0.0];
+            $rows[] = [
+                'key' => $key,
+                'label' => $labels[$key],
+                'percent' => round((float) ($block['percent'] ?? 0), 4),
+                'fixed' => round((float) ($block['fixed'] ?? 0), 2),
+            ];
+        }
+
+        return $rows;
     }
 }

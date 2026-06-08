@@ -1447,11 +1447,18 @@ class MemberBuilderController extends Controller
             'instructor_label_text',
             'platform_label_text',
             'duration_label_text',
+            'body_template',
         ];
 
         foreach ($textKeys as $key) {
             $certificate[$key] = trim((string) Arr::get($certificate, $key, ''));
         }
+
+        $fontScale = (int) Arr::get($certificate, 'font_scale', 100);
+        $certificate['font_scale'] = max(75, min(150, $fontScale > 0 ? $fontScale : 100));
+        $certificate['duration_enabled'] = array_key_exists('duration_enabled', $certificate)
+            ? (bool) $certificate['duration_enabled']
+            : true;
 
         if ((bool) ($certificate['enabled'] ?? false)) {
             $defaults = Product::defaultMemberAreaConfig()['certificate'] ?? [];
@@ -1495,8 +1502,11 @@ class MemberBuilderController extends Controller
         $required = [
             'title' => 'Nome do certificado',
             'signature_text' => 'Texto da assinatura',
-            'duration_text' => 'Duração do curso',
         ];
+
+        if ((bool) ($certificate['duration_enabled'] ?? true)) {
+            $required['duration_text'] = 'Duração do curso';
+        }
 
         $errors = [];
         foreach ($required as $key => $label) {

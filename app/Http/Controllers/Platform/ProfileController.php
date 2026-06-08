@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
+use App\Services\Platform\PlatformTotpService;
 use App\Services\StorageService;
 use App\Support\RemoteStorage;
 use Illuminate\Http\RedirectResponse;
@@ -30,6 +31,7 @@ class ProfileController extends Controller
                 'username' => $user->username,
                 'avatar_url' => $user->avatar ? app(StorageService::class)->url($user->avatar) : null,
             ],
+            'totp_enabled' => PlatformTotpService::isEnabledFor($user),
         ]);
     }
 

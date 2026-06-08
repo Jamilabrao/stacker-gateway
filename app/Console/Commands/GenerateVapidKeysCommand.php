@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\PanelPushSettings;
 use Illuminate\Console\Command;
 use Minishlink\WebPush\VAPID;
 
@@ -62,7 +63,12 @@ class GenerateVapidKeysCommand extends Command
 
         file_put_contents($envPath, $content);
 
-        $this->info('Chaves VAPID geradas e salvas no .env.');
+        try {
+            PanelPushSettings::storeVapidKeys($publicKey, $privateKey);
+            $this->info('Chaves VAPID geradas e salvas no branding global e no .env.');
+        } catch (\Throwable $e) {
+            $this->warn('Chaves salvas no .env, mas falhou ao gravar no branding: '.$e->getMessage());
+        }
         $this->line('');
         $this->line('PWA_VAPID_PUBLIC=' . $publicKey);
         $this->line('PWA_VAPID_PRIVATE=' . str_repeat('*', min(strlen($privateKey), 20)) . '...');

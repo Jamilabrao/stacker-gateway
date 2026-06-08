@@ -77,9 +77,65 @@ class CheckoutSession extends Model
             ->whereIn('step', [self::STEP_FORM_STARTED, self::STEP_FORM_FILLED])
             ->whereNull('order_id')
             ->whereRaw(
-                'COALESCE(form_filled_at, form_started_at, updated_at, created_at) <= ?',
+                self::lastActivitySql().' <= ?',
                 [$cutoff]
             );
+    }
+
+    /**
+     * Carrinho abandonado válido para dashboard/relatórios (alinhado ao webhook).
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>
+     */
+    public function scopeWhereAbandonmentValid($query)
+    {
+        $cutoff = self::abandonmentEligibilityCutoff();
+
+        return $query
+            ->whereIn('step', [self::STEP_FORM_STARTED, self::STEP_FORM_FILLED])
+            ->whereNull('order_id')
+            ->whereNotNull('tenant_id')
+            ->whereNotNull('email')
+            ->where('email', '!=', '')
+            ->whereRaw(self::lastActivitySql().' <= ?', [$cutoff]);
+    }
+
+    /**
+     * Filtra abandono pela última interação no checkout (não pelo created_at da sessão).
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<\App\Models\CheckoutSession>
+     */
+    public function scopeWhereAbandonmentActivityBetween($query, ?string $start, ?string $end)
+    {
+        $expr = self::lastActivitySql();
+
+        if ($start && $end) {
+            return $query->whereRaw("{$expr} BETWEEN ? AND ?", [$start, $end]);
+        }
+        if ($start) {
+            return $query->whereRaw("{$expr} >= ?", [$start]);
+        }
+        if ($end) {
+            return $query->whereRaw("{$expr} <= ?", [$end]);
+        }
+
+        return $query;
+    }
+
+    public static function lastActivitySql(): string
+    {
+        return 'COALESCE(form_filled_at, form_started_at, updated_at, created_at)';
+    }
+
+    public function lastActivityAt(): \Illuminate\Support\Carbon
+    {
+        return $this->form_filled_at
+            ?? $this->form_started_at
+            ?? $this->updated_at
+            ?? $this->created_at
+            ?? now();
     }
 
     /**

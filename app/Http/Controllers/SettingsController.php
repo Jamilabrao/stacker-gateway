@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Models\Setting;
 use App\Services\LegalDocumentsService;
 use App\Services\PhysicalProductAccess;
@@ -20,6 +21,8 @@ use Inertia\Response;
 
 class SettingsController extends Controller
 {
+    use RequiresPlatformStepUp;
+
     public function index(Request $request): Response|RedirectResponse
     {
         $tab = $request->query('tab');
@@ -133,7 +136,12 @@ class SettingsController extends Controller
 
     public function update(Request $request)
     {
+        if (PlatformConfigContext::settingsTenantId() === null && $this->requestTouchesEmailSettings($request)) {
+            $this->validatePlatformStepUp($request);
+        }
+
         $validated = $request->validate([
+            'totp_code' => ['nullable', 'string', 'max:16'],
             'email_provider' => ['nullable', 'string', 'in:smtp,hostinger,sendgrid'],
             'smtp_password' => ['nullable', 'string', 'max:255'],
             'mail_from_address' => ['nullable', 'email', 'max:255'],
@@ -393,5 +401,37 @@ class SettingsController extends Controller
         }
 
         Setting::set('hostinger_mail_from_address', $user, $tenantId);
+    }
+
+    private function requestTouchesEmailSettings(Request $request): bool
+    {
+        $keys = [
+            'email_provider',
+            'smtp_password',
+            'smtp_host',
+            'smtp_port',
+            'smtp_username',
+            'smtp_encryption',
+            'mail_from_address',
+            'mail_from_name',
+            'reply_to',
+            'hostinger_smtp_password',
+            'hostinger_smtp_username',
+            'hostinger_mail_from_address',
+            'hostinger_mail_from_name',
+            'hostinger_reply_to',
+            'sendgrid_api_key',
+            'sendgrid_mail_from_address',
+            'sendgrid_mail_from_name',
+            'kyc_notification_emails',
+        ];
+
+        foreach ($keys as $key) {
+            if ($request->has($key) && trim((string) $request->input($key, '')) !== '') {
+                return true;
+            }
+        }
+
+        return $request->has('email_provider');
     }
 }

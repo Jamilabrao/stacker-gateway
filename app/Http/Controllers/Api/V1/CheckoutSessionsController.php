@@ -10,6 +10,7 @@ use App\Models\ProductOffer;
 use App\Models\SubscriptionPlan;
 use App\Support\ApiHostedCheckoutPricing;
 use App\Services\ApiPixAccess;
+use App\Services\MerchantOperationalGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -25,6 +26,7 @@ class CheckoutSessionsController extends Controller
         if (! ApiPixAccess::effectiveForTenant($app->tenant_id)) {
             return response()->json(['message' => 'API PIX disabled for this tenant.'], 403);
         }
+        MerchantOperationalGuard::assertCanAcceptPayments((int) $app->tenant_id);
 
         $validated = $request->validate([
             'customer' => ['required', 'array'],

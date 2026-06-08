@@ -7,6 +7,7 @@ use App\Models\PanelPushSubscription;
 use App\Services\MemberAreaResolver;
 use App\Support\PanelPwaIconUrls;
 use App\Support\PanelPushSettings;
+use App\Support\VapidEnvKeys;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -161,6 +162,8 @@ class PanelPwaController extends Controller
         $keys['auth'] = $this->normalizeBase64KeyForPush((string) ($keys['auth'] ?? ''));
         $keys['p256dh'] = $this->normalizeBase64KeyForPush((string) ($keys['p256dh'] ?? ''));
 
+        $currentVapidPublic = VapidEnvKeys::normalize(config('getfy.pwa.vapid_public'));
+
         $subscription = PanelPushSubscription::updateOrCreate(
             [
                 'endpoint' => $validated['endpoint'],
@@ -169,6 +172,7 @@ class PanelPwaController extends Controller
                 'user_id' => $user->id,
                 'tenant_id' => $user->tenant_id,
                 'provider' => PanelPushSubscription::PROVIDER_VAPID,
+                'vapid_public_key' => $currentVapidPublic,
                 'fcm_token' => null,
                 'keys' => $keys,
                 'user_agent' => $request->userAgent(),

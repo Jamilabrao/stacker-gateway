@@ -220,8 +220,17 @@ class HandleInertiaRequests extends Middleware
                     'role' => $user->role,
                     'avatar_url' => $this->resolveAvatarUrl($user),
                     'kyc_status' => $kycSubject?->kyc_status,
+                    'is_merchant_operationally_approved' => $kycSubject !== null
+                        && $user->isMerchantOperationallyApproved(),
                     'needs_kyc_attention' => $kycSubject !== null
-                        && ($kycSubject->kyc_status ?? null) !== User::KYC_APPROVED,
+                        && ! $user->isMerchantOperationallyApproved(),
+                    'kyc_onboarding_state' => $kycSubject === null
+                        ? null
+                        : ($user->mustCompleteKycOnboarding()
+                            ? 'needs_upload'
+                            : ($user->isAwaitingKycReview()
+                                ? 'awaiting_review'
+                                : (! $user->isMerchantOperationallyApproved() ? 'pending_account' : null))),
                     'panel_switch' => [
                         'customer' => $user->canAccessCustomerPanel(),
                         'seller' => $user->canSwitchToSellerPanel() || $user->needsOnboardingAsSeller(),
@@ -288,6 +297,7 @@ class HandleInertiaRequests extends Middleware
         if (! $skipPanelPwa) {
             $shared['pwa_manifest_url'] = url('/manifest.json');
             $shared['pwa_sw_url'] = url('/painel-sw.js');
+            $shared['pwa_sw_version'] = \App\Support\PanelPushSettings::swCacheVersion();
         }
 
         return $shared;

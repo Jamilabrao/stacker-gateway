@@ -31,6 +31,8 @@ class AppPushController extends Controller
 
     public function data(): JsonResponse
     {
+        $staleStats = $this->staleSubscriptionStats();
+
         return response()->json([
             'push' => PanelPushSettings::adminPayload(),
             'subscribers_count' => PanelPushSubscription::query()->count(),
@@ -38,6 +40,8 @@ class AppPushController extends Controller
                 'vapid' => PanelPushSubscription::query()->where('provider', PanelPushSubscription::PROVIDER_VAPID)->orWhereNull('provider')->count(),
                 'fcm' => PanelPushSubscription::query()->where('provider', PanelPushSubscription::PROVIDER_FCM)->count(),
             ],
+            'stale_subscriptions_count' => $staleStats['stale'],
+            'idle_subscriptions_count' => $staleStats['idle'],
         ]);
     }
 
@@ -81,14 +85,20 @@ class AppPushController extends Controller
 
     public function generateVapid(): JsonResponse
     {
+        $staleBefore = $this->staleSubscriptionStats()['stale'];
+
         $keys = PanelPushSettings::generateVapidKeyPair();
         PanelPushSettings::storeVapidKeys($keys['publicKey'], $keys['privateKey']);
+
+        $staleAfter = $this->staleSubscriptionStats()['stale'];
 
         return response()->json([
             'ok' => true,
             'public_key' => $keys['publicKey'],
             'push' => PanelPushSettings::adminPayload(),
-            'message' => 'Par VAPID gerado. Usuários com notificações ativas precisam reativar nos dispositivos.',
+            'stale_subscriptions_count' => $staleAfter,
+            'message' => 'Par VAPID gerado. '.$staleAfter.' inscrição(ões) precisarão reativar notificações no painel.',
+            'had_stale_before' => $staleBefore,
         ]);
     }
 
@@ -133,21 +143,28 @@ class AppPushController extends Controller
         $paginator = $query->paginate($perPage);
 
         return response()->json([
-            'data' => collect($paginator->items())->map(fn (PanelPushSubscription $sub) => [
-                'id' => $sub->id,
-                'provider' => $sub->provider ?? PanelPushSubscription::PROVIDER_VAPID,
-                'user_id' => $sub->user_id,
-                'user_name' => $sub->user?->name,
-                'user_email' => $sub->user?->email,
-                'tenant_id' => $sub->tenant_id,
-                'device_label' => $sub->device_label,
-                'endpoint_preview' => $sub->isFcm()
-                    ? (strlen((string) $sub->fcm_token) > 24 ? substr((string) $sub->fcm_token, 0, 12).'…' : $sub->fcm_token)
-                    : (strlen((string) $sub->endpoint) > 40 ? substr((string) $sub->endpoint, 0, 40).'…' : $sub->endpoint),
-                'last_used_at' => $sub->last_used_at?->toIso8601String(),
-                'created_at' => $sub->created_at?->toIso8601String(),
-                'updated_at' => $sub->updated_at?->toIso8601String(),
-            ]),
+            'data' => collect($paginator->items())->map(function (PanelPushSubscription $sub) {
+                $idle = $sub->last_used_at === null
+                    || $sub->last_used_at->lt(now()->subDays(7));
+
+                return [
+                    'id' => $sub->id,
+                    'provider' => $sub->provider ?? PanelPushSubscription::PROVIDER_VAPID,
+                    'user_id' => $sub->user_id,
+                    'user_name' => $sub->user?->name,
+                    'user_email' => $sub->user?->email,
+                    'tenant_id' => $sub->tenant_id,
+                    'device_label' => $sub->device_label,
+                    'endpoint_preview' => $sub->isFcm()
+                        ? (strlen((string) $sub->fcm_token) > 24 ? substr((string) $sub->fcm_token, 0, 12).'…' : $sub->fcm_token)
+                        : (strlen((string) $sub->endpoint) > 40 ? substr((string) $sub->endpoint, 0, 40).'…' : $sub->endpoint),
+                    'last_used_at' => $sub->last_used_at?->toIso8601String(),
+                    'created_at' => $sub->created_at?->toIso8601String(),
+                    'updated_at' => $sub->updated_at?->toIso8601String(),
+                    'is_stale' => ! $sub->isValidForPush(),
+                    'is_idle' => $idle,
+                ];
+            }),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -186,11 +203,61 @@ class AppPushController extends Controller
             '/dashboard'
         );
 
+        $sent = (int) ($result['sent'] ?? 0);
+
         return response()->json([
-            'ok' => ($result['sent'] ?? 0) > 0,
-            'message' => ($result['sent'] ?? 0) > 0 ? null : 'Nenhum push entregue. Verifique o provedor e a inscrição.',
+            'ok' => $sent > 0,
+            'message' => $sent > 0
+                ? null
+                : $this->formatPushFailureMessage($result),
             'result' => $result,
         ]);
+    }
+
+    /**
+     * @return array{stale: int, idle: int}
+     */
+    private function staleSubscriptionStats(): array
+    {
+        $stale = 0;
+        $idle = 0;
+
+        PanelPushSubscription::query()->each(function (PanelPushSubscription $sub) use (&$stale, &$idle): void {
+            if (! $sub->isValidForPush()) {
+                $stale++;
+            }
+            if ($sub->last_used_at === null || $sub->last_used_at->lt(now()->subDays(7))) {
+                $idle++;
+            }
+        });
+
+        return ['stale' => $stale, 'idle' => $idle];
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     */
+    private function formatPushFailureMessage(array $result): string
+    {
+        $failed = (int) ($result['failed'] ?? 0);
+        $expired = (int) ($result['expired'] ?? 0);
+        $invalid = (int) ($result['invalid'] ?? 0);
+        $total = (int) ($result['total'] ?? 0);
+
+        if ($total === 0) {
+            return 'Nenhuma inscrição compatível com o provedor ativo.';
+        }
+        if ($expired > 0) {
+            return "Nenhum push entregue. {$expired} inscrição(ões) expirada(s) — peça reativação no painel.";
+        }
+        if ($invalid > 0) {
+            return "Nenhum push entregue. {$invalid} inscrição(ões) inválida(s).";
+        }
+        if ($failed > 0) {
+            return "Nenhum push entregue. {$failed} falha(s) — verifique chaves VAPID e logs do servidor.";
+        }
+
+        return 'Nenhum push entregue. Verifique o provedor e a inscrição.';
     }
 
     public function sendBroadcast(Request $request, PanelPushService $panelPushService): JsonResponse
@@ -245,11 +312,11 @@ class AppPushController extends Controller
 
         $message = null;
         if (($result['sent'] ?? 0) === 0) {
-            $message = 'Nenhum push foi entregue. Verifique credenciais e inscrições.';
+            $message = $this->formatPushFailureMessage($result);
         }
 
         return response()->json([
-            'ok' => true,
+            'ok' => ($result['sent'] ?? 0) > 0,
             'message' => $message,
             'result' => $result,
         ]);

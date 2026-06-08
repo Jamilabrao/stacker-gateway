@@ -15,6 +15,7 @@ class Withdrawal extends Model
         'net_amount',
         'bucket',
         'status',
+        'failed_reason',
         'notes',
         'currency',
         'payout_provider',

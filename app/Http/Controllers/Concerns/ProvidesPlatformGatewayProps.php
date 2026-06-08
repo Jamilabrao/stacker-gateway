@@ -54,6 +54,7 @@ trait ProvidesPlatformGatewayProps
                 'signup_url' => $g['signup_url'] ?? null,
                 'is_configured' => $cred !== null,
                 'is_connected' => $cred?->is_connected ?? false,
+                'is_enabled' => $cred === null ? true : ($cred->is_enabled ?? true),
                 'inbound_webhook_secret_required' => in_array($g['slug'] ?? '', ['asaas', 'pushinpay', 'spacepag', 'woovi'], true),
                 'webhook_secret_configured' => ($cred && GatewayInboundWebhookAuth::webhookSecret($g['slug'] ?? '', $tenantId) !== null),
             ];
@@ -80,6 +81,7 @@ trait ProvidesPlatformGatewayProps
         $all = GatewayRegistry::allowedAcquirers();
         $connectedSlugs = GatewayCredential::query()
             ->where('is_connected', true)
+            ->enabledForPayments()
             ->pluck('gateway_slug')
             ->unique()
             ->all();

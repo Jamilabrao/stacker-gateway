@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Checkout\CheckoutAbandonmentMetrics;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
@@ -194,5 +195,126 @@ class CheckoutAbandonmentMetricsTest extends TestCase
             ->assertOk();
 
         $this->assertSame($countBefore + 1, CheckoutSession::count());
+    }
+
+    public function test_valid_metrics_excludes_visit_without_email(): void
+    {
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct(['checkout_slug' => 'abvalid1']);
+
+        $session = CheckoutSession::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'checkout_slug' => $product->checkout_slug,
+            'session_token' => 'visit-noemail-'.uniqid(),
+            'step' => CheckoutSession::STEP_VISIT,
+        ]);
+        $session->created_at = now()->subMinutes(20);
+        $session->saveQuietly();
+
+        $metrics = app(CheckoutAbandonmentMetrics::class);
+        $this->assertSame(0, $metrics->countValidAbandoned(1, null, null, null));
+    }
+
+    public function test_valid_metrics_deduplicates_same_email_and_product(): void
+    {
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct(['checkout_slug' => 'abdedup1']);
+
+        foreach (['reload-a', 'reload-b'] as $token) {
+            CheckoutSession::create([
+                'tenant_id' => 1,
+                'product_id' => $product->id,
+                'checkout_slug' => $product->checkout_slug,
+                'session_token' => $token,
+                'step' => CheckoutSession::STEP_FORM_FILLED,
+                'email' => 'lead@example.com',
+                'form_started_at' => now()->subMinutes(20),
+                'form_filled_at' => now()->subMinutes(15),
+            ]);
+        }
+
+        $metrics = app(CheckoutAbandonmentMetrics::class);
+        $this->assertSame(1, $metrics->countValidAbandoned(1, null, null, null));
+    }
+
+    public function test_valid_metrics_counts_same_email_on_different_products(): void
+    {
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $productA = $this->createTestProduct(['checkout_slug' => 'abdedup-a', 'name' => 'Produto A']);
+        $productB = $this->createTestProduct(['checkout_slug' => 'abdedup-b', 'name' => 'Produto B']);
+
+        foreach ([$productA, $productB] as $product) {
+            CheckoutSession::create([
+                'tenant_id' => 1,
+                'product_id' => $product->id,
+                'checkout_slug' => $product->checkout_slug,
+                'session_token' => 'dedup-'.$product->id,
+                'step' => CheckoutSession::STEP_FORM_FILLED,
+                'email' => 'lead@example.com',
+                'form_started_at' => now()->subMinutes(20),
+                'form_filled_at' => now()->subMinutes(15),
+            ]);
+        }
+
+        $metrics = app(CheckoutAbandonmentMetrics::class);
+        $this->assertSame(2, $metrics->countValidAbandoned(1, null, null, null));
+    }
+
+    public function test_valid_metrics_uses_last_activity_for_period_not_created_at(): void
+    {
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct(['checkout_slug' => 'abperiod1']);
+
+        $session = CheckoutSession::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'checkout_slug' => $product->checkout_slug,
+            'session_token' => 'period-act-'.uniqid(),
+            'step' => CheckoutSession::STEP_FORM_FILLED,
+            'email' => 'period@example.com',
+            'form_started_at' => now()->subMinutes(20),
+            'form_filled_at' => now()->subMinutes(15),
+        ]);
+        $session->created_at = now()->subDays(20);
+        $session->saveQuietly();
+
+        $start = now()->startOfDay()->toDateTimeString();
+        $end = now()->endOfDay()->toDateTimeString();
+
+        $metrics = app(CheckoutAbandonmentMetrics::class);
+        $this->assertSame(1, $metrics->countValidAbandoned(1, null, $start, $end));
+    }
+
+    public function test_dashboard_abandono_carrinho_uses_valid_deduplicated_count(): void
+    {
+        $seller = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+            'tenant_id' => 1,
+            'kyc_status' => User::KYC_APPROVED,
+        ]);
+        $product = $this->createTestProduct(['checkout_slug' => 'abdash1']);
+
+        foreach (['dash-a', 'dash-b'] as $token) {
+            CheckoutSession::create([
+                'tenant_id' => 1,
+                'product_id' => $product->id,
+                'checkout_slug' => $product->checkout_slug,
+                'session_token' => $token,
+                'step' => CheckoutSession::STEP_FORM_FILLED,
+                'email' => 'dash@example.com',
+                'form_started_at' => now()->subMinutes(20),
+                'form_filled_at' => now()->subMinutes(15),
+            ]);
+        }
+
+        $response = $this->actingAs($seller)
+            ->get(route('dashboard', ['period' => 'total']))
+            ->assertOk();
+
+        $response->assertInertia(fn ($page) => $page
+            ->component('Dashboard/Index')
+            ->where('abandono_carrinho', 1)
+        );
     }
 }

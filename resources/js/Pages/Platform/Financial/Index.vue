@@ -72,6 +72,18 @@ const props = defineProps({
         }),
     },
     platform_payment_method_labels: { type: Array, default: () => [] },
+    withdrawal_policy: {
+        type: Object,
+        default: () => ({
+            auto_withdrawal_enabled: true,
+            hours_enabled: false,
+            hours_start: '06:00',
+            hours_end: '21:00',
+            timezone: 'America/Sao_Paulo',
+            has_manual_approval_pin: false,
+        }),
+    },
+    platform_totp_enabled: { type: Boolean, default: false },
 });
 
 const GATEWAYS_API_BASE = '/plataforma/financeiro/gateways';
@@ -91,9 +103,16 @@ const savingAcquirerOrder = ref(false);
 const acquirerOrderMessage = ref(null);
 const acquirerOrderError = ref(false);
 
+function gatewayActiveForPayments(g) {
+    return g.is_connected && g.is_enabled !== false;
+}
+
 function connectedGatewaysForMethod(method) {
     return (props.gateways || []).filter(
-        (g) => g.is_connected && Array.isArray(g.methods) && g.methods.includes(method)
+        (g) =>
+            gatewayActiveForPayments(g) &&
+            Array.isArray(g.methods) &&
+            g.methods.includes(method)
     );
 }
 
@@ -179,8 +198,41 @@ async function saveAcquirerOrder() {
 }
 
 const showPixAutoRow = computed(() =>
-    (props.gateways || []).some((g) => g.is_connected && Array.isArray(g.methods) && g.methods.includes('pix_auto'))
+    (props.gateways || []).some(
+        (g) =>
+            gatewayActiveForPayments(g) &&
+            Array.isArray(g.methods) &&
+            g.methods.includes('pix_auto')
+    )
 );
+
+const togglingGatewaySlug = ref(null);
+
+async function toggleGatewayEnabled(gateway, isEnabled) {
+    togglingGatewaySlug.value = gateway.slug;
+    try {
+        await axios.put(
+            `${GATEWAYS_API_BASE}/${gateway.slug}/enabled`,
+            { is_enabled: isEnabled },
+            { headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' } }
+        );
+        router.reload({
+            only: [
+                'gateways',
+                'gateway_order',
+                'payout_gateway_preference',
+                'payout_gateway_active',
+            ],
+        });
+    } catch (err) {
+        window.alert(
+            err.response?.data?.message ||
+                'Não foi possível alterar o status do adquirente.'
+        );
+    } finally {
+        togglingGatewaySlug.value = null;
+    }
+}
 
 const payoutPref = ref('auto');
 const savingPayoutPref = ref(false);
@@ -234,7 +286,7 @@ async function savePayoutPreference() {
 }
 
 function allAllowedTabIds() {
-    return ['adquirentes', 'metodos', 'taxas', 'liquidacao'];
+    return ['adquirentes', 'metodos', 'taxas', 'saques', 'liquidacao'];
 }
 
 const activeTab = ref('adquirentes');
@@ -247,8 +299,42 @@ const tabs = computed(() => [
     { id: 'adquirentes', label: 'Adquirentes', icon: CreditCard },
     { id: 'metodos', label: 'Formas de pagamento', icon: LayoutGrid },
     { id: 'taxas', label: 'Taxas', icon: Percent },
+    { id: 'saques', label: 'Saques', icon: Banknote },
     { id: 'liquidacao', label: 'Liquidação', icon: CalendarClock },
 ]);
+
+const withdrawalPolicyForm = useForm({
+    auto_withdrawal_enabled: props.withdrawal_policy?.auto_withdrawal_enabled !== false,
+    hours_enabled: props.withdrawal_policy?.hours_enabled === true,
+    hours_start: props.withdrawal_policy?.hours_start || '06:00',
+    hours_end: props.withdrawal_policy?.hours_end || '21:00',
+    timezone: props.withdrawal_policy?.timezone || 'America/Sao_Paulo',
+    manual_approval_pin: '',
+    manual_approval_pin_confirmation: '',
+});
+
+watch(
+    () => props.withdrawal_policy,
+    (v) => {
+        if (!v) return;
+        withdrawalPolicyForm.auto_withdrawal_enabled = v.auto_withdrawal_enabled !== false;
+        withdrawalPolicyForm.hours_enabled = v.hours_enabled === true;
+        withdrawalPolicyForm.hours_start = v.hours_start || '06:00';
+        withdrawalPolicyForm.hours_end = v.hours_end || '21:00';
+        withdrawalPolicyForm.timezone = v.timezone || 'America/Sao_Paulo';
+    },
+    { deep: true }
+);
+
+function submitWithdrawalPolicy() {
+    withdrawalPolicyForm.put('/plataforma/financeiro/saques-politica', {
+        preserveScroll: true,
+        onSuccess: () => {
+            withdrawalPolicyForm.manual_approval_pin = '';
+            withdrawalPolicyForm.manual_approval_pin_confirmation = '';
+        },
+    });
+}
 
 const paymentMethodsForm = useForm({
     platform_payment_methods_enabled: { ...props.platform_payment_methods_enabled },
@@ -488,7 +574,10 @@ function submitSettlement() {
                             v-for="g in props.gateways"
                             :key="g.slug"
                             :gateway="g"
+                            show-enabled-toggle
+                            :toggling-enabled="togglingGatewaySlug === g.slug"
                             @click="openGatewaySidebar(g.slug)"
+                            @toggle-enabled="toggleGatewayEnabled(g, $event)"
                         />
                     </div>
                     <div
@@ -945,6 +1034,97 @@ function submitSettlement() {
                             </label>
                             <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Pode ser sobrescrita por infoprodutor na tela API Pagamentos.</p>
                         </div>
+                    </form>
+                </section>
+            </div>
+        </Transition>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'saques'" class="space-y-6">
+                <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Política de saques
+                    </h2>
+                    <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+                        Controle saque automático, janela de horário para solicitações e PIN de aprovação manual.
+                        Ações críticas exigem 2FA quando ativado em Meu perfil.
+                    </p>
+                    <form class="space-y-5" @submit.prevent="submitWithdrawalPolicy">
+                        <label class="flex items-center gap-3">
+                            <input
+                                v-model="withdrawalPolicyForm.auto_withdrawal_enabled"
+                                type="checkbox"
+                                class="rounded border-zinc-300"
+                            />
+                            <span class="text-sm text-zinc-800 dark:text-zinc-200">Permitir saque automático após solicitação</span>
+                        </label>
+
+                        <label class="flex items-center gap-3">
+                            <input
+                                v-model="withdrawalPolicyForm.hours_enabled"
+                                type="checkbox"
+                                class="rounded border-zinc-300"
+                            />
+                            <span class="text-sm text-zinc-800 dark:text-zinc-200">Restringir horário de solicitação de saque</span>
+                        </label>
+
+                        <div v-if="withdrawalPolicyForm.hours_enabled" class="grid gap-4 sm:grid-cols-3">
+                            <div>
+                                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">Início</label>
+                                <input
+                                    v-model="withdrawalPolicyForm.hours_start"
+                                    type="time"
+                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                />
+                            </div>
+                            <div>
+                                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">Fim</label>
+                                <input
+                                    v-model="withdrawalPolicyForm.hours_end"
+                                    type="time"
+                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                />
+                            </div>
+                            <div>
+                                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">Fuso horário</label>
+                                <input
+                                    v-model="withdrawalPolicyForm.timezone"
+                                    type="text"
+                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                />
+                            </div>
+                        </div>
+
+                        <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-600">
+                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">PIN de aprovação manual</p>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                Obrigatório ao aprovar saques quando o automático estiver desligado.
+                                {{ withdrawal_policy?.has_manual_approval_pin ? 'PIN já definido — deixe em branco para manter.' : 'Ainda não definido.' }}
+                            </p>
+                            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                                <input
+                                    v-model="withdrawalPolicyForm.manual_approval_pin"
+                                    type="password"
+                                    placeholder="Novo PIN"
+                                    class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                />
+                                <input
+                                    v-model="withdrawalPolicyForm.manual_approval_pin_confirmation"
+                                    type="password"
+                                    placeholder="Confirmar PIN"
+                                    class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                />
+                            </div>
+                        </div>
+
+                        <Button type="submit" :disabled="withdrawalPolicyForm.processing">Salvar política de saques</Button>
                     </form>
                 </section>
             </div>

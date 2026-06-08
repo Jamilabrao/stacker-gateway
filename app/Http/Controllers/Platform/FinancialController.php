@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
+use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Controller;
 use App\Jobs\ReconcileCajuPayWithdrawalJob;
 use App\Jobs\ReconcileSpacepagWithdrawalJob;
@@ -21,8 +22,10 @@ use App\Services\ApiPixAccess;
 use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
+use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformPaymentMethods;
+use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Models\Setting;
 use App\Support\PlatformConfigContext;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +37,7 @@ use Inertia\Response;
 class FinancialController extends Controller
 {
     use ProvidesPlatformGatewayProps;
+    use RequiresPlatformStepUp;
 
     public function index(): Response
     {
@@ -50,7 +54,41 @@ class FinancialController extends Controller
             'gateway_webhook_security_warnings' => $this->gatewayWebhookSecurityWarnings($tenantId),
             'platform_payment_methods_enabled' => PlatformPaymentMethods::platformEnabled(),
             'platform_payment_method_labels' => PlatformPaymentMethods::labelsForAdmin(),
+            'withdrawal_policy' => WithdrawalPolicyService::toFrontendProps(),
+            'platform_totp_enabled' => PlatformTotpService::isEnabledFor(request()->user()),
         ]);
+    }
+
+    public function updateWithdrawalPolicy(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'auto_withdrawal_enabled' => ['nullable', 'boolean'],
+            'hours_enabled' => ['nullable', 'boolean'],
+            'hours_start' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'hours_end' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'timezone' => ['nullable', 'string', 'max:64'],
+            'manual_approval_pin' => ['nullable', 'string', 'min:4', 'max:32'],
+            'manual_approval_pin_confirmation' => ['nullable', 'string', 'same:manual_approval_pin'],
+        ]);
+
+        Setting::set('platform_auto_withdrawal_enabled', $request->boolean('auto_withdrawal_enabled', true), null);
+        Setting::set('platform_withdrawal_hours_enabled', $request->boolean('hours_enabled', false), null);
+        Setting::set('platform_withdrawal_hours_start', $validated['hours_start'] ?? WithdrawalPolicyService::hoursStart(), null);
+        Setting::set('platform_withdrawal_hours_end', $validated['hours_end'] ?? WithdrawalPolicyService::hoursEnd(), null);
+        Setting::set('platform_withdrawal_timezone', $validated['timezone'] ?? WithdrawalPolicyService::timezone(), null);
+
+        $pin = trim((string) ($validated['manual_approval_pin'] ?? ''));
+        if ($pin !== '') {
+            WithdrawalPolicyService::setManualApprovalPin($pin);
+        }
+
+        PlatformAuditService::log('platform.withdrawal.policy_updated', [
+            'auto_withdrawal_enabled' => $request->boolean('auto_withdrawal_enabled', true),
+            'hours_enabled' => $request->boolean('hours_enabled', false),
+        ], $request);
+
+        return redirect()->route('plataforma.financeiro.index', ['tab' => 'saques'])
+            ->with('success', 'Política de saques atualizada.');
     }
 
     public function updatePaymentMethods(Request $request): RedirectResponse
@@ -173,6 +211,25 @@ class FinancialController extends Controller
 
     public function approveWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse
     {
+        $validated = $request->validate([
+            'payout_manual' => ['nullable', 'boolean'],
+            'totp_code' => ['nullable', 'string', 'max:16'],
+            'manual_approval_pin' => ['nullable', 'string', 'max:32'],
+            'manual_confirm_external' => ['nullable', 'boolean'],
+        ]);
+        $manual = (bool) ($validated['payout_manual'] ?? false);
+
+        if ($manual && ! $request->boolean('manual_confirm_external')) {
+            return redirect()->route('plataforma.saques.index')
+                ->with('error', 'Confirme que o PIX já foi enviado fora do sistema.');
+        }
+
+        $this->validatePlatformStepUp(
+            $request,
+            requireManualPin: $manual || WithdrawalPolicyService::requiresManualApprovalPin(),
+            redirectRoute: 'plataforma.saques.index'
+        );
+
         $locked = MerchantWithdrawalService::beginPayoutApproval((int) $withdrawal->id);
         if ($locked === null) {
             return redirect()->route('plataforma.saques.index')
@@ -181,15 +238,14 @@ class FinancialController extends Controller
 
         $withdrawal = $locked;
 
-        $validated = $request->validate([
-            'payout_manual' => ['nullable', 'boolean'],
-        ]);
-        $manual = (bool) ($validated['payout_manual'] ?? false);
-
         if ($manual) {
+            $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+            $meta['manual_confirmed_by'] = $request->user()?->id;
+            $meta['manual_confirmed_at'] = now()->toIso8601String();
             $withdrawal->update([
                 'payout_manual' => true,
                 'payout_provider' => 'manual',
+                'payout_meta' => $meta,
             ]);
             MerchantWithdrawalService::markPaid($withdrawal->fresh());
 
@@ -389,6 +445,8 @@ class FinancialController extends Controller
      */
     public function retryCajuPayWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse
     {
+        $this->validatePlatformStepUp($request);
+
         $locked = MerchantWithdrawalService::beginPayoutApproval((int) $withdrawal->id);
         if ($locked === null) {
             return redirect()->route('plataforma.saques.index')
@@ -448,14 +506,18 @@ class FinancialController extends Controller
     {
         $validated = $request->validate([
             'admin_note' => ['nullable', 'string', 'max:2000'],
+            'totp_code' => ['nullable', 'string', 'max:16'],
+            'manual_approval_pin' => ['nullable', 'string', 'max:32'],
         ]);
 
-        if ($withdrawal->status !== 'pending') {
+        $this->validatePlatformStepUp($request, redirectRoute: 'plataforma.saques.index');
+
+        if (! in_array($withdrawal->status, ['pending', 'processing'], true)) {
             return redirect()->route('plataforma.saques.index')
-                ->with('error', 'Este saque não está pendente.');
+                ->with('error', 'Este saque não pode ser rejeitado no status atual.');
         }
 
-        MerchantWithdrawalService::reject($withdrawal, $validated['admin_note'] ?? null);
+        MerchantWithdrawalService::reject($withdrawal->fresh(), $validated['admin_note'] ?? null);
 
         PlatformAuditService::log('platform.withdrawal.rejected', ['withdrawal_id' => $withdrawal->id], $request);
 

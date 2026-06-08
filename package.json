@@ -38,6 +38,7 @@
         "lucide-vue-next": "^0.575.0",
         "payment-token-efi": "^3.2.1",
         "pinia": "^3.0.4",
+        "qrcode": "^1.5.4",
         "qrcode.vue": "^3.8.0",
         "radix-vue": "^1.9.17",
         "tailwind-merge": "^3.5.0",

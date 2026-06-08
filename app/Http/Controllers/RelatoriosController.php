@@ -6,6 +6,7 @@ use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Checkout\CheckoutAbandonmentMetrics;
 use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -105,38 +106,18 @@ class RelatoriosController extends Controller
             $sessionsQuery->where('created_at', '<=', $end);
         }
 
-        $abandonadosVisit = (clone $sessionsQuery)
-            ->whereAbandonmentVisitEligible()
-            ->count();
-
-        $abandonadosForm = (clone $sessionsQuery)
-            ->whereAbandonmentFormEligible()
-            ->count();
+        $metrics = app(CheckoutAbandonmentMetrics::class);
+        $abandonadosTotal = $metrics->countValidAbandoned($tenantId, null, $start, $end);
 
         $converted = (clone $sessionsQuery)
             ->whereFunnelConversionCompleted()
             ->count();
 
-        $abandonadosTotal = $abandonadosVisit + $abandonadosForm;
         $totalSessions = (clone $sessionsQuery)->count();
         $taxaConversao = $totalSessions > 0 ? round((float) $converted / $totalSessions * 100, 1) : 0.0;
 
-        $abandonadosComEmail = CheckoutSession::forTenant($tenantId)
-            ->whereAbandonmentFormEligible()
-            ->whereNotNull('email')
-            ->where('email', '!=', '');
-        if ($start && $end) {
-            $abandonadosComEmail->whereBetween('created_at', [$start, $end]);
-        } elseif ($start) {
-            $abandonadosComEmail->where('created_at', '>=', $start);
-        } elseif ($end) {
-            $abandonadosComEmail->where('created_at', '<=', $end);
-        }
-        $abandonadosComEmail = $abandonadosComEmail
-            ->with('product:id,name')
-            ->orderByDesc('updated_at')
-            ->limit(20)
-            ->get()
+        $abandonadosComEmail = $metrics
+            ->latestValidAbandonedSessions($tenantId, null, $start, $end, 20)
             ->map(fn ($s) => [
                 'id' => $s->id,
                 'email' => $s->email,
@@ -160,8 +141,8 @@ class RelatoriosController extends Controller
             'formas_pagamento' => $formasPagamento,
             'grafico_receita' => $graficoReceita,
             'receita_por_produto' => $receitaPorProduto,
-            'abandonados_visit' => $abandonadosVisit,
-            'abandonados_form' => $abandonadosForm,
+            'abandonados_visit' => 0,
+            'abandonados_form' => 0,
             'abandonados_total' => $abandonadosTotal,
             'taxa_conversao' => $taxaConversao,
             'abandonados_com_email' => $abandonadosComEmail,
@@ -180,9 +161,9 @@ class RelatoriosController extends Controller
         $tenantId = auth()->user()->tenant_id;
         [$start, $end] = $this->resolveDateRange($request, $period);
 
-        $query = $this->abandonedCheckoutSessionsQuery($tenantId, $start, $end)
-            ->with(['product:id,name', 'productOffer:id,name'])
-            ->orderByDesc('updated_at');
+        $query = app(CheckoutAbandonmentMetrics::class)
+            ->validAbandonedQuery($tenantId, null, $start, $end)
+            ->with(['product:id,name', 'productOffer:id,name']);
 
         $filename = 'carrinhos_abandonados_'.date('Y-m-d_His').'.csv';
 
@@ -229,32 +210,6 @@ class RelatoriosController extends Controller
         }, $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
-    }
-
-    /**
-     * Sessões consideradas carrinho abandonado (visitou checkout sem pedido ou formulário sem conclusão).
-     *
-     * @param  string|null  $start  datetime string
-     * @param  string|null  $end  datetime string
-     */
-    private function abandonedCheckoutSessionsQuery(?int $tenantId, ?string $start, ?string $end)
-    {
-        $q = CheckoutSession::forTenant($tenantId);
-        if ($start && $end) {
-            $q->whereBetween('created_at', [$start, $end]);
-        } elseif ($start) {
-            $q->where('created_at', '>=', $start);
-        } elseif ($end) {
-            $q->where('created_at', '<=', $end);
-        }
-
-        return $q->where(function ($outer) {
-            $outer->where(function ($visit) {
-                $visit->whereAbandonmentVisitEligible();
-            })->orWhere(function ($form) {
-                $form->whereAbandonmentFormEligible();
-            });
-        });
     }
 
     private function normalizeDateQuery(mixed $v): ?string

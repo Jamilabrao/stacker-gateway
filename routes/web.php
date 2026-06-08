@@ -59,6 +59,20 @@ Route::get('/painel-sw.js', function () {
     ]);
 })->name('panel.pwa.sw');
 
+Route::get('/firebase-messaging-sw.js', function () {
+    $path = public_path('firebase-messaging-sw.js');
+    if (! file_exists($path)) {
+        abort(404);
+    }
+
+    return response()->file($path, [
+        'Content-Type' => 'application/javascript; charset=UTF-8',
+        'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma' => 'no-cache',
+        'Expires' => '0',
+    ]);
+})->name('panel.pwa.firebase-sw');
+
 Route::get('/politica-privacidade', [\App\Http\Controllers\LegalPagesController::class, 'privacy'])->name('legal.privacy');
 Route::get('/termos-de-uso', [\App\Http\Controllers\LegalPagesController::class, 'terms'])->name('legal.terms');
 
@@ -255,6 +269,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'index'])->name('profile.index');
         Route::post('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'update'])->name('profile.update');
         Route::put('/meu-perfil/senha', [\App\Http\Controllers\Platform\ProfileController::class, 'updatePassword'])->name('profile.update-password');
+        Route::post('/seguranca/totp/iniciar', [\App\Http\Controllers\Platform\SecurityController::class, 'beginTotp'])->name('security.totp.begin');
+        Route::post('/seguranca/totp/confirmar', [\App\Http\Controllers\Platform\SecurityController::class, 'confirmTotp'])->name('security.totp.confirm');
+        Route::post('/seguranca/totp/desativar', [\App\Http\Controllers\Platform\SecurityController::class, 'disableTotp'])->name('security.totp.disable');
         Route::get('/app', [\App\Http\Controllers\Platform\AppController::class, 'index'])->name('app.index');
         Route::get('/app/data', [\App\Http\Controllers\Platform\AppController::class, 'data'])->name('app.data');
         Route::put('/app', [\App\Http\Controllers\Platform\AppController::class, 'update'])->name('app.update');
@@ -279,6 +296,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             Route::get('/create', [\App\Http\Controllers\Platform\UsersController::class, 'create'])->name('create');
             Route::post('/', [\App\Http\Controllers\Platform\UsersController::class, 'store'])->name('store');
             Route::get('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'show'])->name('show');
+            Route::get('/{user}/taxas-efetivas', [\App\Http\Controllers\Platform\UsersController::class, 'effectiveFees'])->name('effective-fees');
+            Route::get('/{user}/observacoes', [\App\Http\Controllers\Platform\MerchantAdminNotesController::class, 'index'])->name('notes.index');
+            Route::post('/{user}/observacoes', [\App\Http\Controllers\Platform\MerchantAdminNotesController::class, 'store'])->name('notes.store');
             Route::post('/{user}/ajuste-saldo', [\App\Http\Controllers\Platform\UsersController::class, 'adjustBalance'])->name('adjust-balance');
             Route::put('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'update'])->name('update');
             Route::delete('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'destroy'])->name('destroy');
@@ -340,6 +360,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/configuracoes/gateways/order', [\App\Http\Controllers\GatewaysController::class, 'updateOrder'])->name('gateways.order');
         Route::get('/configuracoes/gateways/{slug}', [\App\Http\Controllers\GatewaysController::class, 'show'])->name('gateways.show');
         Route::put('/configuracoes/gateways/{slug}', [\App\Http\Controllers\GatewaysController::class, 'update'])->name('gateways.update');
+        Route::put('/configuracoes/gateways/{slug}/enabled', [\App\Http\Controllers\GatewaysController::class, 'updateEnabled'])->name('gateways.enabled');
         Route::post('/configuracoes/gateways/{slug}/test', [\App\Http\Controllers\GatewaysController::class, 'test'])->name('gateways.test');
         Route::post('/configuracoes/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate'])->name('gateways.certificate');
         Route::put('/configuracoes/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate']);
@@ -348,6 +369,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/financeiro/gateways/order', [\App\Http\Controllers\GatewaysController::class, 'updateOrder'])->name('financeiro.gateways.order');
         Route::get('/financeiro/gateways/{slug}', [\App\Http\Controllers\GatewaysController::class, 'show'])->name('financeiro.gateways.show');
         Route::put('/financeiro/gateways/{slug}', [\App\Http\Controllers\GatewaysController::class, 'update'])->name('financeiro.gateways.update');
+        Route::put('/financeiro/gateways/{slug}/enabled', [\App\Http\Controllers\GatewaysController::class, 'updateEnabled'])->name('financeiro.gateways.enabled');
         Route::post('/financeiro/gateways/{slug}/test', [\App\Http\Controllers\GatewaysController::class, 'test'])->name('financeiro.gateways.test');
         Route::post('/financeiro/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate'])->name('financeiro.gateways.certificate');
         Route::put('/financeiro/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate']);
@@ -355,6 +377,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/financeiro/taxas', [\App\Http\Controllers\Platform\FinancialController::class, 'updateFees'])->name('financeiro.taxas.update');
         Route::put('/financeiro/liquidacao', [\App\Http\Controllers\Platform\FinancialController::class, 'updateSettlement'])->name('financeiro.liquidacao.update');
         Route::put('/financeiro/payout-gateway', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePayoutGatewayPreference'])->name('financeiro.payout-gateway.update');
+        Route::put('/financeiro/saques-politica', [\App\Http\Controllers\Platform\FinancialController::class, 'updateWithdrawalPolicy'])->name('financeiro.saques-politica.update');
         Route::post('/financeiro/saques/{withdrawal}/aprovar', [\App\Http\Controllers\Platform\FinancialController::class, 'approveWithdrawal'])->name('financeiro.saques.approve');
         Route::post('/financeiro/saques/{withdrawal}/reprocessar-cajupay', [\App\Http\Controllers\Platform\FinancialController::class, 'retryCajuPayWithdrawal'])
             ->name('financeiro.saques.reprocessar-cajupay')

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\Storage;
 
 class GatewaysController extends Controller
 {
+    use RequiresPlatformStepUp;
+
     public function index(): JsonResponse
     {
         $tenantId = PlatformConfigContext::settingsTenantId();
@@ -133,6 +136,7 @@ class GatewaysController extends Controller
             'certificate_key' => $gateway['certificate_key'] ?? null,
             'is_configured' => $credential !== null,
             'is_connected' => $credential?->is_connected ?? false,
+            'is_enabled' => $credential === null ? true : ($credential->is_enabled ?? true),
             'credential_values' => $credentialValues,
             'certificate_configured' => $certificateConfigured,
             'certificate_filename' => $certificateFilename && is_string($certificateFilename) ? $certificateFilename : null,
@@ -156,6 +160,8 @@ class GatewaysController extends Controller
         if (!$gateway) {
             abort(404, 'Gateway não encontrado.');
         }
+
+        $this->validatePlatformStepUp($request);
 
         $credentialKeys = collect($gateway['credential_keys'] ?? []);
         $certificateKey = $gateway['certificate_key'] ?? null;
@@ -294,6 +300,9 @@ class GatewaysController extends Controller
         }
 
         $credential->is_connected = $isConnected;
+        if (! $credential->exists) {
+            $credential->is_enabled = true;
+        }
         $credential->setEncryptedCredentials($credentials);
         $credential->save();
 
@@ -302,8 +311,47 @@ class GatewaysController extends Controller
         return response()->json([
             'success' => true,
             'is_connected' => $isConnected,
+            'is_enabled' => $credential->is_enabled ?? true,
             'message' => $isConnected ? 'Credenciais salvas e conexão verificada.' : 'Credenciais salvas.',
             'webhook_warning' => $webhookWarning,
+        ]);
+    }
+
+    public function updateEnabled(Request $request, string $slug): JsonResponse
+    {
+        $gateway = GatewayRegistry::get($slug);
+        if (! $gateway) {
+            abort(404, 'Gateway não encontrado.');
+        }
+
+        $this->validatePlatformStepUp($request);
+
+        $validated = $request->validate([
+            'is_enabled' => ['required', 'boolean'],
+        ]);
+
+        $tenantId = PlatformConfigContext::settingsTenantId();
+        $credential = GatewayCredential::forTenant($tenantId)->where('gateway_slug', $slug)->first();
+        if ($credential === null) {
+            return response()->json([
+                'message' => 'Configure as credenciais do adquirente antes de ativar ou desativar.',
+            ], 422);
+        }
+
+        $credential->is_enabled = $validated['is_enabled'];
+        $credential->save();
+
+        PlatformAuditService::log('platform.gateway.enabled', [
+            'gateway_slug' => $slug,
+            'is_enabled' => $credential->is_enabled,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'is_enabled' => $credential->is_enabled,
+            'message' => $credential->is_enabled
+                ? 'Adquirente ativado para cobrança.'
+                : 'Adquirente desativado. Não será usado em novos pagamentos.',
         ]);
     }
 
@@ -614,6 +662,7 @@ class GatewaysController extends Controller
                 'signup_url' => $g['signup_url'] ?? null,
                 'is_configured' => $cred !== null,
                 'is_connected' => $cred?->is_connected ?? false,
+                'is_enabled' => $cred === null ? true : ($cred->is_enabled ?? true),
             ];
         }, $all);
     }

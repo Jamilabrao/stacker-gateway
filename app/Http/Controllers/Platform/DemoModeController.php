@@ -8,6 +8,7 @@ use App\Support\DemoMode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class DemoModeController extends Controller
@@ -107,24 +108,27 @@ class DemoModeController extends Controller
             ]);
         }
 
+        $sellerAttrs = [
+            'name' => 'Vendedor Demo',
+            'password' => Hash::make($password),
+            'role' => User::ROLE_INFOPRODUTOR,
+            'account_status' => 'approved',
+        ];
+        if (Schema::hasColumn('users', 'kyc_status')) {
+            $sellerAttrs['kyc_status'] = User::KYC_APPROVED;
+        }
+
         $seller = User::query()->where('email', $sellerEmail)->first();
         if ($seller) {
-            $seller->update([
-                'name' => 'Vendedor Demo',
-                'password' => Hash::make($password),
-                'role' => User::ROLE_INFOPRODUTOR,
-            ]);
+            $seller->update($sellerAttrs);
             if ($seller->tenant_id === null) {
                 $seller->update(['tenant_id' => $seller->id]);
             }
         } else {
-            $seller = User::create([
-                'name' => 'Vendedor Demo',
+            $seller = User::create(array_merge($sellerAttrs, [
                 'email' => $sellerEmail,
-                'password' => Hash::make($password),
-                'role' => User::ROLE_INFOPRODUTOR,
                 'tenant_id' => null,
-            ]);
+            ]));
             $seller->update(['tenant_id' => $seller->id]);
         }
 

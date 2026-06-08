@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Support\SqlDialect;
 use Carbon\Carbon;
+use App\Services\Checkout\CheckoutAbandonmentMetrics;
 use App\Services\TeamAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -117,17 +118,21 @@ class DashboardController extends Controller
     }
 
     /**
-     * Alinhado a RelatoriosController: abandono com período de graça; taxa = sessões com pedido completed / total de sessões no período.
+     * Abandono: sessões válidas deduplicadas (e-mail + produto, form com e-mail, após graça).
+     * Taxa de conversão: sessões com pedido completed / total de sessões no período (created_at).
      *
      * @return array{taxa_conversao: float, abandono_carrinho: int}
      */
     private function checkoutFunnelStats(?int $tenantId, ?string $start, ?string $end): array
     {
+        $productIds = null;
         $sessionsQuery = CheckoutSession::forTenant($tenantId);
         if (auth()->user()?->isTeam()) {
             $allowed = app(TeamAccessService::class)->allowedProductIdsFor(auth()->user());
-            $sessionsQuery->whereIn('product_id', $allowed ?: ['__none__']);
+            $productIds = $allowed ?: ['__none__'];
+            $sessionsQuery->whereIn('product_id', $productIds);
         }
+
         if ($start && $end) {
             $sessionsQuery->whereBetween('created_at', [$start, $end]);
         } elseif ($start) {
@@ -136,19 +141,13 @@ class DashboardController extends Controller
             $sessionsQuery->where('created_at', '<=', $end);
         }
 
-        $abandonadosVisit = (clone $sessionsQuery)
-            ->whereAbandonmentVisitEligible()
-            ->count();
-
-        $abandonadosForm = (clone $sessionsQuery)
-            ->whereAbandonmentFormEligible()
-            ->count();
-
         $converted = (clone $sessionsQuery)
             ->whereFunnelConversionCompleted()
             ->count();
 
-        $abandonadosTotal = $abandonadosVisit + $abandonadosForm;
+        $abandonadosTotal = app(CheckoutAbandonmentMetrics::class)
+            ->countValidAbandoned($tenantId, $productIds, $start, $end);
+
         $totalSessions = (clone $sessionsQuery)->count();
         $taxaConversao = $totalSessions > 0 ? round((float) $converted / $totalSessions * 100, 1) : 0.0;
 

@@ -44,10 +44,28 @@ if (typeof window !== 'undefined') {
     skipPanelPwa = isMemberArea || isCheckout || isPlatform;
 }
 if (!skipPanelPwa && typeof navigator !== 'undefined' && navigator.serviceWorker) {
-    // Scope restrito evita que o SW do painel intercepte o checkout e scripts de terceiros (pixels, gateways).
-    navigator.serviceWorker.register('/painel-sw.js', { scope: '/painel/' }).catch((error) => {
-        console.warn('[PWA] Falha ao registrar service worker:', error);
-    });
+    let panelSwUrl = '/painel-sw.js';
+    let pushProvider = 'vapid';
+    try {
+        const appEl = document.getElementById('app');
+        const data = appEl?.getAttribute('data-page');
+        if (data) {
+            const page = JSON.parse(data);
+            const props = page?.props ?? {};
+            if (props.pwa_sw_url) panelSwUrl = props.pwa_sw_url;
+            if (props.pwa_sw_version) {
+                const sep = panelSwUrl.includes('?') ? '&' : '?';
+                panelSwUrl = `${panelSwUrl}${sep}v=${encodeURIComponent(props.pwa_sw_version)}`;
+            }
+            if (props.push_provider) pushProvider = props.push_provider;
+        }
+    } catch (_) {}
+    // Em modo FCM o firebase-messaging-sw.js assume o scope; evita conflito com painel-sw.js.
+    if (pushProvider !== 'fcm') {
+        navigator.serviceWorker.register(panelSwUrl, { scope: '/painel/' }).catch((error) => {
+            console.warn('[PWA] Falha ao registrar service worker:', error);
+        });
+    }
 }
 
 import { createInertiaApp, usePage } from '@inertiajs/vue3';

@@ -19,6 +19,7 @@ class WithdrawalRequiresBalanceTest extends TestCase
         $seller->forceFill([
             'tenant_id' => $seller->id,
             'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
         ])->save();
 
         TenantWallet::query()->firstOrCreate(
@@ -59,6 +60,7 @@ class WithdrawalRequiresBalanceTest extends TestCase
         $seller->forceFill([
             'tenant_id' => $seller->id,
             'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
         ])->save();
 
         TenantWallet::query()->firstOrCreate(

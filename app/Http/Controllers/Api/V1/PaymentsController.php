@@ -16,6 +16,7 @@ use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\BuyerAccountService;
 use App\Services\ApiPixAccess;
+use App\Services\MerchantOperationalGuard;
 use App\Services\PaymentService;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Support\FakeConsumerData;
@@ -39,6 +40,8 @@ class PaymentsController extends Controller
         if (! ApiPixAccess::effectiveForTenant($app->tenant_id)) {
             abort(403, 'API PIX disabled for this tenant.');
         }
+        MerchantOperationalGuard::assertCanAcceptPayments((int) $app->tenant_id);
+
         return $app;
     }
 

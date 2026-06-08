@@ -68,10 +68,10 @@ class ReconcileCajuPayWithdrawalJob implements ShouldQueue
         }
 
         if ($apiStatus === 'failed') {
-            Log::info('ReconcileCajuPayWithdrawalJob: payout com falha na API', [
-                'withdrawal_id' => $this->withdrawalId,
-                'external_id' => $externalId,
-            ]);
+            MerchantWithdrawalService::markFailed(
+                $withdrawal->fresh(),
+                'Payout CajuPay falhou na API (reconciliação).'
+            );
 
             return;
         }
@@ -95,9 +95,13 @@ class ReconcileCajuPayWithdrawalJob implements ShouldQueue
         }
 
         if ($this->attempts() >= self::MAX_ATTEMPTS) {
-            Log::info('ReconcileCajuPayWithdrawalJob: encerrando tentativas', [
-                'withdrawal_id' => $this->withdrawalId,
-            ]);
+            $withdrawal = Withdrawal::query()->find($this->withdrawalId);
+            if ($withdrawal !== null && in_array($withdrawal->status, ['pending', 'processing'], true)) {
+                MerchantWithdrawalService::markFailed(
+                    $withdrawal->fresh(),
+                    'Payout CajuPay não confirmado após esgotar tentativas de reconciliação.'
+                );
+            }
 
             return;
         }

@@ -88,6 +88,15 @@ class CajuPayPayoutWebhookController extends Controller
             'payout_meta' => array_filter($meta, fn ($value) => $value !== null && $value !== ''),
         ]);
 
+        if (CajuPayPayoutStatuses::isFailedStatus($status)) {
+            MerchantWithdrawalService::markFailed(
+                $withdrawal->fresh(),
+                'Payout CajuPay falhou (webhook): '.$status
+            );
+
+            return response('ok', 200);
+        }
+
         if (! CajuPayPayoutStatuses::isPaidConfirmation($eventType, $status)) {
             return response('ok', 200);
         }

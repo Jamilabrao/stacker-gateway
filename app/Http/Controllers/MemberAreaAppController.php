@@ -659,7 +659,13 @@ class MemberAreaAppController extends Controller
         $globalBranding = BrandingSetting::query()->whereNull('tenant_id')->first();
         $globalBrandingData = is_array($globalBranding?->data) ? $globalBranding->data : [];
         $globalPlatformName = trim((string) ($globalBrandingData['app_name'] ?? ''));
-        $platformName = $globalPlatformName !== '' ? $globalPlatformName : (string) config('app.name');
+        $customPlatformName = trim((string) ($certConfig['platform_name'] ?? ''));
+        $platformName = $customPlatformName !== ''
+            ? $customPlatformName
+            : ($globalPlatformName !== '' ? $globalPlatformName : (string) config('app.name'));
+
+        $fontScale = (int) ($certConfig['font_scale'] ?? 100);
+        $fontScale = max(75, min(150, $fontScale > 0 ? $fontScale : 100));
 
         $certificatePayload = [
             'title' => $certTitle,
@@ -668,7 +674,12 @@ class MemberAreaAppController extends Controller
             'completion_percent' => $issued ? $issued->completion_percent : $progressPercent,
             'signature_text' => $certConfig['signature_text'] ?? '',
             'duration_text' => $certConfig['duration_text'] ?? '',
+            'duration_enabled' => array_key_exists('duration_enabled', $certConfig)
+                ? (bool) $certConfig['duration_enabled']
+                : true,
             'font_family' => $certConfig['font_family'] ?? 'sans-serif',
+            'font_scale' => $fontScale,
+            'body_template' => trim((string) ($certConfig['body_template'] ?? '')),
             'platform_name' => $platformName,
             'header_text' => trim((string) ($certConfig['header_text'] ?? '')) !== '' ? $certConfig['header_text'] : 'Certificado de conclusão',
             'recipient_intro_text' => trim((string) ($certConfig['recipient_intro_text'] ?? '')) !== '' ? $certConfig['recipient_intro_text'] : 'Certificamos que',
