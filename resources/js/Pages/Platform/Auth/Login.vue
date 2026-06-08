@@ -1,12 +1,13 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { useForm, Link, usePage } from '@inertiajs/vue3';
-import { Eye, EyeOff } from 'lucide-vue-next';
+import { useForm, Link, usePage, router } from '@inertiajs/vue3';
+import { Eye, EyeOff, UserCog } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
 
 const showPassword = ref(false);
 const page = usePage();
 const flashError = computed(() => page.props.flash?.error ?? null);
+const demoMode = computed(() => page.props.demo_mode ?? {});
 
 const branding = computed(() => page.props.public_branding ?? {});
 const primary = computed(() => branding.value.theme_primary || '#c8fa64');
@@ -24,6 +25,15 @@ const form = useForm({
 function submit() {
     form.post('/plataforma/login', {
         onFinish: () => form.reset('password'),
+    });
+}
+
+const demoBusy = ref(false);
+
+function loginDemoAdmin() {
+    demoBusy.value = true;
+    router.post('/demo/login/admin', {}, {
+        onFinish: () => { demoBusy.value = false; },
     });
 }
 </script>
@@ -112,6 +122,21 @@ function submit() {
                 É vendedor ou equipe?
                 <Link href="/login" class="wl-link font-medium hover:underline">Acesse o painel do infoprodutor</Link>
             </p>
+
+            <div v-if="demoMode.enabled" class="mt-6 space-y-3 border-t border-zinc-200 pt-6 dark:border-zinc-700">
+                <p class="text-center text-xs text-zinc-500">Modo demonstração — somente leitura</p>
+                <Button
+                    type="button"
+                    variant="outline"
+                    class="w-full"
+                    :disabled="demoBusy || !demoMode.admin_label"
+                    @click="loginDemoAdmin"
+                >
+                    <UserCog class="mr-2 inline h-4 w-4" />
+                    Entrar como Admin (demo)
+                </Button>
+            </div>
+
             <p class="mt-3 text-center">
                 <Link href="/esqueci-senha" class="wl-link text-sm font-medium hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 rounded">
                     Recuperar senha

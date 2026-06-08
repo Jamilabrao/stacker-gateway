@@ -57,7 +57,13 @@ class CheckoutTrackingController extends Controller
      */
     private function applyTrackingUpdates(CheckoutSession $session, array $validated, string $step): void
     {
+        $isContactResync = $step === CheckoutSession::STEP_FORM_FILLED
+            && in_array($session->step, [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED], true);
+
         $updates = ['step' => $step];
+        if ($isContactResync) {
+            $updates['step'] = CheckoutSession::STEP_FORM_FILLED;
+        }
 
         if ($step === CheckoutSession::STEP_FORM_STARTED && $session->form_started_at === null) {
             $updates['form_started_at'] = now();
@@ -71,23 +77,55 @@ class CheckoutTrackingController extends Controller
             }
         }
 
+        $contactChanged = $this->mergeContactFields($session, $validated, $updates);
+
+        if ($isContactResync && $contactChanged) {
+            $updates['form_filled_at'] = now();
+        }
+
+        $session->update($updates);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @param  array<string, mixed>  $updates
+     */
+    private function mergeContactFields(CheckoutSession $session, array $validated, array &$updates): bool
+    {
+        $changed = false;
+
         if (! empty($validated['email'])) {
-            $updates['email'] = $validated['email'];
+            $email = (string) $validated['email'];
+            if ($session->email !== $email) {
+                $changed = true;
+            }
+            $updates['email'] = $email;
         }
         if (array_key_exists('name', $validated)) {
             $name = $validated['name'];
-            $updates['name'] = is_string($name) && trim($name) !== '' ? trim($name) : null;
+            $normalized = is_string($name) && trim($name) !== '' ? trim($name) : null;
+            if ($session->name !== $normalized) {
+                $changed = true;
+            }
+            $updates['name'] = $normalized;
         }
         if (! empty($validated['cpf']) && Schema::hasColumn('checkout_sessions', 'cpf')) {
             $digits = preg_replace('/\D/', '', (string) $validated['cpf']);
+            if ($digits !== '' && $session->cpf !== $digits) {
+                $changed = true;
+            }
             if ($digits !== '') {
                 $updates['cpf'] = $digits;
             }
         }
         if (! empty($validated['phone']) && Schema::hasColumn('checkout_sessions', 'phone')) {
-            $updates['phone'] = trim((string) $validated['phone']);
+            $phone = trim((string) $validated['phone']);
+            if ($session->phone !== $phone) {
+                $changed = true;
+            }
+            $updates['phone'] = $phone;
         }
 
-        $session->update($updates);
+        return $changed;
     }
 }

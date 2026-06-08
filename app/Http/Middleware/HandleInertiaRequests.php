@@ -12,6 +12,7 @@ use App\Services\PlatformI18nService;
 use App\Services\ApiPixAccess;
 use App\Services\MemberProgressService;
 use App\Services\PhysicalProductAccess;
+use App\Support\DemoMode;
 use App\Support\PanelColorScheme;
 use App\Support\SellerDashboardTemplate;
 use Illuminate\Http\Request;
@@ -63,6 +64,7 @@ class HandleInertiaRequests extends Middleware
             return array_merge(parent::share($request), [
                 'csrf_token' => $request->hasSession() ? $request->session()->token() : '',
                 'app_url' => rtrim(config('app.url'), '/'),
+                'demo_mode' => DemoMode::publicConfig(),
                 'flash' => ['success' => null, 'error' => null, 'info' => null, 'status' => null],
                 'platform' => null,
             ]);
@@ -243,6 +245,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'platform' => null,
             'cloud_mode' => (bool) config('getfy.cloud_mode', false),
+            'demo_mode' => DemoMode::publicConfig(),
             'cloud_billing_renew_window_days' => (int) config('getfy.cloud.billing_renew_window_days', 7),
             'appSettings' => $appSettings,
             'public_branding' => $publicBranding,

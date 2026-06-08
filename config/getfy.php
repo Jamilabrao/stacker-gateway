@@ -82,6 +82,15 @@ return [
                 : null),
     ],
 
+    /**
+     * Modo demonstração: interruptor mestre via .env (GETFY_DEMO_MODE=true).
+     * Com demo ativo: read-only global, login rápido, dados fictícios no painel operador.
+     * Para desativar: GETFY_DEMO_MODE=false + php artisan config:clear
+     */
+    'demo_mode' => filter_var(env('GETFY_DEMO_MODE', false), FILTER_VALIDATE_BOOLEAN),
+    'demo_admin_email' => is_string($v = env('GETFY_DEMO_ADMIN_EMAIL')) && trim($v) !== '' ? strtolower(trim($v)) : null,
+    'demo_seller_email' => is_string($v = env('GETFY_DEMO_SELLER_EMAIL')) && trim($v) !== '' ? strtolower(trim($v)) : null,
+
     'checkout_security' => [
         'min_seconds_before_pay' => max(0, (int) env('CHECKOUT_MIN_SECONDS_BEFORE_PAY', 2)),
         'duplicate_pending_minutes' => max(1, (int) env('CHECKOUT_DUPLICATE_PENDING_MINUTES', 15)),

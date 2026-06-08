@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Services\MerchantWalletAdminBlockService;
+use App\Support\DemoMode;
+use App\Support\Demo\DemoPlatformData;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Schema;
@@ -23,6 +25,17 @@ class BalancesController extends Controller
         $hasBalance = $request->query('has_balance', '1') !== '0';
         $perPage = 40;
         $page = max(1, (int) $request->query('page', 1));
+
+        if (DemoMode::isEnabled()) {
+            $payload = DemoPlatformData::balances(
+                $search,
+                $hasBalance,
+                $request->url(),
+                $request->query()
+            );
+
+            return Inertia::render('Platform/Balances/Index', $payload);
+        }
 
         $usersQuery = User::query()
             ->where('role', User::ROLE_INFOPRODUTOR)

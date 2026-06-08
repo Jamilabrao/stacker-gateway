@@ -149,6 +149,11 @@ class WebhookEventSubscriber
             return true;
         }
 
+        // Carrinho abandonado: volume baixo e integrações CRM dependem de entrega imediata.
+        if ($eventClass === CartAbandoned::class) {
+            return true;
+        }
+
         return false;
     }
 
@@ -368,11 +373,7 @@ class WebhookEventSubscriber
         if ($event instanceof CartAbandoned) {
             $session = $event->checkoutSession;
             $session->loadMissing('product');
-            $extra['customer'] = [
-                'name' => trim((string) ($session->name ?? '')),
-                'email' => trim((string) ($session->email ?? '')),
-                'phone' => trim((string) ($session->phone ?? '')),
-            ];
+            $extra['customer'] = WebhookCustomerPayload::fromCheckoutSession($session);
             $extra['product'] = [
                 'id' => $session->product?->id ?? $session->product_id,
                 'name' => $session->product?->name ?? '',

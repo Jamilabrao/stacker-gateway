@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Events\CartAbandoned;
 use App\Models\CheckoutSession;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class FireAbandonedCartWebhooks extends Command
 {
@@ -29,6 +30,8 @@ class FireAbandonedCartWebhooks extends Command
             ->whereIn('step', [CheckoutSession::STEP_FORM_STARTED, CheckoutSession::STEP_FORM_FILLED])
             ->whereNull('order_id')
             ->whereNull('abandoned_webhook_fired_at')
+            ->whereNotNull('email')
+            ->where('email', '!=', '')
             ->whereRaw(
                 'COALESCE(form_filled_at, form_started_at, updated_at, created_at) <= ?',
                 [$cutoff]
@@ -40,9 +43,11 @@ class FireAbandonedCartWebhooks extends Command
 
         $sessions = $query->with('product')->get();
         $count = 0;
+        $skippedNoTenant = 0;
 
         foreach ($sessions as $session) {
             if ($session->tenant_id === null) {
+                $skippedNoTenant++;
                 continue;
             }
             event(new CartAbandoned($session));
@@ -50,7 +55,16 @@ class FireAbandonedCartWebhooks extends Command
             $count++;
         }
 
+        if ($skippedNoTenant > 0) {
+            Log::info('FireAbandonedCartWebhooks: sessões ignoradas sem tenant_id', [
+                'count' => $skippedNoTenant,
+            ]);
+        }
+
         $this->info("CartAbandoned disparado para {$count} sessão(ões) (após {$minutes} minuto(s)).");
+        if ($skippedNoTenant > 0) {
+            $this->line("Ignoradas {$skippedNoTenant} sessão(ões) sem tenant_id.");
+        }
 
         return self::SUCCESS;
     }

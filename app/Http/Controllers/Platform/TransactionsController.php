@@ -13,6 +13,8 @@ use App\Services\PlatformAuditService;
 use App\Jobs\PollCajuPayPixRefundJob;
 use App\Services\OrderRefundGatewayBridge;
 use App\Services\PlatformOrderAdminService;
+use App\Support\DemoMode;
+use App\Support\Demo\DemoPlatformData;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -86,6 +88,17 @@ class TransactionsController extends Controller
             $status = 'all';
         }
         $q = trim((string) $request->query('q', ''));
+
+        if (DemoMode::isEnabled()) {
+            $payload = DemoPlatformData::transactions(
+                $status,
+                $q,
+                $request->url(),
+                $request->query()
+            );
+
+            return Inertia::render('Platform/Transactions/Index', $payload);
+        }
 
         $ordersPaginator = new LengthAwarePaginator([], 0, 40, 1, [
             'path' => $request->url(),

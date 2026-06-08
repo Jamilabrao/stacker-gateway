@@ -202,6 +202,7 @@ class WebhookController extends Controller
                     'step' => 'form_filled',
                     'email' => 'exemplo@email.com',
                     'name' => 'Cliente Exemplo',
+                    'phone' => '5511999999999',
                     'customer_ip' => '127.0.0.1',
                     'utm_source' => 'facebook',
                     'utm_medium' => 'cpc',
@@ -217,8 +218,7 @@ class WebhookController extends Controller
                 'customer' => [
                     'name' => 'Cliente Exemplo',
                     'email' => 'exemplo@email.com',
-                    'phone' => '',
-                    'cpf' => '',
+                    'phone' => '5511999999999',
                 ],
                 'checkout_link' => rtrim(config('app.url'), '/').'/c/exemplo-checkout',
             ];

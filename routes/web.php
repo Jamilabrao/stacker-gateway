@@ -222,6 +222,11 @@ Route::post('/cadastro', [\App\Http\Controllers\InfoprodutorRegistrationControll
 Route::post('/cadastro/validar-email', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateEmail'])->middleware('throttle:30,1');
 Route::post('/cadastro/validar-documento', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateDocument'])->middleware('throttle:30,1');
 
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post('/demo/login/admin', [\App\Http\Controllers\DemoLoginController::class, 'loginAdmin'])->name('demo.login.admin');
+    Route::post('/demo/login/seller', [\App\Http\Controllers\DemoLoginController::class, 'loginSeller'])->name('demo.login.seller');
+});
+
 Route::middleware('guest')->group(function () {
     Route::get('/criar-admin', [\App\Http\Controllers\CreateFirstAdminController::class, 'show'])->name('criar-admin');
     Route::post('/criar-admin', [\App\Http\Controllers\CreateFirstAdminController::class, 'store'])->middleware('throttle:5,1');
@@ -324,6 +329,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/configuracoes/personalizacao/upload', [\App\Http\Controllers\BrandingSettingsController::class, 'upload'])->name('settings.branding.upload');
         Route::post('/configuracoes/personalizacao/clear-field', [\App\Http\Controllers\BrandingSettingsController::class, 'clearField'])->name('settings.branding.clear');
         Route::post('/configuracoes/personalizacao/sync-global', [\App\Http\Controllers\BrandingSettingsController::class, 'syncGlobal'])->name('settings.branding.sync-global');
+        Route::get('/configuracoes/demo/data', [\App\Http\Controllers\Platform\DemoModeController::class, 'data'])->name('settings.demo.data');
+        Route::put('/configuracoes/demo', [\App\Http\Controllers\Platform\DemoModeController::class, 'update'])->name('settings.demo.update');
+        Route::post('/configuracoes/demo/provision', [\App\Http\Controllers\Platform\DemoModeController::class, 'provision'])->name('settings.demo.provision');
         Route::get('/configuracoes/update/check', [\App\Http\Controllers\UpdateController::class, 'check'])->name('settings.update.check');
         Route::get('/configuracoes/update/integrity', [\App\Http\Controllers\UpdateController::class, 'integrity'])->name('settings.update.integrity');
         Route::post('/configuracoes/update/migrate', [\App\Http\Controllers\UpdateController::class, 'migrateNow'])->name('settings.update.migrate')->middleware('throttle:10,1');

@@ -590,7 +590,28 @@ watch(
 );
 
 let trackTimeout = null;
+let contactSyncTimeout = null;
 const trackStepSent = ref({ form_started: false, form_filled: false });
+
+function buildTrackContactPayload(email, name) {
+    const cpf = (form.cpf || '').replace(/\D/g, '');
+    const phone = (showPhone.value ? `${form.country_code || ''}${phoneDigits.value || ''}` : '').trim();
+    return {
+        session_token: props.checkoutSessionToken,
+        email: email || undefined,
+        name: name || undefined,
+        cpf: cpf.length >= 11 ? cpf : undefined,
+        phone: phone !== '' ? phone : undefined,
+    };
+}
+
+async function postTrackApi(step, email, name) {
+    await axios.post('/api/checkout/track', {
+        ...buildTrackContactPayload(email, name),
+        step,
+    });
+}
+
 function callTrackApi(step, email, name) {
     if (props.checkoutBuilderPreview) return;
     if (!props.checkoutSessionToken) return;
@@ -598,23 +619,28 @@ function callTrackApi(step, email, name) {
     trackStepSent.value[step] = true;
     if (trackTimeout) clearTimeout(trackTimeout);
     trackTimeout = setTimeout(async () => {
-        const cpf = (form.cpf || '').replace(/\D/g, '');
-        const phone = (showPhone.value ? `${form.country_code || ''}${phoneDigits.value || ''}` : '').trim();
         try {
-            await axios.post('/api/checkout/track', {
-                session_token: props.checkoutSessionToken,
-                step,
-                email: email || undefined,
-                name: name || undefined,
-                cpf: cpf.length >= 11 ? cpf : undefined,
-                phone: phone !== '' ? phone : undefined,
-            });
+            await postTrackApi(step, email, name);
         } catch (_) {
             trackStepSent.value[step] = false;
         }
         trackTimeout = null;
     }, 500);
 }
+
+function syncContactFields(email, name) {
+    if (props.checkoutBuilderPreview) return;
+    if (!props.checkoutSessionToken) return;
+    if (!trackStepSent.value.form_started && !trackStepSent.value.form_filled) return;
+    if (contactSyncTimeout) clearTimeout(contactSyncTimeout);
+    contactSyncTimeout = setTimeout(async () => {
+        try {
+            await postTrackApi('form_filled', email, name);
+        } catch (_) {}
+        contactSyncTimeout = null;
+    }, 500);
+}
+
 watch(
     () => [form.email, form.name, form.cpf, form.country_code, phoneDigits.value],
     () => {
@@ -628,6 +654,9 @@ watch(
         const needsName = (props.config?.customer_fields?.name ?? true) !== false;
         if (hasEmail && (!needsName || hasName) && !trackStepSent.value.form_filled) {
             callTrackApi('form_filled', email, name);
+        }
+        if (hasEmail && (trackStepSent.value.form_started || trackStepSent.value.form_filled)) {
+            syncContactFields(email, name);
         }
     },
     { deep: true }

@@ -8,7 +8,8 @@ use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\Withdrawal;
 use App\Services\Platform\PlatformRevenueKpis;
-use App\Support\SqlDialect;
+use App\Support\DemoMode;
+use App\Support\Demo\DemoPlatformData;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -24,6 +25,10 @@ class DashboardController extends Controller
         $period = $request->query('period', 'hoje');
         if (! in_array($period, self::PERIODS, true)) {
             $period = 'hoje';
+        }
+
+        if (DemoMode::isEnabled()) {
+            return Inertia::render('Platform/Dashboard', DemoPlatformData::dashboard($period));
         }
 
         [$start, $end] = $this->rangeForPeriod($period);

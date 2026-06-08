@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { useForm, Link, usePage } from '@inertiajs/vue3';
-import { Eye, EyeOff } from 'lucide-vue-next';
+import { useForm, Link, usePage, router } from '@inertiajs/vue3';
+import { Eye, EyeOff, UserCog, Store } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
 import CookieConsentBanner from '@/components/legal/CookieConsentBanner.vue';
 import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
@@ -9,6 +9,7 @@ import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
 const showPassword = ref(false);
 const page = usePage();
 const flashError = computed(() => page.props.flash?.error ?? null);
+const demoMode = computed(() => page.props.demo_mode ?? {});
 
 const branding = computed(() => page.props.public_branding ?? {});
 const primary = computed(() => branding.value.theme_primary || '#c8fa64');
@@ -26,6 +27,15 @@ const form = useForm({
 function submit() {
     form.post('/login', {
         onFinish: () => form.reset('password'),
+    });
+}
+
+const demoBusy = ref(false);
+
+function loginDemo(role) {
+    demoBusy.value = true;
+    router.post(role === 'admin' ? '/demo/login/admin' : '/demo/login/seller', {}, {
+        onFinish: () => { demoBusy.value = false; },
     });
 }
 </script>
@@ -117,6 +127,32 @@ function submit() {
                     Criar conta
                 </Link>
             </p>
+
+            <div v-if="demoMode.enabled" class="mt-8 space-y-3 border-t border-zinc-200 pt-6 dark:border-zinc-700">
+                <p class="text-center text-xs font-medium uppercase tracking-wide text-zinc-500">Demonstração</p>
+                <p class="text-center text-xs text-zinc-500">Ambiente somente leitura — explore sem alterar dados reais.</p>
+                <Button
+                    type="button"
+                    variant="outline"
+                    class="w-full"
+                    :disabled="demoBusy || !demoMode.admin_label"
+                    @click="loginDemo('admin')"
+                >
+                    <UserCog class="mr-2 inline h-4 w-4" />
+                    Entrar como Admin
+                </Button>
+                <Button
+                    type="button"
+                    variant="outline"
+                    class="w-full"
+                    :disabled="demoBusy || !demoMode.seller_label"
+                    @click="loginDemo('seller')"
+                >
+                    <Store class="mr-2 inline h-4 w-4" />
+                    Entrar como Infoprodutor
+                </Button>
+            </div>
+
             <p class="mt-3 text-center">
                 <Link href="/esqueci-senha" class="wl-link text-sm font-medium hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 rounded">
                     Recuperar senha

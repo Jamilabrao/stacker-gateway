@@ -49,10 +49,14 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\ApplyBrandingConfig::class,
             \App\Http\Middleware\SetPanelLocale::class,
         ], append: [
+            \App\Http\Middleware\BlockMutationsWhenDemoMode::class,
             \App\Http\Middleware\HandleInertiaRequests::class,
             \App\Http\Middleware\PreventCacheForHtml::class,
             \App\Http\Middleware\SecurityHeaders::class,
             \App\Http\Middleware\RunScheduleFallback::class,
+        ]);
+        $middleware->api(append: [
+            \App\Http\Middleware\BlockMutationsWhenDemoMode::class,
         ]);
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureRole::class,

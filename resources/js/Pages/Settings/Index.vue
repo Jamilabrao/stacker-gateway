@@ -20,6 +20,7 @@ import {
     Truck,
     Shield,
     Scale,
+    PlayCircle,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
@@ -28,6 +29,7 @@ import DashboardBannersTab from '@/Pages/Settings/Tabs/DashboardBannersTab.vue';
 import DashboardTemplateTab from '@/Pages/Settings/Tabs/DashboardTemplateTab.vue';
 import LanguagesTab from '@/Pages/Settings/Tabs/LanguagesTab.vue';
 import SecurityTab from '@/Pages/Settings/Tabs/SecurityTab.vue';
+import DemoTab from '@/Pages/Settings/Tabs/DemoTab.vue';
 import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
 
 defineOptions({ layout: LayoutPlatform });
@@ -72,7 +74,7 @@ const props = defineProps({
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'lgpd', 'cron', 'update'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'lgpd', 'cron', 'update', 'demo'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -189,6 +191,7 @@ const coreTabsStatic = [
     { id: 'lgpd', label: 'LGPD', icon: Scale },
     { id: 'cron', label: 'Cron', icon: Clock },
     { id: 'update', label: 'Versão', icon: Tag },
+    { id: 'demo', label: 'Demo', icon: PlayCircle },
 ];
 
 const tabs = computed(() => {
@@ -689,7 +692,7 @@ const selectClass =
         </div>
 
         <form
-            v-show="activeTab !== 'update' && activeTab !== 'cron' && activeTab !== 'banners_dashboard' && activeTab !== 'template_dashboard' && activeTab !== 'idiomas' && !isPluginTab(activeTab)"
+            v-show="activeTab !== 'update' && activeTab !== 'cron' && activeTab !== 'banners_dashboard' && activeTab !== 'template_dashboard' && activeTab !== 'idiomas' && activeTab !== 'demo' && !isPluginTab(activeTab)"
             class="w-full max-w-full space-y-6"
             @submit.prevent="submitSettings"
         >
@@ -1410,6 +1413,19 @@ const selectClass =
                         </p>
                     </div>
                 </section>
+            </div>
+        </Transition>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'demo'" class="w-full max-w-full space-y-6">
+                <DemoTab />
             </div>
         </Transition>
 

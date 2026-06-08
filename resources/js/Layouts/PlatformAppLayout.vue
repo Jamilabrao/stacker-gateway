@@ -4,6 +4,7 @@ import { usePage } from '@inertiajs/vue3';
 import { useSidebarProvider } from '@/composables/useSidebar';
 import PlatformSidebar from '@/components/layout/PlatformSidebar.vue';
 import PlatformAppHeader from '@/components/layout/PlatformAppHeader.vue';
+import DemoModeBanner from '@/components/layout/DemoModeBanner.vue';
 import Backdrop from '@/components/layout/Backdrop.vue';
 import FlashToast from '@/components/layout/FlashToast.vue';
 
@@ -27,6 +28,7 @@ watchEffect(() => {
             :class="[isExpanded ? 'lg:ml-[260px]' : 'lg:ml-[72px]']"
         >
             <div class="flex w-full shrink-0 flex-col gap-2">
+                <DemoModeBanner />
                 <PlatformAppHeader />
             </div>
             <FlashToast />

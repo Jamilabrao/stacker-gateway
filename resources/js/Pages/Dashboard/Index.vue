@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, provide, shallowRef, defineAsyncComponent } from 'vue';
+import { ref, computed, onMounted, provide, defineAsyncComponent } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import { useI18n } from '@/composables/useI18n';
@@ -8,11 +8,9 @@ import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemp
 defineOptions({ layout: LayoutInfoprodutor });
 
 const page = usePage();
-const { isDefault, isAurora, isKawaii } = useSellerDashboardTemplate();
+const { isAurora, isKawaii } = useSellerDashboardTemplate();
 
-const dashboardView = shallowRef(null);
-
-function resolveDashboardView() {
+const dashboardView = computed(() => {
     if (isKawaii.value) {
         return defineAsyncComponent(() => import('@/components/dashboard/DashboardViewKawaii.vue'));
     }
@@ -21,9 +19,7 @@ function resolveDashboardView() {
     }
 
     return defineAsyncComponent(() => import('@/components/dashboard/DashboardViewDefault.vue'));
-}
-
-dashboardView.value = resolveDashboardView();
+});
 const hasAchievementsProgress = computed(() => !!(page.props.achievementsProgress ?? null));
 const { t } = useI18n();
 
