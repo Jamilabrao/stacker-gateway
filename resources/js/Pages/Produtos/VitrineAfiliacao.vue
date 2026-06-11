@@ -4,7 +4,7 @@ import { useForm, router, Link } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import { useI18n } from '@/composables/useI18n';
-import { Search, X, LayoutGrid, Flame } from 'lucide-vue-next';
+import { Search, X, LayoutGrid, Flame, Loader2 } from 'lucide-vue-next';
 import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -19,6 +19,8 @@ const props = defineProps({
 
 const list = computed(() => props.products?.data ?? []);
 const selected = ref(null);
+const soliciting = ref(null);
+const panelFeedback = ref(null);
 
 const filterForm = useForm({
     q: props.filters?.q ?? '',
@@ -60,20 +62,69 @@ function formatMoney(v, cur) {
 
 function openDetail(p) {
     selected.value = p;
+    panelFeedback.value = null;
 }
 
 function closeDetail() {
     selected.value = null;
+    panelFeedback.value = null;
+}
+
+function syncSelectedFromList(productId) {
+    const updated = list.value.find((p) => p.id === productId);
+    if (updated && selected.value?.id === productId) {
+        selected.value = updated;
+    }
+}
+
+function applyFlashToPanel(page) {
+    const flash = page.props.flash ?? {};
+    const message = flash.error || flash.success || flash.info;
+    if (!message) {
+        return;
+    }
+    panelFeedback.value = {
+        type: flash.error ? 'error' : flash.success ? 'success' : 'info',
+        message,
+    };
+}
+
+function enrollmentBadgeLabel(p) {
+    const status = p.enrollment?.status;
+    if (status === 'pending') {
+        return t('products.showcase.badge_pending', 'Pendente');
+    }
+    if (status === 'approved') {
+        return t('products.showcase.badge_approved', 'Aprovado');
+    }
+    return null;
+}
+
+function enrollmentBadgeClass(p) {
+    const status = p.enrollment?.status;
+    if (status === 'pending') {
+        return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200';
+    }
+    if (status === 'approved') {
+        return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300';
+    }
+    return '';
 }
 
 function solicit(productId) {
+    soliciting.value = productId;
+    panelFeedback.value = null;
     router.post(
         `/produtos/vitrine-afiliacao/${productId}/solicitar`,
         {},
         {
             preserveScroll: true,
-            onSuccess: () => {
-                router.reload({ only: ['products'] });
+            onSuccess: (page) => {
+                syncSelectedFromList(productId);
+                applyFlashToPanel(page);
+            },
+            onFinish: () => {
+                soliciting.value = null;
             },
         }
     );
@@ -185,7 +236,14 @@ function copyLink(url) {
                             <LayoutGrid class="h-12 w-12 opacity-50" />
                         </div>
                         <span
-                            v-if="p.is_own_product"
+                            v-if="enrollmentBadgeLabel(p)"
+                            class="absolute left-2 top-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                            :class="enrollmentBadgeClass(p)"
+                        >
+                            {{ enrollmentBadgeLabel(p) }}
+                        </span>
+                        <span
+                            v-else-if="p.is_own_product"
                             class="absolute left-2 top-2 inline-flex rounded-full bg-zinc-900/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white dark:bg-white/90 dark:text-zinc-900"
                         >
                             {{ t('products.showcase.your_product_badge', 'Seu produto') }}
@@ -274,6 +332,32 @@ function copyLink(url) {
                             {{ t('products.showcase.order_bump', 'Inclui order bump') }}
                         </div>
 
+                        <div
+                            v-if="panelFeedback"
+                            class="mt-4 rounded-lg px-3 py-2 text-sm"
+                            :class="
+                                panelFeedback.type === 'error'
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                                    : panelFeedback.type === 'info'
+                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200'
+                                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200'
+                            "
+                        >
+                            {{ panelFeedback.message }}
+                            <p
+                                v-if="panelFeedback.type === 'success' && selected.enrollment?.status === 'pending'"
+                                class="mt-2 text-xs opacity-90"
+                            >
+                                {{ t('products.showcase.pending_track_hint', 'Acompanhe o status em Produtos → Afiliados. Você será avisado quando for aprovado.') }}
+                            </p>
+                            <p
+                                v-if="panelFeedback.type === 'success' && selected.enrollment?.status === 'approved'"
+                                class="mt-2 text-xs opacity-90"
+                            >
+                                {{ t('products.showcase.approved_next_steps', 'Copie seu link abaixo e acesse o painel do afiliado para configurar pixels.') }}
+                            </p>
+                        </div>
+
                         <div v-if="selected.enrollment?.status === 'approved' && selected.enrollment.affiliate_link" class="mt-6 space-y-2">
                             <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">{{ t('products.showcase.your_link', 'Seu link de afiliação') }}</p>
                             <div class="flex flex-wrap gap-2">
@@ -301,16 +385,34 @@ function copyLink(url) {
                                 v-if="!selected.enrollment || selected.enrollment.status === 'rejected' || selected.enrollment.status === 'revoked'"
                                 type="button"
                                 class="w-full"
+                                :disabled="soliciting === selected.id"
                                 @click="solicit(selected.id)"
                             >
-                                {{ t('products.showcase.request', 'Solicitar afiliação') }}
+                                <Loader2 v-if="soliciting === selected.id" class="mr-2 h-4 w-4 animate-spin" />
+                                {{ soliciting === selected.id ? t('common.sending', 'Enviando...') : t('products.showcase.request', 'Solicitar afiliação') }}
                             </Button>
-                            <p v-else-if="selected.enrollment.status === 'pending'" class="text-center text-sm text-amber-700 dark:text-amber-300">
-                                {{ t('products.showcase.pending', 'Aguardando aprovação do produtor.') }}
-                            </p>
-                            <Button v-else-if="selected.enrollment.status === 'approved'" type="button" variant="outline" class="w-full" @click="closeDetail">
-                                {{ t('common.close', 'Fechar') }}
-                            </Button>
+                            <template v-else-if="selected.enrollment.status === 'pending'">
+                                <p class="text-center text-sm text-amber-700 dark:text-amber-300">
+                                    {{ t('products.showcase.pending', 'Aguardando aprovação do produtor.') }}
+                                </p>
+                                <Link
+                                    href="/produtos/afiliados"
+                                    class="mt-3 flex w-full items-center justify-center rounded-lg border border-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                >
+                                    {{ t('products.showcase.go_affiliates_list', 'Ver em Afiliados') }}
+                                </Link>
+                            </template>
+                            <template v-else-if="selected.enrollment.status === 'approved'">
+                                <Link
+                                    :href="`/produtos/${selected.id}/painel-afiliado`"
+                                    class="flex w-full items-center justify-center rounded-lg bg-[var(--color-primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                                >
+                                    {{ t('products.affiliate_panel', 'Painel do afiliado') }}
+                                </Link>
+                                <Button type="button" variant="outline" class="mt-2 w-full" @click="closeDetail">
+                                    {{ t('common.close', 'Fechar') }}
+                                </Button>
+                            </template>
                         </template>
                     </div>
                 </div>

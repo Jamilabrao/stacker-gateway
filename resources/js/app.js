@@ -68,11 +68,29 @@ if (!skipPanelPwa && typeof navigator !== 'undefined' && navigator.serviceWorker
     }
 }
 
-import { createInertiaApp, usePage } from '@inertiajs/vue3';
+import { createInertiaApp, usePage, router } from '@inertiajs/vue3';
 import { createApp as createVueApp, h } from 'vue';
 import { watchEffect } from 'vue';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createPinia } from 'pinia';
+
+// Envia o CSRF da meta em toda visita Inertia (evita 419 após sessão longa ou abas antigas)
+router.on('before', (event) => {
+    const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    if (token) {
+        event.detail.visit.headers = {
+            ...event.detail.visit.headers,
+            'X-CSRF-TOKEN': token,
+        };
+    }
+});
+
+router.on('invalid', (event) => {
+    if (event.detail.response?.status === 419) {
+        event.preventDefault();
+        window.location.reload();
+    }
+});
 
 // Sincroniza a meta csrf-token com o token da página atual (evita 419 em gateways e outras requisições axios)
 const CsrfSync = {

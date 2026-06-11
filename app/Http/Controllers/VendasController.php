@@ -7,7 +7,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductOffer;
 use App\Services\AccessEmailService;
-use App\Services\EffectiveMerchantFees;
+use App\Services\OrderFeeBreakdownService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -274,51 +274,6 @@ class VendasController extends Controller
     }
 
     /**
-     * Canal usado nas taxas do infoprodutor (alinhado a {@see \App\Listeners\CreditTenantWalletOnOrderCompleted}).
-     */
-    private function paymentMethodForFees(Order $order): string
-    {
-        return EffectiveMerchantFees::feeMethodForOrder($order);
-    }
-
-    private function orderSourceForFees(Order $order): ?string
-    {
-        $meta = $order->metadata ?? [];
-        if (! is_array($meta)) {
-            return null;
-        }
-        $s = $meta['source'] ?? null;
-
-        return is_string($s) && $s !== '' ? $s : null;
-    }
-
-    /**
-     * Bruto (itens), taxa efetiva e líquido para o tenant, como na carteira.
-     *
-     * @return array{gross: float, fee: float, net: float}
-     */
-    private function orderFeeBreakdown(Order $order): array
-    {
-        $gross = (float) $order->lineItemsTotalAmount();
-        $tenantId = (int) $order->tenant_id;
-        if ($tenantId < 1) {
-            return ['gross' => $gross, 'fee' => 0.0, 'net' => $gross];
-        }
-        $calc = EffectiveMerchantFees::calculateSaleFee(
-            $tenantId,
-            $this->paymentMethodForFees($order),
-            $gross,
-            $this->orderSourceForFees($order)
-        );
-
-        return [
-            'gross' => $gross,
-            'fee' => $calc['fee'],
-            'net' => $calc['net'],
-        ];
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function orderToVendaArray(Order $o): array
@@ -328,7 +283,7 @@ class VendasController extends Controller
         $arr['product_display_name'] = $this->productDisplayName($o);
         $arr['checkout_url'] = url('/c/'.$o->getCheckoutSlug());
         $arr['payment_type_label'] = $this->paymentTypeLabel($o);
-        $breakdown = $this->orderFeeBreakdown($o);
+        $breakdown = OrderFeeBreakdownService::forOrder($o);
         $arr['amount_total'] = $breakdown['gross'];
         $arr['amount_gross'] = $breakdown['gross'];
         $arr['amount_fee'] = $breakdown['fee'];
@@ -379,7 +334,7 @@ class VendasController extends Controller
             ->with(['orderItems:id,order_id,amount'])
             ->chunkById(200, function ($orders) use (&$valorLiquido) {
                 foreach ($orders as $order) {
-                    $valorLiquido += $this->orderFeeBreakdown($order)['net'];
+                    $valorLiquido += OrderFeeBreakdownService::forOrder($order)['net'];
                 }
             });
 
@@ -514,7 +469,7 @@ class VendasController extends Controller
             ->get();
 
         $rows = $vendas->map(function (Order $o) {
-            $net = $this->orderFeeBreakdown($o)['net'];
+            $net = OrderFeeBreakdownService::forOrder($o)['net'];
 
             return [
                 'data' => $o->created_at?->format('d/m/Y H:i'),

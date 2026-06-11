@@ -208,7 +208,9 @@ class MerchantWithdrawalService
             return;
         }
 
-        DB::transaction(function () use ($withdrawal, $reason, $refundWallet) {
+        $marked = false;
+
+        DB::transaction(function () use ($withdrawal, $reason, $refundWallet, &$marked) {
             $locked = Withdrawal::query()->whereKey($withdrawal->id)->lockForUpdate()->first();
             if ($locked === null || ! in_array($locked->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
                 return;
@@ -226,7 +228,12 @@ class MerchantWithdrawalService
             $locked->failed_reason = Str::limit($reason, 500, '');
             $locked->status = self::STATUS_FAILED;
             $locked->save();
+            $marked = true;
         });
+
+        if ($marked) {
+            app(PlatformEmailNotifications::class)->withdrawalFailed($withdrawal->fresh(), $reason);
+        }
     }
 
     public static function reject(Withdrawal $withdrawal, ?string $adminNote = null): void

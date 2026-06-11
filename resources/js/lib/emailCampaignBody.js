@@ -3,6 +3,8 @@
  */
 export const CAMPAIGN_BODY_MARKER = 'data-campaign-body="1"';
 
+const DEFAULT_PRIMARY = '#4f46e5';
+
 export function defaultCampaignMessage() {
     return (
         'Temos uma novidade importante para compartilhar com você.\n\n'
@@ -33,9 +35,26 @@ function plainTextToHtmlBlock(plainText) {
         .join('');
 }
 
-export function wrapCampaignBodyHtml(plainText) {
+function resolveThemePrimary(themePrimary) {
+    const raw = String(themePrimary || '').trim();
+    return /^#[0-9A-Fa-f]{6}$/.test(raw) ? raw : DEFAULT_PRIMARY;
+}
+
+function darkenHex(hex, factor = 0.15) {
+    const normalized = String(hex || '').replace('#', '');
+    if (normalized.length !== 6) {
+        return '#0284c7';
+    }
+    const r = Math.max(0, Math.round(parseInt(normalized.slice(0, 2), 16) * (1 - factor)));
+    const g = Math.max(0, Math.round(parseInt(normalized.slice(2, 4), 16) * (1 - factor)));
+    const b = Math.max(0, Math.round(parseInt(normalized.slice(4, 6), 16) * (1 - factor)));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+export function wrapCampaignBodyHtml(plainText, options = {}) {
     const inner = plainTextToHtmlBlock((plainText || '').trim() || defaultCampaignMessage());
-    const primary = '#0ea5e9';
+    const primary = resolveThemePrimary(options.themePrimary);
+    const primaryDark = darkenHex(primary);
 
     return (
         '<!DOCTYPE html><html lang="pt-BR"><head>'
@@ -44,7 +63,7 @@ export function wrapCampaignBodyHtml(plainText) {
         + '<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:32px 16px;">'
         + '<tr><td align="center">'
         + '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(15,23,42,0.08);">'
-        + `<tr><td style="padding:28px 32px 20px;background:linear-gradient(135deg,${primary},#0284c7);text-align:center;">`
+        + `<tr><td style="padding:28px 32px 20px;background:linear-gradient(135deg,${primary},${primaryDark});text-align:center;">`
         + '<p style="margin:0;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.9);">Mensagem para você</p>'
         + '<h1 style="margin:12px 0 0;font-size:26px;font-weight:700;color:#fff;">Olá, João!</h1>'
         + '</td></tr>'

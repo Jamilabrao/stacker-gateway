@@ -31,7 +31,7 @@ function isApproved(row) {
                 {{ t('products.affiliates_page_title', 'Afiliados') }}
             </h1>
             <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                {{ t('products.affiliates_page_subtitle', 'Produtos em que você é afiliado aprovado.') }}
+                {{ t('products.affiliates_page_subtitle', 'Produtos em que você solicitou ou foi aprovado como afiliado.') }}
             </p>
         </div>
 
@@ -99,6 +99,12 @@ function isApproved(row) {
                             {{ formatBRL(row.price_brl) }}
                         </p>
                     </div>
+                    <p
+                        v-if="!isApproved(row)"
+                        class="mt-2 text-xs text-amber-700 dark:text-amber-200"
+                    >
+                        {{ t('products.affiliate_pending_hint', 'Aguardando aprovação do produtor. Você será avisado no painel e por e-mail quando for aprovado.') }}
+                    </p>
                     <div class="mt-2 flex flex-wrap gap-2">
                         <Link
                             v-if="isApproved(row)"

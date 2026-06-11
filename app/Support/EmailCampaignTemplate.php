@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Services\BrandingEmailData;
+
 /**
  * Template HTML de campanhas: o usuário edita só texto; o layout fica fixo no envio.
  */
@@ -17,10 +19,11 @@ final class EmailCampaignTemplate
             ."Abraços!";
     }
 
-    public static function wrapContent(string $plainText): string
+    public static function wrapContent(string $plainText, ?string $themePrimary = null): string
     {
         $inner = self::plainTextToHtmlBlock(trim($plainText) !== '' ? $plainText : self::defaultMessageText());
-        $primary = '#0ea5e9';
+        $primary = self::resolveThemePrimary($themePrimary);
+        $primaryDark = self::darkenHex($primary);
 
         return '<!DOCTYPE html><html lang="pt-BR"><head>'
             .'<meta charset="utf-8"><meta name="viewport" content="width=device-width">'
@@ -29,7 +32,7 @@ final class EmailCampaignTemplate
             .'<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:#f1f5f9;padding:32px 16px;">'
             .'<tr><td align="center">'
             .'<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(15,23,42,0.08);">'
-            .'<tr><td style="padding:28px 32px 20px;background:linear-gradient(135deg,'.$primary.' 0%,#0284c7 100%);text-align:center;">'
+            .'<tr><td style="padding:28px 32px 20px;background:linear-gradient(135deg,'.$primary.' 0%,'.$primaryDark.' 100%);text-align:center;">'
             .'<p style="margin:0;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.9);">Mensagem para você</p>'
             .'<h1 style="margin:12px 0 0;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Olá, {nome}!</h1>'
             .'</td></tr>'
@@ -45,8 +48,8 @@ final class EmailCampaignTemplate
 
     public static function extractPlainText(string $bodyHtml): string
     {
-        if (preg_match('/<td[^>]*'.preg_quote(self::BODY_MARKER, '/').'[^>]*>(.*)<\/td>/is', $bodyHtml, $m)) {
-            $text = strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $m[1]));
+        if (preg_match('/<td[^>]*'.preg_quote(self::BODY_MARKER, '/').'[^>]*>(.*?)<\/td>/is', $bodyHtml, $m)) {
+            $text = strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], "\n\n", $m[1]));
             $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
             $text = preg_replace("/\n{3,}/", "\n\n", $text) ?? $text;
 
@@ -58,6 +61,29 @@ final class EmailCampaignTemplate
         $text = preg_replace("/\n{3,}/", "\n\n", $text) ?? $text;
 
         return trim($text) !== '' ? trim($text) : self::defaultMessageText();
+    }
+
+    private static function resolveThemePrimary(?string $themePrimary): string
+    {
+        if (is_string($themePrimary) && preg_match('/^#[0-9A-Fa-f]{6}$/', $themePrimary)) {
+            return $themePrimary;
+        }
+
+        return BrandingEmailData::forTenant(null)['theme_primary'];
+    }
+
+    private static function darkenHex(string $hex, float $factor = 0.15): string
+    {
+        $hex = ltrim($hex, '#');
+        if (strlen($hex) !== 6) {
+            return '#0284c7';
+        }
+
+        $r = max(0, (int) round(hexdec(substr($hex, 0, 2)) * (1 - $factor)));
+        $g = max(0, (int) round(hexdec(substr($hex, 2, 2)) * (1 - $factor)));
+        $b = max(0, (int) round(hexdec(substr($hex, 4, 2)) * (1 - $factor)));
+
+        return sprintf('#%02x%02x%02x', $r, $g, $b);
     }
 
     private static function plainTextToHtmlBlock(string $plainText): string

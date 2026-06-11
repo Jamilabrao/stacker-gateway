@@ -1,10 +1,14 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import Button from '@/components/ui/Button.vue';
 import { formatCompactCurrency } from '@/lib/utils';
 import { Copy } from 'lucide-vue-next';
 
 defineOptions({ layout: null });
+
+const page = usePage();
+const appName = computed(() => page.props.public_branding?.app_name || 'Getfy');
 
 const props = defineProps({
     achievement: {
@@ -95,7 +99,7 @@ function copyLink() {
 
                     <!-- Brand -->
                     <p class="mt-8 text-center text-xs font-medium tracking-wider text-zinc-400 dark:text-zinc-500">
-                        Getfy
+                        {{ appName }}
                     </p>
                 </div>
             </div>

@@ -139,6 +139,7 @@ class HandleInertiaRequests extends Middleware
 
         $notificationsUnreadCount = 0;
         $medOpenCount = 0;
+        $platformAdminSidebarBadges = [];
         if ($user && $user->canAccessSellerPanel()) {
             $headerCounts = $sharedCache->headerCounts(
                 (int) $user->id,
@@ -146,6 +147,9 @@ class HandleInertiaRequests extends Middleware
             );
             $notificationsUnreadCount = $headerCounts['notifications_unread_count'];
             $medOpenCount = $headerCounts['med_open_count'];
+        }
+        if ($user && $user->canAccessPlatformPanel()) {
+            $platformAdminSidebarBadges = $sharedCache->platformAdminSidebarBadges();
         }
 
         $path = $request->path();
@@ -268,6 +272,7 @@ class HandleInertiaRequests extends Middleware
             'firebase_client_config' => $firebaseClientConfig ?? null,
             'notifications_unread_count' => $notificationsUnreadCount,
             'med_open_count' => $medOpenCount,
+            'platform_admin_sidebar_badges' => $platformAdminSidebarBadges,
             'member_notifications_unread_count' => $memberNotificationsUnreadCount,
             'member_push_subscribed' => $memberPushSubscribed,
             'member_certificate' => $memberCertificate,

@@ -24,6 +24,7 @@ use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
+use App\Services\PlatformEmailNotifications;
 use App\Services\PlatformPaymentMethods;
 use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Models\Setting;
@@ -280,6 +281,7 @@ class FinancialController extends Controller
             if (! ($result['ok'] ?? false)) {
                 $this->recordCajuPayWithdrawalFailure($withdrawal, $result);
                 MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+                $this->notifyWithdrawalPayoutError($withdrawal, $result['error'] ?? 'Falha ao enviar o saque.');
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', $result['error'] ?? 'Falha ao enviar o saque.');
@@ -318,6 +320,7 @@ class FinancialController extends Controller
                     ],
                 ]);
                 MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+                $this->notifyWithdrawalPayoutError($withdrawal, 'Spacepag: '.($result['error'] ?? 'Falha ao enviar o saque.'));
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'Spacepag: '.($result['error'] ?? 'Falha ao enviar o saque.'));
@@ -364,6 +367,7 @@ class FinancialController extends Controller
                     ],
                 ]);
                 MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+                $this->notifyWithdrawalPayoutError($withdrawal, 'Woovi: '.($result['error'] ?? 'Falha ao enviar o saque.'));
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'Woovi: '.($result['error'] ?? 'Falha ao enviar o saque.'));
@@ -410,6 +414,7 @@ class FinancialController extends Controller
                     ],
                 ]);
                 MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+                $this->notifyWithdrawalPayoutError($withdrawal, 'OnlyUp: '.($result['error'] ?? 'Falha ao enviar o saque.'));
 
                 return redirect()->route('plataforma.saques.index')
                     ->with('error', 'OnlyUp: '.($result['error'] ?? 'Falha ao enviar o saque.'));
@@ -475,6 +480,7 @@ class FinancialController extends Controller
         if (! ($result['ok'] ?? false)) {
             $this->recordCajuPayWithdrawalFailure($withdrawal, $result);
             MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+            $this->notifyWithdrawalPayoutError($withdrawal, $result['error'] ?? 'Falha ao reprocessar o saque.');
 
             PlatformAuditService::log('platform.withdrawal.cajupay_retry_failed', [
                 'withdrawal_id' => $withdrawal->id,
@@ -600,5 +606,10 @@ class FinancialController extends Controller
             'payout_provider' => 'cajupay',
             'payout_meta' => $meta,
         ]);
+    }
+
+    private function notifyWithdrawalPayoutError(Withdrawal $withdrawal, string $reason): void
+    {
+        app(PlatformEmailNotifications::class)->withdrawalPayoutError($withdrawal->fresh(), $reason);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\CampaignMail;
 use App\Models\EmailCampaign;
 use App\Models\Product;
+use App\Services\BrandingEmailData;
 use App\Services\EmailCampaignRecipientsService;
 use App\Services\PlatformAuditService;
 use App\Services\TenantMailConfigService;
@@ -113,7 +114,10 @@ class EmailMarketingController extends Controller
             'tenant_id' => null,
             'name' => $validated['name'],
             'subject' => $validated['subject'],
-            'body_html' => EmailCampaignTemplate::wrapContent($validated['body_message']),
+            'body_html' => EmailCampaignTemplate::wrapContent(
+                $validated['body_message'],
+                BrandingEmailData::forTenant(null)['theme_primary']
+            ),
             'filter_config' => $filterConfig,
             'status' => EmailCampaign::STATUS_DRAFT,
         ]);
@@ -174,7 +178,10 @@ class EmailMarketingController extends Controller
         $campaign->update([
             'name' => $validated['name'],
             'subject' => $validated['subject'],
-            'body_html' => EmailCampaignTemplate::wrapContent($validated['body_message']),
+            'body_html' => EmailCampaignTemplate::wrapContent(
+                $validated['body_message'],
+                BrandingEmailData::forTenant(null)['theme_primary']
+            ),
             'filter_config' => $filterConfig,
         ]);
 

@@ -1,4 +1,5 @@
 import { ref, computed, onMounted, onUnmounted, provide, inject } from 'vue';
+import { router } from '@inertiajs/vue3';
 
 const SidebarSymbol = Symbol();
 
@@ -8,6 +9,10 @@ export function useSidebarProvider() {
     const isMobile = ref(false);
     const isHovered = ref(false);
 
+    const closeMobileSidebar = () => {
+        isMobileOpen.value = false;
+    };
+
     const handleResize = () => {
         const mobile = window.innerWidth < 1024;
         isMobile.value = mobile;
@@ -16,13 +21,22 @@ export function useSidebarProvider() {
         }
     };
 
+    let removeNavigateListener = null;
+
     onMounted(() => {
         handleResize();
         window.addEventListener('resize', handleResize);
+
+        removeNavigateListener = router.on('start', () => {
+            if (isMobile.value && isMobileOpen.value) {
+                closeMobileSidebar();
+            }
+        });
     });
 
     onUnmounted(() => {
         window.removeEventListener('resize', handleResize);
+        removeNavigateListener?.();
     });
 
     const setExpanded = (value) => {
@@ -43,6 +57,12 @@ export function useSidebarProvider() {
         isMobileOpen.value = !isMobileOpen.value;
     };
 
+    const closeMobileSidebarIfOpen = () => {
+        if (isMobile.value) {
+            closeMobileSidebar();
+        }
+    };
+
     const setIsHovered = (value) => {
         isHovered.value = value;
     };
@@ -55,6 +75,8 @@ export function useSidebarProvider() {
         setExpanded,
         toggleSidebar,
         toggleMobileSidebar,
+        closeMobileSidebar,
+        closeMobileSidebarIfOpen,
         setIsHovered,
     };
 

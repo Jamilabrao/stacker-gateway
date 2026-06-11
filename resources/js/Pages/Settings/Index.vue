@@ -736,9 +736,9 @@ const selectClass =
                     </section>
 
                     <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
-                        <h2 class="mb-2 text-base font-semibold text-zinc-900 dark:text-white">Alertas de verificação (KYC)</h2>
+                        <h2 class="mb-2 text-base font-semibold text-zinc-900 dark:text-white">Alertas por e-mail do operador</h2>
                         <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
-                            E-mails que recebem aviso automático quando um infoprodutor envia documentos para análise. Um endereço por linha ou separados por vírgula. Deixe em branco para não enviar alertas.
+                            E-mails que recebem avisos automáticos da plataforma: KYC pendente, falha em saque, erro ao processar payout, nova solicitação de reembolso, etc. Um endereço por linha ou separados por vírgula. Deixe em branco para não enviar alertas.
                         </p>
                         <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Destinatários</label>
                         <textarea

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { Link } from '@inertiajs/vue3';
 import { ChevronRight } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -7,6 +8,7 @@ const props = defineProps({
     label: { type: String, required: true },
     value: { type: String, required: true },
     footer: { type: String, default: '' },
+    href: { type: String, default: '' },
     variant: {
         type: String,
         default: 'default',
@@ -61,17 +63,22 @@ const starColor = computed(() => {
 const iconWrapClass = computed(() => `kawaii-icon-wrap kawaii-icon-wrap--${props.tint}`);
 const valueClass = computed(() => `kawaii-metric-value kawaii-metric-value--${props.tint}`);
 const stackedIconClass = computed(() => `kawaii-stacked-icon kawaii-stacked-icon--${props.tint === 'sky' ? 'blue' : props.tint}`);
+const stackedTag = computed(() => (props.href ? Link : 'div'));
+const stackedBind = computed(() => (props.href ? { href: props.href } : {}));
 </script>
 
 <template>
     <!-- Cards empilhados (coluna direita) -->
-    <div
+    <component
+        :is="stackedTag"
         v-if="variant === 'stacked'"
-        class="kawaii-stacked-card group cursor-default"
+        v-bind="stackedBind"
+        class="kawaii-stacked-card group"
         :class="[
             tint === 'pink' ? 'kawaii-stacked-card--pink' : '',
             tint === 'orange' ? 'kawaii-stacked-card--orange' : '',
             tint === 'sky' || tint === 'blue' ? 'kawaii-stacked-card--blue' : '',
+            href ? 'kawaii-stacked-card--link' : 'cursor-default',
         ]"
     >
         <span :class="[stackedIconClass, 'flex h-11 w-11 shrink-0 items-center justify-center']">
@@ -81,8 +88,12 @@ const stackedIconClass = computed(() => `kawaii-stacked-icon kawaii-stacked-icon
             <p class="kawaii-metric-label">{{ label }}</p>
             <p :class="[valueClass, 'mt-1 text-xl']">{{ value }}</p>
         </div>
-        <ChevronRight class="kawaii-fg-subtle h-5 w-5 shrink-0 opacity-60 transition group-hover:translate-x-0.5" aria-hidden="true" />
-    </div>
+        <ChevronRight
+            v-if="href"
+            class="kawaii-fg-subtle h-5 w-5 shrink-0 opacity-60 transition group-hover:translate-x-0.5"
+            aria-hidden="true"
+        />
+    </component>
 
     <!-- KPI cards principais -->
     <div

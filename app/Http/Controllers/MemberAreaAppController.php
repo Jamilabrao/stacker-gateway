@@ -69,6 +69,7 @@ class MemberAreaAppController extends Controller
                 'name' => $ip->relatedProduct?->name,
                 'image_url' => $ip->relatedProduct?->image ? (new StorageService($product->tenant_id))->url($ip->relatedProduct->image) : null,
                 'checkout_slug' => $ip->relatedProduct?->checkout_slug,
+                'checkout_url' => $ip->relatedProduct?->checkout_slug ? url('/c/'.$ip->relatedProduct->checkout_slug) : null,
                 'has_access' => $user->products()->where('products.id', $ip->related_product_id)->exists(),
             ])->values()->all(),
             'community_enabled' => (bool) ($config['community_enabled'] ?? false),
@@ -405,6 +406,7 @@ class MemberAreaAppController extends Controller
             'description' => $ip->relatedProduct?->description,
             'image_url' => $ip->relatedProduct?->image ? (new StorageService($product->tenant_id))->url($ip->relatedProduct->image) : null,
             'checkout_slug' => $ip->relatedProduct?->checkout_slug,
+            'checkout_url' => $ip->relatedProduct?->checkout_slug ? url('/c/'.$ip->relatedProduct->checkout_slug) : null,
             'price' => $ip->relatedProduct?->price,
             'has_access' => isset($userProductIds[$ip->related_product_id]),
         ])->values()->all();

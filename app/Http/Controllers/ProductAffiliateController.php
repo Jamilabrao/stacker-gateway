@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
+use App\Services\AffiliateEnrollmentNotifier;
 use App\Services\TeamAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -75,6 +76,7 @@ class ProductAffiliateController extends Controller
 
         $enrollment->update(['status' => ProductAffiliateEnrollment::STATUS_APPROVED]);
         $enrollment->ensurePublicRef();
+        app(AffiliateEnrollmentNotifier::class)->notifyApproved($enrollment->fresh());
 
         $tab = $request->query('tab');
         $url = route('produtos.edit', $produto).($tab ? '?tab='.urlencode((string) $tab) : '');

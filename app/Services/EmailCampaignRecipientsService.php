@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\EmailCampaign;
-use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Collection;
 
@@ -99,32 +98,37 @@ class EmailCampaignRecipientsService
      */
     private function customerRecipients(?int $tenantId, array $filterConfig): array
     {
-        $query = Order::query()
-            ->where('status', 'completed')
+        $query = User::query()
+            ->whereIn('role', User::buyerRoleValues())
             ->whereNotNull('email')
-            ->where('email', '!=', '');
-        if ($tenantId !== null) {
-            $query->where('tenant_id', $tenantId);
-        }
+            ->where('email', '!=', '')
+            ->whereHas('orders', function ($q) use ($tenantId, $filterConfig) {
+                $q->where('status', 'completed');
+                if ($tenantId !== null) {
+                    $q->where('tenant_id', $tenantId);
+                }
+                if (! $filterConfig['all_customers'] && $filterConfig['product_ids'] !== []) {
+                    $q->whereIn('product_id', $filterConfig['product_ids']);
+                }
+            });
 
-        if (! $filterConfig['all_customers'] && $filterConfig['product_ids'] !== []) {
-            $query->whereIn('product_id', $filterConfig['product_ids']);
-        }
-
-        $orders = $query->with('user:id,name,email')->get();
+        $users = $query->get(['id', 'name', 'email', 'account_status']);
         $byEmail = [];
-        foreach ($orders as $order) {
-            $email = strtolower(trim((string) $order->email));
+        foreach ($users as $user) {
+            if (in_array((string) ($user->account_status ?? 'approved'), ['suspended', 'blocked', 'rejected'], true)) {
+                continue;
+            }
+            $email = strtolower(trim((string) $user->email));
             if ($email === '' || ! str_contains($email, '@')) {
                 continue;
             }
             if (isset($byEmail[$email])) {
                 continue;
             }
-            $name = trim((string) ($order->user?->name ?? ''));
+            $name = trim((string) $user->name);
             $byEmail[$email] = [
                 'email' => $email,
-                'user_id' => $order->user_id,
+                'user_id' => $user->id,
                 'name' => $name !== '' ? $name : $email,
                 'type' => 'customer',
             ];

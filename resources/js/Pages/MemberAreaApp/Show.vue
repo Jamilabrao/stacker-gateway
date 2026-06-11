@@ -56,6 +56,16 @@ const heroDesktopBg = hero.image_url_desktop || hero.image_url || null;
 const heroMobileBg = hero.image_url_mobile || hero.image_url_desktop || hero.image_url || null;
 const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%)';
 
+function checkoutHref(item) {
+    if (item?.checkout_url) {
+        return item.checkout_url;
+    }
+    if (item?.checkout_slug) {
+        return `/c/${item.checkout_slug}`;
+    }
+    return '#';
+}
+
 </script>
 
 <template>
@@ -216,7 +226,10 @@ const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%
                         :href="(!mod.has_access && mod.access_type === 'paid') ? (mod.related_product?.checkout_url || `/c/${mod.related_product?.checkout_slug}`) : `/m/${mod.related_product?.member_area_slug ?? mod.related_product?.checkout_slug}`"
                         :target="(!mod.has_access && mod.access_type === 'paid') ? '_blank' : undefined"
                         :rel="(!mod.has_access && mod.access_type === 'paid') ? 'noopener' : undefined"
-                        class="flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left transition hover:bg-zinc-800"
+                        :class="[
+                            'flex w-64 shrink-0 flex-col rounded-xl overflow-hidden bg-zinc-800/50 text-left transition hover:bg-zinc-800',
+                            (!mod.has_access && mod.access_type === 'paid') ? 'touch-manipulation' : '',
+                        ]"
                     >
                         <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
                             <img
@@ -278,15 +291,17 @@ const heroGradient = 'linear-gradient(135deg, var(--ma-primary) 0%, #27272a 100%
                         >
                             Acessar
                         </Link>
-                        <a
+                        <Button
                             v-else
-                            :href="`/c/${ip.checkout_slug}`"
+                            as="a"
+                            :href="checkoutHref(ip)"
                             target="_blank"
                             rel="noopener"
-                            class="mt-2 inline-block"
+                            size="sm"
+                            class="mt-2 touch-manipulation"
                         >
-                            <Button size="sm">Comprar</Button>
-                        </a>
+                            Comprar
+                        </Button>
                     </div>
                 </div>
             </div>

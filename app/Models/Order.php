@@ -227,7 +227,61 @@ class Order extends Model
             return 'Manual';
         }
 
-        return ucfirst($gateway);
+        return 'Outro';
+    }
+
+    /**
+     * Chave para agrupamento em relatórios do infoprodutor (PIX/cartão/boleto, sem expor gateway interno).
+     */
+    public function paymentMethodReportKey(): string
+    {
+        $meta = is_array($this->metadata) ? $this->metadata : [];
+        $method = strtolower(trim((string) ($meta['checkout_payment_method'] ?? $this->payment_method ?? '')));
+        if ($method === 'pix_auto') {
+            $method = 'pix';
+        }
+        if (in_array($method, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
+            $method = 'pix';
+        }
+        if (in_array($method, ['pix', 'card', 'boleto'], true)) {
+            return $method;
+        }
+
+        $gateway = strtolower(trim((string) ($this->gateway ?? '')));
+        if ($gateway === '') {
+            return 'outro';
+        }
+        if (str_contains($gateway, 'pix') || in_array($gateway, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
+            return 'pix';
+        }
+        if ($gateway === 'card' || str_contains($gateway, 'cartao') || str_contains($gateway, 'cartão') || str_contains($gateway, 'credito')) {
+            return 'card';
+        }
+        if ($gateway === 'boleto' || str_contains($gateway, 'boleto')) {
+            return 'boleto';
+        }
+
+        return 'outro';
+    }
+
+    public static function paymentMethodReportLabel(string $method): string
+    {
+        return match ($method) {
+            'pix' => 'PIX',
+            'card' => 'Cartão',
+            'boleto' => 'Boleto',
+            default => 'Outro',
+        };
+    }
+
+    public static function paymentMethodReportSort(string $method): int
+    {
+        return match ($method) {
+            'pix' => 1,
+            'card' => 2,
+            'boleto' => 3,
+            default => 99,
+        };
     }
 
     public function scopeForTenant($query, ?int $tenantId)

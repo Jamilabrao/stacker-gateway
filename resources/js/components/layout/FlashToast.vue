@@ -7,10 +7,11 @@ const page = usePage();
 const dismissed = ref(false);
 let dismissTimer = null;
 
-const flash = computed(() => page.props.flash ?? { success: null, error: null });
+const flash = computed(() => page.props.flash ?? { success: null, error: null, info: null });
 
-const message = computed(() => flash.value?.error ?? flash.value?.success ?? null);
+const message = computed(() => flash.value?.error ?? flash.value?.success ?? flash.value?.info ?? null);
 const isError = computed(() => !!flash.value?.error);
+const isInfo = computed(() => !flash.value?.error && !flash.value?.success && !!flash.value?.info);
 
 const visible = computed(() => !!message.value && !dismissed.value);
 
@@ -23,7 +24,7 @@ function close() {
 }
 
 watch(
-    () => [flash.value?.success, flash.value?.error],
+    () => [flash.value?.success, flash.value?.error, flash.value?.info],
     () => {
         dismissed.value = false;
     },
@@ -65,7 +66,11 @@ onUnmounted(() => {
                 <span
                     :class="[
                         'shrink-0 rounded-full p-0.5',
-                        isError ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
+                        isError
+                            ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                            : isInfo
+                              ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
+                              : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400',
                     ]"
                 >
                     <XCircle v-if="isError" class="h-5 w-5" aria-hidden="true" />

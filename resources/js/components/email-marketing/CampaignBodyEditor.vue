@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import { wrapCampaignBodyHtml } from '@/lib/emailCampaignBody';
 
 const model = defineModel({ type: String, required: true });
@@ -8,7 +9,12 @@ const props = defineProps({
     error: { type: String, default: '' },
 });
 
-const previewHtml = computed(() => wrapCampaignBodyHtml(model.value));
+const page = usePage();
+const themePrimary = computed(() => page.props.public_branding?.theme_primary ?? null);
+
+const previewHtml = computed(() => wrapCampaignBodyHtml(model.value, {
+    themePrimary: themePrimary.value,
+}));
 </script>
 
 <template>

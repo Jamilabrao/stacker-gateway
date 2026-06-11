@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CheckoutSession;
 use App\Models\MedDispute;
 use App\Models\Order;
-use App\Services\EffectiveMerchantFees;
+use App\Services\OrderFeeBreakdownService;
 use App\Services\OrderManualApprovalService;
 use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
@@ -26,46 +26,6 @@ use InvalidArgumentException;
 class TransactionsController extends Controller
 {
     private const STATUS_OPTIONS = ['all', 'pending', 'completed', 'disputed', 'cancelled', 'refunded'];
-
-    private function paymentMethodForFees(Order $order): string
-    {
-        return EffectiveMerchantFees::feeMethodForOrder($order);
-    }
-
-    private function orderSourceForFees(Order $order): ?string
-    {
-        $meta = $order->metadata ?? [];
-        if (! is_array($meta)) {
-            return null;
-        }
-        $s = $meta['source'] ?? null;
-
-        return is_string($s) && $s !== '' ? $s : null;
-    }
-
-    /**
-     * @return array{gross: float, fee: float, net: float}
-     */
-    private function orderFeeBreakdown(Order $order): array
-    {
-        $gross = (float) $order->lineItemsTotalAmount();
-        $tenantId = (int) $order->tenant_id;
-        if ($tenantId < 1) {
-            return ['gross' => $gross, 'fee' => 0.0, 'net' => $gross];
-        }
-        $calc = EffectiveMerchantFees::calculateSaleFee(
-            $tenantId,
-            $this->paymentMethodForFees($order),
-            $gross,
-            $this->orderSourceForFees($order)
-        );
-
-        return [
-            'gross' => $gross,
-            'fee' => $calc['fee'],
-            'net' => $calc['net'],
-        ];
-    }
 
     private function productDisplayName(Order $order): string
     {
@@ -148,7 +108,7 @@ class TransactionsController extends Controller
 
             $ordersPaginator = $paginated->through(function (Order $o) use ($openMedOrderIds) {
                 $arr = $o->toArray();
-                $breakdown = $this->orderFeeBreakdown($o);
+                $breakdown = OrderFeeBreakdownService::forOrder($o);
                 $arr['gateway_label'] = $o->paymentMethodDisplayLabel();
                 $arr['product_display_name'] = $this->productDisplayName($o);
                 $arr['checkout_url'] = url('/c/'.$o->getCheckoutSlug());

@@ -282,7 +282,7 @@ const inputClass =
 </script>
 
 <template>
-    <div class="flex h-[calc(100vh-4.5rem)] min-h-0 flex-col gap-6">
+    <div class="flex min-h-0 flex-col gap-6 max-lg:h-[calc(100dvh-11rem)] lg:h-[calc(100dvh-4.5rem)]">
         <div class="shrink-0">
             <nav class="text-sm text-zinc-500 dark:text-zinc-400" aria-label="Breadcrumb">
                 <Link href="/produtos" class="hover:text-zinc-700 dark:hover:text-zinc-300">Produtos</Link>
@@ -297,7 +297,9 @@ const inputClass =
 
         <div class="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
             <!-- Sidebar esquerda: rolagem apenas aqui -->
-            <div class="w-full shrink-0 space-y-4 overflow-y-auto lg:w-[380px]">
+            <div
+                class="min-h-0 w-full flex-1 space-y-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] lg:flex-none lg:shrink-0 lg:w-[380px]"
+            >
                 <!-- Tabs -->
                 <div
                     class="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-800"
@@ -1040,8 +1042,8 @@ const inputClass =
                 </Button>
             </div>
 
-            <!-- Área direita: preview fixo (sem rolagem) -->
-            <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50/50 dark:border-zinc-700 dark:bg-zinc-800/50">
+            <!-- Área direita: preview (oculto no mobile para liberar rolagem do painel de configuração) -->
+            <div class="hidden min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50/50 dark:border-zinc-700 dark:bg-zinc-800/50 lg:flex">
                 <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-2 dark:border-zinc-700">
                     <div>
                         <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Preview em tempo real</p>

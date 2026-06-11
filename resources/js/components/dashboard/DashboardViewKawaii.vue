@@ -197,6 +197,7 @@ const kawaiiChartOptions = computed(() => {
                     :icon="ShoppingBag"
                     :label="labels.cartAbandonment"
                     :value="displayNumber(abandono_carrinho)"
+                    href="/relatorios"
                     variant="stacked"
                     tint="pink"
                 />
@@ -204,6 +205,7 @@ const kawaiiChartOptions = computed(() => {
                     :icon="RotateCcw"
                     :label="labels.refunds"
                     :value="displayCurrency(reembolsos_total)"
+                    href="/reembolsos"
                     variant="stacked"
                     tint="orange"
                 />
@@ -211,6 +213,7 @@ const kawaiiChartOptions = computed(() => {
                     :icon="Package"
                     :label="labels.products"
                     :value="displayNumber(quantidade_produtos)"
+                    href="/produtos"
                     variant="stacked"
                     tint="sky"
                 />

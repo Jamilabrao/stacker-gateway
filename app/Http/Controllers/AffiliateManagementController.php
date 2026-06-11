@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
+use App\Services\AffiliateEnrollmentNotifier;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\RedirectResponse;
@@ -137,6 +138,7 @@ class AffiliateManagementController extends Controller
 
         $enrollment->update(['status' => ProductAffiliateEnrollment::STATUS_APPROVED]);
         $enrollment->ensurePublicRef();
+        app(AffiliateEnrollmentNotifier::class)->notifyApproved($enrollment->fresh());
 
         return back()->with('success', 'Afiliação aprovada.');
     }

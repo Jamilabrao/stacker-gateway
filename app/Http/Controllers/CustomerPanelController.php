@@ -65,6 +65,7 @@ class CustomerPanelController extends Controller
             DB::transaction(function () use ($order, $user, $validated) {
                 $rr = $this->refundRequestService->createFromCustomer($order, $user, $validated['reason']);
                 $this->refundRequestService->notifySeller($rr);
+                $this->refundRequestService->notifyPlatformAdmins($rr);
             });
         } catch (\Throwable $e) {
             report($e);

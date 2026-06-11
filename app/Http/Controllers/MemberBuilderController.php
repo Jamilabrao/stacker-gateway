@@ -20,6 +20,7 @@ use App\Models\MemberPushSubscription;
 use App\Http\Middleware\ApplyBrandingConfig;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use App\Services\MemberAreaResolver;
 use App\Services\MemberCommentService;
@@ -1235,7 +1236,7 @@ class MemberBuilderController extends Controller
         $this->authorizeProduct($produto);
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
-            'icon' => ['nullable', 'string', 'max:50'],
+            'icon' => ['nullable', 'string', 'max:100'],
             'slug' => ['nullable', 'string', 'max:255'],
             'banner' => ['nullable', 'string', 'max:500'],
             'is_public_posting' => ['boolean'],
@@ -1245,16 +1246,22 @@ class MemberBuilderController extends Controller
             MemberCommunityPage::where('product_id', $produto->id)->update(['is_default' => false]);
         }
         $max = MemberCommunityPage::where('product_id', $produto->id)->max('position') ?? 0;
-        MemberCommunityPage::create([
-            'product_id' => $produto->id,
-            'title' => $validated['title'],
-            'icon' => $validated['icon'] ?? null,
-            'slug' => $validated['slug'] ?? null,
-            'banner' => $validated['banner'] ?? null,
-            'position' => $max + 1,
-            'is_public_posting' => $request->boolean('is_public_posting', true),
-            'is_default' => $request->boolean('is_default', false),
-        ]);
+
+        try {
+            MemberCommunityPage::create([
+                'product_id' => $produto->id,
+                'title' => $validated['title'],
+                'icon' => $validated['icon'] ?? null,
+                'slug' => $validated['slug'] ?? null,
+                'banner' => $validated['banner'] ?? null,
+                'position' => $max + 1,
+                'is_public_posting' => $request->boolean('is_public_posting', true),
+                'is_default' => $request->boolean('is_default', false),
+            ]);
+        } catch (QueryException $e) {
+            return $this->communityPageSaveErrorResponse($request, 'Não foi possível criar a página. Verifique se já existe uma página com o mesmo identificador.');
+        }
+
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
@@ -1273,7 +1280,7 @@ class MemberBuilderController extends Controller
         }
         $validated = $request->validate([
             'title' => ['sometimes', 'string', 'max:255'],
-            'icon' => ['nullable', 'string', 'max:50'],
+            'icon' => ['nullable', 'string', 'max:100'],
             'slug' => ['nullable', 'string', 'max:255'],
             'banner' => ['nullable', 'string', 'max:500'],
             'position' => ['sometimes', 'integer', 'min:0'],
@@ -1283,7 +1290,13 @@ class MemberBuilderController extends Controller
         if ($request->boolean('is_default')) {
             MemberCommunityPage::where('product_id', $produto->id)->where('id', '!=', $page->id)->update(['is_default' => false]);
         }
-        $page->update($validated);
+
+        try {
+            $page->update($validated);
+        } catch (QueryException $e) {
+            return $this->communityPageSaveErrorResponse($request, 'Não foi possível atualizar a página. Verifique se já existe uma página com o mesmo identificador.');
+        }
+
         if ($request->expectsJson()) {
             return response()->json([
                 'success' => true,
@@ -1317,17 +1330,28 @@ class MemberBuilderController extends Controller
     private function buildCommunityPagesPayload(Product $produto): array
     {
         $produto->load('memberCommunityPages');
+        $storage = new StorageService($produto->tenant_id);
+
         return $produto->memberCommunityPages->map(fn (MemberCommunityPage $p) => [
             'id' => $p->id,
             'title' => $p->title,
             'icon' => $p->icon,
             'slug' => $p->slug,
             'banner' => $p->banner,
-            'banner_url' => $p->banner ? app(StorageService::class)->url($p->banner) : null,
+            'banner_url' => $p->banner ? $storage->url($p->banner) : null,
             'position' => $p->position,
             'is_public_posting' => $p->is_public_posting,
             'is_default' => (bool) ($p->is_default ?? false),
         ])->values()->all();
+    }
+
+    private function communityPageSaveErrorResponse(Request $request, string $message): JsonResponse|RedirectResponse
+    {
+        if ($request->expectsJson()) {
+            return response()->json(['message' => $message], 422);
+        }
+
+        return back()->with('error', $message);
     }
 
     public function sendPushNotification(Request $request, Product $produto): JsonResponse

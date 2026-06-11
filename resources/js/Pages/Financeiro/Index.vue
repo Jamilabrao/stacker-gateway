@@ -31,6 +31,7 @@ const props = defineProps({
     /** Dígitos do documento do titular (KYC) para pré-preencher CajuPay */
     caju_pix_owner_document_hint: { type: String, default: '' },
     settlement_preview: { type: Object, default: () => ({}) },
+    pending_receive_by_date: { type: Array, default: () => [] },
     seller_profile: {
         type: Object,
         default: () => ({ name: '', email: '', document: null }),
@@ -263,6 +264,21 @@ const payoutPixTypeDisplay = computed(() => {
 
 const hasReservePending = computed(() => (Number(props.wallet?.reserve_pending_total) || 0) > 0.0001);
 
+const pendingReceiveByDate = computed(() =>
+    (props.pending_receive_by_date ?? []).filter((row) => (Number(row.amount) || 0) > 0)
+);
+
+function formatPendingReleaseDate(isoDate) {
+    if (!isoDate) {
+        return t('finance.pending_date_unknown', 'Data a confirmar');
+    }
+    const [y, m, d] = String(isoDate).split('-');
+    if (!y || !m || !d) {
+        return isoDate;
+    }
+    return `${d}/${m}/${y}`;
+}
+
 const settlementCards = computed(() => {
     const fees = props.fee_preview || {};
     const sp = props.settlement_preview || {};
@@ -391,7 +407,34 @@ const inputClass =
                     </div>
                     <p class="mt-3 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ t('finance.pending_receive', 'A receber') }}</p>
                     <p class="mt-1 text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ formatBRL(wallet.pending_total) }}</p>
-                    <p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">{{ t('finance.settling', 'Em liquidação') }}</p>
+                    <p
+                        v-if="!pendingReceiveByDate.length"
+                        class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400"
+                    >
+                        {{ t('finance.settling', 'Em liquidação') }}
+                    </p>
+                    <details
+                        v-else
+                        class="group mt-2 rounded-lg border border-amber-200/60 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20"
+                    >
+                        <summary
+                            class="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] font-medium text-amber-900 dark:text-amber-100 [&::-webkit-details-marker]:hidden"
+                        >
+                            {{ t('finance.pending_release_dates', 'Datas de liberação') }}
+                            <span class="text-[10px] font-normal text-amber-800/80 group-open:hidden dark:text-amber-200/80">{{ t('common.view', 'Ver') }}</span>
+                            <span class="hidden text-[10px] font-normal text-amber-800/80 group-open:inline dark:text-amber-200/80">{{ t('common.hide', 'Ocultar') }}</span>
+                        </summary>
+                        <ul class="space-y-1 border-t border-amber-200/60 px-2.5 py-2 dark:border-amber-900/50">
+                            <li
+                                v-for="(row, idx) in pendingReceiveByDate"
+                                :key="row.date ?? `unknown-${idx}`"
+                                class="flex items-center justify-between gap-2 text-[11px] tabular-nums text-amber-950 dark:text-amber-50"
+                            >
+                                <span>{{ formatPendingReleaseDate(row.date) }}</span>
+                                <span class="font-semibold">{{ formatBRL(row.amount) }}</span>
+                            </li>
+                        </ul>
+                    </details>
                 </div>
 
                 <div

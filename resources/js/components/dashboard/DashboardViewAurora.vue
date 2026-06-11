@@ -213,6 +213,7 @@ const auroraChartOptions = computed(() => {
                     :label="labels.cartAbandonment"
                     :value="displayNumber(abandono_carrinho)"
                     footer="Carrinhos abandonados"
+                    href="/relatorios"
                     variant="stacked"
                     tint="purple"
                 />
@@ -221,6 +222,7 @@ const auroraChartOptions = computed(() => {
                     :label="labels.refunds"
                     :value="displayCurrency(reembolsos_total)"
                     :footer="`${displayNumber(reembolsos_count)} pedido(s)`"
+                    href="/reembolsos"
                     variant="stacked"
                     tint="orange"
                 />
@@ -229,6 +231,7 @@ const auroraChartOptions = computed(() => {
                     :label="labels.products"
                     :value="displayNumber(quantidade_produtos)"
                     footer="Total de produtos"
+                    href="/produtos"
                     variant="stacked"
                     tint="blue"
                 />

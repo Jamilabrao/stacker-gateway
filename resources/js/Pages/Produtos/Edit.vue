@@ -2921,6 +2921,9 @@ function submit() {
                         />
                         <div>
                             <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ t('products.edit.affiliate_page_url', 'Link da página de afiliados') }}</label>
+                            <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                {{ t('products.edit.affiliate_page_url_hint', 'URL opcional com materiais para afiliados (Google Drive, Notion, página de divulgação). Não é o link de checkout.') }}
+                            </p>
                             <input
                                 v-model="affiliateForm.affiliate_page_url"
                                 type="url"
@@ -2982,9 +2985,17 @@ function submit() {
                                     ID afiliado: {{ row.affiliate_user_id ?? '—' }} · ref: {{ row.public_ref || '—' }}
                                     <span v-if="row.updated_at"> · {{ new Date(row.updated_at).toLocaleString() }}</span>
                                 </p>
-                                <div v-if="row.affiliate_link" class="mt-2 flex flex-wrap items-center gap-2">
-                                    <span class="max-w-[min(100%,28rem)] truncate font-mono text-xs text-zinc-600 dark:text-zinc-400">{{ row.affiliate_link }}</span>
-                                    <Button type="button" size="sm" variant="outline" @click="copyAffiliateLink(row.affiliate_link)">{{ t('products.edit.affiliate_copy_link', 'Copiar link') }}</Button>
+                                <div v-if="row.affiliate_link" class="mt-2 space-y-1">
+                                    <p class="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                        {{ t('products.edit.affiliate_checkout_link_label', 'Link de checkout do afiliado') }}
+                                    </p>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-500">
+                                        {{ t('products.edit.affiliate_checkout_link_hint', 'Gerado automaticamente após aprovação. O afiliado usa este link para rastrear vendas.') }}
+                                    </p>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="max-w-[min(100%,28rem)] truncate font-mono text-xs text-zinc-600 dark:text-zinc-400">{{ row.affiliate_link }}</span>
+                                        <Button type="button" size="sm" variant="outline" @click="copyAffiliateLink(row.affiliate_link)">{{ t('products.edit.affiliate_copy_link', 'Copiar link') }}</Button>
+                                    </div>
                                 </div>
                             </div>
                             <div v-if="row.status === 'pending'" class="flex shrink-0 gap-2">

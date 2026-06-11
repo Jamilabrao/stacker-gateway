@@ -94,49 +94,95 @@ function deleteCustomerHistory(user) {
             {{ page.props.flash.error }}
         </p>
 
-        <div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60">
-            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800">
-                <thead class="bg-zinc-50 dark:bg-zinc-800/80">
-                    <tr>
-                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">ID</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Nome</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">E-mail</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Compras</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Ações</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-                    <tr v-for="u in userRows" :key="u.id" class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
-                        <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{{ u.id }}</td>
-                        <td class="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">{{ u.name }}</td>
-                        <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ u.email }}</td>
-                        <td class="px-4 py-3 text-right text-sm text-zinc-800 dark:text-zinc-200">
+        <!-- Mobile: cards com ações visíveis -->
+        <div v-if="userRows.length" class="space-y-3 md:hidden">
+            <article
+                v-for="u in userRows"
+                :key="`mobile-${u.id}`"
+                class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60"
+            >
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0 flex-1">
+                        <p class="break-words text-sm font-semibold text-zinc-900 dark:text-white">{{ u.name }}</p>
+                        <p class="mt-0.5 break-all text-xs text-zinc-500 dark:text-zinc-400">{{ u.email }}</p>
+                        <p class="mt-1 text-xs text-zinc-400">ID {{ u.id }}</p>
+                    </div>
+                    <div class="shrink-0 text-right">
+                        <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">Compras</p>
+                        <p class="mt-0.5 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
                             {{ u.purchases_count ?? 0 }}
-                        </td>
-                        <td class="px-4 py-3 text-right">
-                            <div class="flex flex-wrap justify-end gap-2">
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    @click="deleteCustomerHistory(u)"
-                                >
-                                    Excluir histórico
-                                </Button>
-                                <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    class="!text-red-700 dark:!text-red-300"
-                                    @click="deleteCustomer(u)"
-                                >
-                                    Excluir cliente
-                                </Button>
-                            </div>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+                        </p>
+                    </div>
+                </div>
+                <div class="mt-4 flex flex-col gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        class="w-full justify-center"
+                        @click="deleteCustomerHistory(u)"
+                    >
+                        Excluir histórico
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        class="w-full justify-center !text-red-700 dark:!text-red-300"
+                        @click="deleteCustomer(u)"
+                    >
+                        Excluir cliente
+                    </Button>
+                </div>
+            </article>
+        </div>
+
+        <!-- Desktop: tabela -->
+        <div class="hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60 md:block">
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800">
+                    <thead class="bg-zinc-50 dark:bg-zinc-800/80">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Nome</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">E-mail</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Compras</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                        <tr v-for="u in userRows" :key="u.id" class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
+                            <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{{ u.id }}</td>
+                            <td class="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">{{ u.name }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ u.email }}</td>
+                            <td class="px-4 py-3 text-right text-sm text-zinc-800 dark:text-zinc-200">
+                                {{ u.purchases_count ?? 0 }}
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <div class="flex flex-wrap justify-end gap-2">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        @click="deleteCustomerHistory(u)"
+                                    >
+                                        Excluir histórico
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        class="!text-red-700 dark:!text-red-300"
+                                        @click="deleteCustomer(u)"
+                                    >
+                                        Excluir cliente
+                                    </Button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div v-if="!userRows.length" class="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">

@@ -747,6 +747,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/integracoes/utmify', [\App\Http\Controllers\UtmifyController::class, 'store'])->name('integrations.utmify.store');
         Route::put('/integracoes/utmify/{utmify}', [\App\Http\Controllers\UtmifyController::class, 'update'])->name('integrations.utmify.update');
         Route::delete('/integracoes/utmify/{utmify}', [\App\Http\Controllers\UtmifyController::class, 'destroy'])->name('integrations.utmify.destroy');
+        Route::post('/integracoes/utmify/{utmify}/test', [\App\Http\Controllers\UtmifyController::class, 'test'])->name('integrations.utmify.test');
 
         Route::post('/integracoes/spedy', [\App\Http\Controllers\SpedyController::class, 'store'])->name('integrations.spedy.store');
         Route::put('/integracoes/spedy/{spedy}', [\App\Http\Controllers\SpedyController::class, 'update'])->name('integrations.spedy.update');

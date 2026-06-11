@@ -1,7 +1,9 @@
 <script setup>
+import { ref } from 'vue';
 import { useForm, Link, router } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -13,6 +15,10 @@ const props = defineProps({
 const rejectForm = useForm({
     reason: '',
 });
+
+const stepUpOpen = ref(false);
+const stepUpLoading = ref(false);
+const pendingAction = ref(null);
 
 function kindLabel(k) {
     const m = {
@@ -36,16 +42,50 @@ function revenueLabel(v) {
     return m[v] || v || '—';
 }
 
+function closeStepUp() {
+    stepUpOpen.value = false;
+    stepUpLoading.value = false;
+    pendingAction.value = null;
+}
+
 function approve() {
     if (!confirm('Aprovar a verificação deste infoprodutor?')) return;
-    router.post(`/plataforma/verificacoes-kyc/usuario/${props.merchant.id}/aprovar`);
+    pendingAction.value = 'approve';
+    stepUpOpen.value = true;
 }
 
 function submitReject() {
-    rejectForm.post(`/plataforma/verificacoes-kyc/usuario/${props.merchant.id}/rejeitar`, {
-        preserveScroll: true,
-        onSuccess: () => rejectForm.reset('reason'),
-    });
+    if (!rejectForm.reason?.trim()) return;
+    pendingAction.value = 'reject';
+    stepUpOpen.value = true;
+}
+
+function onStepUpConfirm(payload) {
+    stepUpLoading.value = true;
+    const base = `/plataforma/verificacoes-kyc/usuario/${props.merchant.id}`;
+
+    if (pendingAction.value === 'approve') {
+        router.post(
+            `${base}/aprovar`,
+            { totp_code: payload.totp_code },
+            {
+                preserveScroll: true,
+                onFinish: closeStepUp,
+            },
+        );
+        return;
+    }
+
+    rejectForm
+        .transform((data) => ({
+            ...data,
+            totp_code: payload.totp_code,
+        }))
+        .post(`${base}/rejeitar`, {
+            preserveScroll: true,
+            onSuccess: () => rejectForm.reset('reason'),
+            onFinish: closeStepUp,
+        });
 }
 </script>
 
@@ -107,13 +147,17 @@ function submitReject() {
         <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/40">
             <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Documentos</h2>
             <ul class="mt-4 space-y-2">
-                <li v-for="d in documents" :key="d.public_token || d.id" class="flex flex-wrap items-center justify-between gap-2 text-sm">
-                    <span>{{ kindLabel(d.kind) }}</span>
+                <li
+                    v-for="d in documents"
+                    :key="d.public_token || d.id"
+                    class="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800 dark:bg-zinc-800/40"
+                >
+                    <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ kindLabel(d.kind) }}</span>
                     <a
                         :href="d.download_url"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="font-medium text-[var(--color-primary)] hover:underline"
+                        class="inline-flex w-full items-center justify-center rounded-lg bg-[var(--color-primary)] px-3 py-2 text-center text-sm font-medium text-white hover:opacity-90 sm:w-auto sm:bg-transparent sm:px-0 sm:py-0 sm:text-[var(--color-primary)] sm:hover:underline"
                     >
                         Abrir / baixar
                     </a>
@@ -129,8 +173,10 @@ function submitReject() {
 
         <div v-if="merchant.kyc_status === 'pending_review'" class="flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-900 dark:bg-amber-950/30">
             <p class="text-sm text-amber-950 dark:text-amber-100">Esta conta está aguardando sua decisão.</p>
-            <div class="flex flex-wrap gap-2">
-                <Button type="button" class="bg-emerald-600 text-white hover:bg-emerald-700" @click="approve">Aprovar</Button>
+            <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Button type="button" class="w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto" @click="approve">
+                    Aprovar
+                </Button>
             </div>
             <form class="space-y-2 border-t border-amber-200 pt-4 dark:border-amber-800" @submit.prevent="submitReject">
                 <label class="block text-sm font-medium text-zinc-800 dark:text-zinc-200">Rejeitar (informe o motivo)</label>
@@ -141,10 +187,26 @@ function submitReject() {
                     class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
                 />
                 <p v-if="rejectForm.errors.reason" class="text-sm text-red-600">{{ rejectForm.errors.reason }}</p>
-                <Button type="submit" variant="outline" class="border-red-300 text-red-800 hover:bg-red-50 dark:border-red-800 dark:text-red-200" :disabled="rejectForm.processing">
+                <p v-if="rejectForm.errors.totp_code" class="text-sm text-red-600">{{ rejectForm.errors.totp_code }}</p>
+                <Button
+                    type="submit"
+                    variant="outline"
+                    class="w-full border-red-300 text-red-800 hover:bg-red-50 sm:w-auto dark:border-red-800 dark:text-red-200"
+                    :disabled="rejectForm.processing"
+                >
                     Rejeitar
                 </Button>
             </form>
         </div>
+
+        <PlatformStepUpModal
+            :open="stepUpOpen"
+            :loading="stepUpLoading"
+            :title="pendingAction === 'reject' ? 'Rejeitar verificação KYC' : 'Aprovar verificação KYC'"
+            description="Informe o código 2FA se estiver ativo no seu perfil de operador."
+            :confirm-label="pendingAction === 'reject' ? 'Rejeitar' : 'Aprovar'"
+            @close="closeStepUp"
+            @confirm="onStepUpConfirm"
+        />
     </div>
 </template>

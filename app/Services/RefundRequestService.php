@@ -42,6 +42,11 @@ class RefundRequestService
         Mail::to($owner->email)->send(new RefundRequestSellerMail($request->fresh(['order.product']), $url));
     }
 
+    public function notifyPlatformAdmins(RefundRequest $request): void
+    {
+        app(PlatformEmailNotifications::class)->refundRequested($request->fresh(['order.product']));
+    }
+
     public function approve(User $seller, RefundRequest $request): void
     {
         if ($request->status !== RefundRequest::STATUS_PENDING) {

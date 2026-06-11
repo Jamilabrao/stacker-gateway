@@ -52,17 +52,28 @@ const iconMap = {
     Plug,
 };
 
+const sidebarBadges = computed(() => page.props.platform_admin_sidebar_badges ?? {});
+
+function badgeCount(key) {
+    const n = Number(sidebarBadges.value?.[key] ?? 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function badgeLabel(count) {
+    return count > 99 ? '99+' : String(count);
+}
+
 const navItemsCore = [
     { name: 'Dashboard', href: '/plataforma/dashboard', icon: LayoutDashboard },
     { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
     { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
-    { name: 'Transações', href: '/plataforma/transacoes', icon: ArrowLeftRight },
-    { name: 'Disputas MED', href: '/plataforma/disputas', icon: AlertTriangle },
+    { name: 'Transações', href: '/plataforma/transacoes', icon: ArrowLeftRight, badgeKey: 'transacoes' },
+    { name: 'Disputas MED', href: '/plataforma/disputas', icon: AlertTriangle, badgeKey: 'disputas' },
     { name: 'Produtos', href: '/plataforma/produtos', icon: Package },
-    { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck },
-    { name: 'Saques', href: '/plataforma/saques', icon: Banknote },
+    { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck, badgeKey: 'kyc' },
+    { name: 'Saques', href: '/plataforma/saques', icon: Banknote, badgeKey: 'saques' },
     { name: 'Saldo', href: '/plataforma/saldo', icon: CircleDollarSign },
-    { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet },
+    { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet, badgeKey: 'financeiro' },
     { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
     { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
     { name: 'App', href: '/plataforma/app', icon: Smartphone },
@@ -217,8 +228,24 @@ const linkInactive =
                 :class="isNavItemActive(item.href) ? linkActive : linkInactive"
                 @click="isMobile ? toggleSidebar() : null"
             >
-                <component :is="item.icon" class="h-5 w-5 shrink-0" />
-                <span v-show="showText()">{{ item.name }}</span>
+                <span class="relative shrink-0">
+                    <component :is="item.icon" class="h-5 w-5" />
+                    <span
+                        v-if="item.badgeKey && badgeCount(item.badgeKey) > 0 && !showText()"
+                        class="absolute -right-1.5 -top-1.5 inline-flex min-h-[1rem] min-w-[1rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold leading-none text-white"
+                        :aria-label="`${badgeCount(item.badgeKey)} pendente(s)`"
+                    >
+                        {{ badgeCount(item.badgeKey) > 9 ? '9+' : badgeLabel(badgeCount(item.badgeKey)) }}
+                    </span>
+                </span>
+                <span v-show="showText()" class="min-w-0 flex-1 truncate">{{ item.name }}</span>
+                <span
+                    v-if="item.badgeKey && badgeCount(item.badgeKey) > 0 && showText()"
+                    class="ml-auto inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                    :aria-label="`${badgeCount(item.badgeKey)} pendente(s)`"
+                >
+                    {{ badgeLabel(badgeCount(item.badgeKey)) }}
+                </span>
             </Link>
         </nav>
 

@@ -1786,6 +1786,7 @@ const communityPageModalIcon = ref('');
 const communityPageModalPublic = ref(true);
 const communityPageModalDefault = ref(false);
 const communityPageModalSaving = ref(false);
+const communityPageModalError = ref('');
 const communityPageModalBannerPath = ref('');
 const communityPageModalBannerPreviewUrl = ref('');
 const communityPageModalBannerFile = ref(null);
@@ -1796,6 +1797,7 @@ const communityPageIconPickerOpen = ref(null);
 
 function openCommunityPageModal(page = null) {
     communityPageModalEditing.value = page ?? null;
+    communityPageModalError.value = '';
     if (page) {
         communityPageModalTitle.value = page.title ?? '';
         communityPageModalIcon.value = page.icon ?? '';
@@ -1825,6 +1827,21 @@ function closeCommunityPageModal() {
     communityPageModalBannerPath.value = '';
     communityPageModalBannerPreviewUrl.value = '';
     communityPageModalBannerFile.value = null;
+    communityPageModalError.value = '';
+}
+
+function formatCommunityPageError(err) {
+    const data = err?.response?.data;
+    if (data?.errors && typeof data.errors === 'object') {
+        return Object.values(data.errors).flat().join('\n');
+    }
+    if (typeof data?.message === 'string' && data.message.trim()) {
+        return data.message.trim();
+    }
+    if (typeof err?.message === 'string' && err.message.trim()) {
+        return err.message.trim();
+    }
+    return 'Não foi possível salvar a página da comunidade. Tente novamente.';
 }
 function setCommunityPageModalEmoji(emoji) {
     communityPageModalIcon.value = emoji;
@@ -1866,6 +1883,7 @@ async function saveCommunityPageModal() {
     if (!title) return;
     const editing = communityPageModalEditing.value;
     communityPageModalSaving.value = true;
+    communityPageModalError.value = '';
     try {
         let banner = communityPageModalBannerPath.value || null;
         if (communityPageModalBannerFile.value && !banner) {
@@ -1892,8 +1910,7 @@ async function saveCommunityPageModal() {
         }
         closeCommunityPageModal();
     } catch (err) {
-        const msg = err?.response?.data?.message ?? err?.response?.data?.errors ?? err?.message ?? 'Erro ao salvar.';
-        alert(Array.isArray(msg) ? Object.values(msg).flat().join('\n') : msg);
+        communityPageModalError.value = formatCommunityPageError(err);
     } finally {
         communityPageModalSaving.value = false;
     }
@@ -3928,6 +3945,9 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                         <h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{{ communityPageModalEditing ? 'Editar página' : 'Nova página da comunidade' }}</h3>
                     </div>
                     <div class="space-y-5 p-5">
+                        <p v-if="communityPageModalError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 whitespace-pre-line">
+                            {{ communityPageModalError }}
+                        </p>
                         <div>
                             <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Título da página</label>
                             <input v-model="communityPageModalTitle" type="text" :class="inputClass" placeholder="Ex: Dúvidas, Anúncios..." class="w-full" />

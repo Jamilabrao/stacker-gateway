@@ -24,9 +24,28 @@ class MemberCommunityPage extends Model
     {
         static::creating(function (MemberCommunityPage $page): void {
             if (empty($page->slug)) {
-                $page->slug = Str::slug($page->title);
+                $page->slug = static::uniqueSlugForProduct($page->product_id, (string) $page->title);
+            } else {
+                $page->slug = static::uniqueSlugForProduct($page->product_id, (string) $page->slug, isSlugBase: true);
             }
         });
+    }
+
+    public static function uniqueSlugForProduct(string|int $productId, string $source, bool $isSlugBase = false): string
+    {
+        $base = $isSlugBase ? Str::slug($source) : Str::slug($source);
+        if ($base === '') {
+            $base = 'page-'.substr(uniqid('', true), -8);
+        }
+
+        $slug = $base;
+        $suffix = 2;
+        while (static::query()->where('product_id', $productId)->where('slug', $slug)->exists()) {
+            $slug = $base.'-'.$suffix;
+            $suffix++;
+        }
+
+        return $slug;
     }
 
     public function product(): BelongsTo

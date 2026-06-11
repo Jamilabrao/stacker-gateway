@@ -5,13 +5,14 @@ namespace App\Services;
 use App\Models\CheckoutSession;
 use App\Models\Order;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class UtmifyService
 {
     private const ENDPOINT = 'https://api.utmify.com.br/api-credentials/orders';
 
     /**
-     * Build payload and send order to UTMfy API.
+     * Build payload and send order to UTMIFY API.
      *
      * @param  array{approved_at?: string|null, refunded_at?: string|null}  $options
      */
@@ -26,6 +27,62 @@ class UtmifyService
     }
 
     /**
+     * Send a test order to UTMIFY API.
+     */
+    public function sendTest(string $apiKey): void
+    {
+        $this->post($apiKey, $this->buildTestPayload());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function buildTestPayload(): array
+    {
+        $now = now()->utc()->format('Y-m-d H:i:s');
+        $platform = config('getfy.app_name', 'Getfy');
+
+        return [
+            'orderId' => 'test-'.Str::uuid()->toString(),
+            'platform' => $platform,
+            'paymentMethod' => 'pix',
+            'status' => 'paid',
+            'isTest' => true,
+            'createdAt' => $now,
+            'approvedDate' => $now,
+            'refundedAt' => null,
+            'customer' => [
+                'name' => 'Cliente Exemplo',
+                'email' => 'exemplo@email.com',
+                'phone' => '11999999999',
+                'document' => '12345678900',
+                'country' => 'BR',
+                'ip' => '',
+            ],
+            'products' => [
+                [
+                    'id' => 'test-product',
+                    'name' => 'Produto de teste',
+                    'planId' => null,
+                    'planName' => null,
+                    'quantity' => 1,
+                    'priceInCents' => 1000,
+                ],
+            ],
+            'trackingParameters' => [
+                'utm_source' => 'test',
+                'utm_medium' => 'test',
+                'utm_campaign' => 'test',
+            ],
+            'commission' => [
+                'totalPriceInCents' => 1000,
+                'gatewayFeeInCents' => 0,
+                'userCommissionInCents' => 1000,
+            ],
+        ];
+    }
+
+    /**
      * @param  array{approved_at?: string|null, refunded_at?: string|null, is_test?: bool}  $options
      * @return array<string, mixed>
      */
@@ -37,7 +94,7 @@ class UtmifyService
         $meta = is_array($order->metadata) ? $order->metadata : [];
 
         $orderId = $order->gateway_id ?: (string) $order->id;
-        $paymentMethod = $this->mapPaymentMethod($order->gateway);
+        $paymentMethod = $this->mapPaymentMethod($order);
         $createdAt = $order->created_at->utc()->format('Y-m-d H:i:s');
         $approvedDate = $options['approved_at'] ?? ($utmifyStatus === 'paid' ? $order->updated_at->utc()->format('Y-m-d H:i:s') : null);
         $refundedAt = $options['refunded_at'] ?? null;
@@ -84,7 +141,7 @@ class UtmifyService
             ];
         }
 
-        // Ordem alinhada à documentação UTMfy; omite chaves vazias para não enviar null artificial.
+        // Ordem alinhada à documentação UTMIFY; omite chaves vazias para não enviar null artificial.
         $trackingParameters = [];
         foreach (['src', 'sck', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as $key) {
             $raw = $session?->{$key} ?? ($meta[$key] ?? null);
@@ -105,7 +162,7 @@ class UtmifyService
 
         $body = [
             'orderId' => $orderId,
-            'platform' => 'Primicia',
+            'platform' => config('getfy.app_name', 'Getfy'),
             'paymentMethod' => $paymentMethod,
             'status' => $utmifyStatus,
             'createdAt' => $createdAt,
@@ -125,7 +182,7 @@ class UtmifyService
     }
 
     /**
-     * POST to UTMfy API. Throws on failure.
+     * POST to UTMIFY API. Throws on failure.
      */
     public function post(string $apiKey, array $body): \Illuminate\Http\Client\Response
     {
@@ -135,14 +192,29 @@ class UtmifyService
 
         if (! $response->successful()) {
             throw new \RuntimeException(
-                'UTMfy API error: '.$response->status().' '.$response->body()
+                'UTMIFY API error: '.$response->status().' '.$response->body()
             );
         }
 
         return $response;
     }
 
-    private function mapPaymentMethod(?string $gateway): string
+    private function mapPaymentMethod(Order $order): string
+    {
+        $key = $order->resolveCheckoutPaymentMethodKey();
+        if ($key !== null) {
+            return match ($key) {
+                'pix', 'pix_auto' => 'pix',
+                'boleto' => 'boleto',
+                'card', 'apple_pay', 'google_pay' => 'credit_card',
+                default => $this->mapPaymentMethodFromGateway($order->gateway),
+            };
+        }
+
+        return $this->mapPaymentMethodFromGateway($order->gateway);
+    }
+
+    private function mapPaymentMethodFromGateway(?string $gateway): string
     {
         if (! $gateway) {
             return 'pix';

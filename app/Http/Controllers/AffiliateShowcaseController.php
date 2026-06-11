@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
 use App\Models\User;
+use App\Services\AffiliateEnrollmentNotifier;
 use App\Services\StorageService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -184,6 +185,7 @@ class AffiliateShowcaseController extends Controller
             $enrollment->refresh();
             $enrollment->update(['status' => ProductAffiliateEnrollment::STATUS_APPROVED]);
             $enrollment->ensurePublicRef();
+            app(AffiliateEnrollmentNotifier::class)->notifyApproved($enrollment->fresh());
         }
 
         return back()->with('success', $product->affiliate_manual_approval

@@ -53,18 +53,23 @@ class RelatoriosController extends Controller
 
         $formasPagamento = (clone $ordersQuery)
             ->where('status', 'completed')
-            ->selectRaw('gateway, SUM(amount) as total, COUNT(*) as quantidade')
-            ->groupBy('gateway')
+            ->select(['payment_method', 'metadata', 'gateway', 'amount'])
             ->get()
-            ->map(function ($row) {
-                $label = $this->gatewayLabel($row->gateway);
-
+            ->groupBy(fn (Order $o) => $o->paymentMethodReportKey())
+            ->map(function ($rows, $method) {
                 return [
-                    'metodo' => $row->gateway ?? 'outro',
-                    'label' => $label,
-                    'total' => (float) $row->total,
-                    'quantidade' => (int) $row->quantidade,
+                    'metodo' => $method,
+                    'label' => Order::paymentMethodReportLabel($method),
+                    'total' => (float) $rows->sum(fn (Order $o) => (float) $o->amount),
+                    'quantidade' => (int) $rows->count(),
+                    '_sort' => Order::paymentMethodReportSort($method),
                 ];
+            })
+            ->sortBy('_sort')
+            ->map(function (array $row) {
+                unset($row['_sort']);
+
+                return $row;
             })
             ->values()
             ->all();
@@ -285,25 +290,6 @@ class RelatoriosController extends Controller
         }
 
         return [$start?->toDateTimeString(), $end?->toDateTimeString()];
-    }
-
-    private function gatewayLabel(?string $gateway): string
-    {
-        if ($gateway === null || $gateway === '') {
-            return 'Outro';
-        }
-        $g = strtolower($gateway);
-        if (str_contains($g, 'pix') || in_array($g, ['spacepag'], true)) {
-            return 'Pix';
-        }
-        if (str_contains($g, 'card') || str_contains($g, 'cartao') || str_contains($g, 'cartão') || str_contains($g, 'credito')) {
-            return 'Cartão';
-        }
-        if (str_contains($g, 'boleto')) {
-            return 'Boleto';
-        }
-
-        return ucfirst($gateway);
     }
 
     private function buildGraficoReceita(?int $tenantId, ?string $start, ?string $end): array

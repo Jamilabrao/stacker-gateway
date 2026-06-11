@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Plugins\PluginRegistry;
 use App\Services\CajuPay\CajuPayMedService;
 use App\Services\LegalDocumentsService;
+use App\Services\Platform\PlatformAdminAlertCounts;
 use App\Models\PanelNotification;
 use Illuminate\Support\Facades\Cache;
 
@@ -20,6 +21,8 @@ class InertiaSharedPropsCache
     private const PLUGINS_TTL = 300;
 
     private const HEADER_COUNTS_TTL = 30;
+
+    private const PLATFORM_ADMIN_BADGES_TTL = 30;
 
     private const LEGAL_LINKS_TTL = 600;
 
@@ -119,6 +122,21 @@ class InertiaSharedPropsCache
     public static function forgetHeaderCounts(int $userId, ?int $tenantId): void
     {
         Cache::forget('inertia.header_counts.'.$userId.'.'.($tenantId ?? 0));
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    public function platformAdminSidebarBadges(): array
+    {
+        return Cache::remember('inertia.platform_admin_sidebar_badges', self::PLATFORM_ADMIN_BADGES_TTL, function () {
+            return app(PlatformAdminAlertCounts::class)->sidebarBadges();
+        });
+    }
+
+    public static function forgetPlatformAdminSidebarBadges(): void
+    {
+        Cache::forget('inertia.platform_admin_sidebar_badges');
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\UtmifyIntegration;
+use App\Services\UtmifyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -80,6 +81,32 @@ class UtmifyController extends Controller
         $utmify->delete();
 
         return response()->json(null, 204);
+    }
+
+    public function test(UtmifyIntegration $utmify, UtmifyService $utmifyService): JsonResponse
+    {
+        $this->authorizeIntegration($utmify);
+
+        if (! $utmify->api_key) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Configure a chave de API antes de testar o envio.',
+            ], 422);
+        }
+
+        try {
+            $utmifyService->sendTest($utmify->api_key);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Evento de teste enviado com sucesso para a UTMIFY.',
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     private function authorizeIntegration(UtmifyIntegration $integration): void

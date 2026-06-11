@@ -22,8 +22,8 @@ const APPS_BASE = [
     },
     {
         id: 'utmify',
-        name: 'UTMfy',
-        description: t('integrations.utmify.description', 'Rastreie vendas e envie eventos para a UTMfy. Requer apenas a chave de API.'),
+        name: 'UTMIFY',
+        description: t('integrations.utmify.description', 'Rastreie vendas e envie eventos para a UTMIFY. Requer apenas a chave de API.'),
         image: 'images/integrations/utmify.jpg',
     },
     {
@@ -158,7 +158,7 @@ function onAppClick(app) {
                 </h2>
             </div>
             <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-                {{ t('integrations.subtitle', 'Conecte sua plataforma com sistemas externos via webhooks e outras integrações. Os gateways de pagamento são configurados no painel da plataforma (operador).') }}
+                {{ t('integrations.subtitle', 'Conecte sua plataforma com sistemas externos via webhooks e outras integrações.') }}
             </p>
             <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <AppCard

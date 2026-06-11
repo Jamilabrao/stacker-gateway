@@ -10,6 +10,7 @@ use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Artisan;
+use Inertia\Inertia;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -121,6 +122,10 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $exceptions->render(function (TokenMismatchException $e, Request $request) {
             if ($request->header('X-Inertia')) {
+                if ($request->user()) {
+                    return Inertia::location($request->fullUrl());
+                }
+
                 $login = ($request->is('plataforma') || $request->is('plataforma/*'))
                     ? url('/plataforma/login')
                     : url('/login');

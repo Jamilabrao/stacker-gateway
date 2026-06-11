@@ -1,11 +1,14 @@
 <script setup>
+import { computed } from 'vue';
+import { Link } from '@inertiajs/vue3';
 import { ChevronRight } from 'lucide-vue-next';
 
-defineProps({
+const props = defineProps({
     icon: { type: Object, required: true },
     label: { type: String, required: true },
     value: { type: String, required: true },
     footer: { type: String, default: '' },
+    href: { type: String, default: '' },
     variant: {
         type: String,
         default: 'default',
@@ -17,16 +20,22 @@ defineProps({
         validator: (v) => ['', 'purple', 'orange', 'blue'].includes(v),
     },
 });
+
+const stackedTag = computed(() => (props.href ? Link : 'div'));
+const stackedBind = computed(() => (props.href ? { href: props.href } : {}));
 </script>
 
 <template>
-    <div
+    <component
+        :is="stackedTag"
         v-if="variant === 'stacked'"
+        v-bind="stackedBind"
         class="aurora-stacked-card"
         :class="[
             tint === 'purple' ? 'aurora-tint-purple' : '',
             tint === 'orange' ? 'aurora-tint-orange' : '',
             tint === 'blue' ? 'aurora-tint-blue' : '',
+            href ? 'aurora-stacked-card--link group' : 'aurora-stacked-card--static',
         ]"
     >
         <div class="aurora-icon-box shrink-0">
@@ -43,8 +52,12 @@ defineProps({
                 {{ footer }}
             </p>
         </div>
-        <ChevronRight class="aurora-fg-subtle h-4 w-4 shrink-0 ml-2" />
-    </div>
+        <ChevronRight
+            v-if="href"
+            class="aurora-fg-subtle ml-2 h-4 w-4 shrink-0 transition group-hover:translate-x-0.5"
+            aria-hidden="true"
+        />
+    </component>
 
     <div
         v-else

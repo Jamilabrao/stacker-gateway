@@ -156,11 +156,20 @@ html:not(.dark) [data-seller-template='aurora'] .aurora-nav-active {
     background-color: var(--aurora-panel);
     border: 1px solid var(--aurora-border);
     transition: background-color 0.2s;
-    cursor: pointer;
 }
 
-[data-seller-template='aurora'] .aurora-stacked-card:hover {
+[data-seller-template='aurora'] .aurora-stacked-card--link {
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+}
+
+[data-seller-template='aurora'] .aurora-stacked-card--link:hover {
     background-color: var(--aurora-panel-hover);
+}
+
+[data-seller-template='aurora'] .aurora-stacked-card--static {
+    cursor: default;
 }
 
 [data-seller-template='aurora'] .aurora-icon-box {

@@ -11,6 +11,16 @@ const props = defineProps({
     items: { type: Array, default: () => [] },
     slug: { type: String, required: true },
 });
+
+function checkoutHref(item) {
+    if (item?.checkout_url) {
+        return item.checkout_url;
+    }
+    if (item?.checkout_slug) {
+        return `/c/${item.checkout_slug}`;
+    }
+    return '#';
+}
 </script>
 
 <template>
@@ -27,9 +37,17 @@ const props = defineProps({
                     <p v-if="item.description" class="mt-1 text-sm text-zinc-400 line-clamp-2">{{ item.description }}</p>
                     <div class="mt-4">
                         <Link v-if="item.has_access" :href="`/m/${slug}`" class="text-sm text-[var(--ma-primary)] hover:underline">Acessar área</Link>
-                        <a v-else :href="`/c/${item.checkout_slug}`" target="_blank" rel="noopener">
-                            <Button size="sm">Comprar · R$ {{ item.price }}</Button>
-                        </a>
+                        <Button
+                            v-else
+                            as="a"
+                            :href="checkoutHref(item)"
+                            target="_blank"
+                            rel="noopener"
+                            size="sm"
+                            class="touch-manipulation"
+                        >
+                            Comprar · R$ {{ item.price }}
+                        </Button>
                     </div>
                 </div>
             </div>

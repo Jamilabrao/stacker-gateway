@@ -4,7 +4,7 @@ import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import { X, Plus, Pencil, Trash2, ArrowLeft, Loader2 } from 'lucide-vue-next';
+import { X, Plus, Pencil, Trash2, ArrowLeft, Loader2, Send } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
 
 const props = defineProps({
@@ -33,6 +33,9 @@ const saving = ref(false);
 const deleting = ref(null);
 const confirmingDeleteId = ref(null);
 const errorMessage = ref(null);
+const testing = ref(null);
+const testMessage = ref(null);
+const testSuccess = ref(null);
 
 watch(
     () => [props.open, props.utmify_integrations],
@@ -54,6 +57,8 @@ function resetForm() {
         product_ids: [],
     };
     errorMessage.value = null;
+    testMessage.value = null;
+    testSuccess.value = null;
 }
 
 function startNew() {
@@ -177,6 +182,35 @@ function productSummary(integration) {
     const n = integration.product_ids.length;
     return n === 1 ? '1 produto' : `${n} produtos`;
 }
+
+async function sendTest(integration) {
+    if (!integration?.configured) {
+        testSuccess.value = false;
+        testMessage.value = t('integrations.utmify.test_no_key', 'Configure a chave de API antes de testar.');
+        return;
+    }
+
+    testing.value = integration.id;
+    testMessage.value = null;
+    testSuccess.value = null;
+
+    try {
+        const { data } = await axios.post(`/integracoes/utmify/${integration.id}/test`);
+        testSuccess.value = data.success;
+        testMessage.value =
+            data.message ||
+            (data.success
+                ? t('integrations.utmify.test_success', 'Evento de teste enviado com sucesso!')
+                : t('integrations.utmify.test_fail', 'Falha ao enviar evento de teste.'));
+    } catch (err) {
+        testSuccess.value = false;
+        testMessage.value =
+            err.response?.data?.message ||
+            t('integrations.utmify.test_error', 'Erro ao enviar evento de teste.');
+    } finally {
+        testing.value = null;
+    }
+}
 </script>
 
 <template>
@@ -198,7 +232,7 @@ function productSummary(integration) {
                 <div
                     class="flex items-center justify-between rounded-tl-2xl bg-zinc-50/80 px-5 py-4 dark:bg-zinc-800/50"
                 >
-                    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">UTMfy</h2>
+                    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">UTMIFY</h2>
                     <button
                         type="button"
                         class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-200/80 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
@@ -211,7 +245,7 @@ function productSummary(integration) {
 
                 <div class="flex flex-1 flex-col overflow-y-auto p-5">
                     <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-                        {{ t('integrations.utmify.description', 'Rastreie vendas e envie eventos para UTMfy. Requer apenas a chave de API.') }}
+                        {{ t('integrations.utmify.description', 'Rastreie vendas e envie eventos para a UTMIFY. Requer apenas a chave de API.') }}
                     </p>
 
                     <!-- Lista de integrações -->
@@ -253,6 +287,18 @@ function productSummary(integration) {
                                 </div>
                                 <div class="ml-2 flex items-center gap-1">
                                     <button
+                                        v-if="i.configured"
+                                        type="button"
+                                        class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                                        :disabled="testing === i.id"
+                                        :title="t('integrations.utmify.send_test', 'Testar envio')"
+                                        :aria-label="t('integrations.utmify.send_test', 'Testar envio')"
+                                        @click="sendTest(i)"
+                                    >
+                                        <Loader2 v-if="testing === i.id" class="h-4 w-4 animate-spin" />
+                                        <Send v-else class="h-4 w-4" />
+                                    </button>
+                                    <button
                                         type="button"
                                         class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                                         :aria-label="t('common.edit', 'Editar')"
@@ -272,7 +318,18 @@ function productSummary(integration) {
                             </li>
                         </ul>
                         <p
-                            v-else
+                            v-if="testMessage"
+                            class="mt-3 rounded-lg px-3 py-2 text-sm"
+                            :class="
+                                testSuccess
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                            "
+                        >
+                            {{ testMessage }}
+                        </p>
+                        <p
+                            v-else-if="!utmify_integrations.length"
                             class="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400"
                         >
                             {{ t('integrations.empty', 'Nenhuma integração configurada. Clique em \"Nova integração\" para começar.') }}
@@ -302,7 +359,7 @@ function productSummary(integration) {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class="underline hover:no-underline"
-                            >UTMfy</a>, vá em Integrações → Webhooks → Credenciais de API → Adicionar Credencial.
+                            >UTMIFY</a>, vá em Integrações → Webhooks → Credenciais de API → Adicionar Credencial.
                         </p>
 
                         <div class="space-y-4">
@@ -345,7 +402,7 @@ function productSummary(integration) {
                                         {{ t('integrations.active_integration', 'Integração ativa') }}
                                     </span>
                                     <span class="text-xs text-zinc-500 dark:text-zinc-400">
-                                        {{ t('integrations.utmify.active_hint', 'Enviar eventos de vendas para a UTMfy') }}
+                                        {{ t('integrations.utmify.active_hint', 'Enviar eventos de vendas para a UTMIFY') }}
                                     </span>
                                 </div>
                                 <Toggle v-model="form.is_active" />
@@ -427,7 +484,7 @@ function productSummary(integration) {
                 class="relative max-w-sm rounded-xl bg-white p-5 shadow-xl dark:bg-zinc-900"
             >
                 <p class="text-sm text-zinc-700 dark:text-zinc-300">
-                    {{ t('integrations.utmify.delete_confirm', 'Deseja realmente excluir esta integração UTMfy? Os eventos deixarão de ser enviados.') }}
+                    {{ t('integrations.utmify.delete_confirm', 'Deseja realmente excluir esta integração UTMIFY? Os eventos deixarão de ser enviados.') }}
                 </p>
                 <div class="mt-4 flex justify-end gap-2">
                     <Button variant="outline" @click="cancelDelete">

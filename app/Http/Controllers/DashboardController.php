@@ -65,14 +65,14 @@ class DashboardController extends Controller
             ->get();
 
         $formasPagamento = $formasPagamentoRows
-            ->groupBy(fn (Order $o) => $this->resolvePaymentMethodKey($o))
+            ->groupBy(fn (Order $o) => $o->paymentMethodReportKey())
             ->map(function ($rows, $method) {
                 return [
                     'metodo' => $method,
-                    'label' => $this->paymentMethodLabel($method),
+                    'label' => Order::paymentMethodReportLabel($method),
                     'total' => (float) $rows->sum(fn (Order $o) => (float) $o->amount),
                     'quantidade' => (int) $rows->count(),
-                    '_sort' => $this->paymentMethodSort($method),
+                    '_sort' => Order::paymentMethodReportSort($method),
                 ];
             })
             ->sortBy('_sort')
@@ -189,57 +189,6 @@ class DashboardController extends Controller
         }
 
         return [$start?->toDateTimeString(), $end?->toDateTimeString()];
-    }
-
-    private function resolvePaymentMethodKey(Order $order): string
-    {
-        $meta = is_array($order->metadata) ? $order->metadata : [];
-        $method = strtolower(trim((string) ($meta['checkout_payment_method'] ?? $order->payment_method ?? '')));
-        if ($method === 'pix_auto') {
-            $method = 'pix';
-        }
-        if (in_array($method, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
-            $method = 'pix';
-        }
-        if (in_array($method, ['pix', 'card', 'boleto'], true)) {
-            return $method;
-        }
-
-        $gateway = strtolower(trim((string) ($order->gateway ?? '')));
-        if ($gateway === '') {
-            return 'outro';
-        }
-        if (str_contains($gateway, 'pix') || in_array($gateway, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
-            return 'pix';
-        }
-        if ($gateway === 'card' || str_contains($gateway, 'cartao') || str_contains($gateway, 'cartão') || str_contains($gateway, 'credito')) {
-            return 'card';
-        }
-        if ($gateway === 'boleto' || str_contains($gateway, 'boleto')) {
-            return 'boleto';
-        }
-
-        return 'outro';
-    }
-
-    private function paymentMethodLabel(string $method): string
-    {
-        return match ($method) {
-            'pix' => 'PIX',
-            'card' => 'Cartão',
-            'boleto' => 'Boleto',
-            default => 'Outro',
-        };
-    }
-
-    private function paymentMethodSort(string $method): int
-    {
-        return match ($method) {
-            'pix' => 1,
-            'card' => 2,
-            'boleto' => 3,
-            default => 99,
-        };
     }
 
     private function buildGraficoVendas(?int $tenantId, string $period, ?string $start, ?string $end): array
