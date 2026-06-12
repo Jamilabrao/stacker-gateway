@@ -7,6 +7,7 @@ use App\Mail\KycRejectedMail;
 use App\Mail\KycSubmittedAdminMail;
 use App\Mail\RefundRequestAdminMail;
 use App\Mail\WelcomeInfoprodutorMail;
+use App\Mail\ManualApprovalPinResetAdminMail;
 use App\Mail\WithdrawalFailedAdminMail;
 use App\Mail\WithdrawalPayoutErrorAdminMail;
 use App\Models\RefundRequest;
@@ -125,6 +126,22 @@ class PlatformEmailNotifications
         $this->mail->send(
             new KycRejectedMail($merchant, $branding, $reason, $kycUrl),
             $merchant->email
+        );
+    }
+
+    public function manualApprovalPinReset(string $pin, User $requestedBy): void
+    {
+        $emails = $this->adminRecipients();
+        if ($emails === []) {
+            return;
+        }
+
+        $branding = BrandingEmailData::forTenant(null);
+        $settingsUrl = route('plataforma.financeiro.index', ['tab' => 'saques']);
+
+        $this->mail->send(
+            new ManualApprovalPinResetAdminMail($pin, $requestedBy, $branding, $settingsUrl),
+            $emails
         );
     }
 

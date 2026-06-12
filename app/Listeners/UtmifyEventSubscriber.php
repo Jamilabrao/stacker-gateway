@@ -11,6 +11,8 @@ use App\Jobs\UtmifySendOrderJob;
 use App\Models\UtmifyIntegration;
 use App\Support\IntegrationJobDispatch;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 
 class UtmifyEventSubscriber
 {
@@ -72,11 +74,32 @@ class UtmifyEventSubscriber
             ->with('products:id')
             ->get();
 
+        if ($integrations->isEmpty()) {
+            Log::info('UtmifyEventSubscriber: no active integration for tenant', [
+                'tenant_id' => $tenantId,
+                'order_id' => $order->id,
+                'status' => $utmifyStatus,
+            ]);
+
+            return;
+        }
+
+        $dispatched = 0;
+
         foreach ($integrations as $integration) {
             if (! $integration->api_key) {
+                Log::debug('UtmifyEventSubscriber: integration skipped (no api key)', [
+                    'utmify_integration_id' => $integration->id,
+                    'order_id' => $order->id,
+                ]);
                 continue;
             }
             if (! $integration->appliesToOrder($order)) {
+                Log::debug('UtmifyEventSubscriber: integration skipped (product filter)', [
+                    'utmify_integration_id' => $integration->id,
+                    'order_id' => $order->id,
+                    'product_id' => $order->product_id,
+                ]);
                 continue;
             }
 
@@ -97,7 +120,35 @@ class UtmifyEventSubscriber
                     $refundedAt
                 );
             }
+
+            $dispatched++;
+
+            Log::debug('UtmifyEventSubscriber: job dispatched', [
+                'utmify_integration_id' => $integration->id,
+                'order_id' => $order->id,
+                'status' => $utmifyStatus,
+                'sync' => IntegrationJobDispatch::shouldDispatchSync(),
+                'queue_connection' => config('queue.default'),
+                'queue_size' => $this->queueSize(),
+            ]);
+        }
+
+        if ($dispatched === 0) {
+            Log::info('UtmifyEventSubscriber: no integration matched order', [
+                'tenant_id' => $tenantId,
+                'order_id' => $order->id,
+                'status' => $utmifyStatus,
+                'integrations_checked' => $integrations->count(),
+            ]);
         }
     }
 
+    private function queueSize(): ?int
+    {
+        try {
+            return Queue::size();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
 }

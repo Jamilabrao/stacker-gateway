@@ -23,8 +23,12 @@ class PanelPushService
     public function sendAndPersistToTenant(?int $tenantId, string $type, string $title, string $body, ?string $url = null, ?string $eventKey = null): int
     {
         $subscriptions = PanelPushSubscription::where('tenant_id', $tenantId)->get();
+
+        if ($subscriptions->isEmpty()) {
+            return 0;
+        }
+
         $userIds = $subscriptions->pluck('user_id')->unique()->filter()->values();
-        $anyNewNotification = false;
 
         foreach ($userIds as $userId) {
             $attrs = [
@@ -36,29 +40,30 @@ class PanelPushService
                 'url' => $url,
             ];
             if ($eventKey !== null && $eventKey !== '') {
-                $notification = PanelNotification::firstOrCreate(
+                PanelNotification::firstOrCreate(
                     [
                         'user_id' => $userId,
                         'event_key' => $eventKey,
                     ],
                     array_merge($attrs, ['event_key' => $eventKey])
                 );
-                if ($notification->wasRecentlyCreated) {
-                    $anyNewNotification = true;
-                }
             } else {
                 PanelNotification::create($attrs);
-                $anyNewNotification = true;
             }
         }
 
-        if ($eventKey !== null && $eventKey !== '' && ! $anyNewNotification) {
-            return 0;
-        }
-
         $result = $this->sendToSubscriptions($subscriptions, $title, $body, $url);
+        $sent = (int) ($result['sent'] ?? 0);
 
-        return (int) ($result['sent'] ?? 0);
+        Log::info('PanelPushService: sendAndPersistToTenant', [
+            'tenant_id' => $tenantId,
+            'type' => $type,
+            'event_key' => $eventKey,
+            'sent' => $sent,
+            'total_subscriptions' => $subscriptions->count(),
+        ]);
+
+        return $sent;
     }
 
     /**

@@ -68,6 +68,12 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($request->ip().'|'.$email);
         });
 
+        RateLimiter::for('platform-pin-reset', function (Request $request) {
+            $userId = $request->user()?->id;
+
+            return Limit::perMinutes(30, 3)->by('platform-pin-reset:'.($userId ?? $request->ip()));
+        });
+
         RateLimiter::for('api', function (Request $request) {
             $publicKey = trim((string) $request->header('X-Public-Key', ''));
             if ($publicKey !== '') {
@@ -160,11 +166,11 @@ class AppServiceProvider extends ServiceProvider
             Cache::put('queue_heartbeat', now()->toIso8601String(), now()->addMinutes(5));
         });
 
+        Event::listen(OrderCompleted::class, SendPanelPushOnOrderCompleted::class, 100);
         Event::listen(OrderCompleted::class, CreditTenantWalletOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, ForgetInertiaSharedCacheOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, IncrementCouponUsageOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, SendAccessEmailOnOrderCompleted::class);
-        Event::listen(OrderCompleted::class, SendPanelPushOnOrderCompleted::class);
         Event::listen(PixGenerated::class, SendPanelPushOnPixGenerated::class);
         Event::listen(BoletoGenerated::class, SendPanelPushOnBoletoGenerated::class);
         Event::subscribe(WebhookEventSubscriber::class);

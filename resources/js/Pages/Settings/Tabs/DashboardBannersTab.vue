@@ -3,11 +3,17 @@ import { onMounted, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import { Upload, Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-vue-next';
 
+const DEFAULT_SPECS = {
+    desktop: { width: 1600, height: 320, label: '1600×320 px' },
+    mobile: { width: 1200, height: 420, label: '1200×420 px' },
+};
+
 const loading = ref(true);
 const saving = ref(false);
 const error = ref('');
 const items = ref([]);
 const uploadingKey = ref('');
+const specs = ref({ ...DEFAULT_SPECS });
 
 function uid() {
     return `banner_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -24,12 +30,51 @@ function normalize(list) {
     }));
 }
 
+function specLabel(variant) {
+    return specs.value[variant]?.label || DEFAULT_SPECS[variant]?.label || '';
+}
+
+function validateImageDimensions(file, variant) {
+    const expected = specs.value[variant] || DEFAULT_SPECS[variant];
+    if (!expected) {
+        return Promise.reject(new Error('Variante de banner inválida.'));
+    }
+
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+
+        img.onload = () => {
+            URL.revokeObjectURL(objectUrl);
+            if (img.naturalWidth === expected.width && img.naturalHeight === expected.height) {
+                resolve();
+                return;
+            }
+            reject(
+                new Error(
+                    `A imagem ${variant === 'mobile' ? 'mobile' : 'desktop'} deve ter exatamente ${expected.label} (arquivo: ${img.naturalWidth}×${img.naturalHeight}).`
+                )
+            );
+        };
+
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Não foi possível ler a imagem selecionada.'));
+        };
+
+        img.src = objectUrl;
+    });
+}
+
 async function load() {
     loading.value = true;
     error.value = '';
     try {
         const res = await window.axios.get('/plataforma/configuracoes/banners-dashboard/data');
         items.value = normalize(res.data?.banners || []);
+        if (res.data?.specs) {
+            specs.value = { ...DEFAULT_SPECS, ...res.data.specs };
+        }
     } catch (e) {
         error.value = e?.response?.data?.message || 'Nao foi possível carregar os banners da dashboard.';
     } finally {
@@ -75,11 +120,13 @@ async function uploadImage(event, item, variant) {
     uploadingKey.value = key;
     error.value = '';
 
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('variant', variant);
-
     try {
+        await validateImageDimensions(file, variant);
+
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('variant', variant);
+
         const res = await window.axios.post('/plataforma/configuracoes/banners-dashboard/upload', fd, {
             headers: { 'Content-Type': 'multipart/form-data' },
         });
@@ -87,7 +134,8 @@ async function uploadImage(event, item, variant) {
         if (variant === 'desktop') item.desktop_url = url;
         if (variant === 'mobile') item.mobile_url = url;
     } catch (e) {
-        error.value = e?.response?.data?.message || 'Erro ao enviar imagem do banner.';
+        const apiMsg = e?.response?.data?.errors?.file?.[0] || e?.response?.data?.message;
+        error.value = apiMsg || e?.message || 'Erro ao enviar imagem do banner.';
     } finally {
         uploadingKey.value = '';
     }
@@ -126,7 +174,7 @@ onMounted(load);
                     Exibido abaixo do header e acima dos cards. Carrossel automático com desktop e mobile por slide.
                 </p>
                 <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    Dimensões recomendadas: Desktop 1600x320px | Mobile 1200x420px.
+                    Dimensões exatas (obrigatórias): Desktop {{ specLabel('desktop') }} | Mobile {{ specLabel('mobile') }}.
                 </p>
             </div>
             <Button type="button" class="inline-flex items-center gap-2" @click="addItem">
@@ -181,28 +229,32 @@ onMounted(load);
                 <div class="grid gap-4 md:grid-cols-2">
                     <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-600">
                         <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Desktop</p>
-                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">1600x320px (faixa panorâmica)</p>
-                        <div v-if="item.desktop_url" class="mt-3">
-                            <img :src="item.desktop_url" alt="Banner desktop" class="h-28 w-full rounded object-cover" />
+                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            {{ specLabel('desktop') }} — envie a imagem nesta medida exata.
+                        </p>
+                        <div v-if="item.desktop_url" class="mt-3 aspect-[1600/320] w-full overflow-hidden rounded">
+                            <img :src="item.desktop_url" alt="Banner desktop" class="h-full w-full object-cover" />
                         </div>
                         <label class="mt-3 inline-flex cursor-pointer items-center gap-2 text-sm text-[var(--color-primary)]">
                             <Upload class="h-4 w-4" />
                             {{ item.desktop_url ? 'Substituir desktop' : 'Enviar desktop' }}
-                            <input type="file" accept="image/*" class="hidden" @change="(e) => uploadImage(e, item, 'desktop')" />
+                            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" @change="(e) => uploadImage(e, item, 'desktop')" />
                         </label>
                         <p v-if="uploadingKey === `${item.id}-desktop`" class="mt-1 text-xs text-zinc-500">Enviando...</p>
                     </div>
 
                     <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-600">
                         <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Mobile</p>
-                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">1200x420px (faixa paisagem)</p>
-                        <div v-if="item.mobile_url" class="mt-3 flex">
-                            <img :src="item.mobile_url" alt="Banner mobile" class="h-20 w-36 rounded object-cover" />
+                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            {{ specLabel('mobile') }} — envie a imagem nesta medida exata.
+                        </p>
+                        <div v-if="item.mobile_url" class="mt-3 aspect-[1200/420] w-full overflow-hidden rounded">
+                            <img :src="item.mobile_url" alt="Banner mobile" class="h-full w-full object-cover" />
                         </div>
                         <label class="mt-3 inline-flex cursor-pointer items-center gap-2 text-sm text-[var(--color-primary)]">
                             <Upload class="h-4 w-4" />
                             {{ item.mobile_url ? 'Substituir mobile' : 'Enviar mobile' }}
-                            <input type="file" accept="image/*" class="hidden" @change="(e) => uploadImage(e, item, 'mobile')" />
+                            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" @change="(e) => uploadImage(e, item, 'mobile')" />
                         </label>
                         <p v-if="uploadingKey === `${item.id}-mobile`" class="mt-1 text-xs text-zinc-500">Enviando...</p>
                     </div>

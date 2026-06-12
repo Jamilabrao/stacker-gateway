@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button.vue';
 import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
 import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
-import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare } from 'lucide-vue-next';
+import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare, Search } from 'lucide-vue-next';
 import {
     formatPercentForInput,
     normalizeMerchantFeeOverridesForSubmit,
@@ -17,6 +17,7 @@ defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
     users: { type: Array, default: () => [] },
+    q: { type: String, default: null },
     gateways: { type: Array, default: () => [] },
     platform_gateway_order: {
         type: Object,
@@ -26,6 +27,20 @@ const props = defineProps({
 });
 
 const page = usePage();
+
+const searchQ = ref(props.q ?? '');
+
+watch(
+    () => props.q,
+    (v) => {
+        searchQ.value = v ?? '';
+    }
+);
+
+function applySearch() {
+    const q = searchQ.value?.trim() || undefined;
+    router.get('/plataforma/usuarios', { q }, { preserveState: true, replace: true });
+}
 
 const editUser = ref(null);
 const deletingId = ref(null);
@@ -470,6 +485,24 @@ function formatBlockUntilForInput(iso) {
             </Link>
         </div>
 
+        <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
+            <div class="relative min-w-[200px] flex-1">
+                <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <input
+                    v-model="searchQ"
+                    type="search"
+                    placeholder="Nome, e-mail, documento ou ID"
+                    class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+            </div>
+            <button
+                type="submit"
+                class="rounded-xl bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+            >
+                Pesquisar
+            </button>
+        </form>
+
         <p
             v-if="page.props.flash?.success"
             class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
@@ -553,7 +586,9 @@ function formatBlockUntilForInput(iso) {
                         </td>
                     </tr>
                     <tr v-if="!users.length">
-                        <td colspan="8" class="px-4 py-10 text-center text-zinc-500">Nenhum infoprodutor cadastrado.</td>
+                        <td colspan="8" class="px-4 py-10 text-center text-zinc-500">
+                            {{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}
+                        </td>
                     </tr>
                 </tbody>
             </table>

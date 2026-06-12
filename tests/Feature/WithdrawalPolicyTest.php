@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Mail\ManualApprovalPinResetAdminMail;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Services\WithdrawalAutoPayoutService;
 use App\Models\Withdrawal;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -75,5 +78,115 @@ class WithdrawalPolicyTest extends TestCase
         $response->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'saques']));
         $this->assertFalse(WithdrawalPolicyService::autoWithdrawalEnabled());
         $this->assertTrue(WithdrawalPolicyService::verifyManualApprovalPin('1234'));
+    }
+
+    public function test_pin_change_requires_current_pin_when_pin_exists(): void
+    {
+        $admin = $this->platformAdmin();
+        WithdrawalPolicyService::setManualApprovalPin('1234');
+
+        $response = $this->actingAs($admin)->put(route('plataforma.financeiro.saques-politica.update'), [
+            'manual_approval_pin' => '5678',
+            'manual_approval_pin_confirmation' => '5678',
+        ]);
+
+        $response->assertSessionHasErrors('current_manual_approval_pin');
+        $this->assertTrue(WithdrawalPolicyService::verifyManualApprovalPin('1234'));
+    }
+
+    public function test_pin_change_with_wrong_current_pin_fails(): void
+    {
+        $admin = $this->platformAdmin();
+        WithdrawalPolicyService::setManualApprovalPin('1234');
+
+        $response = $this->actingAs($admin)->put(route('plataforma.financeiro.saques-politica.update'), [
+            'current_manual_approval_pin' => '9999',
+            'manual_approval_pin' => '5678',
+            'manual_approval_pin_confirmation' => '5678',
+        ]);
+
+        $response->assertSessionHasErrors('current_manual_approval_pin');
+        $this->assertTrue(WithdrawalPolicyService::verifyManualApprovalPin('1234'));
+    }
+
+    public function test_pin_change_with_correct_current_pin_succeeds(): void
+    {
+        $admin = $this->platformAdmin();
+        WithdrawalPolicyService::setManualApprovalPin('1234');
+
+        $response = $this->actingAs($admin)->put(route('plataforma.financeiro.saques-politica.update'), [
+            'current_manual_approval_pin' => '1234',
+            'manual_approval_pin' => '5678',
+            'manual_approval_pin_confirmation' => '5678',
+        ]);
+
+        $response->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'saques']));
+        $this->assertTrue(WithdrawalPolicyService::verifyManualApprovalPin('5678'));
+        $this->assertFalse(WithdrawalPolicyService::verifyManualApprovalPin('1234'));
+    }
+
+    public function test_pin_reset_sends_admin_email_when_configured(): void
+    {
+        Mail::fake();
+
+        $admin = $this->platformAdmin();
+        WithdrawalPolicyService::setManualApprovalPin('1234');
+        Setting::set('kyc_notification_emails', 'ops@example.com', null);
+
+        $response = $this->actingAs($admin)->post(route('plataforma.financeiro.saques-politica.pin-reset'));
+
+        $response->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'saques']));
+        $response->assertSessionHas('success');
+
+        Mail::assertSent(ManualApprovalPinResetAdminMail::class, function (ManualApprovalPinResetAdminMail $mail) use ($admin) {
+            return $mail->requestedBy->is($admin)
+                && strlen($mail->pin) === 8
+                && ctype_digit($mail->pin);
+        });
+    }
+
+    public function test_pin_reset_without_admin_emails_fails(): void
+    {
+        Mail::fake();
+
+        $admin = $this->platformAdmin();
+        WithdrawalPolicyService::setManualApprovalPin('1234');
+        Setting::set('kyc_notification_emails', '', null);
+
+        $response = $this->actingAs($admin)->post(route('plataforma.financeiro.saques-politica.pin-reset'));
+
+        $response->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'saques']));
+        $response->assertSessionHas('error');
+        Mail::assertNothingSent();
+    }
+
+    public function test_pin_reset_respects_rate_limit(): void
+    {
+        Mail::fake();
+
+        $admin = $this->platformAdmin();
+        WithdrawalPolicyService::setManualApprovalPin('1234');
+        Setting::set('kyc_notification_emails', 'ops@example.com', null);
+
+        RateLimiter::clear('platform-pin-reset:'.$admin->id);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->actingAs($admin)->post(route('plataforma.financeiro.saques-politica.pin-reset'))
+                ->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'saques']));
+        }
+
+        $response = $this->actingAs($admin)->post(route('plataforma.financeiro.saques-politica.pin-reset'));
+
+        $response->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'saques']));
+        $response->assertSessionHas('error');
+        Mail::assertSent(ManualApprovalPinResetAdminMail::class, 3);
+    }
+
+    private function platformAdmin(): User
+    {
+        return User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
     }
 }

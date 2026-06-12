@@ -16,6 +16,7 @@ import {
     Repeat,
 } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
 import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import {
@@ -309,9 +310,15 @@ const withdrawalPolicyForm = useForm({
     hours_start: props.withdrawal_policy?.hours_start || '06:00',
     hours_end: props.withdrawal_policy?.hours_end || '21:00',
     timezone: props.withdrawal_policy?.timezone || 'America/Sao_Paulo',
+    current_manual_approval_pin: '',
     manual_approval_pin: '',
     manual_approval_pin_confirmation: '',
+    totp_code: '',
 });
+
+const pinStepUpOpen = ref(false);
+const pinStepUpLoading = ref(false);
+const pinStepUpAction = ref(null);
 
 watch(
     () => props.withdrawal_policy,
@@ -326,14 +333,71 @@ watch(
     { deep: true }
 );
 
+function clearWithdrawalPinFields() {
+    withdrawalPolicyForm.current_manual_approval_pin = '';
+    withdrawalPolicyForm.manual_approval_pin = '';
+    withdrawalPolicyForm.manual_approval_pin_confirmation = '';
+    withdrawalPolicyForm.totp_code = '';
+}
+
+function isChangingWithdrawalPin() {
+    return String(withdrawalPolicyForm.manual_approval_pin || '').trim() !== '';
+}
+
 function submitWithdrawalPolicy() {
+    if (isChangingWithdrawalPin()) {
+        pinStepUpAction.value = 'change';
+        pinStepUpOpen.value = true;
+        return;
+    }
+
     withdrawalPolicyForm.put('/plataforma/financeiro/saques-politica', {
         preserveScroll: true,
-        onSuccess: () => {
-            withdrawalPolicyForm.manual_approval_pin = '';
-            withdrawalPolicyForm.manual_approval_pin_confirmation = '';
-        },
     });
+}
+
+function openPinResetStepUp() {
+    pinStepUpAction.value = 'reset';
+    pinStepUpOpen.value = true;
+}
+
+function closePinStepUp() {
+    pinStepUpOpen.value = false;
+    pinStepUpLoading.value = false;
+    pinStepUpAction.value = null;
+}
+
+function onPinStepUpConfirm(payload) {
+    pinStepUpLoading.value = true;
+
+    if (pinStepUpAction.value === 'change') {
+        withdrawalPolicyForm.totp_code = payload.totp_code || '';
+        withdrawalPolicyForm.put('/plataforma/financeiro/saques-politica', {
+            preserveScroll: true,
+            onSuccess: () => {
+                clearWithdrawalPinFields();
+                closePinStepUp();
+            },
+            onError: () => {
+                pinStepUpLoading.value = false;
+            },
+            onFinish: () => {
+                withdrawalPolicyForm.totp_code = '';
+            },
+        });
+        return;
+    }
+
+    if (pinStepUpAction.value === 'reset') {
+        router.post(
+            '/plataforma/financeiro/saques-politica/pin-reset',
+            { totp_code: payload.totp_code || '' },
+            {
+                preserveScroll: true,
+                onFinish: () => closePinStepUp(),
+            }
+        );
+    }
 }
 
 const paymentMethodsForm = useForm({
@@ -1103,25 +1167,61 @@ function submitSettlement() {
                         </div>
 
                         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-600">
-                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">PIN de aprovação manual</p>
+                            <div class="flex flex-wrap items-start justify-between gap-2">
+                                <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">PIN de aprovação manual</p>
+                                <button
+                                    v-if="withdrawal_policy?.has_manual_approval_pin"
+                                    type="button"
+                                    class="text-xs font-medium text-zinc-600 underline hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                                    @click="openPinResetStepUp"
+                                >
+                                    Esqueci o PIN
+                                </button>
+                            </div>
                             <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                                 Obrigatório ao aprovar saques quando o automático estiver desligado.
-                                {{ withdrawal_policy?.has_manual_approval_pin ? 'PIN já definido — deixe em branco para manter.' : 'Ainda não definido.' }}
+                                {{
+                                    withdrawal_policy?.has_manual_approval_pin
+                                        ? 'Para trocar, informe o PIN atual. Deixe os campos em branco para manter.'
+                                        : 'Ainda não definido.'
+                                }}
                             </p>
                             <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                                <input
+                                    v-if="withdrawal_policy?.has_manual_approval_pin"
+                                    v-model="withdrawalPolicyForm.current_manual_approval_pin"
+                                    type="password"
+                                    placeholder="PIN atual"
+                                    autocomplete="off"
+                                    class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 sm:col-span-2"
+                                />
                                 <input
                                     v-model="withdrawalPolicyForm.manual_approval_pin"
                                     type="password"
                                     placeholder="Novo PIN"
+                                    autocomplete="new-password"
                                     class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
                                 />
                                 <input
                                     v-model="withdrawalPolicyForm.manual_approval_pin_confirmation"
                                     type="password"
                                     placeholder="Confirmar PIN"
+                                    autocomplete="new-password"
                                     class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
                                 />
                             </div>
+                            <p
+                                v-if="withdrawalPolicyForm.errors.current_manual_approval_pin"
+                                class="mt-2 text-xs text-red-600"
+                            >
+                                {{ withdrawalPolicyForm.errors.current_manual_approval_pin }}
+                            </p>
+                            <p
+                                v-if="withdrawalPolicyForm.errors.manual_approval_pin"
+                                class="mt-2 text-xs text-red-600"
+                            >
+                                {{ withdrawalPolicyForm.errors.manual_approval_pin }}
+                            </p>
                         </div>
 
                         <Button type="submit" :disabled="withdrawalPolicyForm.processing">Salvar política de saques</Button>
@@ -1215,6 +1315,20 @@ function submitSettlement() {
             :api-base-path="GATEWAYS_API_BASE"
             @close="closeGatewaySidebar"
             @saved="onGatewaySaved"
+        />
+
+        <PlatformStepUpModal
+            :open="pinStepUpOpen"
+            :loading="pinStepUpLoading"
+            :title="pinStepUpAction === 'reset' ? 'Recuperar PIN' : 'Confirmar troca de PIN'"
+            :description="
+                pinStepUpAction === 'reset'
+                    ? 'Um novo PIN será gerado e enviado aos e-mails administrativos configurados em Configurações > E-mail.'
+                    : 'Confirme com 2FA (se ativo) para alterar o PIN de aprovação manual.'
+            "
+            :confirm-label="pinStepUpAction === 'reset' ? 'Enviar por e-mail' : 'Confirmar e salvar'"
+            @close="closePinStepUp"
+            @confirm="onPinStepUpConfirm"
         />
     </div>
 </template>

@@ -28,6 +28,9 @@ use App\Services\PlatformEmailNotifications;
 use App\Services\PlatformPaymentMethods;
 use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Models\Setting;
+use App\Support\KycNotificationEmails;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\ValidationException;
 use App\Support\PlatformConfigContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -68,8 +71,10 @@ class FinancialController extends Controller
             'hours_start' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
             'hours_end' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
             'timezone' => ['nullable', 'string', 'max:64'],
+            'current_manual_approval_pin' => ['nullable', 'string', 'max:32'],
             'manual_approval_pin' => ['nullable', 'string', 'min:4', 'max:32'],
             'manual_approval_pin_confirmation' => ['nullable', 'string', 'same:manual_approval_pin'],
+            'totp_code' => ['nullable', 'string', 'max:16'],
         ]);
 
         Setting::set('platform_auto_withdrawal_enabled', $request->boolean('auto_withdrawal_enabled', true), null);
@@ -79,17 +84,97 @@ class FinancialController extends Controller
         Setting::set('platform_withdrawal_timezone', $validated['timezone'] ?? WithdrawalPolicyService::timezone(), null);
 
         $pin = trim((string) ($validated['manual_approval_pin'] ?? ''));
+        $pinChanged = false;
+
         if ($pin !== '') {
-            WithdrawalPolicyService::setManualApprovalPin($pin);
+            $this->validatePlatformStepUp($request);
+
+            if (WithdrawalPolicyService::hasManualApprovalPin()) {
+                $currentPin = trim((string) ($validated['current_manual_approval_pin'] ?? ''));
+                if ($currentPin === '') {
+                    throw ValidationException::withMessages([
+                        'current_manual_approval_pin' => 'Informe o PIN atual para trocar.',
+                    ]);
+                }
+
+                WithdrawalPolicyService::changeManualApprovalPin($currentPin, $pin);
+            } else {
+                WithdrawalPolicyService::setManualApprovalPin($pin);
+            }
+
+            $pinChanged = true;
+            PlatformAuditService::log('platform.withdrawal.pin_changed', [], $request);
         }
 
         PlatformAuditService::log('platform.withdrawal.policy_updated', [
             'auto_withdrawal_enabled' => $request->boolean('auto_withdrawal_enabled', true),
             'hours_enabled' => $request->boolean('hours_enabled', false),
+            'pin_changed' => $pinChanged,
         ], $request);
 
         return redirect()->route('plataforma.financeiro.index', ['tab' => 'saques'])
             ->with('success', 'Política de saques atualizada.');
+    }
+
+    public function resetManualApprovalPin(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'totp_code' => ['nullable', 'string', 'max:16'],
+        ]);
+
+        $this->validatePlatformStepUp($request);
+
+        $user = $request->user();
+        $rateKey = 'platform-pin-reset:'.($user?->id ?? $request->ip());
+
+        if (RateLimiter::tooManyAttempts($rateKey, 3)) {
+            $seconds = RateLimiter::availableIn($rateKey);
+
+            return redirect()->route('plataforma.financeiro.index', ['tab' => 'saques'])
+                ->with('error', 'Muitas tentativas de recuperação de PIN. Tente novamente em '.ceil($seconds / 60).' minuto(s).');
+        }
+
+        RateLimiter::hit($rateKey, 1800);
+
+        $raw = Setting::get('kyc_notification_emails', '', null);
+        $recipients = KycNotificationEmails::parse(is_string($raw) ? $raw : null);
+
+        if ($recipients === []) {
+            return redirect()->route('plataforma.financeiro.index', ['tab' => 'saques'])
+                ->with('error', 'Configure os e-mails de alerta do operador em Configurações > E-mail antes de recuperar o PIN.');
+        }
+
+        if (! WithdrawalPolicyService::hasManualApprovalPin()) {
+            return redirect()->route('plataforma.financeiro.index', ['tab' => 'saques'])
+                ->with('error', 'Nenhum PIN de aprovação manual está definido.');
+        }
+
+        $newPin = WithdrawalPolicyService::generateResetPin();
+        WithdrawalPolicyService::setManualApprovalPin($newPin);
+
+        app(PlatformEmailNotifications::class)->manualApprovalPinReset($newPin, $user);
+
+        PlatformAuditService::log('platform.withdrawal.pin_reset_emailed', [
+            'recipient_count' => count($recipients),
+        ], $request);
+
+        $masked = array_map(fn (string $email) => $this->maskAdminEmail($email), $recipients);
+
+        return redirect()->route('plataforma.financeiro.index', ['tab' => 'saques'])
+            ->with('success', 'Novo PIN enviado para: '.implode(', ', $masked).'. Altere-o após o login.');
+    }
+
+    private function maskAdminEmail(string $email): string
+    {
+        $parts = explode('@', $email, 2);
+        if (count($parts) !== 2) {
+            return '***';
+        }
+
+        [$local, $domain] = $parts;
+        $visible = substr($local, 0, min(2, strlen($local)));
+
+        return $visible.'***@'.$domain;
     }
 
     public function updatePaymentMethods(Request $request): RedirectResponse

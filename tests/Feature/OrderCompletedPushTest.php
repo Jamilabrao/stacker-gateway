@@ -1,0 +1,142 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Events\OrderCompleted;
+use App\Listeners\SendPanelPushOnOrderCompleted;
+use App\Models\Order;
+use App\Models\PanelNotification;
+use App\Models\PanelPushSubscription;
+use App\Services\Push\PanelPushDispatcher;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
+use Mockery;
+use Tests\Concerns\UsesTestVapidKeys;
+use Tests\TestCase;
+
+class OrderCompletedPushTest extends TestCase
+{
+    use RefreshDatabase;
+    use UsesTestVapidKeys;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setUpPushFeatureTests();
+    }
+
+    protected function tearDown(): void
+    {
+        Mockery::close();
+        parent::tearDown();
+    }
+
+    public function test_order_completed_sends_sale_approved_push(): void
+    {
+        if (! Schema::hasTable('panel_push_subscriptions') || ! Schema::hasTable('panel_notifications')) {
+            $this->markTestSkipped('panel push tables missing');
+        }
+
+        $this->configureTestVapidPush();
+
+        $seller = $this->createSellerUser();
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->tenant_id,
+            'name' => 'Curso Premium',
+        ]);
+
+        PanelPushSubscription::create([
+            'user_id' => $seller->id,
+            'tenant_id' => $seller->tenant_id,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'endpoint' => 'https://push.example.com/sub/1',
+            'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+        ]);
+
+        $dispatcher = Mockery::mock(PanelPushDispatcher::class);
+        $dispatcher->shouldReceive('send')
+            ->once()
+            ->withArgs(function ($subscriptions, string $title, string $body, ?string $url) use ($product) {
+                return $subscriptions->count() === 1
+                    && $title === 'Venda aprovada (PIX)'
+                    && str_contains($body, $product->name)
+                    && str_contains((string) $url, '/vendas');
+            })
+            ->andReturn(['sent' => 1, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => 1]);
+
+        $this->app->instance(PanelPushDispatcher::class, $dispatcher);
+
+        $order = Order::query()->create([
+            'tenant_id' => $seller->tenant_id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 97.50,
+            'email' => 'buyer@example.com',
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+
+        app(SendPanelPushOnOrderCompleted::class)->handle(new OrderCompleted($order->fresh(['product'])));
+
+        $this->assertDatabaseHas('panel_notifications', [
+            'user_id' => $seller->id,
+            'type' => 'sale_approved',
+            'event_key' => 'sale_'.$order->id,
+        ]);
+    }
+
+    public function test_duplicate_order_completed_still_sends_push(): void
+    {
+        if (! Schema::hasTable('panel_push_subscriptions') || ! Schema::hasTable('panel_notifications')) {
+            $this->markTestSkipped('panel push tables missing');
+        }
+
+        $this->configureTestVapidPush();
+
+        $seller = $this->createSellerUser();
+        $product = $this->createTestProduct(['tenant_id' => $seller->tenant_id]);
+
+        PanelPushSubscription::create([
+            'user_id' => $seller->id,
+            'tenant_id' => $seller->tenant_id,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'endpoint' => 'https://push.example.com/sub/2',
+            'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+        ]);
+
+        $order = Order::query()->create([
+            'tenant_id' => $seller->tenant_id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 50,
+            'email' => 'buyer2@example.com',
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+
+        PanelNotification::create([
+            'tenant_id' => $seller->tenant_id,
+            'user_id' => $seller->id,
+            'type' => 'sale_approved',
+            'event_key' => 'sale_'.$order->id,
+            'title' => 'Venda aprovada (PIX)',
+            'body' => 'Legado',
+            'url' => '/vendas',
+        ]);
+
+        $dispatcher = Mockery::mock(PanelPushDispatcher::class);
+        $dispatcher->shouldReceive('send')
+            ->once()
+            ->andReturn(['sent' => 1, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => 1]);
+
+        $this->app->instance(PanelPushDispatcher::class, $dispatcher);
+
+        app(SendPanelPushOnOrderCompleted::class)->handle(new OrderCompleted($order->fresh(['product'])));
+
+        $this->assertSame(
+            1,
+            PanelNotification::query()
+                ->where('user_id', $seller->id)
+                ->where('event_key', 'sale_'.$order->id)
+                ->count()
+        );
+    }
+}

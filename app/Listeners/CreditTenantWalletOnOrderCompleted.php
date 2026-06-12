@@ -9,6 +9,10 @@ class CreditTenantWalletOnOrderCompleted
 {
     public function handle(OrderCompleted $event): void
     {
-        OrderCompletedWalletCreditor::credit($event->order);
+        try {
+            OrderCompletedWalletCreditor::credit($event->order);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

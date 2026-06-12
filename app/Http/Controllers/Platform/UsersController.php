@@ -38,12 +38,29 @@ class UsersController extends Controller
         protected SalesAchievementsService $salesAchievements,
     ) {}
 
-    public function index(): Response
+    public function index(Request $request): Response
     {
-        $users = User::query()
-            ->where('role', User::ROLE_INFOPRODUTOR)
-            ->orderBy('name')
-            ->get();
+        $search = $request->query('q');
+        $search = is_string($search) ? trim($search) : '';
+        $search = $search !== '' ? $search : null;
+
+        $usersQuery = User::query()
+            ->where('role', User::ROLE_INFOPRODUTOR);
+
+        if ($search !== null) {
+            $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
+            $usersQuery->where(function ($q) use ($like, $search) {
+                $q->where('name', 'like', $like)
+                    ->orWhere('email', 'like', $like)
+                    ->orWhere('document', 'like', $like);
+                if (ctype_digit($search)) {
+                    $id = (int) $search;
+                    $q->orWhere('id', $id)->orWhere('tenant_id', $id);
+                }
+            });
+        }
+
+        $users = $usersQuery->orderBy('name')->get();
 
         $tenantIds = $users->pluck('tenant_id')->filter()->unique()->values();
         $userIds = $users->pluck('id');
@@ -106,6 +123,7 @@ class UsersController extends Controller
 
         return Inertia::render('Platform/Users/Index', [
             'users' => $rows,
+            'q' => $search,
             'gateways' => $this->buildGatewaysListForMerchantPicker(),
             'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
             'platform_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::platformDefaults()),

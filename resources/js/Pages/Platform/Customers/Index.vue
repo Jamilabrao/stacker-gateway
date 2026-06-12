@@ -69,7 +69,7 @@ function deleteCustomerHistory(user) {
                 <input
                     v-model="searchQ"
                     type="search"
-                    placeholder="Nome ou e-mail"
+                    placeholder="Nome, e-mail, documento ou ID"
                     class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
                 />
             </div>
@@ -186,7 +186,7 @@ function deleteCustomerHistory(user) {
         </div>
 
         <div v-if="!userRows.length" class="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            Nenhum cliente encontrado.
+            {{ q ? 'Nenhum cliente encontrado para esta busca.' : 'Nenhum cliente encontrado.' }}
         </div>
 
         <nav

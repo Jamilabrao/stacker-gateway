@@ -27,8 +27,13 @@ class CustomersController extends Controller
 
         if ($search !== null) {
             $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
-            $query->where(function ($q) use ($like) {
-                $q->where('name', 'like', $like)->orWhere('email', 'like', $like);
+            $query->where(function ($q) use ($like, $search) {
+                $q->where('name', 'like', $like)
+                    ->orWhere('email', 'like', $like)
+                    ->orWhere('document', 'like', $like);
+                if (ctype_digit($search)) {
+                    $q->orWhere('id', (int) $search);
+                }
             });
         }
 

@@ -186,13 +186,13 @@ onBeforeUnmount(() => {
                 class="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40"
                 :class="isThemedShell ? (isKawaii ? 'kawaii-card border' : 'aurora-surface aurora-divider border') : ''"
             >
-                <div class="relative">
+                <div class="relative aspect-[1200/420] w-full overflow-hidden md:aspect-[1600/320]">
                     <img
                         v-if="dashboardCurrentBanner"
                         :key="dashboardCurrentBanner.id"
                         :src="dashboardBannerUrl(dashboardCurrentBanner)"
                         :alt="dashboardCurrentBanner.title || 'Banner da dashboard'"
-                        class="h-[96px] w-full object-cover md:h-[112px] lg:h-[128px]"
+                        class="h-full w-full object-cover"
                     />
                     <div v-if="dashboardBanners.length > 1" class="pointer-events-none absolute inset-x-0 bottom-3 flex items-center justify-center gap-2 px-4">
                         <button

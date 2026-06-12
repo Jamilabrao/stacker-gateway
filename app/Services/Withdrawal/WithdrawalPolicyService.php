@@ -5,6 +5,7 @@ namespace App\Services\Withdrawal;
 use App\Models\Setting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 
 class WithdrawalPolicyService
 {
@@ -92,6 +93,27 @@ class WithdrawalPolicyService
     public static function setManualApprovalPin(string $pin): void
     {
         Setting::set('platform_manual_approval_pin_hash', Hash::make($pin), null);
+    }
+
+    public static function changeManualApprovalPin(string $currentPin, string $newPin): void
+    {
+        if (! self::verifyManualApprovalPin($currentPin)) {
+            throw ValidationException::withMessages([
+                'current_manual_approval_pin' => 'PIN atual incorreto.',
+            ]);
+        }
+
+        self::setManualApprovalPin($newPin);
+    }
+
+    public static function generateResetPin(): string
+    {
+        $pin = '';
+        for ($i = 0; $i < 8; $i++) {
+            $pin .= (string) random_int(0, 9);
+        }
+
+        return $pin;
     }
 
     /**

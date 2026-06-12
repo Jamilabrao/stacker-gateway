@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Support\DashboardBannerSpecs;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class DashboardBannerController extends Controller
 {
@@ -17,6 +19,7 @@ class DashboardBannerController extends Controller
     {
         return response()->json([
             'banners' => $this->getBanners(),
+            'specs' => DashboardBannerSpecs::toFrontendSpecs(),
         ]);
     }
 
@@ -59,11 +62,28 @@ class DashboardBannerController extends Controller
     public function upload(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'file' => ['required', 'file', 'max:8192', 'mimes:jpg,jpeg,png,webp,gif,svg'],
+            'file' => ['required', 'file', 'max:8192', 'mimes:jpg,jpeg,png,webp,gif'],
             'variant' => ['required', 'string', Rule::in(['desktop', 'mobile'])],
         ]);
 
-        $path = $request->file('file')->store('dashboard-banners', 'public');
+        $file = $request->file('file');
+        $variant = (string) $validated['variant'];
+        $size = @getimagesize($file->getRealPath());
+        if (! is_array($size) || ! isset($size[0], $size[1])) {
+            throw ValidationException::withMessages([
+                'file' => 'Não foi possível ler as dimensões da imagem.',
+            ]);
+        }
+
+        $width = (int) $size[0];
+        $height = (int) $size[1];
+        if (! DashboardBannerSpecs::validateSize($width, $height, $variant)) {
+            throw ValidationException::withMessages([
+                'file' => DashboardBannerSpecs::mismatchMessage($width, $height, $variant),
+            ]);
+        }
+
+        $path = $file->store('dashboard-banners', 'public');
         $url = Storage::disk('public')->url($path);
         if (! str_starts_with($url, 'http')) {
             $url = rtrim((string) config('app.url'), '/').'/'.ltrim($url, '/');

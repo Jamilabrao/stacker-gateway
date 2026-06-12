@@ -47,11 +47,15 @@ class UtmifySendOrderJob implements ShouldQueue
             return;
         }
 
-        if ($this->utmifyStatus === 'paid') {
-            $meta = is_array($order->metadata) ? $order->metadata : [];
-            if (! empty($meta['utmify_paid_sent_at'])) {
-                return;
-            }
+        if ($this->shouldSkipSend($order)) {
+            Log::debug('UtmifySendOrderJob skipped', [
+                'order_id' => $this->orderId,
+                'utmify_integration_id' => $this->utmifyIntegrationId,
+                'status' => $this->utmifyStatus,
+                'order_status' => $order->status,
+            ]);
+
+            return;
         }
 
         try {
@@ -63,16 +67,72 @@ class UtmifySendOrderJob implements ShouldQueue
             if ($this->utmifyStatus === 'paid') {
                 $meta = is_array($order->metadata) ? $order->metadata : [];
                 $meta['utmify_paid_sent_at'] = now()->toIso8601String();
+                unset($meta['utmify_last_error'], $meta['utmify_failed_at']);
                 $order->update(['metadata' => $meta]);
             }
+
+            Log::info('UtmifySendOrderJob sent', [
+                'order_id' => $this->orderId,
+                'utmify_integration_id' => $this->utmifyIntegrationId,
+                'status' => $this->utmifyStatus,
+            ]);
         } catch (\Throwable $e) {
             Log::warning('UtmifySendOrderJob failed', [
                 'order_id' => $this->orderId,
                 'utmify_integration_id' => $this->utmifyIntegrationId,
                 'status' => $this->utmifyStatus,
+                'attempt' => $this->attempts(),
                 'message' => $e->getMessage(),
             ]);
             throw $e;
         }
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        $order = Order::query()->find($this->orderId);
+        if (! $order) {
+            return;
+        }
+
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        if ($this->utmifyStatus === 'paid' && ! empty($meta['utmify_paid_sent_at'])) {
+            return;
+        }
+
+        $meta['utmify_failed_at'] = now()->toIso8601String();
+        if ($exception !== null) {
+            $meta['utmify_last_error'] = mb_substr($exception->getMessage(), 0, 500);
+        }
+        $order->update(['metadata' => $meta]);
+
+        Log::error('UtmifySendOrderJob failed after retries', [
+            'order_id' => $this->orderId,
+            'utmify_integration_id' => $this->utmifyIntegrationId,
+            'status' => $this->utmifyStatus,
+            'message' => $exception?->getMessage(),
+        ]);
+    }
+
+    private function shouldSkipSend(Order $order): bool
+    {
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $paidAlreadySent = ! empty($meta['utmify_paid_sent_at']);
+
+        if ($this->utmifyStatus === 'paid' && $paidAlreadySent) {
+            return true;
+        }
+
+        if ($this->utmifyStatus === 'waiting_payment') {
+            if ($order->status === 'completed' || $paidAlreadySent) {
+                return true;
+            }
+        }
+
+        if (in_array($this->utmifyStatus, ['refused', 'refunded'], true) && $order->status === 'pending') {
+            return true;
+        }
+
+        return false;
     }
 }
