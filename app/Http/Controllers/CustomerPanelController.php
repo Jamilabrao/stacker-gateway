@@ -41,6 +41,22 @@ class CustomerPanelController extends Controller
             }
         }
 
+        $purchasedProductIds = collect($items)
+            ->pluck('product_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $grantedProducts = $user->products()
+            ->when($purchasedProductIds !== [], fn ($q) => $q->whereNotIn('products.id', $purchasedProductIds))
+            ->orderBy('name')
+            ->get();
+
+        foreach ($grantedProducts as $product) {
+            $items[] = $this->grantedAccessRow($product, $resolver);
+        }
+
         return Inertia::render('Cliente/Index', [
             'purchases' => $items,
             'pageTitle' => 'Minhas compras',
@@ -88,20 +104,6 @@ class CustomerPanelController extends Controller
         int $position,
         MemberAreaResolver $resolver
     ): array {
-        $accessUrl = null;
-        if ($product) {
-            if ($product->type === Product::TYPE_AREA_MEMBROS && $product->checkout_slug) {
-                $accessUrl = $resolver->baseUrlForProduct($product);
-            } elseif ($product->type === Product::TYPE_LINK) {
-                $accessUrl = $product->checkout_config['deliverable_link'] ?? null;
-            }
-        }
-
-        $imageUrl = null;
-        if ($product?->image) {
-            $imageUrl = (new StorageService($product->tenant_id))->url($product->image);
-        }
-
         $productId = $product?->id ?? $order->product_id;
 
         return [
@@ -112,10 +114,60 @@ class CustomerPanelController extends Controller
             'product_id' => $productId,
             'product_name' => $product?->name ?? 'Produto',
             'product_type' => $product?->type,
-            'product_image_url' => $imageUrl,
-            'access_url' => $accessUrl,
+            'product_image_url' => $this->productImageUrl($product),
+            'access_url' => $this->productAccessUrl($product, $resolver),
             'is_order_bump' => $position > 0,
+            'is_manual_grant' => false,
             'can_request_refund' => $position === 0 && RefundEligibility::canCustomerRequestRefund($order),
         ];
+    }
+
+    /**
+     * Produto liberado manualmente (product_user) sem pedido associado.
+     *
+     * @return array<string, mixed>
+     */
+    private function grantedAccessRow(Product $product, MemberAreaResolver $resolver): array
+    {
+        return [
+            'purchase_key' => 'granted-'.$product->id,
+            'order_id' => null,
+            'public_reference' => null,
+            'amount' => null,
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'product_type' => $product->type,
+            'product_image_url' => $this->productImageUrl($product),
+            'access_url' => $this->productAccessUrl($product, $resolver),
+            'is_order_bump' => false,
+            'is_manual_grant' => true,
+            'can_request_refund' => false,
+        ];
+    }
+
+    private function productAccessUrl(?Product $product, MemberAreaResolver $resolver): ?string
+    {
+        if ($product === null) {
+            return null;
+        }
+
+        if ($product->type === Product::TYPE_AREA_MEMBROS && $product->checkout_slug) {
+            return $resolver->baseUrlForProduct($product);
+        }
+
+        if ($product->type === Product::TYPE_LINK) {
+            return $product->checkout_config['deliverable_link'] ?? null;
+        }
+
+        return null;
+    }
+
+    private function productImageUrl(?Product $product): ?string
+    {
+        if ($product?->image === null || $product->image === '') {
+            return null;
+        }
+
+        return (new StorageService($product->tenant_id))->url($product->image);
     }
 }

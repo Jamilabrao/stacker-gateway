@@ -24,7 +24,6 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\URL;
 
 class WebhookEventSubscriber
@@ -120,6 +119,11 @@ class WebhookEventSubscriber
 
     private function shouldDispatchSync(string $eventClass): bool
     {
+        // Pedido pago: entrega imediata (crítico para CRM/integrações); não depender só da fila webhooks.
+        if ($eventClass === OrderCompleted::class) {
+            return true;
+        }
+
         // Em dev/local, é comum não ter worker configurado corretamente; dispara sync para evitar “silêncio”.
         if (app()->environment('local')) {
             return true;
@@ -144,30 +148,12 @@ class WebhookEventSubscriber
             return true;
         }
 
-        // Critical events (approved payments) should fallback to sync when webhook queue is backed up.
-        if ($eventClass === OrderCompleted::class && $this->isWebhookQueueBackedUp()) {
-            return true;
-        }
-
         // Carrinho abandonado: volume baixo e integrações CRM dependem de entrega imediata.
         if ($eventClass === CartAbandoned::class) {
             return true;
         }
 
         return false;
-    }
-
-    private function isWebhookQueueBackedUp(): bool
-    {
-        try {
-            $queueName = (string) config('queue.webhooks_queue', 'webhooks');
-            $connection = (string) config('queue.connections.redis.connection', 'default');
-            $size = (int) Redis::connection($connection)->llen("queues:{$queueName}");
-
-            return $size >= 50;
-        } catch (\Throwable) {
-            return false;
-        }
     }
 
     /**

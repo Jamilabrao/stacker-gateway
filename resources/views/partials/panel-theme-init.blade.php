@@ -1,12 +1,20 @@
 @php
     $scheme = config('getfy.panel_color_scheme', \App\Support\PanelColorScheme::defaults());
+    $path = request()->path();
+    $guestAuthPaths = ['login', 'cadastro', 'criar-admin', 'esqueci-senha', 'login/2fa'];
+    $ignoreStoredTheme = ! auth()->check() && (
+        in_array($path, $guestAuthPaths, true)
+        || str_starts_with($path, 'redefinir-senha/')
+        || str_starts_with($path, 'plataforma/login')
+    );
 @endphp
 <script>
 (function(){try{
     var policy=@json($scheme);
+    var ignoreStored=@json($ignoreStoredTheme);
     var isDark=false;
     var stored=null;
-    if(!policy.locked){stored=localStorage.getItem('theme');}
+    if(!policy.locked&&!ignoreStored){stored=localStorage.getItem('theme');}
     if(policy.locked){
         if(policy.mode==='system'){isDark=window.matchMedia('(prefers-color-scheme: dark)').matches;}
         else{isDark=policy.mode==='dark';}

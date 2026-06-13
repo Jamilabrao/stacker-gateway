@@ -185,6 +185,7 @@ class PanelPwaController extends Controller
             'subscribed' => true,
             'provider' => PanelPushSubscription::PROVIDER_VAPID,
             'subscription_id' => $subscription->id,
+            'vapid_public_key' => $currentVapidPublic,
             'updated_at' => $subscription->updated_at?->toISOString(),
         ]);
     }

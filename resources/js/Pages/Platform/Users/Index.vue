@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button.vue';
 import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
 import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
-import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare, Search } from 'lucide-vue-next';
+import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare, Search, Shield } from 'lucide-vue-next';
 import {
     formatPercentForInput,
     normalizeMerchantFeeOverridesForSubmit,
@@ -530,6 +530,14 @@ function formatBlockUntilForInput(iso) {
                     <tr v-for="u in users" :key="u.id" class="border-b border-zinc-100 dark:border-zinc-800">
                         <td class="px-4 py-3 font-medium text-zinc-900 dark:text-white">
                             <span>{{ u.name }}</span>
+                            <span
+                                v-if="u.totp_enabled"
+                                class="ml-2 inline-flex items-center gap-1 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+                                title="Autenticação em dois fatores ativa"
+                            >
+                                <Shield class="h-3 w-3" />
+                                2FA
+                            </span>
                             <span
                                 v-if="(adminNotesCountByUser[u.id] ?? u.admin_notes_count) > 0"
                                 class="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"

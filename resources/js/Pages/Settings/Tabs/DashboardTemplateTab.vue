@@ -9,6 +9,12 @@ const error = ref('');
 const success = ref('');
 const selected = ref('default');
 
+const loginLoading = ref(true);
+const loginSaving = ref(false);
+const loginError = ref('');
+const loginSuccess = ref('');
+const loginSelected = ref('default');
+
 const schemeLoading = ref(true);
 const schemeSaving = ref(false);
 const schemeError = ref('');
@@ -31,6 +37,24 @@ const options = [
         id: 'kawaii',
         label: 'Kawaii',
         description: 'Visual fofo com cores pastéis, cards arredondados e mascote na sidebar.',
+    },
+];
+
+const loginOptions = [
+    {
+        id: 'default',
+        label: 'Padrão',
+        description: 'Split claro com imagem lateral — layout atual de login e cadastro.',
+    },
+    {
+        id: 'spotlight',
+        label: 'Spotlight',
+        description: 'Painel escuro com hero lateral vibrante, inspirado em landing moderna.',
+    },
+    {
+        id: 'immersive',
+        label: 'Imersivo',
+        description: 'Login centralizado com imagem de fundo e painel glass.',
     },
 ];
 
@@ -57,6 +81,13 @@ const schemeOptions = [
 
 function normalizeTemplate(value) {
     if (value === 'aurora' || value === 'kawaii') return value;
+    return 'default';
+}
+
+function normalizeLoginTemplate(value) {
+    if (value === 'spotlight' || value === 'immersive') {
+        return value;
+    }
     return 'default';
 }
 
@@ -102,6 +133,11 @@ async function loadTemplate() {
     selected.value = normalizeTemplate(res.data?.template);
 }
 
+async function loadLoginTemplate() {
+    const res = await window.axios.get('/plataforma/configuracoes/template-login/data');
+    loginSelected.value = normalizeLoginTemplate(res.data?.template);
+}
+
 async function loadScheme() {
     const res = await window.axios.get('/plataforma/configuracoes/panel-color-scheme/data');
     mapApiToUi(res.data ?? { mode: 'dark', locked: false });
@@ -112,13 +148,18 @@ async function load() {
     schemeLoading.value = true;
     error.value = '';
     schemeError.value = '';
+    loginLoading.value = true;
+    error.value = '';
+    schemeError.value = '';
+    loginError.value = '';
     try {
-        await Promise.all([loadTemplate(), loadScheme()]);
+        await Promise.all([loadTemplate(), loadScheme(), loadLoginTemplate()]);
     } catch (e) {
         error.value = e?.response?.data?.message || 'Não foi possível carregar as configurações.';
     } finally {
         loading.value = false;
         schemeLoading.value = false;
+        loginLoading.value = false;
     }
 }
 
@@ -136,6 +177,23 @@ async function save() {
         error.value = e?.response?.data?.message || 'Não foi possível salvar o template.';
     } finally {
         saving.value = false;
+    }
+}
+
+async function saveLoginTemplate() {
+    loginSaving.value = true;
+    loginError.value = '';
+    loginSuccess.value = '';
+    try {
+        const res = await window.axios.put('/plataforma/configuracoes/template-login', {
+            template: loginSelected.value,
+        });
+        loginSelected.value = normalizeLoginTemplate(res.data?.template);
+        loginSuccess.value = 'Template de login salvo. A alteração vale para login, cadastro e recuperação de senha.';
+    } catch (e) {
+        loginError.value = e?.response?.data?.message || 'Não foi possível salvar o template de login.';
+    } finally {
+        loginSaving.value = false;
     }
 }
 
@@ -268,6 +326,89 @@ onMounted(() => {
             <div v-if="!loading" class="mt-6 flex justify-end">
                 <Button type="button" :disabled="saving" @click="save">
                     {{ saving ? 'Salvando…' : 'Salvar template' }}
+                </Button>
+            </div>
+        </section>
+
+        <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+            <div class="mb-6 flex items-start gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                    <LayoutGrid class="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div>
+                    <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Template de login</h2>
+                    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                        Define o visual das telas de autenticação: login, cadastro, 2FA e recuperação de senha.
+                    </p>
+                </div>
+            </div>
+
+            <p v-if="loginLoading" class="text-sm text-zinc-500">Carregando…</p>
+            <p v-if="loginError" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                {{ loginError }}
+            </p>
+            <p v-if="loginSuccess" class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800" role="status">
+                {{ loginSuccess }}
+            </p>
+
+            <div v-if="!loginLoading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <button
+                    v-for="opt in loginOptions"
+                    :key="opt.id"
+                    type="button"
+                    class="group relative flex flex-col overflow-hidden rounded-2xl border-2 text-left transition focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30"
+                    :class="loginSelected === opt.id
+                        ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5 shadow-md'
+                        : 'border-zinc-200 bg-zinc-50 hover:border-zinc-300 dark:border-zinc-600 dark:bg-zinc-900/40 dark:hover:border-zinc-500'"
+                    @click="loginSelected = opt.id"
+                >
+                    <div class="p-4">
+                        <div class="mb-3 flex items-center justify-between gap-2">
+                            <span class="text-sm font-semibold text-zinc-900 dark:text-white">{{ opt.label }}</span>
+                            <span
+                                v-if="loginSelected === opt.id"
+                                class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-primary)] text-white"
+                            >
+                                <Check class="h-3.5 w-3.5" aria-hidden="true" />
+                            </span>
+                        </div>
+                        <p class="text-xs text-zinc-600 dark:text-zinc-400">{{ opt.description }}</p>
+                    </div>
+                    <div
+                        class="flex h-28 border-t border-zinc-200/80 dark:border-zinc-700/80"
+                        :class="{
+                            'bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-800 dark:to-zinc-900': opt.id === 'default',
+                            'bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-950': opt.id === 'spotlight',
+                            'bg-gradient-to-br from-zinc-800 via-zinc-900 to-black': opt.id === 'immersive',
+                        }"
+                    >
+                        <div
+                            v-if="opt.id === 'default'"
+                            class="m-3 w-[38%] rounded-lg bg-white dark:bg-zinc-900"
+                        />
+                        <div
+                            v-else-if="opt.id === 'spotlight'"
+                            class="m-3 w-[38%] rounded-lg bg-zinc-950"
+                        />
+                        <div
+                            v-else-if="opt.id === 'immersive'"
+                            class="m-auto h-16 w-24 rounded-xl border border-white/20 bg-black/40 backdrop-blur-sm"
+                        />
+                        <div v-if="opt.id === 'spotlight'" class="flex flex-1 items-end p-3">
+                            <div class="h-16 w-16 rounded-full bg-white/10" />
+                        </div>
+                        <div
+                            v-else-if="opt.id === 'immersive'"
+                            class="pointer-events-none absolute inset-x-0 bottom-0 top-auto h-28 opacity-30"
+                            :style="{ background: 'radial-gradient(circle at 50% 80%, var(--color-primary), transparent 70%)' }"
+                        />
+                    </div>
+                </button>
+            </div>
+
+            <div v-if="!loginLoading" class="mt-6 flex justify-end">
+                <Button type="button" :disabled="loginSaving" @click="saveLoginTemplate">
+                    {{ loginSaving ? 'Salvando…' : 'Salvar template de login' }}
                 </Button>
             </div>
         </section>

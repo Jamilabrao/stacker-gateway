@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Platform\PlatformTotpService;
 use App\Services\StorageService;
 use App\Support\HtmlSanitizer;
 use App\Support\RemoteStorage;
@@ -30,6 +31,7 @@ class ProfileController extends Controller
                 'username' => $user->username,
                 'avatar_url' => $user->avatar ? app(StorageService::class)->url($user->avatar) : null,
             ],
+            'totp_enabled' => PlatformTotpService::isEnabledFor($user),
         ]);
     }
 

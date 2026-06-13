@@ -18,13 +18,15 @@ WORKDIR /var/www/html
 
 FROM php_base AS app
 
-COPY composer.json composer.lock ./
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
-
+# vendor/ deve existir no contexto (gerado por docker/install-composer-deps.sh no host).
+# Evita composer install no build: em alguns VPS o BuildKit não alcança api.github.com.
 COPY . .
 COPY docker/entrypoint.sh /usr/local/bin/getfy-entrypoint
 
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts \
+RUN if [ ! -f vendor/autoload.php ]; then \
+      echo "ERRO: vendor/ ausente. Rode na VPS: sh docker/install-composer-deps.sh" >&2; \
+      exit 1; \
+    fi \
     && chmod +x /usr/local/bin/getfy-entrypoint \
     && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache .docker \
     && chmod -R 777 storage bootstrap/cache .docker

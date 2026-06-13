@@ -7,10 +7,12 @@ use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Models\Withdrawal;
 use App\Services\MerchantWalletAdminBlockService;
+use App\Services\PanelPushService;
 use App\Services\Payout\GatewayPayoutEconomics;
 use App\Services\Payout\PlatformPayoutGateway;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -162,7 +164,9 @@ class MerchantWithdrawalService
             return;
         }
 
-        DB::transaction(function () use ($withdrawal) {
+        $shouldNotify = false;
+
+        DB::transaction(function () use ($withdrawal, &$shouldNotify) {
             $locked = Withdrawal::query()->whereKey($withdrawal->id)->lockForUpdate()->first();
             if ($locked === null || ! in_array($locked->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)) {
                 return;
@@ -176,6 +180,7 @@ class MerchantWithdrawalService
             if ($locked->status !== self::STATUS_PAID) {
                 $locked->status = self::STATUS_PAID;
                 $locked->save();
+                $shouldNotify = true;
             }
 
             if ($alreadyComplete) {
@@ -200,6 +205,32 @@ class MerchantWithdrawalService
                 }
             }
         });
+
+        if (! $shouldNotify) {
+            return;
+        }
+
+        try {
+            $fresh = $withdrawal->fresh();
+            if ($fresh === null) {
+                return;
+            }
+
+            $net = number_format((float) $fresh->net_amount, 2, ',', '.');
+            app(PanelPushService::class)->sendAndPersistToTenant(
+                (int) $fresh->tenant_id,
+                'withdrawal_paid',
+                'Saque concluído',
+                "R$ {$net} enviado para sua conta PIX",
+                url('/financeiro'),
+                'withdrawal_'.$fresh->id
+            );
+        } catch (\Throwable $e) {
+            Log::warning('MerchantWithdrawalService: falha ao enviar push de saque concluído', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     public static function markFailed(Withdrawal $withdrawal, string $reason, bool $refundWallet = true): void

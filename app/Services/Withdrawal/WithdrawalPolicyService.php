@@ -9,6 +9,10 @@ use Illuminate\Validation\ValidationException;
 
 class WithdrawalPolicyService
 {
+    public const MANUAL_APPROVAL_PIN_MIN_LENGTH = 4;
+
+    public const MANUAL_APPROVAL_PIN_MAX_LENGTH = 6;
+
     public static function autoWithdrawalEnabled(): bool
     {
         $v = Setting::get('platform_auto_withdrawal_enabled', true, null);
@@ -109,7 +113,7 @@ class WithdrawalPolicyService
     public static function generateResetPin(): string
     {
         $pin = '';
-        for ($i = 0; $i < 8; $i++) {
+        for ($i = 0; $i < self::MANUAL_APPROVAL_PIN_MAX_LENGTH; $i++) {
             $pin .= (string) random_int(0, 9);
         }
 

@@ -18,6 +18,7 @@ const {
     pushRegistered,
     registerAndSubscribe,
     pushSubscribing,
+    subscribeInFlight,
     checkExistingSubscription,
     lastPushError,
     pushNeedsResubscribe,
@@ -44,6 +45,15 @@ const pushErrorMessage = computed(() => {
     }
     if (err === 'notification_permission_denied') {
         return 'Notificações bloqueadas. Habilite nas configurações do navegador.';
+    }
+    if (err === 'csrf_expired') {
+        return 'Sessão expirada. Recarregue a página e tente ativar novamente.';
+    }
+    if (err === 'rate_limited') {
+        return 'Muitas tentativas. Aguarde um minuto e tente novamente.';
+    }
+    if (err === 'push_forbidden') {
+        return 'Sem permissão para ativar notificações nesta conta.';
     }
     if (pushNeedsResubscribe.value) {
         return 'Sua inscrição expirou após uma atualização. Toque em reativar abaixo.';
@@ -93,12 +103,14 @@ watch(
     () => props.open,
     async (isOpen) => {
         if (isOpen) {
-            const synced = await checkExistingSubscription();
-            await fetchNotifications();
-            // Se o browser tiver subscription válida, mas o endpoint de listagem ainda retornar estado antigo,
-            // usamos a confirmação local para evitar mostrar "inativo" incorretamente.
-            if (synced && !pushSubscribed.value) {
-                pushSubscribed.value = true;
+            if (!subscribeInFlight.value) {
+                const synced = await checkExistingSubscription();
+                await fetchNotifications();
+                if (synced && !pushSubscribed.value) {
+                    pushSubscribed.value = true;
+                }
+            } else {
+                await fetchNotifications();
             }
         }
     },
@@ -167,6 +179,7 @@ function formatDate(dateStr) {
 
 async function activateNotifications() {
     if (typeof window === 'undefined' || typeof window.Notification === 'undefined' || !pushEnabled.value) return;
+    if (subscribeInFlight.value) return;
     activatingPush.value = true;
     try {
         const result = await window.Notification.requestPermission();
@@ -176,8 +189,13 @@ async function activateNotifications() {
                 await fetchNotifications();
                 pushSubscribed.value = true;
             }
+        } else if (result === 'denied') {
+            lastPushError.value = 'notification_permission_denied';
         }
-    } catch (_) {}
+    } catch (e) {
+        console.warn('activateNotifications failed:', e);
+        lastPushError.value = 'subscription_failed';
+    }
     activatingPush.value = false;
 }
 

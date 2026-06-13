@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Platform;
 
+use App\Http\Controllers\Concerns\HandlesLoginTotpChallenge;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,6 +15,8 @@ use Inertia\Response;
 
 class LoginController extends Controller
 {
+    use HandlesLoginTotpChallenge;
+
     public function showLoginForm(): Response
     {
         return Inertia::render('Platform/Auth/Login');
@@ -26,7 +30,6 @@ class LoginController extends Controller
         ]);
 
         if (Auth::attempt($credentials, (bool) $request->boolean('remember'))) {
-            $request->session()->regenerate();
             $user = Auth::user();
             if (! $user instanceof User || ! $user->canAccessPlatformPanel()) {
                 Auth::logout();
@@ -37,6 +40,19 @@ class LoginController extends Controller
                     'email' => 'Credenciais inválidas.',
                 ])->onlyInput('email');
             }
+
+            if (PlatformTotpService::requiresLoginChallenge($user)) {
+                return $this->redirectToLoginTotpChallenge(
+                    $request,
+                    $user,
+                    (bool) $request->boolean('remember'),
+                    'platform',
+                    'plataforma.login.two-factor',
+                    route('plataforma.dashboard'),
+                );
+            }
+
+            $request->session()->regenerate();
 
             PlatformAuditService::log('platform.auth.login', [
                 'email' => $user->email,

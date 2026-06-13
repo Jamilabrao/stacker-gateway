@@ -89,6 +89,7 @@ class AppPushController extends Controller
 
         $keys = PanelPushSettings::generateVapidKeyPair();
         PanelPushSettings::storeVapidKeys($keys['publicKey'], $keys['privateKey']);
+        \App\Support\PwaVapidEnvSync::writeKeysToDotEnv($keys['publicKey'], $keys['privateKey']);
 
         $staleAfter = $this->staleSubscriptionStats()['stale'];
 

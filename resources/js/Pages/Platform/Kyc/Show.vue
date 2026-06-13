@@ -10,6 +10,7 @@ defineOptions({ layout: LayoutPlatform });
 const props = defineProps({
     merchant: { type: Object, required: true },
     documents: { type: Array, default: () => [] },
+    platform_totp_enabled: { type: Boolean, default: false },
 });
 
 const rejectForm = useForm({
@@ -48,25 +49,53 @@ function closeStepUp() {
     pendingAction.value = null;
 }
 
+function kycActionBase() {
+    return `/plataforma/verificacoes-kyc/usuario/${props.merchant.id}`;
+}
+
+function submitApprove() {
+    stepUpLoading.value = true;
+    router.post(`${kycActionBase()}/aprovar`, {}, {
+        preserveScroll: true,
+        onFinish: () => {
+            stepUpLoading.value = false;
+        },
+    });
+}
+
+function submitRejectDirect() {
+    rejectForm.post(`${kycActionBase()}/rejeitar`, {
+        preserveScroll: true,
+        onSuccess: () => rejectForm.reset('reason'),
+    });
+}
+
 function approve() {
     if (!confirm('Aprovar a verificação deste infoprodutor?')) return;
-    pendingAction.value = 'approve';
-    stepUpOpen.value = true;
+    if (props.platform_totp_enabled) {
+        pendingAction.value = 'approve';
+        stepUpOpen.value = true;
+        return;
+    }
+    submitApprove();
 }
 
 function submitReject() {
     if (!rejectForm.reason?.trim()) return;
-    pendingAction.value = 'reject';
-    stepUpOpen.value = true;
+    if (props.platform_totp_enabled) {
+        pendingAction.value = 'reject';
+        stepUpOpen.value = true;
+        return;
+    }
+    submitRejectDirect();
 }
 
 function onStepUpConfirm(payload) {
     stepUpLoading.value = true;
-    const base = `/plataforma/verificacoes-kyc/usuario/${props.merchant.id}`;
 
     if (pendingAction.value === 'approve') {
         router.post(
-            `${base}/aprovar`,
+            `${kycActionBase()}/aprovar`,
             { totp_code: payload.totp_code },
             {
                 preserveScroll: true,
@@ -81,7 +110,7 @@ function onStepUpConfirm(payload) {
             ...data,
             totp_code: payload.totp_code,
         }))
-        .post(`${base}/rejeitar`, {
+        .post(`${kycActionBase()}/rejeitar`, {
             preserveScroll: true,
             onSuccess: () => rejectForm.reset('reason'),
             onFinish: closeStepUp,
@@ -200,10 +229,11 @@ function onStepUpConfirm(payload) {
         </div>
 
         <PlatformStepUpModal
+            v-if="platform_totp_enabled"
             :open="stepUpOpen"
             :loading="stepUpLoading"
             :title="pendingAction === 'reject' ? 'Rejeitar verificação KYC' : 'Aprovar verificação KYC'"
-            description="Informe o código 2FA se estiver ativo no seu perfil de operador."
+            description="Informe o código 2FA do seu perfil de operador."
             :confirm-label="pendingAction === 'reject' ? 'Rejeitar' : 'Aprovar'"
             @close="closeStepUp"
             @confirm="onStepUpConfirm"

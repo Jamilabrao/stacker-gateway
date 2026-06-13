@@ -49,7 +49,7 @@ function submitRefund() {
 <template>
     <div class="space-y-6">
         <p class="text-sm text-zinc-600 dark:text-zinc-400">
-            Produtos adquiridos e acesso à área de membros ou entrega.
+            Produtos adquiridos ou liberados para você.
         </p>
 
         <div
@@ -70,7 +70,7 @@ function submitRefund() {
             class="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/80 p-10 text-center dark:border-zinc-700 dark:bg-zinc-900/40"
         >
             <Package class="mx-auto h-10 w-10 text-zinc-400" aria-hidden="true" />
-            <p class="mt-3 text-sm text-zinc-600 dark:text-zinc-400">Ainda não há compras concluídas nesta conta.</p>
+            <p class="mt-3 text-sm text-zinc-600 dark:text-zinc-400">Ainda não há compras ou acessos nesta conta.</p>
         </div>
 
         <div
@@ -105,9 +105,15 @@ function submitRefund() {
                             {{ row.product_name }}
                         </h2>
                         <p class="mt-0.5 text-[10px] text-zinc-500 sm:text-xs">
-                            #{{ row.public_reference }}<span v-if="row.is_order_bump" class="text-zinc-400"> · Order bump</span>
+                            <template v-if="row.is_manual_grant">Acesso liberado</template>
+                            <template v-else>
+                                #{{ row.public_reference }}<span v-if="row.is_order_bump" class="text-zinc-400"> · Order bump</span>
+                            </template>
                         </p>
-                        <p class="mt-1 text-xs font-medium text-zinc-700 sm:text-sm dark:text-zinc-300">
+                        <p
+                            v-if="!row.is_manual_grant"
+                            class="mt-1 text-xs font-medium text-zinc-700 sm:text-sm dark:text-zinc-300"
+                        >
                             {{ formatBRL(row.amount) }}
                         </p>
                     </div>

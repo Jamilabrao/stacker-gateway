@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Http\Controllers\Concerns\HandlesLoginTotpChallenge;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\TeamAuditLog;
 use App\Services\MemberAreaResolver;
+use App\Services\Platform\PlatformTotpService;
 use App\Support\DockerSetupState;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +17,8 @@ use Inertia\Response;
 
 class LoginController extends Controller
 {
+    use HandlesLoginTotpChallenge;
+
     /**
      * Exibe o login da plataforma ou, se o host for de área de membros (subdomínio/domínio próprio),
      * delega para o login da área de membros do produto.
@@ -68,7 +72,6 @@ class LoginController extends Controller
         ]);
 
         if (Auth::attempt($credentials, (bool) $request->boolean('remember'))) {
-            $request->session()->regenerate();
             $user = Auth::user();
             if ($user && $user->canAccessPlatformPanel()) {
                 Auth::logout();
@@ -79,6 +82,27 @@ class LoginController extends Controller
                     'email' => 'Credenciais inválidas.',
                 ])->onlyInput('email');
             }
+            if ($user && $user->canAccessSellerPanel() && $user->sellerAccountAccessBlocked()) {
+                Auth::logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
+                return back()->withErrors([
+                    'email' => 'Conta suspensa ou bloqueada. Contate o suporte.',
+                ])->onlyInput('email');
+            }
+            if ($user instanceof User && PlatformTotpService::requiresLoginChallenge($user)) {
+                return $this->redirectToLoginTotpChallenge(
+                    $request,
+                    $user,
+                    (bool) $request->boolean('remember'),
+                    'seller',
+                    'login.two-factor',
+                    $user->canAccessSellerPanel() ? '/dashboard' : '/painel-cliente',
+                );
+            }
+
+            $request->session()->regenerate();
             if ($user && $user->tenant_id && $user->canAccessSellerPanel()) {
                 TeamAuditLog::create([
                     'tenant_id' => $user->tenant_id,
@@ -93,16 +117,6 @@ class LoginController extends Controller
                 ]);
             }
             if ($user->canAccessSellerPanel()) {
-                if ($user->sellerAccountAccessBlocked()) {
-                    Auth::logout();
-                    $request->session()->invalidate();
-                    $request->session()->regenerateToken();
-
-                    return back()->withErrors([
-                        'email' => 'Conta suspensa ou bloqueada. Contate o suporte.',
-                    ])->onlyInput('email');
-                }
-
                 $request->session()->put('panel_context', 'seller');
 
                 return redirect()->intended('/dashboard');

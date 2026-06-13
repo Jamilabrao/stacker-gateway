@@ -20,6 +20,8 @@ const form = reactive({
     pwa_nav_logo: '',
     pwa_nav_logo_dark: '',
     login_hero_image: '',
+    login_hero_tagline: '',
+    login_hero_subtagline: '',
     favicon_url: '',
 });
 
@@ -177,6 +179,33 @@ const pwaNavHint = 'Recomendado: PNG ou SVG quadrado (ex.: 96×96 px). Se vazio,
                                 placeholder="#00cc00"
                             />
                             <input v-model="form.theme_primary" type="color" class="h-11 w-14 cursor-pointer rounded-lg border border-zinc-300 dark:border-zinc-600" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <h3 class="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Textos do login (template Spotlight)</h3>
+                    <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                        Exibidos no painel direito da tela de login no desktop. Vazio usa o padrão da plataforma.
+                    </p>
+                    <div class="grid gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Título principal</label>
+                            <input
+                                v-model="form.login_hero_tagline"
+                                type="text"
+                                class="mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                                placeholder="Sua plataforma para vender mais."
+                            />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Subtítulo</label>
+                            <input
+                                v-model="form.login_hero_subtagline"
+                                type="text"
+                                class="mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                                placeholder="Feita para quem escala de verdade."
+                            />
                         </div>
                     </div>
                 </div>

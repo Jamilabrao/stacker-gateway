@@ -23,6 +23,11 @@ class PlatformTotpService
         return $user->canAccessPlatformPanel() && self::isEnabledFor($user);
     }
 
+    public static function requiresLoginChallenge(User $user): bool
+    {
+        return self::isEnabledFor($user);
+    }
+
     /**
      * @return array{secret: string, otpauth_url: string}
      */

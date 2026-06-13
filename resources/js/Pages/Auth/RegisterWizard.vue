@@ -3,16 +3,14 @@ import { ref, computed, watch, watchEffect, onMounted } from 'vue';
 import { useForm, Link, usePage } from '@inertiajs/vue3';
 import { User, Building2, ChevronLeft } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
-import CookieConsentBanner from '@/components/legal/CookieConsentBanner.vue';
+import AuthPageShell from '@/components/auth/AuthPageShell.vue';
 import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
+import { useAuthBranding } from '@/composables/useAuthBranding';
+import { useLoginTemplate } from '@/composables/useLoginTemplate';
 
 const page = usePage();
-const branding = computed(() => page.props.public_branding ?? {});
-const primary = computed(() => branding.value.theme_primary || '#c8fa64');
-const appName = computed(() => branding.value.app_name || 'Getfy');
-const logoLight = computed(() => branding.value.app_logo_icon || 'https://cdn.getfy.cloud/collapsed-logo.png');
-const logoDark = computed(() => branding.value.app_logo_icon_dark || logoLight.value);
-const heroImage = computed(() => branding.value.login_hero_image || 'https://cdn.getfy.cloud/login.webp');
+const { primary, appName } = useAuthBranding();
+const { isSpotlight, isImmersive, isModernLogin } = useLoginTemplate();
 
 const props = defineProps({
     revenue_ranges: { type: Array, default: () => [] },
@@ -477,15 +475,22 @@ function submitRegistration() {
 </script>
 
 <template>
-    <div class="wl-root flex min-h-screen">
-        <div class="flex w-full flex-col justify-center px-8 py-12 lg:w-[32%] lg:min-w-[380px]">
-            <div class="text-center">
-                <img :src="logoLight" :alt="appName" class="mx-auto mb-8 h-12 w-auto object-contain dark:hidden" />
-                <img :src="logoDark" :alt="appName" class="mx-auto mb-8 hidden h-12 w-auto object-contain dark:block" />
-                <p class="text-sm font-medium text-teal-600 dark:text-teal-400">{{ tagline }}</p>
-            </div>
+    <AuthPageShell
+        :title="isModernLogin ? 'Criar conta' : ''"
+        :subtitle="isModernLogin ? tagline : ''"
+        variant="seller"
+        wide
+    >
+        <p v-if="!isModernLogin" class="text-center text-sm font-medium text-teal-600 dark:text-teal-400">{{ tagline }}</p>
 
-            <div class="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60">
+        <div
+            class="mt-8 rounded-2xl border p-6 shadow-sm"
+            :class="isImmersive
+                ? 'border-zinc-200/90 bg-white/80 backdrop-blur-sm dark:border-white/15 dark:bg-white/5'
+                : isSpotlight
+                    ? 'border-zinc-200 bg-white/90 dark:border-zinc-700/80 dark:bg-zinc-900/50'
+                    : 'border-zinc-200 bg-zinc-50/80 dark:border-zinc-700 dark:bg-zinc-900/60'"
+        >
                 <div class="flex items-start justify-between gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
                     <span>Etapa {{ step }} de {{ totalSteps }}</span>
                     <span class="text-[var(--color-primary)]">{{ stepTitle }}</span>
@@ -729,17 +734,13 @@ function submitRegistration() {
                 </form>
             </div>
 
-            <p class="mt-6 text-center text-sm text-zinc-600 dark:text-zinc-400">
+            <p class="mt-6 text-center text-sm text-zinc-600 dark:text-zinc-400" :class="isImmersive ? 'dark:text-white/55' : ''">
                 Já tem conta?
                 <Link href="/login" class="font-medium text-[var(--color-primary)] hover:underline">Entrar</Link>
             </p>
+
+        <template #footer>
             <LegalFooterLinks class="mt-4" />
-        </div>
-
-        <CookieConsentBanner />
-
-        <div class="relative hidden overflow-hidden bg-zinc-100 dark:bg-zinc-900 lg:flex lg:flex-1 lg:items-center lg:justify-center">
-            <img :src="heroImage" alt="" class="h-full w-full object-cover opacity-90 dark:opacity-80" />
-        </div>
-    </div>
+        </template>
+    </AuthPageShell>
 </template>

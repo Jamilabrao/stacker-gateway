@@ -125,6 +125,32 @@ class WithdrawalPolicyTest extends TestCase
         $this->assertFalse(WithdrawalPolicyService::verifyManualApprovalPin('1234'));
     }
 
+    public function test_pin_confirmation_mismatch_fails(): void
+    {
+        $admin = $this->platformAdmin();
+
+        $response = $this->actingAs($admin)->put(route('plataforma.financeiro.saques-politica.update'), [
+            'manual_approval_pin' => '1234',
+            'manual_approval_pin_confirmation' => '9999',
+        ]);
+
+        $response->assertSessionHasErrors('manual_approval_pin_confirmation');
+        $this->assertFalse(WithdrawalPolicyService::hasManualApprovalPin());
+    }
+
+    public function test_pin_longer_than_six_digits_fails(): void
+    {
+        $admin = $this->platformAdmin();
+
+        $response = $this->actingAs($admin)->put(route('plataforma.financeiro.saques-politica.update'), [
+            'manual_approval_pin' => '1234567',
+            'manual_approval_pin_confirmation' => '1234567',
+        ]);
+
+        $response->assertSessionHasErrors('manual_approval_pin');
+        $this->assertFalse(WithdrawalPolicyService::hasManualApprovalPin());
+    }
+
     public function test_pin_reset_sends_admin_email_when_configured(): void
     {
         Mail::fake();
@@ -140,7 +166,7 @@ class WithdrawalPolicyTest extends TestCase
 
         Mail::assertSent(ManualApprovalPinResetAdminMail::class, function (ManualApprovalPinResetAdminMail $mail) use ($admin) {
             return $mail->requestedBy->is($admin)
-                && strlen($mail->pin) === 8
+                && strlen($mail->pin) === 6
                 && ctype_digit($mail->pin);
         });
     }

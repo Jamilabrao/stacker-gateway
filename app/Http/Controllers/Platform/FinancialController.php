@@ -65,15 +65,18 @@ class FinancialController extends Controller
 
     public function updateWithdrawalPolicy(Request $request): RedirectResponse
     {
+        $pinMax = WithdrawalPolicyService::MANUAL_APPROVAL_PIN_MAX_LENGTH;
+        $pinMin = WithdrawalPolicyService::MANUAL_APPROVAL_PIN_MIN_LENGTH;
+
         $validated = $request->validate([
             'auto_withdrawal_enabled' => ['nullable', 'boolean'],
             'hours_enabled' => ['nullable', 'boolean'],
             'hours_start' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
             'hours_end' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
             'timezone' => ['nullable', 'string', 'max:64'],
-            'current_manual_approval_pin' => ['nullable', 'string', 'max:32'],
-            'manual_approval_pin' => ['nullable', 'string', 'min:4', 'max:32'],
-            'manual_approval_pin_confirmation' => ['nullable', 'string', 'same:manual_approval_pin'],
+            'current_manual_approval_pin' => ['nullable', 'string', "max:{$pinMax}", 'regex:/^\d*$/'],
+            'manual_approval_pin' => ['nullable', 'string', "min:{$pinMin}", "max:{$pinMax}", 'regex:/^\d+$/'],
+            'manual_approval_pin_confirmation' => ['nullable', 'string', "max:{$pinMax}", 'regex:/^\d*$/'],
             'totp_code' => ['nullable', 'string', 'max:16'],
         ]);
 
@@ -84,9 +87,16 @@ class FinancialController extends Controller
         Setting::set('platform_withdrawal_timezone', $validated['timezone'] ?? WithdrawalPolicyService::timezone(), null);
 
         $pin = trim((string) ($validated['manual_approval_pin'] ?? ''));
+        $pinConfirm = trim((string) ($validated['manual_approval_pin_confirmation'] ?? ''));
         $pinChanged = false;
 
         if ($pin !== '') {
+            if ($pinConfirm === '' || $pin !== $pinConfirm) {
+                throw ValidationException::withMessages([
+                    'manual_approval_pin_confirmation' => 'A confirmação do PIN não confere.',
+                ]);
+            }
+
             $this->validatePlatformStepUp($request);
 
             if (WithdrawalPolicyService::hasManualApprovalPin()) {
@@ -300,7 +310,7 @@ class FinancialController extends Controller
         $validated = $request->validate([
             'payout_manual' => ['nullable', 'boolean'],
             'totp_code' => ['nullable', 'string', 'max:16'],
-            'manual_approval_pin' => ['nullable', 'string', 'max:32'],
+            'manual_approval_pin' => ['nullable', 'string', 'max:'.WithdrawalPolicyService::MANUAL_APPROVAL_PIN_MAX_LENGTH, 'regex:/^\d*$/'],
             'manual_confirm_external' => ['nullable', 'boolean'],
         ]);
         $manual = (bool) ($validated['payout_manual'] ?? false);
@@ -598,7 +608,7 @@ class FinancialController extends Controller
         $validated = $request->validate([
             'admin_note' => ['nullable', 'string', 'max:2000'],
             'totp_code' => ['nullable', 'string', 'max:16'],
-            'manual_approval_pin' => ['nullable', 'string', 'max:32'],
+            'manual_approval_pin' => ['nullable', 'string', 'max:'.WithdrawalPolicyService::MANUAL_APPROVAL_PIN_MAX_LENGTH, 'regex:/^\d*$/'],
         ]);
 
         $this->validatePlatformStepUp($request, redirectRoute: 'plataforma.saques.index');

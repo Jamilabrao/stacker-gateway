@@ -237,7 +237,7 @@ if (! $valid) {
 }
 exit($valid ? 0 : 1);
 ' >/dev/null 2>&1; then
-    php artisan pwa:vapid || true
+    php artisan pwa:ensure-vapid || true
   fi
 elif [ "$GETFY_VENDOR_JUST_INSTALLED" = "1" ]; then
   php artisan package:discover --ansi

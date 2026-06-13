@@ -65,6 +65,7 @@ class GenerateVapidKeysCommand extends Command
 
         try {
             PanelPushSettings::storeVapidKeys($publicKey, $privateKey);
+            \App\Support\PwaVapidEnvSync::syncFromDotEnv();
             $this->info('Chaves VAPID geradas e salvas no branding global e no .env.');
         } catch (\Throwable $e) {
             $this->warn('Chaves salvas no .env, mas falhou ao gravar no branding: '.$e->getMessage());

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
+import ProfileTotpSection from '@/components/profile/ProfileTotpSection.vue';
 import { Camera, Lock, Loader2 } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -12,6 +13,7 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    totp_enabled: { type: Boolean, default: false },
 });
 
 const avatarInputRef = ref(null);
@@ -301,5 +303,13 @@ function submitPassword() {
                 </Button>
             </form>
         </div>
+
+        <ProfileTotpSection
+            :totp_enabled="totp_enabled"
+            begin-url="/seguranca/totp/iniciar"
+            confirm-url="/seguranca/totp/confirmar"
+            disable-url="/seguranca/totp/desativar"
+            context="seller"
+        />
     </div>
 </template>

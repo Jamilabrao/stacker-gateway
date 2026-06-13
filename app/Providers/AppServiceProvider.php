@@ -57,6 +57,7 @@ class AppServiceProvider extends ServiceProvider
         $this->ensureRuntimeDirectories();
         $this->fallbackRedisToDatabase();
         $this->fallbackInvalidQueueConnectionToSync();
+        $this->applyPanelPushConfig();
         $this->bootCloudFolder();
         if (DockerSetupState::isDocker() && class_exists(\Illuminate\Support\Facades\Vite::class)) {
             \Illuminate\Support\Facades\Vite::useHotFile(storage_path('framework/vite.hot'));
@@ -200,6 +201,18 @@ class AppServiceProvider extends ServiceProvider
             }
         } catch (\Throwable $e) {
             report($e);
+        }
+    }
+
+    private function applyPanelPushConfig(): void
+    {
+        try {
+            if (! \Illuminate\Support\Facades\Schema::hasTable('branding_settings')) {
+                return;
+            }
+            \App\Support\PanelPushSettings::applyToConfig();
+        } catch (\Throwable) {
+            //
         }
     }
 

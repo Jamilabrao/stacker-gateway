@@ -34,7 +34,9 @@ class PanelPushSubscribeTest extends TestCase
             ],
         ]);
 
-        $response->assertOk()->assertJsonPath('success', true);
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('vapid_public_key', $keys['publicKey']);
         $this->assertDatabaseHas('panel_push_subscriptions', [
             'user_id' => $user->id,
             'provider' => PanelPushSubscription::PROVIDER_VAPID,

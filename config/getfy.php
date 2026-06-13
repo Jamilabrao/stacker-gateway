@@ -43,6 +43,8 @@ return [
 
     /** White Label plugin (null = default / não aplicado) */
     'login_hero_image' => null,
+    'login_hero_tagline' => 'Sua plataforma para vender mais.',
+    'login_hero_subtagline' => 'Feita para quem escala de verdade.',
     'favicon_url' => null,
     'pwa_theme_color' => null,
     'pwa_icon_192' => null,

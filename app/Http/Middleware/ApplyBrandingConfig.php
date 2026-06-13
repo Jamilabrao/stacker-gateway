@@ -21,6 +21,8 @@ class ApplyBrandingConfig
         'pwa_nav_logo' => 'getfy.pwa_nav_logo',
         'pwa_nav_logo_dark' => 'getfy.pwa_nav_logo_dark',
         'login_hero_image' => 'getfy.login_hero_image',
+        'login_hero_tagline' => 'getfy.login_hero_tagline',
+        'login_hero_subtagline' => 'getfy.login_hero_subtagline',
         'favicon_url' => 'getfy.favicon_url',
         'pwa_icon_192' => 'getfy.pwa_icon_192',
         'pwa_icon_512' => 'getfy.pwa_icon_512',

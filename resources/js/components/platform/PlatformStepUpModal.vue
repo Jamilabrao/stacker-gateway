@@ -14,9 +14,19 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'confirm']);
 
+const MANUAL_APPROVAL_PIN_MAX_LENGTH = 6;
+
 const totpCode = ref('');
 const manualPin = ref('');
 const externalConfirm = ref(false);
+
+function sanitizeManualApprovalPinInput(value) {
+    return String(value ?? '').replace(/\D/g, '').slice(0, MANUAL_APPROVAL_PIN_MAX_LENGTH);
+}
+
+function onManualPinInput(event) {
+    manualPin.value = sanitizeManualApprovalPinInput(event.target.value);
+}
 
 watch(
     () => props.open,
@@ -80,10 +90,13 @@ function submit() {
                         PIN de aprovação manual
                     </label>
                     <input
-                        v-model="manualPin"
+                        :value="manualPin"
                         type="password"
+                        inputmode="numeric"
+                        :maxlength="MANUAL_APPROVAL_PIN_MAX_LENGTH"
                         class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800"
                         placeholder="PIN da plataforma"
+                        @input="onManualPinInput"
                     />
                 </div>
 

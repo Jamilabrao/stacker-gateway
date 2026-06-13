@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 
 const DEFAULT_SCHEME = { mode: 'dark', locked: false };
@@ -51,18 +51,28 @@ export function resolvePanelTheme(scheme, storedTheme = null) {
     return policy.mode === 'dark' ? 'dark' : 'light';
 }
 
+function readCurrentThemeFromDom() {
+    if (typeof document === 'undefined') {
+        return 'light';
+    }
+
+    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+}
+
 export function usePanelColorScheme() {
     const page = usePage();
     const scheme = computed(() => page.props.public_branding?.panel_color_scheme ?? DEFAULT_SCHEME);
     const showToggler = computed(() => !scheme.value.locked);
-    const theme = ref('light');
+    const theme = ref(readCurrentThemeFromDom());
 
     let mediaQuery = null;
     let onSystemChange = null;
 
     function applyTheme(value) {
         theme.value = value;
-        document.documentElement.classList.toggle('dark', value === 'dark');
+        if (typeof document !== 'undefined') {
+            document.documentElement.classList.toggle('dark', value === 'dark');
+        }
     }
 
     function syncFromPolicy() {
@@ -82,6 +92,12 @@ export function usePanelColorScheme() {
             // ignore
         }
     }
+
+    if (typeof window !== 'undefined') {
+        syncFromPolicy();
+    }
+
+    watch(scheme, () => syncFromPolicy(), { deep: true });
 
     onMounted(() => {
         syncFromPolicy();

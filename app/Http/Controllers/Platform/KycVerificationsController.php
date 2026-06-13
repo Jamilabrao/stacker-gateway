@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Controller;
 use App\Models\KycDocument;
 use App\Models\User;
+use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformEmailNotifications;
 use App\Support\KycRequiredDocuments;
@@ -98,6 +99,7 @@ class KycVerificationsController extends Controller
                 'kyc_reviewed_at' => $user->kyc_reviewed_at?->toIso8601String(),
             ],
             'documents' => $documents,
+            'platform_totp_enabled' => PlatformTotpService::isEnabledFor(request()->user()),
         ]);
     }
 

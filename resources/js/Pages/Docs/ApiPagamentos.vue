@@ -8,13 +8,23 @@ import DocCode from '@/components/docs/DocCode.vue';
 import DocTable from '@/components/docs/DocTable.vue';
 import DocCallout from '@/components/docs/DocCallout.vue';
 import {
+    commonApiErrors,
     customerFields,
     endpointSummary,
     errorCodes,
     fieldColumns,
+    integrationPrerequisites,
+    integrationSteps,
     navSections,
+    orderStatusValues,
+    paymentStatusResponseFields,
+    pixRequestFields,
+    pixResponseFields,
     sessionFields,
     webhookEvents,
+    webhookPayloadExample,
+    webhookVerifyNodeExample,
+    webhookVerifyPhpExample,
     whenToUse,
 } from './apiPagamentosData';
 import { ChevronRight, Menu, X } from 'lucide-vue-next';
@@ -33,6 +43,43 @@ const hostExample = computed(() =>
 );
 const siteBase = computed(() =>
     props.baseUrl ? props.baseUrl.replace(/\/$/, '') : 'https://api.exemplo.com'
+);
+
+const pixCurlExample = computed(
+    () => `curl -X POST '${apiBase.value}/payments/pix' \\
+  -H 'Content-Type: application/json' \\
+  -H 'X-Public-Key: gpk_sua_public_key' \\
+  -H 'X-Secret-Key: gsk_sua_secret_key' \\
+  -H 'Idempotency-Key: pedido-123-pix' \\
+  -d '{
+    "customer": {
+      "email": "cliente@exemplo.com",
+      "name": "Cliente Teste",
+      "cpf": "52998224725"
+    },
+    "amount": 97.90,
+    "currency": "BRL",
+    "metadata": { "external_id": "ped-1001" }
+  }'`
+);
+
+const pixNodeExample = computed(
+    () => `const res = await fetch('${apiBase.value}/payments/pix', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Public-Key': process.env.GETFY_PUBLIC_KEY,
+    'X-Secret-Key': process.env.GETFY_SECRET_KEY,
+    'Idempotency-Key': \`order-\${orderId}-pix\`,
+  },
+  body: JSON.stringify({
+    customer: { email: 'cliente@exemplo.com', name: 'Cliente' },
+    amount: 97.90,
+    metadata: { external_id: orderId },
+  }),
+});
+const data = await res.json();
+// data.order_id, data.copy_paste, data.qrcode`
 );
 
 const contentRef = ref(null);
@@ -183,6 +230,23 @@ onMounted(() => nextTick(setupObserver));
                     />
                 </DocSection>
 
+                <DocSection id="fluxo-pix" title="Integração em 5 passos">
+                    <ol class="doc-ol">
+                        <li v-for="(step, i) in integrationSteps" :key="i">{{ step }}</li>
+                    </ol>
+                    <DocCallout type="tip" title="Webhook vs polling">
+                        Prefira webhook <code class="rounded bg-white/10 px-1 py-0.5">order.completed</code> para
+                        liberar o produto. Use GET /payments/{order_id} como fallback ou em ambientes sem webhook
+                        público.
+                    </DocCallout>
+                </DocSection>
+
+                <DocSection id="pre-requisitos" title="Pré-requisitos">
+                    <ul class="doc-ul">
+                        <li v-for="(item, i) in integrationPrerequisites" :key="i">{{ item }}</li>
+                    </ul>
+                </DocSection>
+
                 <DocSection id="para-parceiros" title="Integração para parceiros">
                     <ol class="doc-ol">
                         <li>
@@ -283,18 +347,71 @@ onMounted(() => nextTick(setupObserver));
                         path="/api/v1/payments/pix"
                         description="Cria cobrança PIX: pedido + QR Code e copia e cola."
                     >
+                        <DocCallout type="warning" title="amount vs product_id">
+                            Sem <code class="rounded bg-white/10 px-1 py-0.5">product_id</code>, o valor cobrado é o
+                            <code class="rounded bg-white/10 px-1 py-0.5">amount</code> enviado. Com
+                            <code class="rounded bg-white/10 px-1 py-0.5">product_id</code>, o valor vem do
+                            produto, oferta ou plano — o amount do body é <strong class="text-zinc-200">ignorado</strong>.
+                        </DocCallout>
                         <h4 class="doc-h4">Resposta 201</h4>
+                        <DocTable :columns="fieldColumns" :rows="pixResponseFields" />
                         <DocCode label="json">
-                            { "order_id": 456, "qrcode": "data:image/png;base64,...", "copy_paste": "00020126...",
-                            "status": "pending" }
+                            {
+                              "order_id": 456,
+                              "transaction_id": "efi-tx-abc123",
+                              "qrcode": "data:image/png;base64,...",
+                              "copy_paste": "00020126580014br.gov.bcb.pix...",
+                              "status": "pending"
+                            }
                         </DocCode>
+                        <p class="mt-4 text-sm text-zinc-400">
+                            Erro 422: <code class="rounded bg-white/10 px-1 py-0.5">{ "message": "..." }</code> —
+                            falha de validação ou gateway PIX indisponível.
+                        </p>
                     </DocEndpoint>
+                </DocSection>
+
+                <DocSection id="post-payments-pix-campos" title="Campos do request (PIX)">
+                    <DocTable :columns="fieldColumns" :rows="pixRequestFields" />
+                </DocSection>
+
+                <DocSection id="exemplo-curl" title="Exemplo curl (criar PIX)">
+                    <DocCode label="bash">{{ pixCurlExample }}</DocCode>
+                    <h4 class="doc-h4">Node.js (fetch)</h4>
+                    <DocCode label="javascript">{{ pixNodeExample }}</DocCode>
                 </DocSection>
 
                 <DocSection id="get-payments-order-id">
                     <DocEndpoint method="GET" path="/api/v1/payments/{order_id}" description="Consulta status do pedido.">
-                        <DocCode label="json">{ "order_id": 456, "status": "completed", "amount": 97.90 }</DocCode>
+                        <p class="mb-4 text-sm text-zinc-400">
+                            Só retorna pedidos criados pela mesma aplicação (mesmo par de chaves). Pedidos de outra
+                            integração retornam 404.
+                        </p>
+                        <DocTable :columns="fieldColumns" :rows="paymentStatusResponseFields" />
+                        <DocCode label="json">
+                            {
+                              "order_id": 456,
+                              "status": "completed",
+                              "amount": 97.90,
+                              "email": "cliente@exemplo.com",
+                              "gateway": "efi",
+                              "gateway_id": "tx-abc",
+                              "metadata": { "external_id": "ped-1001" },
+                              "created_at": "2026-06-13T14:00:00.000000Z",
+                              "updated_at": "2026-06-13T14:05:12.000000Z"
+                            }
+                        </DocCode>
                     </DocEndpoint>
+                </DocSection>
+
+                <DocSection id="status-pedido" title="Status do pedido">
+                    <DocTable
+                        :columns="[
+                            { key: 'status', label: 'Status' },
+                            { key: 'quando', label: 'Quando ocorre' },
+                        ]"
+                        :rows="orderStatusValues"
+                    />
                 </DocSection>
 
                 <DocSection id="post-pix-cancel">
@@ -349,15 +466,16 @@ onMounted(() => nextTick(setupObserver));
                     </DocEndpoint>
                 </DocSection>
 
-                <DocSection id="idempotencia" title="Idempotência">
+                <DocSection id="idempotencia-pix" title="Idempotência (PIX e demais criações)">
                     <p class="text-zinc-400 leading-relaxed mb-4">
                         Use
                         <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">idempotency_key</code>
                         no body ou header
                         <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">Idempotency-Key</code>
-                        (máx. 128 caracteres).
+                        (máx. 128 caracteres). A mesma chave dentro de 24h devolve a resposta original sem criar novo
+                        pedido.
                     </p>
-                    <DocCallout type="tip" title="Recomendado">Use em todas as criações de pagamento.</DocCallout>
+                    <DocCallout type="tip" title="Recomendado">Use em todas as criações de pagamento (PIX, cartão, boleto, sessão).</DocCallout>
                 </DocSection>
 
                 <DocSection id="webhooks-eventos" title="Eventos">
@@ -371,22 +489,51 @@ onMounted(() => nextTick(setupObserver));
                 </DocSection>
 
                 <DocSection id="webhooks-formato" title="Formato do payload">
-                    <DocCode label="json">
-                        { "event": "order.completed", "order_id": 456, "amount": 97.90, "metadata": {} }
-                    </DocCode>
+                    <p class="mb-4 text-sm text-zinc-400">
+                        POST JSON na <code class="rounded bg-white/10 px-1 py-0.5">webhook_url</code> da aplicação.
+                        Campo <code class="rounded bg-white/10 px-1 py-0.5">customer</code> incluído quando há dados
+                        do comprador no pedido.
+                    </p>
+                    <DocCode label="json">{{ webhookPayloadExample }}</DocCode>
                 </DocSection>
 
                 <DocSection id="webhooks-assinatura" title="Assinatura do webhook">
                     <p class="text-zinc-400 leading-relaxed mb-4">
-                        Header <strong>X-Webhook-Signature</strong>: HMAC-SHA256 do body bruto com o webhook secret.
+                        Header <strong>X-Webhook-Signature</strong>: HMAC-SHA256 do body bruto (string JSON exata) com o
+                        webhook secret configurado na aplicação.
                     </p>
+                    <h4 class="doc-h4">PHP</h4>
+                    <DocCode label="php">{{ webhookVerifyPhpExample }}</DocCode>
+                    <h4 class="doc-h4">Node.js</h4>
+                    <DocCode label="javascript">{{ webhookVerifyNodeExample }}</DocCode>
                     <DocCallout type="warning" title="Produção">Configure secret e valide a assinatura.</DocCallout>
                 </DocSection>
 
                 <DocSection id="webhooks-boas-praticas" title="Boas práticas (webhooks)">
                     <ul class="doc-ul">
-                        <li>Responda 2xx rapidamente.</li>
-                        <li>Trate eventos duplicados.</li>
+                        <li>Responda HTTP 2xx em até alguns segundos; processe assincronamente se necessário.</li>
+                        <li>Trate eventos duplicados (mesmo order_id + event).</li>
+                        <li>Use <code class="rounded bg-white/10 px-1 py-0.5">metadata</code> para correlacionar com seu pedido interno.</li>
+                        <li>Não dependa só de polling — webhook é o caminho recomendado para liberar acesso.</li>
+                    </ul>
+                </DocSection>
+
+                <DocSection id="erros-comuns" title="Erros comuns e troubleshooting">
+                    <DocTable
+                        :columns="[
+                            { key: 'code', label: 'HTTP' },
+                            { key: 'message', label: 'Mensagem' },
+                            { key: 'cause', label: 'Causa provável' },
+                            { key: 'action', label: 'O que fazer' },
+                        ]"
+                        :rows="commonApiErrors"
+                    />
+                    <h3 class="doc-h3">PIX não gera QR / copy_paste</h3>
+                    <ul class="doc-ul">
+                        <li>Gateway PIX não conectado em Integrações → Gateways</li>
+                        <li>API PIX desabilitada para o vendedor</li>
+                        <li><code class="rounded bg-white/10 px-1 py-0.5">amount</code> menor que 0.01 ou produto indisponível</li>
+                        <li>Resposta 422 com <code class="rounded bg-white/10 px-1 py-0.5">message</code> do gateway — verifique logs do servidor</li>
                     </ul>
                 </DocSection>
 

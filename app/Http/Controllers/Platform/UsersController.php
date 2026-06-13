@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\EffectiveMerchantFees;
 use App\Services\MerchantWalletAdminBlockService;
+use App\Services\Platform\PlatformTotpService;
 use App\Services\SalesAchievementsService;
 use App\Services\PlatformAuditService;
 use App\Support\PercentDecimal;
@@ -115,6 +116,7 @@ class UsersController extends Controller
                 'med_total' => $medTotal,
                 'wallet_admin' => $walletAdmin,
                 'admin_notes_count' => (int) ($adminNotesCounts[$u->id] ?? 0),
+                'totp_enabled' => PlatformTotpService::isEnabledFor($u),
                 'created_at' => $u->created_at?->toIso8601String(),
             ];
         });
@@ -166,6 +168,7 @@ class UsersController extends Controller
                 'created_at' => $user->created_at?->toIso8601String(),
                 'tenant_id' => $tenantId,
                 'vendas_totais' => round($this->salesAchievements->getValidSalesTotal($tenantId), 2),
+                'totp_enabled' => PlatformTotpService::isEnabledFor($user),
             ],
             'wallet' => $this->walletPayloadForTenant($tenantId),
             'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),

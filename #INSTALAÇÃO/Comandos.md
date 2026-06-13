@@ -120,6 +120,55 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy
 | Log app: **role does not exist** | `GETFY_DB_USERNAME` errado vs volume Postgres | Alinhar `.docker/stack.env` com backup/volume; não recriar volume |
 | `export GETFY_DB_*` na shell root | Sobrescreve `--env-file` no próximo deploy | `unset GETFY_DB_*` antes de cada `compose`/`update.sh` |
 | Git **needs merge** | `public/build` no índice | Bloco git do início deste ficheiro |
+| **composer install** no Docker build: `curl error 28` / `api.github.com` timeout | Rede do BuildKit no VPS não alcança GitHub a tempo | Na VPS: `cd /opt/getfy && sh docker/install-composer-deps.sh` e depois `update.sh` (versão recente instala vendor no host antes do build) |
+| Webhook **Pedido pago** não dispara (teste manual funciona) | Jobs na fila `webhooks` sem worker | Após `update.sh`: `docker compose exec redis redis-cli LLEN queues:webhooks` (deve ser 0). Logs em **Integrações > Webhooks > Ver logs** |
+
+#### Webhook de saída (Pedido pago)
+
+Se o botão **Testar** em Integrações funciona mas o evento real após pagamento não chega na URL:
+
+```bash
+cd /opt/getfy
+# Jobs presos na fila de webhooks?
+docker compose exec redis redis-cli LLEN queues:webhooks
+# Worker deve processar webhooks,default (versões recentes do update.sh)
+docker compose logs queue --tail 20
+```
+
+Na UI: **Integrações > Webhooks > Ver logs** — após um pagamento, deve aparecer `pedido_pago` com `success: true`.
+
+#### Push PWA (notificações do painel)
+
+Após `update.sh`, o script roda `pwa:ensure-vapid` automaticamente. Para verificar manualmente:
+
+```bash
+cd /opt/getfy
+docker compose exec app php artisan pwa:ensure-vapid
+docker compose exec app php artisan config:clear
+docker compose exec app php artisan tinker --execute="echo App\Support\PanelPushSettings::isPushEnabled() ? 'ok' : 'falta VAPID';"
+```
+
+Checklist UI:
+- **Plataforma → App**: VAPID válido / push habilitado
+- **Painel → sidebar notificações → Ativar**: deve permanecer **Ativo** (não voltar para inativo)
+- Eventos: PIX gerado, venda aprovada (PIX/cartão/boleto), saque concluído
+
+Se o botão voltar para "Ativar" após update, reative uma vez; inscrições antigas com chave VAPID desatualizada exigem reativação (`push_needs_resubscribe`).
+
+#### Update falha no composer (só em um VPS)
+
+Se o frontend compila mas o build Docker quebra em `composer install` com timeout no GitHub:
+
+```bash
+cd /opt/getfy
+git fetch --all --prune && git reset --hard origin/main
+sh docker/install-composer-deps.sh
+# Se ainda falhar, aumente timeout:
+GETFY_COMPOSER_PROCESS_TIMEOUT=1800 GETFY_COMPOSER_HTTP_TIMEOUT=600 sh docker/install-composer-deps.sh
+unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD
+set -a && . .docker/stack.env && set +a
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy-gateway/main/update.sh)"
+```
 
 ### Só diagnóstico (sem reiniciar)
 

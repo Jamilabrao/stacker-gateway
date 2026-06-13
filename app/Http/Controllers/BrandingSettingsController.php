@@ -22,6 +22,8 @@ class BrandingSettingsController extends Controller
         'pwa_nav_logo',
         'pwa_nav_logo_dark',
         'login_hero_image',
+        'login_hero_tagline',
+        'login_hero_subtagline',
         'favicon_url',
     ];
 

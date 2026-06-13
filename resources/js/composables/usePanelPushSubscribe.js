@@ -52,6 +52,24 @@ function vapidKeyChanged(currentPublic) {
     return stored !== null && stored !== currentPublic;
 }
 
+function mapSubscribeHttpError(error) {
+    const status = error?.response?.status;
+    if (status === 419) return 'csrf_expired';
+    if (status === 422) return 'push_not_configured';
+    if (status === 429) return 'rate_limited';
+    if (status === 403) return 'push_forbidden';
+    return 'subscription_sync_failed';
+}
+
+async function postPushSubscribe(payload) {
+    try {
+        const { data } = await axios.post('/painel/push-subscribe', payload);
+        return { ok: !!data?.success, data };
+    } catch (error) {
+        return { ok: false, errorCode: mapSubscribeHttpError(error), error };
+    }
+}
+
 async function loadFirebaseModules() {
     const { initializeApp } = await import('firebase/app');
     const { getMessaging, getToken, onMessage, isSupported } = await import('firebase/messaging');
@@ -131,24 +149,32 @@ export function usePanelPushSubscribe() {
     async function syncVapidToServer(sub) {
         const payload = serializeSubscription(sub);
         if (!payload.endpoint || !payload.keys?.p256dh || !payload.keys?.auth) return false;
-        const { data } = await axios.post('/painel/push-subscribe', payload);
-        if (data?.success) {
+        const result = await postPushSubscribe(payload);
+        if (result.ok) {
             setStoredVapidPublic(vapidPublic.value);
             pushNeedsResubscribe.value = false;
+            return true;
         }
-        return !!data?.success;
+        if (result.errorCode) {
+            lastPushError.value = result.errorCode;
+        }
+        return false;
     }
 
     async function syncFcmToServer(token) {
         if (!token) return false;
-        const { data } = await axios.post('/painel/push-subscribe', {
+        const result = await postPushSubscribe({
             provider: 'fcm',
             fcm_token: token,
         });
-        if (data?.success) {
+        if (result.ok) {
             pushNeedsResubscribe.value = false;
+            return true;
         }
-        return !!data?.success;
+        if (result.errorCode) {
+            lastPushError.value = result.errorCode;
+        }
+        return false;
     }
 
     async function registerPanelSw() {
@@ -269,9 +295,11 @@ export function usePanelPushSubscribe() {
     }
 
     async function registerAndSubscribe() {
+        if (pushSubscribing.value) return pushRegistered.value;
+
+        const wasRegistered = pushRegistered.value;
         lastPushError.value = null;
         needsPermission.value = false;
-        pushRegistered.value = false;
 
         if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
             lastPushError.value = 'notification_permission_default';
@@ -286,8 +314,7 @@ export function usePanelPushSubscribe() {
             lastPushError.value = 'push_not_configured';
             return false;
         }
-        if (pushSubscribing.value) return false;
-        if (pushRegistered.value) return true;
+        if (wasRegistered && !pushNeedsResubscribe.value) return true;
 
         pushSubscribing.value = true;
         try {
@@ -309,6 +336,7 @@ export function usePanelPushSubscribe() {
                 lastPushError.value = 'subscription_failed';
                 console.warn('Panel push subscribe failed:', e);
             }
+            pushRegistered.value = false;
             return false;
         } finally {
             pushSubscribing.value = false;
@@ -316,18 +344,30 @@ export function usePanelPushSubscribe() {
     }
 
     async function checkExistingSubscription() {
-        lastPushError.value = null;
-        pushRegistered.value = false;
+        if (pushSubscribing.value) {
+            return pushRegistered.value;
+        }
+
+        const previousRegistered = pushRegistered.value;
         needsPermission.value = false;
 
         if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
             needsPermission.value = pushEnabled.value;
+            if (!previousRegistered) {
+                pushRegistered.value = false;
+            }
             return false;
         }
         if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+            if (!previousRegistered) {
+                pushRegistered.value = false;
+            }
             return false;
         }
-        if (!pushEnabled.value) return false;
+        if (!pushEnabled.value) {
+            pushRegistered.value = false;
+            return false;
+        }
 
         try {
             const { data } = await axios.get('/painel/notifications', { params: { per_page: 1 } });
@@ -391,6 +431,8 @@ export function usePanelPushSubscribe() {
         typeof Notification !== 'undefined' ? Notification.permission : 'default'
     );
 
+    const subscribeInFlight = computed(() => pushSubscribing.value);
+
     const isStandalone = computed(() => {
         if (typeof window === 'undefined') return false;
         return (
@@ -447,5 +489,6 @@ export function usePanelPushSubscribe() {
         pushProvider,
         registerAndSubscribe,
         checkExistingSubscription,
+        subscribeInFlight,
     };
 }

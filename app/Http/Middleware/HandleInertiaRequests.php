@@ -9,10 +9,12 @@ use App\Services\InertiaSharedPropsCache;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Services\PlatformI18nService;
+use App\Services\Platform\PlatformTotpService;
 use App\Services\ApiPixAccess;
 use App\Services\MemberProgressService;
 use App\Services\PhysicalProductAccess;
 use App\Support\DemoMode;
+use App\Support\LoginTemplate;
 use App\Support\PanelColorScheme;
 use App\Support\SellerDashboardTemplate;
 use Illuminate\Http\Request;
@@ -239,6 +241,8 @@ class HandleInertiaRequests extends Middleware
                         'customer' => $user->canAccessCustomerPanel(),
                         'seller' => $user->canSwitchToSellerPanel() || $user->needsOnboardingAsSeller(),
                     ],
+                    'totp_enabled' => PlatformTotpService::isEnabledFor($user),
+                    'show_totp_prompt' => $user->canAccessPlatformPanel() || $user->canAccessSellerPanel(),
                 ] : null,
                 'permissions' => ($user && $user->canAccessSellerPanel())
                     ? app(TeamAccessService::class)->permissionsFor($user)
@@ -338,6 +342,8 @@ class HandleInertiaRequests extends Middleware
         $favicon = ($favicon !== null && $favicon !== '') ? (string) $favicon : 'https://cdn.getfy.cloud/collapsed-logo.png';
         $loginHero = config('getfy.login_hero_image');
         $loginHero = ($loginHero !== null && $loginHero !== '') ? (string) $loginHero : 'https://cdn.getfy.cloud/login.webp';
+        $loginHeroTagline = (string) config('getfy.login_hero_tagline', 'Sua plataforma para vender mais.');
+        $loginHeroSubtagline = (string) config('getfy.login_hero_subtagline', 'Feita para quem escala de verdade.');
 
         return [
             'app_name' => (string) config('getfy.app_name', 'Getfy'),
@@ -348,10 +354,13 @@ class HandleInertiaRequests extends Middleware
             'app_logo_icon' => (string) config('getfy.app_logo_icon'),
             'app_logo_icon_dark' => (string) config('getfy.app_logo_icon_dark'),
             'login_hero_image' => $loginHero,
+            'login_hero_tagline' => $loginHeroTagline,
+            'login_hero_subtagline' => $loginHeroSubtagline,
             'favicon_url' => $favicon,
             'pwa_icon_192' => config('getfy.pwa_icon_192'),
             'pwa_icon_512' => config('getfy.pwa_icon_512'),
             'panel_color_scheme' => PanelColorScheme::current(),
+            'login_template' => LoginTemplate::current(),
         ];
     }
 }

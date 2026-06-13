@@ -109,6 +109,12 @@ class PanelPushService
      */
     public function sendToSubscriptions(Collection $subscriptions, string $title, string $body, ?string $url = null): array
     {
+        try {
+            \App\Support\PanelPushSettings::applyToConfig();
+        } catch (\Throwable) {
+            //
+        }
+
         if (! \App\Support\PanelPushSettings::isPushEnabled()) {
             Log::warning('PanelPushService: push não configurado no admin');
 

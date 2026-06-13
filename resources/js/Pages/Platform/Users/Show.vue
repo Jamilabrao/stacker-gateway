@@ -3,7 +3,7 @@ import { Link, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import WalletAdjustForm from '@/components/platform/WalletAdjustForm.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
-import { BadgeCheck } from 'lucide-vue-next';
+import { BadgeCheck, Shield } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -80,7 +80,17 @@ function formatFeePreview(percent, fixed) {
                 >
                     ← Infoprodutores
                 </Link>
-                <h1 class="mt-2 text-xl font-semibold text-zinc-900 dark:text-white">{{ merchant.name }}</h1>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">{{ merchant.name }}</h1>
+                    <span
+                        v-if="merchant.totp_enabled"
+                        class="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+                        title="Autenticação em dois fatores ativa"
+                    >
+                        <Shield class="h-3.5 w-3.5" />
+                        2FA ativo
+                    </span>
+                </div>
                 <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{{ merchant.email }}</p>
                 <p v-if="merchant.document" class="text-sm text-zinc-500">{{ merchant.document }}</p>
             </div>

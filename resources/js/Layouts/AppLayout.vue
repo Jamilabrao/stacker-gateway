@@ -15,6 +15,7 @@ import Backdrop from '@/components/layout/Backdrop.vue';
 import FlashToast from '@/components/layout/FlashToast.vue';
 import CloudBillingBanner from '@/components/layout/CloudBillingBanner.vue';
 import KycBanner from '@/components/layout/KycBanner.vue';
+import TotpPromptBanner from '@/components/layout/TotpPromptBanner.vue';
 import DemoExploreBanner from '@/components/layout/DemoExploreBanner.vue';
 import DemoModeBanner from '@/components/layout/DemoModeBanner.vue';
 
@@ -174,6 +175,7 @@ onBeforeUnmount(() => {
             <div class="flex w-full shrink-0 flex-col gap-2">
                 <div v-if="!customerPanel" class="-mx-3 md:-mx-4 lg:-mx-6">
                     <DemoModeBanner />
+                    <TotpPromptBanner />
                     <DemoExploreBanner class="mx-3 mb-2 md:mx-4 lg:mx-6" />
                     <CloudBillingBanner />
                     <KycBanner />

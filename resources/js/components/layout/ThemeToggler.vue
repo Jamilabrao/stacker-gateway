@@ -1,6 +1,14 @@
 <script setup>
 import { usePanelColorScheme } from '@/composables/usePanelColorScheme';
 
+defineProps({
+    tone: {
+        type: String,
+        default: 'default',
+        validator: (v) => ['default', 'spotlight'].includes(v),
+    },
+});
+
 const { theme, showToggler, setTheme } = usePanelColorScheme();
 </script>
 
@@ -9,12 +17,15 @@ const { theme, showToggler, setTheme } = usePanelColorScheme();
         v-if="showToggler"
         role="group"
         aria-label="Tema"
-        class="flex rounded-full bg-zinc-200/70 p-0.5 dark:bg-zinc-600/50"
+        class="flex rounded-full p-0.5"
+        :class="tone === 'spotlight' ? 'bg-zinc-800/70' : 'bg-zinc-200/70 dark:bg-zinc-600/50'"
     >
         <button
             type="button"
             class="flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition-all dark:text-zinc-400"
-            :class="theme === 'light' ? 'bg-white text-amber-600 shadow-sm dark:shadow-none' : 'hover:text-zinc-900 dark:hover:text-zinc-200'"
+            :class="theme === 'light'
+                ? (tone === 'spotlight' ? 'bg-zinc-700 text-amber-400 shadow-sm' : 'bg-white text-amber-600 shadow-sm dark:shadow-none')
+                : (tone === 'spotlight' ? 'text-zinc-500 hover:text-zinc-300' : 'hover:text-zinc-900 dark:hover:text-zinc-200')"
             aria-label="Tema claro"
             @click="setTheme('light')"
         >
@@ -30,7 +41,9 @@ const { theme, showToggler, setTheme } = usePanelColorScheme();
         <button
             type="button"
             class="flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition-all dark:text-zinc-400"
-            :class="theme === 'dark' ? 'bg-zinc-700 text-zinc-100 shadow-sm' : 'hover:text-zinc-900 dark:hover:text-zinc-200'"
+            :class="theme === 'dark'
+                ? (tone === 'spotlight' ? 'bg-zinc-600 text-zinc-100 shadow-sm' : 'bg-zinc-700 text-zinc-100 shadow-sm')
+                : (tone === 'spotlight' ? 'text-zinc-500 hover:text-zinc-300' : 'hover:text-zinc-900 dark:hover:text-zinc-200')"
             aria-label="Tema escuro"
             @click="setTheme('dark')"
         >

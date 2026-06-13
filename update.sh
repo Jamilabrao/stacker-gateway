@@ -73,12 +73,38 @@ else
   echo "Aviso: docker/build-frontend.sh não encontrado — assets do painel podem ficar desatualizados." >&2
 fi
 
+if [ -f docker/install-composer-deps.sh ]; then
+  $SUDO chmod +x docker/install-composer-deps.sh 2>/dev/null || true
+  echo ""
+  echo "=== Dependências PHP (Composer) ==="
+  $SUDO sh docker/install-composer-deps.sh
+else
+  echo "Aviso: docker/install-composer-deps.sh não encontrado — o build Docker pode falhar sem vendor/." >&2
+fi
+
 echo ""
 echo "=== Reiniciando stack Docker ==="
 $SUDO chmod +x docker/detect-compose-files.sh 2>/dev/null || true
 COMPOSE_FILES="$($SUDO sh docker/detect-compose-files.sh)"
 echo "Compose: $COMPOSE_FILES"
 $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+
+echo ""
+echo "=== Push PWA (VAPID) ==="
+COMPOSE_EXEC_ARGS=""
+for f in $COMPOSE_FILES; do
+  if [ -n "$f" ]; then
+    COMPOSE_EXEC_ARGS="$COMPOSE_EXEC_ARGS -f $f"
+  fi
+done
+ENV_FILE="$INSTALL_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+  $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$ENV_FILE" exec -T app php artisan pwa:ensure-vapid || true
+  $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$ENV_FILE" exec -T app php artisan config:clear || true
+else
+  $SUDO docker compose $COMPOSE_EXEC_ARGS exec -T app php artisan pwa:ensure-vapid || true
+  $SUDO docker compose $COMPOSE_EXEC_ARGS exec -T app php artisan config:clear || true
+fi
 
 echo ""
 echo "Atualização concluída (git + build frontend + stack reiniciado)."

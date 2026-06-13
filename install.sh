@@ -156,7 +156,7 @@ if [ -f ".docker/stack.env" ]; then
   fi
 fi
 
-$SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/ensure-upload-limits.sh >/dev/null 2>&1 || true
+$SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh >/dev/null 2>&1 || true
 
 echo ""
 echo "=== Limites de upload (PHP / Member Builder) ==="
@@ -166,6 +166,12 @@ if [ -f docker/build-frontend.sh ]; then
   echo ""
   echo "=== Build do frontend ==="
   $SUDO sh docker/build-frontend.sh
+fi
+
+if [ -f docker/install-composer-deps.sh ]; then
+  echo ""
+  echo "=== Dependências PHP (Composer) ==="
+  $SUDO sh docker/install-composer-deps.sh
 fi
 
 if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$HTTP_PORT$"; then

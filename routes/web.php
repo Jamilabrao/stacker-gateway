@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\TwoFactorLoginController;
 use App\Http\Controllers\Auth\ResetPasswordController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -247,6 +248,9 @@ Route::middleware('guest')->group(function () {
     Route::get('/cadastro', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'create'])->name('cadastro');
     Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
     Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:login');
+    Route::get('/login/2fa', [TwoFactorLoginController::class, 'showSeller'])->name('login.two-factor');
+    Route::post('/login/2fa', [TwoFactorLoginController::class, 'verifySeller'])->name('login.two-factor.verify')->middleware('throttle:login');
+    Route::post('/login/2fa/cancelar', [TwoFactorLoginController::class, 'cancelSeller'])->name('login.two-factor.cancel');
     Route::get('/esqueci-senha', [ForgotPasswordController::class, 'showLinkRequestForm'])->name('password.request');
     Route::post('/esqueci-senha', [ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email')->middleware('throttle:6,1');
     Route::get('/redefinir-senha/{token}', [ResetPasswordController::class, 'showResetForm'])->name('password.reset');
@@ -262,6 +266,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
     Route::middleware([\App\Http\Middleware\EnsureGuestPlatform::class])->group(function () {
         Route::get('/login', [\App\Http\Controllers\Platform\LoginController::class, 'showLoginForm'])->name('login');
         Route::post('/login', [\App\Http\Controllers\Platform\LoginController::class, 'login'])->middleware('throttle:login');
+        Route::get('/login/2fa', [TwoFactorLoginController::class, 'showPlatform'])->name('login.two-factor');
+        Route::post('/login/2fa', [TwoFactorLoginController::class, 'verifyPlatform'])->name('login.two-factor.verify')->middleware('throttle:login');
+        Route::post('/login/2fa/cancelar', [TwoFactorLoginController::class, 'cancelPlatform'])->name('login.two-factor.cancel');
     });
     Route::middleware(['auth', 'platform.admin'])->group(function () {
         Route::post('/logout', [\App\Http\Controllers\Platform\LoginController::class, 'logout'])->name('logout');
@@ -269,9 +276,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'index'])->name('profile.index');
         Route::post('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'update'])->name('profile.update');
         Route::put('/meu-perfil/senha', [\App\Http\Controllers\Platform\ProfileController::class, 'updatePassword'])->name('profile.update-password');
-        Route::post('/seguranca/totp/iniciar', [\App\Http\Controllers\Platform\SecurityController::class, 'beginTotp'])->name('security.totp.begin');
-        Route::post('/seguranca/totp/confirmar', [\App\Http\Controllers\Platform\SecurityController::class, 'confirmTotp'])->name('security.totp.confirm');
-        Route::post('/seguranca/totp/desativar', [\App\Http\Controllers\Platform\SecurityController::class, 'disableTotp'])->name('security.totp.disable');
+        Route::post('/seguranca/totp/iniciar', [\App\Http\Controllers\TotpSecurityController::class, 'beginTotp'])->name('security.totp.begin');
+        Route::post('/seguranca/totp/confirmar', [\App\Http\Controllers\TotpSecurityController::class, 'confirmTotp'])->name('security.totp.confirm');
+        Route::post('/seguranca/totp/desativar', [\App\Http\Controllers\TotpSecurityController::class, 'disableTotp'])->name('security.totp.disable');
         Route::get('/app', [\App\Http\Controllers\Platform\AppController::class, 'index'])->name('app.index');
         Route::get('/app/data', [\App\Http\Controllers\Platform\AppController::class, 'data'])->name('app.data');
         Route::put('/app', [\App\Http\Controllers\Platform\AppController::class, 'update'])->name('app.update');
@@ -342,6 +349,8 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/configuracoes/banners-dashboard/upload', [\App\Http\Controllers\Platform\DashboardBannerController::class, 'upload'])->name('settings.dashboard-banners.upload');
         Route::get('/configuracoes/template-dashboard/data', [\App\Http\Controllers\Platform\SellerDashboardTemplateController::class, 'data'])->name('settings.dashboard-template.data');
         Route::put('/configuracoes/template-dashboard', [\App\Http\Controllers\Platform\SellerDashboardTemplateController::class, 'update'])->name('settings.dashboard-template.update');
+        Route::get('/configuracoes/template-login/data', [\App\Http\Controllers\Platform\LoginTemplateController::class, 'data'])->name('settings.login-template.data');
+        Route::put('/configuracoes/template-login', [\App\Http\Controllers\Platform\LoginTemplateController::class, 'update'])->name('settings.login-template.update');
         Route::get('/configuracoes/panel-color-scheme/data', [\App\Http\Controllers\Platform\PanelColorSchemeController::class, 'data'])->name('settings.panel-color-scheme.data');
         Route::put('/configuracoes/panel-color-scheme', [\App\Http\Controllers\Platform\PanelColorSchemeController::class, 'update'])->name('settings.panel-color-scheme.update');
         Route::get('/configuracoes/personalizacao/data', [\App\Http\Controllers\BrandingSettingsController::class, 'data'])->name('settings.branding.data');
@@ -470,7 +479,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         ->middleware('throttle:20,1')
         ->where('token', '[A-Za-z0-9]{32,64}');
     Route::post('/painel/idioma', [\App\Http\Controllers\PanelLanguageController::class, 'switch'])->name('panel.language.switch');
-    Route::post('/painel/push-subscribe', [\App\Http\Controllers\PanelPwaController::class, 'pushSubscribe'])->name('panel.pwa.push-subscribe')->middleware('throttle:10,1');
+    Route::post('/painel/push-subscribe', [\App\Http\Controllers\PanelPwaController::class, 'pushSubscribe'])->name('panel.pwa.push-subscribe')->middleware('throttle:20,1');
     Route::get('/painel/notifications', [\App\Http\Controllers\PanelNotificationsController::class, 'index'])->name('panel.notifications.index');
     Route::patch('/painel/notifications/{notification}/read', [\App\Http\Controllers\PanelNotificationsController::class, 'markRead'])->name('panel.notifications.mark-read');
     Route::post('/painel/notifications/mark-read', [\App\Http\Controllers\PanelNotificationsController::class, 'markReadBatch'])->name('panel.notifications.mark-read-batch');
@@ -542,6 +551,9 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
     Route::post('/meu-perfil', [\App\Http\Controllers\ProfileController::class, 'update'])->name('profile.update');
     Route::put('/meu-perfil/username', [\App\Http\Controllers\ProfileController::class, 'updateUsername'])->name('profile.update-username');
     Route::put('/meu-perfil/senha', [\App\Http\Controllers\ProfileController::class, 'updatePassword'])->name('profile.update-password');
+    Route::post('/seguranca/totp/iniciar', [\App\Http\Controllers\TotpSecurityController::class, 'beginTotp'])->name('security.totp.begin');
+    Route::post('/seguranca/totp/confirmar', [\App\Http\Controllers\TotpSecurityController::class, 'confirmTotp'])->name('security.totp.confirm');
+    Route::post('/seguranca/totp/desativar', [\App\Http\Controllers\TotpSecurityController::class, 'disableTotp'])->name('security.totp.disable');
 
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, '__invoke'])
         ->middleware('team.permission:dashboard.view')

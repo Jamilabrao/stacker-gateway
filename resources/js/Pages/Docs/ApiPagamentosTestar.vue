@@ -82,6 +82,9 @@ async function request(method, path, body = null) {
             data,
             error: res.ok ? null : data?.message || res.statusText,
         };
+        if (res.ok && method === 'POST' && path === '/payments/pix' && data?.order_id) {
+            orderId.value = String(data.order_id);
+        }
     } catch (e) {
         result.value = {
             endpoint: `${method} ${path}`,
@@ -130,6 +133,20 @@ function consultOrder() {
             Obtenha o par de chaves em
             <Link href="/aplicacoes-api" class="underline hover:text-amber-100">Chaves da API</Link>.
             Deixe <strong>IPs permitidos</strong> vazio ou inclua seu IP na integração.
+            <Link href="/docs/api-pagamentos#erros-comuns" class="ml-1 underline hover:text-amber-100">
+                Erros comuns →
+            </Link>
+        </div>
+
+        <div class="mb-8 rounded-xl border border-teal-500/30 bg-teal-500/10 px-4 py-4 text-sm text-teal-100/90">
+            <p class="font-semibold text-teal-200">Fluxo recomendado (PIX)</p>
+            <ol class="mt-2 list-decimal space-y-1 pl-5 text-teal-100/80">
+                <li>Preencha Public key e Secret key</li>
+                <li>Clique em <strong>PIX – Criar cobrança</strong></li>
+                <li>Copie o <code class="rounded bg-black/20 px-1">copy_paste</code> da resposta</li>
+                <li>O <strong>order_id</strong> é preenchido automaticamente para consulta de status</li>
+                <li>Em produção, confirme pagamento via webhook <code class="rounded bg-black/20 px-1">order.completed</code></li>
+            </ol>
         </div>
 
         <div class="mb-8 grid gap-4 sm:grid-cols-3">
@@ -284,6 +301,13 @@ function consultOrder() {
                 </span>
             </p>
             <p v-if="result.error" class="mb-3 text-sm text-red-400">{{ result.error }}</p>
+            <div
+                v-if="result.data?.copy_paste"
+                class="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/10 p-3"
+            >
+                <p class="text-xs font-semibold uppercase tracking-wider text-teal-400">PIX copia e cola</p>
+                <p class="mt-2 break-all font-mono text-xs text-teal-100">{{ result.data.copy_paste }}</p>
+            </div>
             <pre
                 class="overflow-x-auto rounded-lg border border-white/10 bg-zinc-950 p-4 font-mono text-xs text-zinc-300"
                 >{{ result.data !== null ? JSON.stringify(result.data, null, 2) : '—' }}</pre

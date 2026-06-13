@@ -304,6 +304,17 @@ const tabs = computed(() => [
     { id: 'liquidacao', label: 'Liquidação', icon: CalendarClock },
 ]);
 
+const MANUAL_APPROVAL_PIN_MAX_LENGTH = 6;
+const MANUAL_APPROVAL_PIN_MIN_LENGTH = 4;
+
+function sanitizeManualApprovalPinInput(value) {
+    return String(value ?? '').replace(/\D/g, '').slice(0, MANUAL_APPROVAL_PIN_MAX_LENGTH);
+}
+
+function setManualApprovalPinField(field, event) {
+    withdrawalPolicyForm[field] = sanitizeManualApprovalPinInput(event.target.value);
+}
+
 const withdrawalPolicyForm = useForm({
     auto_withdrawal_enabled: props.withdrawal_policy?.auto_withdrawal_enabled !== false,
     hours_enabled: props.withdrawal_policy?.hours_enabled === true,
@@ -341,10 +352,70 @@ function clearWithdrawalPinFields() {
 }
 
 function isChangingWithdrawalPin() {
-    return String(withdrawalPolicyForm.manual_approval_pin || '').trim() !== '';
+    return String(withdrawalPolicyForm.manual_approval_pin || '').trim() !== ''
+        || String(withdrawalPolicyForm.manual_approval_pin_confirmation || '').trim() !== '';
+}
+
+const pinConfirmationMismatch = computed(() => {
+    const pin = String(withdrawalPolicyForm.manual_approval_pin || '').trim();
+    const confirm = String(withdrawalPolicyForm.manual_approval_pin_confirmation || '').trim();
+    if (confirm === '') {
+        return false;
+    }
+
+    return pin !== confirm;
+});
+
+const pinConfirmationMatches = computed(() => {
+    const pin = String(withdrawalPolicyForm.manual_approval_pin || '').trim();
+    const confirm = String(withdrawalPolicyForm.manual_approval_pin_confirmation || '').trim();
+
+    return pin !== '' && confirm !== '' && pin === confirm;
+});
+
+function validateWithdrawalPinFields() {
+    withdrawalPolicyForm.clearErrors('manual_approval_pin', 'manual_approval_pin_confirmation');
+
+    const pin = String(withdrawalPolicyForm.manual_approval_pin || '').trim();
+    const confirm = String(withdrawalPolicyForm.manual_approval_pin_confirmation || '').trim();
+
+    if (pin === '' && confirm === '') {
+        return true;
+    }
+
+    if (pin === '') {
+        withdrawalPolicyForm.setError('manual_approval_pin', 'Informe o novo PIN.');
+        return false;
+    }
+
+    if (pin.length < MANUAL_APPROVAL_PIN_MIN_LENGTH) {
+        withdrawalPolicyForm.setError('manual_approval_pin', `O PIN deve ter entre ${MANUAL_APPROVAL_PIN_MIN_LENGTH} e ${MANUAL_APPROVAL_PIN_MAX_LENGTH} dígitos.`);
+        return false;
+    }
+
+    if (pin.length > MANUAL_APPROVAL_PIN_MAX_LENGTH) {
+        withdrawalPolicyForm.setError('manual_approval_pin', `O PIN pode ter no máximo ${MANUAL_APPROVAL_PIN_MAX_LENGTH} dígitos.`);
+        return false;
+    }
+
+    if (confirm === '') {
+        withdrawalPolicyForm.setError('manual_approval_pin_confirmation', 'Confirme o PIN.');
+        return false;
+    }
+
+    if (pin !== confirm) {
+        withdrawalPolicyForm.setError('manual_approval_pin_confirmation', 'A confirmação do PIN não confere.');
+        return false;
+    }
+
+    return true;
 }
 
 function submitWithdrawalPolicy() {
+    if (!validateWithdrawalPinFields()) {
+        return;
+    }
+
     if (isChangingWithdrawalPin()) {
         pinStepUpAction.value = 'change';
         pinStepUpOpen.value = true;
@@ -1180,6 +1251,7 @@ function submitSettlement() {
                             </div>
                             <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                                 Obrigatório ao aprovar saques quando o automático estiver desligado.
+                                Use de {{ MANUAL_APPROVAL_PIN_MIN_LENGTH }} a {{ MANUAL_APPROVAL_PIN_MAX_LENGTH }} dígitos numéricos.
                                 {{
                                     withdrawal_policy?.has_manual_approval_pin
                                         ? 'Para trocar, informe o PIN atual. Deixe os campos em branco para manter.'
@@ -1189,27 +1261,60 @@ function submitSettlement() {
                             <div class="mt-3 grid gap-3 sm:grid-cols-2">
                                 <input
                                     v-if="withdrawal_policy?.has_manual_approval_pin"
-                                    v-model="withdrawalPolicyForm.current_manual_approval_pin"
+                                    :value="withdrawalPolicyForm.current_manual_approval_pin"
                                     type="password"
-                                    placeholder="PIN atual"
+                                    inputmode="numeric"
                                     autocomplete="off"
+                                    :maxlength="MANUAL_APPROVAL_PIN_MAX_LENGTH"
+                                    placeholder="PIN atual"
                                     class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 sm:col-span-2"
+                                    @input="setManualApprovalPinField('current_manual_approval_pin', $event)"
                                 />
                                 <input
-                                    v-model="withdrawalPolicyForm.manual_approval_pin"
+                                    :value="withdrawalPolicyForm.manual_approval_pin"
                                     type="password"
+                                    inputmode="numeric"
+                                    autocomplete="new-password"
+                                    :maxlength="MANUAL_APPROVAL_PIN_MAX_LENGTH"
                                     placeholder="Novo PIN"
-                                    autocomplete="new-password"
-                                    class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                    :class="[
+                                        'rounded-lg border px-3 py-2 text-sm dark:bg-zinc-900',
+                                        withdrawalPolicyForm.errors.manual_approval_pin
+                                            ? 'border-red-500 dark:border-red-500'
+                                            : 'border-zinc-300 dark:border-zinc-600',
+                                    ]"
+                                    @input="setManualApprovalPinField('manual_approval_pin', $event)"
                                 />
                                 <input
-                                    v-model="withdrawalPolicyForm.manual_approval_pin_confirmation"
+                                    :value="withdrawalPolicyForm.manual_approval_pin_confirmation"
                                     type="password"
-                                    placeholder="Confirmar PIN"
+                                    inputmode="numeric"
                                     autocomplete="new-password"
-                                    class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                    :maxlength="MANUAL_APPROVAL_PIN_MAX_LENGTH"
+                                    placeholder="Confirmar PIN"
+                                    :class="[
+                                        'rounded-lg border px-3 py-2 text-sm dark:bg-zinc-900',
+                                        pinConfirmationMismatch || withdrawalPolicyForm.errors.manual_approval_pin_confirmation
+                                            ? 'border-red-500 dark:border-red-500'
+                                            : pinConfirmationMatches
+                                              ? 'border-emerald-500 dark:border-emerald-500'
+                                              : 'border-zinc-300 dark:border-zinc-600',
+                                    ]"
+                                    @input="setManualApprovalPinField('manual_approval_pin_confirmation', $event)"
                                 />
                             </div>
+                            <p
+                                v-if="pinConfirmationMismatch"
+                                class="mt-2 text-xs text-red-600"
+                            >
+                                A confirmação do PIN não confere.
+                            </p>
+                            <p
+                                v-else-if="pinConfirmationMatches"
+                                class="mt-2 text-xs text-emerald-600 dark:text-emerald-400"
+                            >
+                                PIN e confirmação conferem.
+                            </p>
                             <p
                                 v-if="withdrawalPolicyForm.errors.current_manual_approval_pin"
                                 class="mt-2 text-xs text-red-600"
@@ -1222,9 +1327,20 @@ function submitSettlement() {
                             >
                                 {{ withdrawalPolicyForm.errors.manual_approval_pin }}
                             </p>
+                            <p
+                                v-if="withdrawalPolicyForm.errors.manual_approval_pin_confirmation"
+                                class="mt-2 text-xs text-red-600"
+                            >
+                                {{ withdrawalPolicyForm.errors.manual_approval_pin_confirmation }}
+                            </p>
                         </div>
 
-                        <Button type="submit" :disabled="withdrawalPolicyForm.processing">Salvar política de saques</Button>
+                        <Button
+                            type="submit"
+                            :disabled="withdrawalPolicyForm.processing || pinConfirmationMismatch"
+                        >
+                            Salvar política de saques
+                        </Button>
                     </form>
                 </section>
             </div>

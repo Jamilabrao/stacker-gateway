@@ -1,8 +1,12 @@
 <script setup>
-import { ref, computed } from 'vue';
-import { useForm, Link, usePage } from '@inertiajs/vue3';
-import { Eye, EyeOff } from 'lucide-vue-next';
+import { ref } from 'vue';
+import { useForm, Link } from '@inertiajs/vue3';
+import { Eye, EyeOff, Mail, Lock } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import AuthPageShell from '@/components/auth/AuthPageShell.vue';
+import AuthSpotlightField from '@/components/auth/AuthSpotlightField.vue';
+import AuthImmersiveField from '@/components/auth/AuthImmersiveField.vue';
+import { useAuthFormStyles } from '@/composables/useAuthFormStyles';
 
 const props = defineProps({
     token: { type: String, required: true },
@@ -10,15 +14,19 @@ const props = defineProps({
     redirect: { type: String, default: '' },
 });
 
-const page = usePage();
-const branding = computed(() => page.props.public_branding ?? {});
-const primary = computed(() => branding.value.theme_primary || '#c8fa64');
-const appName = computed(() => branding.value.app_name || 'Getfy');
-const logoLight = computed(() => branding.value.app_logo_icon || 'https://cdn.getfy.cloud/collapsed-logo.png');
-const logoDark = computed(() => branding.value.app_logo_icon_dark || logoLight.value);
-
 const showPassword = ref(false);
 const showPasswordConfirmation = ref(false);
+
+const {
+    isSpotlight,
+    isImmersive,
+    primary,
+    inputClass,
+    labelClass,
+    linkClass,
+    mutedTextClass,
+    submitButtonClass,
+} = useAuthFormStyles();
 
 const form = useForm({
     token: props.token,
@@ -36,31 +44,141 @@ function submit() {
 </script>
 
 <template>
-    <div class="wl-root flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-4 dark:bg-zinc-950">
-        <div class="w-full max-w-sm space-y-6">
-            <img :src="logoLight" :alt="appName" class="mx-auto h-12 w-auto object-contain dark:hidden" />
-            <img :src="logoDark" :alt="appName" class="mx-auto hidden h-12 w-auto object-contain dark:block" />
-            <h1 class="text-center text-2xl font-bold text-zinc-900 dark:text-white">Redefinir senha</h1>
-            <p class="text-center text-sm text-zinc-600 dark:text-zinc-400">Digite sua nova senha abaixo.</p>
+    <AuthPageShell
+        title="Redefinir senha"
+        subtitle="Digite sua nova senha abaixo."
+        variant="neutral"
+    >
+        <form class="space-y-5" @submit.prevent="submit">
+            <input v-model="form.token" type="hidden" name="token" />
+            <input v-if="form.redirect" v-model="form.redirect" type="hidden" name="redirect" />
 
-            <form class="space-y-5" @submit.prevent="submit">
-                <input v-model="form.token" type="hidden" name="token" />
-                <input v-if="form.redirect" v-model="form.redirect" type="hidden" name="redirect" />
+            <template v-if="isImmersive">
+                <AuthImmersiveField
+                    id="email"
+                    v-model="form.email"
+                    label="E-mail"
+                    type="email"
+                    autocomplete="username"
+                    placeholder="seu@email.com"
+                    required
+                    :error="form.errors.email"
+                >
+                    <template #icon>
+                        <Mail class="h-4 w-4" />
+                    </template>
+                </AuthImmersiveField>
+
+                <AuthImmersiveField
+                    id="password"
+                    v-model="form.password"
+                    label="Nova senha"
+                    :type="showPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    placeholder="••••••••"
+                    required
+                    :error="form.errors.password"
+                >
+                    <template #icon>
+                        <Lock class="h-4 w-4" />
+                    </template>
+                    <template #trailing>
+                        <button type="button" class="rounded p-1 text-white/40 hover:text-white/70" @click="showPassword = !showPassword">
+                            <Eye v-if="showPassword" class="h-4 w-4" />
+                            <EyeOff v-else class="h-4 w-4" />
+                        </button>
+                    </template>
+                </AuthImmersiveField>
+
+                <AuthImmersiveField
+                    id="password_confirmation"
+                    v-model="form.password_confirmation"
+                    label="Confirmar senha"
+                    :type="showPasswordConfirmation ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    placeholder="••••••••"
+                    required
+                    :error="form.errors.password_confirmation"
+                >
+                    <template #icon>
+                        <Lock class="h-4 w-4" />
+                    </template>
+                    <template #trailing>
+                        <button type="button" class="rounded p-1 text-white/40 hover:text-white/70" @click="showPasswordConfirmation = !showPasswordConfirmation">
+                            <Eye v-if="showPasswordConfirmation" class="h-4 w-4" />
+                            <EyeOff v-else class="h-4 w-4" />
+                        </button>
+                    </template>
+                </AuthImmersiveField>
+            </template>
+
+            <template v-else-if="isSpotlight">
+                <AuthSpotlightField
+                    id="email"
+                    v-model="form.email"
+                    label="E-mail"
+                    type="email"
+                    autocomplete="username"
+                    placeholder="seu@email.com"
+                    required
+                    :error="form.errors.email"
+                >
+                    <template #icon>
+                        <Mail class="h-4 w-4" />
+                    </template>
+                </AuthSpotlightField>
+
+                <AuthSpotlightField
+                    id="password"
+                    v-model="form.password"
+                    label="Nova senha"
+                    :type="showPassword ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    placeholder="••••••••"
+                    required
+                    :error="form.errors.password"
+                >
+                    <template #icon>
+                        <Lock class="h-4 w-4" />
+                    </template>
+                    <template #trailing>
+                        <button type="button" class="rounded p-1 text-zinc-500 hover:text-zinc-300" @click="showPassword = !showPassword">
+                            <Eye v-if="showPassword" class="h-4 w-4" />
+                            <EyeOff v-else class="h-4 w-4" />
+                        </button>
+                    </template>
+                </AuthSpotlightField>
+
+                <AuthSpotlightField
+                    id="password_confirmation"
+                    v-model="form.password_confirmation"
+                    label="Confirmar senha"
+                    :type="showPasswordConfirmation ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    placeholder="••••••••"
+                    required
+                    :error="form.errors.password_confirmation"
+                >
+                    <template #icon>
+                        <Lock class="h-4 w-4" />
+                    </template>
+                    <template #trailing>
+                        <button type="button" class="rounded p-1 text-zinc-500 hover:text-zinc-300" @click="showPasswordConfirmation = !showPasswordConfirmation">
+                            <Eye v-if="showPasswordConfirmation" class="h-4 w-4" />
+                            <EyeOff v-else class="h-4 w-4" />
+                        </button>
+                    </template>
+                </AuthSpotlightField>
+            </template>
+
+            <template v-else>
                 <div>
-                    <label for="email" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">E-mail</label>
-                    <input
-                        id="email"
-                        v-model="form.email"
-                        type="email"
-                        autocomplete="username"
-                        required
-                        class="wl-input mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-zinc-900 placeholder-zinc-500 shadow-sm transition dark:border-zinc-600 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
-                        placeholder="seu@email.com"
-                    />
+                    <label for="email" :class="labelClass">E-mail</label>
+                    <input id="email" v-model="form.email" type="email" autocomplete="username" required :class="inputClass" placeholder="seu@email.com" />
                     <p v-if="form.errors.email" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.email }}</p>
                 </div>
                 <div>
-                    <label for="password" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nova senha</label>
+                    <label for="password" :class="labelClass">Nova senha</label>
                     <div class="relative mt-1.5">
                         <input
                             id="password"
@@ -68,15 +186,10 @@ function submit() {
                             :type="showPassword ? 'text' : 'password'"
                             autocomplete="new-password"
                             required
-                            class="wl-input block w-full rounded-xl border border-zinc-300 bg-white py-3 pl-4 pr-12 text-zinc-900 placeholder-zinc-500 shadow-sm transition dark:border-zinc-600 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+                            class="wl-input block w-full rounded-xl border border-zinc-300 bg-white py-3 pl-4 pr-12 text-zinc-900 shadow-sm transition dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
                             placeholder="••••••••"
                         />
-                        <button
-                            type="button"
-                            class="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1.5 text-zinc-500 transition hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-                            :aria-label="showPassword ? 'Ocultar senha' : 'Mostrar senha'"
-                            @click="showPassword = !showPassword"
-                        >
+                        <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500" @click="showPassword = !showPassword">
                             <Eye v-if="showPassword" class="h-5 w-5" />
                             <EyeOff v-else class="h-5 w-5" />
                         </button>
@@ -84,7 +197,7 @@ function submit() {
                     <p v-if="form.errors.password" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.password }}</p>
                 </div>
                 <div>
-                    <label for="password_confirmation" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Confirmar senha</label>
+                    <label for="password_confirmation" :class="labelClass">Confirmar senha</label>
                     <div class="relative mt-1.5">
                         <input
                             id="password_confirmation"
@@ -92,15 +205,10 @@ function submit() {
                             :type="showPasswordConfirmation ? 'text' : 'password'"
                             autocomplete="new-password"
                             required
-                            class="wl-input block w-full rounded-xl border border-zinc-300 bg-white py-3 pl-4 pr-12 text-zinc-900 placeholder-zinc-500 shadow-sm transition dark:border-zinc-600 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+                            class="wl-input block w-full rounded-xl border border-zinc-300 bg-white py-3 pl-4 pr-12 text-zinc-900 shadow-sm transition dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
                             placeholder="••••••••"
                         />
-                        <button
-                            type="button"
-                            class="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1.5 text-zinc-500 transition hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-                            :aria-label="showPasswordConfirmation ? 'Ocultar senha' : 'Mostrar senha'"
-                            @click="showPasswordConfirmation = !showPasswordConfirmation"
-                        >
+                        <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500" @click="showPasswordConfirmation = !showPasswordConfirmation">
                             <Eye v-if="showPasswordConfirmation" class="h-5 w-5" />
                             <EyeOff v-else class="h-5 w-5" />
                         </button>
@@ -109,40 +217,36 @@ function submit() {
                         {{ form.errors.password_confirmation }}
                     </p>
                 </div>
-                <Button type="submit" class="wl-submit w-full hover:!opacity-90" :disabled="form.processing">
-                    {{ form.processing ? 'Redefinindo…' : 'Redefinir senha' }}
-                </Button>
-            </form>
+            </template>
 
-            <p class="text-center">
-                <Link
-                    :href="props.redirect || '/login'"
-                    class="wl-link text-sm font-medium hover:underline focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-zinc-950 rounded"
-                >
-                    Voltar ao login
-                </Link>
-            </p>
-        </div>
-    </div>
+            <button
+                v-if="isSpotlight || isImmersive"
+                type="submit"
+                :class="submitButtonClass"
+                :disabled="form.processing"
+                :style="{ background: primary, color: '#0a0a0a' }"
+            >
+                {{ form.processing ? 'Redefinindo…' : 'Redefinir senha' }}
+            </button>
+            <Button v-else type="submit" :class="submitButtonClass" :disabled="form.processing">
+                {{ form.processing ? 'Redefinindo…' : 'Redefinir senha' }}
+            </Button>
+        </form>
+
+        <p :class="['mt-6 text-center', mutedTextClass]">
+            <Link :href="props.redirect || '/login'" :class="linkClass">Voltar ao login</Link>
+        </p>
+    </AuthPageShell>
 </template>
 
 <style scoped>
-.wl-root {
-    --wl-primary: v-bind(primary);
-}
-.wl-input:hover {
-    border-color: color-mix(in srgb, var(--wl-primary) 45%, var(--tw-border-color, #d4d4d8));
-}
 .wl-input:focus {
-    border-color: var(--wl-primary);
+    border-color: v-bind(primary);
     outline: none;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--wl-primary) 35%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, v-bind(primary) 35%, transparent);
 }
 .wl-submit {
-    background-color: var(--wl-primary) !important;
+    background-color: v-bind(primary) !important;
     color: #18181b !important;
-}
-.wl-link {
-    color: var(--wl-primary);
 }
 </style>

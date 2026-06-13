@@ -5,6 +5,7 @@ import { useSidebarProvider } from '@/composables/useSidebar';
 import PlatformSidebar from '@/components/layout/PlatformSidebar.vue';
 import PlatformAppHeader from '@/components/layout/PlatformAppHeader.vue';
 import DemoModeBanner from '@/components/layout/DemoModeBanner.vue';
+import TotpPromptBanner from '@/components/layout/TotpPromptBanner.vue';
 import Backdrop from '@/components/layout/Backdrop.vue';
 import FlashToast from '@/components/layout/FlashToast.vue';
 
@@ -29,6 +30,7 @@ watchEffect(() => {
         >
             <div class="flex w-full shrink-0 flex-col gap-2">
                 <DemoModeBanner />
+                <TotpPromptBanner />
                 <PlatformAppHeader />
             </div>
             <FlashToast />
