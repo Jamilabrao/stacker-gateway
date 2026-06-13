@@ -121,6 +121,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy
 | `export GETFY_DB_*` na shell root | Sobrescreve `--env-file` no próximo deploy | `unset GETFY_DB_*` antes de cada `compose`/`update.sh` |
 | Git **needs merge** | `public/build` no índice | Bloco git do início deste ficheiro |
 | **composer install** no Docker build: `curl error 28` / `api.github.com` timeout | Rede do BuildKit no VPS não alcança GitHub a tempo | Na VPS: `cd /opt/getfy && sh docker/install-composer-deps.sh` e depois `update.sh` (versão recente instala vendor no host antes do build) |
+| **composer install**: `ext-gd * -> it is missing` (imagem `composer:2`) | Imagem oficial do Composer não traz GD; `setasign/fpdf` exige a extensão | Atualize o repo (`update.sh` recente usa `docker/composer.Dockerfile`). Ou na VPS: `cd /opt/getfy && sh docker/install-composer-deps.sh` |
 | Webhook **Pedido pago** não dispara (teste manual funciona) | Jobs na fila `webhooks` sem worker | Após `update.sh`: `docker compose exec redis redis-cli LLEN queues:webhooks` (deve ser 0). Logs em **Integrações > Webhooks > Ver logs** |
 
 #### Webhook de saída (Pedido pago)

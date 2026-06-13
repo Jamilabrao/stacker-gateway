@@ -21,9 +21,24 @@ if [ ! -f composer.json ] || [ ! -f composer.lock ]; then
   exit 1
 fi
 
-COMPOSER_IMAGE="${GETFY_COMPOSER_IMAGE:-composer:2}"
+COMPOSER_IMAGE="${GETFY_COMPOSER_IMAGE:-getfy/composer-php83:local}"
+COMPOSER_DOCKERFILE="$ROOT_DIR/docker/composer.Dockerfile"
+
+if [ -z "${GETFY_COMPOSER_IMAGE:-}" ]; then
+  if ! docker image inspect "$COMPOSER_IMAGE" >/dev/null 2>&1; then
+    echo "Construindo imagem Composer com extensões PHP ($COMPOSER_IMAGE) ..."
+    docker build -f "$COMPOSER_DOCKERFILE" -t "$COMPOSER_IMAGE" "$ROOT_DIR/docker"
+  fi
+fi
 
 echo "Instalando dependências PHP (composer install) com imagem $COMPOSER_IMAGE e rede do host ..."
+
+COMPOSER_FLAGS="--no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts"
+
+# composer:2 oficial não traz ext-gd; ignorar só se o operador forçar essa imagem.
+if [ "$COMPOSER_IMAGE" = "composer:2" ] || echo "$COMPOSER_IMAGE" | grep -q '^composer:'; then
+  COMPOSER_FLAGS="$COMPOSER_FLAGS --ignore-platform-req=ext-gd"
+fi
 
 docker run --rm --network host \
   -e COMPOSER_PROCESS_TIMEOUT="${GETFY_COMPOSER_PROCESS_TIMEOUT:-900}" \
@@ -32,7 +47,7 @@ docker run --rm --network host \
   -v "$ROOT_DIR:/app" \
   -w /app \
   "$COMPOSER_IMAGE" \
-  composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+  composer install $COMPOSER_FLAGS
 
 if [ ! -f vendor/autoload.php ]; then
   echo "Erro: vendor/autoload.php não foi gerado." >&2
