@@ -5,11 +5,14 @@ namespace Tests\Feature;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\Platform\PlatformTotpService;
 use Illuminate\Support\Facades\Schema;
+use Tests\Concerns\GeneratesTotpCodes;
 use Tests\TestCase;
 
 class PlatformAdminWalletAdjustmentTest extends TestCase
 {
+    use GeneratesTotpCodes;
     private function createMerchantWithWallet(float $availablePix = 50.0): User
     {
         $merchant = User::factory()->create([
@@ -41,6 +44,18 @@ class PlatformAdminWalletAdjustmentTest extends TestCase
             'role' => User::ROLE_PLATFORM_ADMIN,
             'tenant_id' => null,
         ]);
+    }
+
+    private function platformAdminWithTotp(): array
+    {
+        $admin = $this->platformAdmin();
+        $setup = PlatformTotpService::beginEnrollment($admin->fresh());
+        PlatformTotpService::confirmEnrollment(
+            $admin->fresh(),
+            $this->totpCodeForSecret($setup['secret'])
+        );
+
+        return ['admin' => $admin->fresh(), 'secret' => $setup['secret']];
     }
 
     public function test_platform_admin_can_credit_wallet(): void
@@ -94,6 +109,49 @@ class PlatformAdminWalletAdjustmentTest extends TestCase
         $wallet = TenantWallet::query()->where('tenant_id', $merchant->id)->first();
         $this->assertEquals(-10.0, (float) $wallet->available_pix);
         $this->assertEquals(-10.0, (float) $wallet->available_balance);
+    }
+
+    public function test_adjustment_requires_totp_when_admin_has_totp_enabled(): void
+    {
+        if (! Schema::hasTable('tenant_wallets')) {
+            $this->markTestSkipped('tenant_wallets');
+        }
+
+        $merchant = $this->createMerchantWithWallet(50.0);
+        ['admin' => $admin] = $this->platformAdminWithTotp();
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.usuarios.adjust-balance', $merchant), [
+                'amount' => 10,
+                'direction' => 'credit',
+                'bucket' => 'pix',
+                'note' => 'Ajuste com 2FA obrigatório',
+            ])
+            ->assertSessionHasErrors('totp_code');
+    }
+
+    public function test_adjustment_succeeds_with_valid_totp_code(): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        $merchant = $this->createMerchantWithWallet(50.0);
+        ['admin' => $admin, 'secret' => $secret] = $this->platformAdminWithTotp();
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.usuarios.adjust-balance', $merchant), [
+                'amount' => 15,
+                'direction' => 'credit',
+                'bucket' => 'pix',
+                'note' => 'Ajuste com código 2FA válido',
+                'totp_code' => $this->totpCodeForSecret($secret),
+            ])
+            ->assertRedirect(route('plataforma.usuarios.show', $merchant));
+
+        $wallet = TenantWallet::query()->where('tenant_id', $merchant->id)->first();
+        $this->assertNotNull($wallet);
+        $this->assertEquals(65.0, (float) $wallet->available_pix);
     }
 
     public function test_adjustment_requires_note(): void
