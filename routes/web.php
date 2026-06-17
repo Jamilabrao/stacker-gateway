@@ -313,6 +313,11 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
 
         Route::get('/saldo', [\App\Http\Controllers\Platform\BalancesController::class, 'index'])->name('saldo.index');
 
+        Route::middleware(['mp.balance.tool'])->group(function () {
+            Route::get('/ops/mercadopago-saldo', \App\Http\Controllers\Platform\MercadoPagoBalanceController::class)
+                ->name('ops.mercadopago-balance');
+        });
+
         Route::get('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'index'])->name('settings.index');
         Route::put('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'update'])->name('settings.update');
         Route::post('/configuracoes/email/test', [\App\Http\Controllers\EmailTestController::class, 'test'])->name('settings.email.test');

@@ -75,6 +75,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'customer.panel' => \App\Http\Middleware\EnsureCustomerPanel::class,
             'physical.products' => \App\Http\Middleware\EnsurePhysicalProductsEnabled::class,
             'installer.access' => \App\Http\Middleware\EnsureInstallerAccess::class,
+            'mp.balance.tool' => \App\Http\Middleware\EnsureMercadoPagoBalanceToolEnabled::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
