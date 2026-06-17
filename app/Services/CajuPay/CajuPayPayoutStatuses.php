@@ -38,6 +38,20 @@ final class CajuPayPayoutStatuses
         'denied',
     ];
 
+    /** @var list<string> */
+    private const FAILED_EVENTS = [
+        'payout.failed',
+        'payout.cancelled',
+        'payout.canceled',
+        'payout.rejected',
+        'withdrawal.failed',
+        'withdrawal.cancelled',
+        'withdrawal.canceled',
+        'transfer.failed',
+        'transfer.cancelled',
+        'transfer.canceled',
+    ];
+
     public static function isPaidEvent(string $eventType): bool
     {
         $eventType = strtolower(trim($eventType));
@@ -57,6 +71,18 @@ final class CajuPayPayoutStatuses
         $status = strtolower(trim($status));
 
         return $status !== '' && in_array($status, self::FAILED_STATUSES, true);
+    }
+
+    public static function isFailedEvent(string $eventType): bool
+    {
+        $eventType = strtolower(trim($eventType));
+
+        return $eventType !== '' && in_array($eventType, self::FAILED_EVENTS, true);
+    }
+
+    public static function isFailedConfirmation(string $eventType, string $status): bool
+    {
+        return self::isFailedEvent($eventType) || self::isFailedStatus($status);
     }
 
     public static function isPaidConfirmation(string $eventType, string $status): bool

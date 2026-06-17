@@ -40,6 +40,7 @@ const stepUpAction = ref(null);
 const stepUpWithdrawalId = ref(null);
 const stepUpManual = ref(false);
 const stepUpRequirePin = ref(false);
+const stepUpHasExternalPayout = ref(false);
 
 function selectWithdrawalFilter(withdrawalStatus) {
     router.get(
@@ -66,11 +67,12 @@ function openApproveStepUp(id, manual = false) {
     stepUpOpen.value = true;
 }
 
-function openRejectStepUp(id) {
+function openRejectStepUp(id, hasExternalPayout = false) {
     stepUpWithdrawalId.value = id;
     stepUpAction.value = 'reject';
     stepUpManual.value = false;
     stepUpRequirePin.value = false;
+    stepUpHasExternalPayout.value = hasExternalPayout;
     stepUpOpen.value = true;
 }
 
@@ -102,7 +104,11 @@ function onStepUpConfirm(payload) {
     }
 
     const note =
-        window.prompt('Motivo da rejeição (opcional). O saldo será devolvido ao infoprodutor.') || '';
+        window.prompt(
+            stepUpHasExternalPayout.value
+                ? 'Motivo do cancelamento (opcional). O saldo será devolvido ao infoprodutor.\n\nAtenção: se o PIX já foi liquidado na CajuPay, o estorno local não reverte o pagamento bancário.'
+                : 'Motivo do cancelamento (opcional). O saldo será devolvido ao infoprodutor.'
+        ) || '';
     router.post(
         `/plataforma/financeiro/saques/${id}/rejeitar`,
         {
@@ -143,7 +149,10 @@ function withdrawalStatusLabel(status) {
     return map[status] ?? status ?? '—';
 }
 
-function withdrawalStatusBadgeClass(status) {
+function withdrawalAwaitingGateway(w) {
+    return w.status === 'pending' && Boolean(w.payout_external_id);
+}
+
     if (status === 'paid') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200';
     if (status === 'pending' || status === 'processing') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
     if (status === 'failed') return 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200';
@@ -161,8 +170,8 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
         <div>
             <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">Saques</h1>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Solicitações de saque por status. Em pendentes você pode aprovar (PIX automático ou manual) ou rejeitar (o
-                saldo volta ao infoprodutor).
+                Solicitações de saque por status. Aprove, reprocesse ou cancele — o saldo volta ao infoprodutor quando o saque
+                é cancelado ou falha no gateway.
             </p>
         </div>
 
@@ -263,6 +272,12 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                             {{ withdrawalStatusLabel(w.status) }}
                                         </span>
                                         <span
+                                            v-if="withdrawalAwaitingGateway(w)"
+                                            class="text-[10px] font-medium uppercase tracking-wide text-sky-600 dark:text-sky-400"
+                                        >
+                                            Aguardando {{ w.payout_provider || 'gateway' }}
+                                        </span>
+                                        <span
                                             v-if="w.status === 'paid' && w.payout_manual"
                                             class="text-[10px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400"
                                         >
@@ -271,10 +286,34 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                     </div>
                                 </td>
                                 <td class="py-3 text-right">
-                                    <p v-if="w.status === 'processing'" class="text-right text-xs text-amber-700 dark:text-amber-300">
-                                        Processando envio PIX…
-                                    </p>
-                                    <div v-else-if="w.status === 'pending'" class="flex flex-wrap justify-end gap-2">
+                                    <div v-if="w.status === 'processing'" class="flex flex-col items-end gap-2">
+                                        <p class="text-xs text-amber-700 dark:text-amber-300">Processando envio PIX…</p>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            @click="openRejectStepUp(w.id, Boolean(w.payout_external_id))"
+                                        >
+                                            Cancelar e estornar
+                                        </Button>
+                                    </div>
+                                    <div
+                                        v-else-if="w.status === 'pending' && withdrawalAwaitingGateway(w)"
+                                        class="flex flex-col items-end gap-2"
+                                    >
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            @click="openRejectStepUp(w.id, true)"
+                                        >
+                                            Cancelar e estornar
+                                        </Button>
+                                    </div>
+                                    <div
+                                        v-else-if="w.status === 'pending' && !withdrawalAwaitingGateway(w)"
+                                        class="flex flex-wrap justify-end gap-2"
+                                    >
                                         <Button
                                             v-if="payout_gateway_active === 'cajupay'"
                                             type="button"
@@ -290,13 +329,13 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                         <Button type="button" size="sm" variant="secondary" @click="openApproveStepUp(w.id, true)">
                                             Pago manual
                                         </Button>
-                                        <Button type="button" size="sm" variant="secondary" @click="openRejectStepUp(w.id)">
-                                            Rejeitar
-                                        </Button>
-                                    </div>
-                                    <div v-else-if="w.status === 'processing'" class="flex flex-wrap justify-end gap-2">
-                                        <Button type="button" size="sm" variant="secondary" @click="openRejectStepUp(w.id)">
-                                            Rejeitar e estornar
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            @click="openRejectStepUp(w.id, false)"
+                                        >
+                                            Cancelar e estornar
                                         </Button>
                                     </div>
                                     <span v-else class="text-xs text-zinc-400">—</span>
@@ -352,13 +391,15 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
             :loading="stepUpLoading"
             :require-pin="stepUpRequirePin"
             :require-external-confirm="stepUpManual"
-            :title="stepUpAction === 'reject' ? 'Rejeitar saque' : stepUpManual ? 'Aprovar manualmente' : 'Aprovar saque'"
+            :title="stepUpAction === 'reject' ? 'Cancelar saque' : stepUpManual ? 'Aprovar manualmente' : 'Aprovar saque'"
             :description="
                 stepUpManual
                     ? 'Confirme com 2FA e PIN (se configurado) que o PIX já foi enviado fora do sistema.'
-                    : 'Informe o código 2FA para autorizar esta ação.'
+                    : stepUpAction === 'reject' && stepUpHasExternalPayout
+                      ? 'Informe o código 2FA. Se o PIX já foi liquidado no gateway, o estorno local não reverte o pagamento bancário.'
+                      : 'Informe o código 2FA para autorizar esta ação.'
             "
-            :confirm-label="stepUpAction === 'reject' ? 'Rejeitar' : 'Aprovar'"
+            :confirm-label="stepUpAction === 'reject' ? 'Cancelar e estornar' : 'Aprovar'"
             @close="closeStepUp"
             @confirm="onStepUpConfirm"
         />

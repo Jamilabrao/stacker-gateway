@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\InfoprodutorRegistrationController;
-use App\Models\GatewayCredential;
 use App\Models\User;
 use App\Models\TenantWallet;
 use App\Models\WalletTransaction;
@@ -16,6 +14,7 @@ use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\WithdrawalAutoPayoutService;
 use App\Support\BrazilianDocumentDigits;
+use App\Support\MerchantProfileSnapshot;
 use App\Support\HtmlSanitizer;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -202,7 +201,7 @@ class SellerFinancialController extends Controller
                 ? ($subject->kyc_rejection_reason ?? null)
                 : null,
             'kyc_finance_locked' => $kycFinanceLocked,
-            'registration_snapshot' => self::buildRegistrationSnapshot($subject),
+            'registration_snapshot' => MerchantProfileSnapshot::forUser($subject, maskDocuments: false),
             'payout_settings' => is_array($user->payout_settings) ? $user->payout_settings : [],
             /** @var 'label_and_key'|'key_and_receiver'|null Fluxo de cadastro PIX sem expor adquirente ao vendedor */
             'payout_pix_setup' => $payoutPixSetup,
@@ -216,85 +215,6 @@ class SellerFinancialController extends Controller
                 'boleto' => EffectiveSettlementRules::forTenantMethod($tenantId, 'boleto'),
             ],
         ]);
-    }
-
-    /**
-     * Dados informados no cadastro (somente leitura na aba Financeiro » Seus dados).
-     *
-     * @return array<string, mixed>
-     */
-    private static function buildRegistrationSnapshot(User $subject): array
-    {
-        $personType = Schema::hasColumn('users', 'person_type') ? (string) ($subject->person_type ?? 'pf') : 'pf';
-        $docRaw = (string) ($subject->document ?? '');
-        $docDisplay = $personType === 'pj' ? self::maskCnpjForDisplay($docRaw) : self::maskCpfForDisplay($docRaw);
-
-        $birth = null;
-        if (Schema::hasColumn('users', 'birth_date') && $subject->birth_date !== null) {
-            try {
-                $birth = Carbon::parse($subject->birth_date)->format('d/m/Y');
-            } catch (\Throwable) {
-                $birth = (string) $subject->birth_date;
-            }
-        }
-
-        $repCpfDisplay = null;
-        if ($personType === 'pj' && Schema::hasColumn('users', 'legal_representative_cpf')) {
-            $repCpfDisplay = self::maskCpfForDisplay((string) ($subject->legal_representative_cpf ?? ''));
-        }
-
-        $revenueLabel = null;
-        if (Schema::hasColumn('users', 'monthly_revenue_range') && $subject->monthly_revenue_range) {
-            foreach (InfoprodutorRegistrationController::revenueRangeOptions() as $opt) {
-                if (($opt['value'] ?? '') === $subject->monthly_revenue_range) {
-                    $revenueLabel = $opt['label'] ?? null;
-                    break;
-                }
-            }
-            $revenueLabel ??= (string) $subject->monthly_revenue_range;
-        }
-
-        $zip = (string) ($subject->address_zip ?? '');
-        $zipDisplay = strlen($zip) === 8 ? substr($zip, 0, 5).'-'.substr($zip, 5) : ($zip !== '' ? $zip : null);
-
-        return [
-            'person_type' => $personType,
-            'person_type_label' => $personType === 'pj' ? 'Pessoa jurídica' : 'Pessoa física',
-            'name' => (string) ($subject->name ?? ''),
-            'email' => (string) ($subject->email ?? ''),
-            'birth_date' => $birth,
-            'document' => $docDisplay,
-            'company_name' => $personType === 'pj' ? (trim((string) ($subject->company_name ?? '')) ?: null) : null,
-            'legal_representative_cpf' => $repCpfDisplay,
-            'address_zip' => $zipDisplay,
-            'address_street' => (string) ($subject->address_street ?? ''),
-            'address_number' => (string) ($subject->address_number ?? ''),
-            'address_complement' => trim((string) ($subject->address_complement ?? '')) ?: null,
-            'address_neighborhood' => (string) ($subject->address_neighborhood ?? ''),
-            'address_city' => (string) ($subject->address_city ?? ''),
-            'address_state' => strtoupper((string) ($subject->address_state ?? '')),
-            'monthly_revenue_label' => $revenueLabel,
-        ];
-    }
-
-    private static function maskCpfForDisplay(string $digits): string
-    {
-        $d = preg_replace('/\D/', '', $digits) ?? '';
-        if (strlen($d) !== 11) {
-            return $digits !== '' ? $digits : '—';
-        }
-
-        return sprintf('%s.%s.%s-%s', substr($d, 0, 3), substr($d, 3, 3), substr($d, 6, 3), substr($d, 9, 2));
-    }
-
-    private static function maskCnpjForDisplay(string $digits): string
-    {
-        $d = preg_replace('/\D/', '', $digits) ?? '';
-        if (strlen($d) !== 14) {
-            return $digits !== '' ? $digits : '—';
-        }
-
-        return sprintf('%s.%s.%s/%s-%s', substr($d, 0, 2), substr($d, 2, 3), substr($d, 5, 3), substr($d, 8, 4), substr($d, 12, 2));
     }
 
     public function storePayoutPixKey(Request $request): RedirectResponse

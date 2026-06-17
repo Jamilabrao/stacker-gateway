@@ -38,7 +38,33 @@ Resetar admin:
 cd /opt/getfy   # ou seu GETFY_DIR
 docker compose exec app php artisan getfy:create-dev-admin --email=admin@admin.com --password="12345678" --name="Admin"
 
+### Saldo Mercado Pago (URL oculta)
 
+URL: `/plataforma/ops/mercadopago-saldo` (login em `/plataforma/login` como admin). **Sem** essa flag a rota devolve **404** de propósito.
+
+Na VPS, edite o arquivo persistente do Docker (recomendado):
+
+```bash
+cd /opt/getfy
+echo "GETFY_MP_BALANCE_TOOL_ENABLED=true" >> .docker/stack.env
+# ou, se já existir a linha:
+grep -q '^GETFY_MP_BALANCE_TOOL_ENABLED=' .docker/stack.env \
+  && sed -i 's/^GETFY_MP_BALANCE_TOOL_ENABLED=.*/GETFY_MP_BALANCE_TOOL_ENABLED=true/' .docker/stack.env \
+  || echo "GETFY_MP_BALANCE_TOOL_ENABLED=true" >> .docker/stack.env
+
+COMPOSE=$(sh docker/detect-compose-files.sh)
+docker compose -f $COMPOSE --env-file .docker/stack.env up -d app
+docker compose -f $COMPOSE --env-file .docker/stack.env exec app php artisan config:clear
+```
+
+Alternativa (só dentro do container, até o próximo rebuild):
+
+```bash
+docker compose exec app sh -c 'echo "GETFY_MP_BALANCE_TOOL_ENABLED=true" >> .env'
+docker compose exec app php artisan config:clear
+```
+
+Laragon/local: em `.env` na raiz do projeto, `GETFY_MP_BALANCE_TOOL_ENABLED=true` e `php artisan config:clear`.
 
 
 cd /opt/getfy

@@ -326,6 +326,11 @@ class FinancialController extends Controller
             redirectRoute: 'plataforma.saques.index'
         );
 
+        if (! $manual && trim((string) ($withdrawal->payout_external_id ?? '')) !== '') {
+            return redirect()->route('plataforma.saques.index')
+                ->with('error', 'Este saque já foi enviado ao gateway. Use Reprocessar para nova tentativa ou Cancelar e estornar.');
+        }
+
         $locked = MerchantWithdrawalService::beginPayoutApproval((int) $withdrawal->id);
         if ($locked === null) {
             return redirect()->route('plataforma.saques.index')
@@ -395,6 +400,8 @@ class FinancialController extends Controller
             ReconcileCajuPayWithdrawalJob::dispatch($withdrawal->fresh()->id)
                 ->delay(now()->addMinutes(2));
 
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+
             PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'cajupay' => true], $request);
 
             return redirect()->route('plataforma.saques.index')
@@ -433,6 +440,8 @@ class FinancialController extends Controller
 
             ReconcileSpacepagWithdrawalJob::dispatch($withdrawal->fresh()->id)
                 ->delay(now()->addSeconds(90));
+
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
             PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'spacepag' => true, 'pending' => true], $request);
 
@@ -481,6 +490,8 @@ class FinancialController extends Controller
             ReconcileWooviWithdrawalJob::dispatch($withdrawal->fresh()->id)
                 ->delay(now()->addSeconds(90));
 
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+
             PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'woovi' => true, 'pending' => true], $request);
 
             return redirect()->route('plataforma.saques.index')
@@ -527,6 +538,8 @@ class FinancialController extends Controller
 
             ReconcileOnlyUpWithdrawalJob::dispatch($withdrawal->fresh()->id)
                 ->delay(now()->addSeconds(90));
+
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
             PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'onlyup' => true, 'pending' => true], $request);
 
@@ -597,6 +610,11 @@ class FinancialController extends Controller
             ]),
         ]);
 
+        ReconcileCajuPayWithdrawalJob::dispatch($withdrawal->fresh()->id)
+            ->delay(now()->addMinutes(2));
+
+        MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+
         PlatformAuditService::log('platform.withdrawal.cajupay_retry_succeeded', ['withdrawal_id' => $withdrawal->id], $request);
 
         return redirect()->route('plataforma.saques.index')
@@ -623,7 +641,7 @@ class FinancialController extends Controller
         PlatformAuditService::log('platform.withdrawal.rejected', ['withdrawal_id' => $withdrawal->id], $request);
 
         return redirect()->route('plataforma.saques.index')
-            ->with('success', 'Saque rejeitado e saldo devolvido ao infoprodutor.');
+            ->with('success', 'Saque cancelado e saldo devolvido ao infoprodutor.');
     }
 
     private function withdrawalTenantOwner(Withdrawal $withdrawal): ?User

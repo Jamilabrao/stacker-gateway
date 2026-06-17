@@ -281,11 +281,17 @@ class MerchantWithdrawalService
 
             self::creditWalletRefund($locked, 'rejected', ['admin_note' => $adminNote]);
 
+            $meta = is_array($locked->payout_meta) ? $locked->payout_meta : [];
+            if (trim((string) ($locked->payout_external_id ?? '')) !== '') {
+                $meta['cancelled_by_admin_at'] = now()->toIso8601String();
+            }
+
             $note = trim((string) ($locked->notes ?? ''));
             if ($adminNote !== null && $adminNote !== '') {
                 $note .= ($note !== '' ? "\n\n" : '').'[Rejeitado] '.$adminNote;
             }
             $locked->notes = $note !== '' ? $note : null;
+            $locked->payout_meta = $meta !== [] ? $meta : null;
             $locked->status = self::STATUS_REJECTED;
             $locked->save();
         });

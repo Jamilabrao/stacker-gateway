@@ -7,7 +7,6 @@ use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
 use App\Services\AdminWalletAdjustmentService;
-use App\Support\PlatformConfigContext;
 use App\Gateways\GatewayRegistry;
 use App\Models\MerchantAdminNote;
 use App\Models\TenantWallet;
@@ -16,8 +15,10 @@ use App\Models\WalletTransaction;
 use App\Services\EffectiveMerchantFees;
 use App\Services\MerchantWalletAdminBlockService;
 use App\Services\Platform\PlatformTotpService;
-use App\Services\SalesAchievementsService;
 use App\Services\PlatformAuditService;
+use App\Services\SalesAchievementsService;
+use App\Support\MerchantProfileSnapshot;
+use App\Support\PlatformConfigContext;
 use App\Support\PercentDecimal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -170,6 +171,7 @@ class UsersController extends Controller
                 'vendas_totais' => round($this->salesAchievements->getValidSalesTotal($tenantId), 2),
                 'totp_enabled' => PlatformTotpService::isEnabledFor($user),
             ],
+            'profile' => MerchantProfileSnapshot::forUser($user, maskDocuments: false),
             'wallet' => $this->walletPayloadForTenant($tenantId),
             'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),
             'wallet_transactions' => $this->walletTransactionsPayloadForTenant($tenantId),

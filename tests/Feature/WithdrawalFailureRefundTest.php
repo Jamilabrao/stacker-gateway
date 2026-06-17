@@ -140,4 +140,45 @@ class WithdrawalFailureRefundTest extends TestCase
         $this->assertSame('rejected', $withdrawal->status);
         $this->assertEqualsWithDelta(25.0, (float) TenantWallet::query()->where('tenant_id', $seller->id)->value('available_pix'), 0.01);
     }
+
+    public function test_reject_with_external_id_refunds_and_records_cancel_meta(): void
+    {
+        if (! Schema::hasTable('withdrawals') || ! Schema::hasTable('tenant_wallets')) {
+            $this->markTestSkipped('withdrawals/tenant_wallets tables');
+        }
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+        TenantWallet::query()->updateOrCreate(
+            ['tenant_id' => $seller->id],
+            ['available_pix' => 0.0]
+        );
+
+        $withdrawal = Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 80,
+            'fee_amount' => 0,
+            'net_amount' => 80,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+            'payout_provider' => 'cajupay',
+            'payout_external_id' => 'payout-admin-cancel',
+            'payout_meta' => ['requested_at' => now()->toIso8601String()],
+        ]);
+
+        MerchantWithdrawalService::reject($withdrawal->fresh(), 'Cancelado pelo admin');
+
+        $withdrawal->refresh();
+        $this->assertSame('rejected', $withdrawal->status);
+        $this->assertEqualsWithDelta(80.0, (float) TenantWallet::query()->where('tenant_id', $seller->id)->value('available_pix'), 0.01);
+        $this->assertNotEmpty($withdrawal->payout_meta['cancelled_by_admin_at'] ?? null);
+        $this->assertTrue(
+            WalletTransaction::query()
+                ->where('withdrawal_id', $withdrawal->id)
+                ->where('type', WalletTransaction::TYPE_WITHDRAWAL_REFUND)
+                ->exists()
+        );
+    }
 }

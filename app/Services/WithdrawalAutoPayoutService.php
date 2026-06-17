@@ -47,9 +47,7 @@ class WithdrawalAutoPayoutService
             default => ['ok' => false, 'skipped' => true, 'reason' => 'no_payout_gateway'],
         };
 
-        if (! ($result['ok'] ?? false)) {
-            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
-        }
+        MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
 
         return $result;
     }
