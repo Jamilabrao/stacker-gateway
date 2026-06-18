@@ -8,6 +8,7 @@ use App\Jobs\ReconcileCajuPayWithdrawalJob;
 use App\Jobs\ReconcileSpacepagWithdrawalJob;
 use App\Jobs\ReconcileWooviWithdrawalJob;
 use App\Models\Withdrawal;
+use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Services\CajuPay\CajuPayPayoutService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
@@ -61,7 +62,7 @@ class WithdrawalAutoPayoutService
             return ['ok' => false, 'skipped' => true, 'reason' => 'not_processing'];
         }
 
-        $cred = GatewayCredential::resolveForPayment(null, 'cajupay');
+        $cred = app(CajuPayAccountResolver::class)->resolveForTenant((int) $withdrawal->tenant_id);
         if ($cred === null || ! $cred->is_connected) {
             return ['ok' => false, 'skipped' => true, 'reason' => 'cajupay_not_configured'];
         }

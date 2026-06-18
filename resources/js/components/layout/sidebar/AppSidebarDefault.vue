@@ -4,7 +4,7 @@ import { Link } from '@inertiajs/vue3';
 import { PanelRightOpen, X } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 import ConquistasWidget from '@/components/layout/ConquistasWidget.vue';
-import PwaInstallButton from '@/components/layout/PwaInstallButton.vue';
+import AppSidebarNavList from '@/components/layout/sidebar/AppSidebarNavList.vue';
 import { useAppSidebarNav, panelNavPrefetch } from '@/composables/useAppSidebarNav';
 
 const { isExpanded, isMobileOpen, toggleSidebar, isMobile } = useSidebar();
@@ -101,42 +101,18 @@ function onItemMouseLeave() {
             </button>
         </div>
         <nav class="flex-1 overflow-y-auto overflow-x-visible no-scrollbar px-3 py-4">
-            <ul class="flex flex-col gap-1 overflow-visible">
-                <template v-for="(item, index) in navItems" :key="item.separator ? `sep-${index}` : (item.href ?? index)">
-                    <li v-if="item.separator">
-                        <hr class="my-2 border-t border-zinc-200 dark:border-zinc-700" />
-                    </li>
-                    <li v-else class="overflow-visible">
-                        <Link
-                            :href="item.href"
-                            :prefetch="panelNavPrefetch"
-                            :title="showText() ? '' : item.name"
-                            @mouseenter="(e) => onItemMouseEnter(e, item.name)"
-                            @mousemove="onItemMouseMove"
-                            @mouseleave="onItemMouseLeave"
-                            :class="[
-                                'menu-item group relative',
-                                showText() ? 'justify-start' : 'lg:justify-center',
-                                isActive(item.href) ? 'menu-item-active' : 'menu-item-inactive',
-                            ]"
-                        >
-                            <span
-                                :class="[
-                                    'shrink-0',
-                                    isActive(item.href) ? 'menu-item-icon-active' : 'menu-item-icon-inactive',
-                                ]"
-                            >
-                                <component :is="item.icon" class="h-5 w-5" aria-hidden="true" />
-                            </span>
-                            <span v-if="showText()" class="truncate">{{ item.name }}</span>
-                            <span v-else class="hidden">{{ item.name }}</span>
-                        </Link>
-                    </li>
-                </template>
-            </ul>
+            <AppSidebarNavList
+                :items="navItems"
+                :show-text="showText()"
+                :is-active="isActive"
+                :is-mobile="isMobile"
+                variant="default"
+                @item-mouseenter="onItemMouseEnter"
+                @item-mousemove="onItemMouseMove"
+                @item-mouseleave="onItemMouseLeave"
+            />
         </nav>
         <div v-if="isMobile && showText()" class="space-y-2 px-4 py-4 lg:hidden">
-            <PwaInstallButton />
             <ConquistasWidget v-if="!page.props.customer_panel" variant="sidebar" />
         </div>
     </aside>

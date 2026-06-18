@@ -15,7 +15,7 @@ class FcmPushChannel implements PanelPushChannel
     /**
      * @param  Collection<int, PanelPushSubscription>  $subscriptions
      */
-    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null): array
+    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null, ?string $tag = null): array
     {
         $fcmSubs = $subscriptions->filter(fn (PanelPushSubscription $s) => $s->isFcm() && $s->fcm_token);
         $total = $fcmSubs->count();
@@ -50,18 +50,17 @@ class FcmPushChannel implements PanelPushChannel
             }
 
             try {
+                // Data-only: o SW (onBackgroundMessage) exibe a notificação.
+                // Incluir "notification" no payload geraria duplicata no dispositivo.
                 $message = CloudMessage::fromArray([
                     'token' => $token,
-                    'notification' => [
-                        'title' => $title,
-                        'body' => $body,
-                    ],
                     'data' => array_filter([
                         'title' => $title,
                         'body' => $body,
                         'url' => $url ?? '',
                         'icon' => $icon,
                         'badge' => $icon,
+                        'tag' => $tag ?? '',
                     ], fn ($v) => $v !== null && $v !== ''),
                 ]);
 

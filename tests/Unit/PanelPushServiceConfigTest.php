@@ -46,12 +46,13 @@ class PanelPushServiceConfigTest extends TestCase
             'provider' => PanelPushSubscription::PROVIDER_VAPID,
             'endpoint' => 'https://push.example.com/sub/config-test',
             'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+            'vapid_public_key' => $keys['publicKey'],
         ]);
 
         $dispatcher = Mockery::mock(PanelPushDispatcher::class);
         $dispatcher->shouldReceive('send')
             ->once()
-            ->withArgs(function (Collection $subscriptions) use ($subscription) {
+            ->withArgs(function (Collection $subscriptions, string $title, string $body, ?string $url, ?string $tag) use ($subscription) {
                 return $subscriptions->count() === 1
                     && (int) $subscriptions->first()->id === (int) $subscription->id
                     && PanelPushSettings::isPushEnabled();
@@ -69,5 +70,54 @@ class PanelPushServiceConfigTest extends TestCase
 
         $this->assertSame($keys['publicKey'], config('getfy.pwa.vapid_public'));
         $this->assertSame($keys['privateKey'], config('getfy.pwa.vapid_private'));
+    }
+
+    public function test_send_to_subscriptions_deduplicates_by_user(): void
+    {
+        $keys = $this->configureTestVapidPush();
+        PanelPushSettings::storeVapidKeys($keys['publicKey'], $keys['privateKey']);
+
+        $seller = $this->createSellerUser();
+        $older = PanelPushSubscription::create([
+            'user_id' => $seller->id,
+            'tenant_id' => $seller->tenant_id,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'endpoint' => 'https://push.example.com/sub/older',
+            'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+            'vapid_public_key' => $keys['publicKey'],
+        ]);
+        $older->forceFill(['updated_at' => now()->subHour()])->save();
+
+        $newer = PanelPushSubscription::create([
+            'user_id' => $seller->id,
+            'tenant_id' => $seller->tenant_id,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'endpoint' => 'https://push.example.com/sub/newer',
+            'keys' => ['auth' => 'dGVzdB', 'p256dh' => 'dGVzdB'],
+            'vapid_public_key' => $keys['publicKey'],
+        ]);
+
+        $deliveredEndpoint = null;
+        $dispatcher = Mockery::mock(PanelPushDispatcher::class);
+        $dispatcher->shouldReceive('send')
+            ->once()
+            ->withArgs(function (Collection $subscriptions) use (&$deliveredEndpoint) {
+                $deliveredEndpoint = $subscriptions->first()?->endpoint;
+
+                return $subscriptions->count() === 1;
+            })
+            ->andReturn(['sent' => 1, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => 1]);
+
+        $this->app->instance(PanelPushDispatcher::class, $dispatcher);
+
+        app(PanelPushService::class)->sendToSubscriptions(
+            collect([$older, $newer]),
+            'Teste',
+            'Corpo',
+            '/test',
+            'pix_1'
+        );
+
+        $this->assertSame('https://push.example.com/sub/newer', $deliveredEndpoint);
     }
 }

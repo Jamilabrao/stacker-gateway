@@ -41,7 +41,8 @@ class StripeDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         throw new \RuntimeException('Stripe não suporta PIX neste gateway. Use cartão de crédito.');
     }

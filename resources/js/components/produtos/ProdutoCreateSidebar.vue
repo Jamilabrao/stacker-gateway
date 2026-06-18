@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { useForm } from '@inertiajs/vue3';
+import { useForm, usePage } from '@inertiajs/vue3';
 import {
     Smartphone,
     Users,
@@ -27,6 +27,14 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'success']);
 const { t } = useI18n();
+const page = usePage();
+
+const platformMinCharge = computed(() => Number(page.props.platform_minimum_charge_brl ?? 0));
+const platformMinChargeLabel = computed(() =>
+    platformMinCharge.value > 0
+        ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(platformMinCharge.value)
+        : null
+);
 
 const step = ref(1);
 const selectedType = ref(null);
@@ -302,12 +310,15 @@ function safePluginSectionHtml(html) {
                                 v-model="form.price"
                                 type="number"
                                 step="any"
-                                min="0"
+                                :min="platformMinCharge"
                                 inputmode="decimal"
                                 required
                                 class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 placeholder-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
                                 placeholder="0,00"
                             />
+                            <p v-if="platformMinChargeLabel" class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                Ticket mínimo da plataforma: {{ platformMinChargeLabel }}
+                            </p>
                             <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                                 ≈ € {{ priceEur }} · $ {{ priceUsd }}
                             </p>

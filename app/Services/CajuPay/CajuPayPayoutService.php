@@ -24,11 +24,14 @@ class CajuPayPayoutService
         ?string $keyOwnerDocument = null
     ): array
     {
-        $credential = GatewayCredential::resolveForPayment(null, 'cajupay');
-        if ($credential === null) {
+        $account = app(CajuPayAccountResolver::class)->resolveForTenant((int) $withdrawal->tenant_id);
+        if ($account === null) {
+            $account = app(CajuPayAccountResolver::class)->defaultOrFirstConnected();
+        }
+        if ($account === null) {
             return ['ok' => false, 'error' => 'CajuPay não configurado na plataforma (Integrações > Gateways).'];
         }
-        $credentials = $credential->getDecryptedCredentials();
+        $credentials = $account->getDecryptedCredentials();
         if (empty($credentials['public_key'] ?? null) || empty($credentials['secret_key'] ?? null)) {
             return ['ok' => false, 'error' => 'Credenciais CajuPay incompletas.'];
         }
@@ -316,19 +319,21 @@ class CajuPayPayoutService
      *
      * @return 'paid'|'pending'|'failed'|null
      */
-    public function getPayoutSettlementStatus(string $externalId): ?string
+    public function getPayoutSettlementStatus(string $externalId, ?int $tenantId = null): ?string
     {
         $externalId = trim($externalId);
         if ($externalId === '') {
             return null;
         }
 
-        $credential = GatewayCredential::resolveForPayment(null, 'cajupay');
-        if ($credential === null || ! $credential->is_connected) {
+        $account = $tenantId !== null
+            ? app(CajuPayAccountResolver::class)->resolveForTenant($tenantId)
+            : app(CajuPayAccountResolver::class)->defaultOrFirstConnected();
+        if ($account === null) {
             return null;
         }
 
-        $credentials = $credential->getDecryptedCredentials();
+        $credentials = $account->getDecryptedCredentials();
         if (empty($credentials['public_key'] ?? null) || empty($credentials['secret_key'] ?? null)) {
             return null;
         }

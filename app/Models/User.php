@@ -54,6 +54,7 @@ class User extends Authenticatable
         'merchant_fees',
         'merchant_settlement_overrides',
         'merchant_gateway_order',
+        'cajupay_account_id',
         'payout_settings',
         'birth_date',
         'company_name',

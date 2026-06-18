@@ -11,6 +11,7 @@ use App\Services\TeamAccessService;
 use App\Services\PlatformI18nService;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\ApiPixAccess;
+use App\Services\MinimumChargeService;
 use App\Services\MemberProgressService;
 use App\Services\PhysicalProductAccess;
 use App\Support\DemoMode;
@@ -287,9 +288,18 @@ class HandleInertiaRequests extends Middleware
             'api_pix_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? ApiPixAccess::effectiveForTenant($tenantId)
                 : false,
+            'platform_minimum_charge_brl' => $user && $user->canAccessSellerPanel()
+                ? app(MinimumChargeService::class)->platformMinimumBrlForTenant($tenantId)
+                : 0,
             'physical_products_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? PhysicalProductAccess::globalEnabled()
                 : false,
+            'pixgo_enabled_effective' => $user && $user->canAccessSellerPanel()
+                ? \App\Services\PixGoAccess::globalEnabled()
+                : false,
+            'pixgo_sidebar_label' => $user && $user->canAccessSellerPanel()
+                ? \App\Services\PixGoAccess::sidebarLabel()
+                : \App\Services\PixGoAccess::DEFAULT_SIDEBAR_LABEL,
             'legal' => $sharedCache->legalPublicLinks(),
         ];
 
@@ -336,6 +346,9 @@ class HandleInertiaRequests extends Middleware
     private function buildPublicBranding(): array
     {
         $themePrimary = (string) config('getfy.theme_primary', '#00cc00');
+        if ($themePrimary === '') {
+            $themePrimary = '#00cc00';
+        }
         $pwaTheme = config('getfy.pwa_theme_color');
         $pwaTheme = ($pwaTheme !== null && $pwaTheme !== '') ? (string) $pwaTheme : $themePrimary;
         $favicon = config('getfy.favicon_url');

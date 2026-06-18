@@ -385,6 +385,10 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             </td>
                             <td class="max-w-[220px] px-4 py-3">
                                 <span class="line-clamp-2">{{ o.product_label }}</span>
+                                <span
+                                    v-if="o.is_pixgo"
+                                    class="mt-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
+                                >{{ o.pixgo_label || 'PixGO' }}</span>
                             </td>
                             <td class="whitespace-nowrap px-4 py-3">
                                 <div class="flex flex-col gap-1">

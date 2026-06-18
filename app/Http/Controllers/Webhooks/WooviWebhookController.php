@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\Order;
 use App\Support\GatewayInboundWebhookAuth;
 use Illuminate\Http\JsonResponse;
@@ -63,7 +63,7 @@ class WooviWebhookController extends Controller
 
         $txForJob = (string) $order->gateway_id;
 
-        ProcessPaymentWebhook::dispatchSync('woovi', $txForJob, 'order.paid', 'paid', $payload);
+        PaymentWebhookDispatcher::dispatch('woovi', $txForJob, 'order.paid', 'paid', $payload);
 
         return response()->json(['received' => true]);
     }

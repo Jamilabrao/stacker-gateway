@@ -32,6 +32,7 @@ services:
       SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "true"
+      API_INBOUND_WEBHOOKS_ASYNC: ${API_INBOUND_WEBHOOKS_ASYNC:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,7 +60,7 @@ services:
     command:
       - "redis-server"
       - "--maxmemory"
-      - "${GETFY_REDIS_MAXMEMORY:-128mb}"
+      - "${GETFY_REDIS_MAXMEMORY:-512mb}"
       - "--maxmemory-policy"
       - "${GETFY_REDIS_MAXMEMORY_POLICY:-allkeys-lru}"
     healthcheck:
@@ -68,24 +69,16 @@ services:
       timeout: 3s
       retries: 30
 
-  queue:
+  scheduler:
     image: getfy_app:latest
     restart: unless-stopped
-    command:
-      - "sh"
-      - "-lc"
-      - "set -e; php artisan queue:work --queue=webhooks,default --sleep=3 --tries=3 --timeout=0 --memory=${GETFY_QUEUE_WORKER_MEMORY:-128} --max-time=${GETFY_QUEUE_WORKER_MAX_TIME:-3600} --max-jobs=${GETFY_QUEUE_WORKER_MAX_JOBS:-1000} & Q=$$!; php artisan schedule:work & S=$$!; trap 'kill $$Q $$S 2>/dev/null || true' INT TERM; while kill -0 $$Q 2>/dev/null && kill -0 $$S 2>/dev/null; do sleep 5; done; kill $$Q $$S 2>/dev/null || true; wait $$Q 2>/dev/null || true; wait $$S 2>/dev/null || true; exit 1"
+    command: ["php", "artisan", "schedule:work"]
     volumes:
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
       - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/99-uploads.ini:ro
     environment:
       APP_ENV: ${GETFY_APP_ENV:-production}
-      APP_DEBUG: ${GETFY_APP_DEBUG:-false}
-      GETFY_APP_URL: ${GETFY_APP_URL:-http://localhost}
-      GETFY_WEBHOOK_PUBLIC_URL: ${GETFY_WEBHOOK_PUBLIC_URL:-}
-      APP_INSTALLED: ${GETFY_APP_INSTALLED:-true}
-      APP_AUTO_MIGRATE: ${GETFY_APP_AUTO_MIGRATE:-false}
       DB_CONNECTION: ${GETFY_DB_CONNECTION:-pgsql}
       DB_HOST: ${GETFY_DB_HOST:-postgres}
       DB_PORT: ${GETFY_DB_PORT:-5432}
@@ -96,12 +89,112 @@ services:
       REDIS_PORT: ${GETFY_REDIS_PORT:-6379}
       CACHE_STORE: ${GETFY_CACHE_STORE:-redis}
       QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
-      SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "false"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker-payments:
+    image: getfy_app:latest
+    restart: unless-stopped
+    command:
+      - "php"
+      - "artisan"
+      - "queue:work"
+      - "--queue=payments,default"
+      - "--sleep=3"
+      - "--tries=3"
+      - "--timeout=120"
+      - "--memory=${GETFY_QUEUE_WORKER_MEMORY:-256}"
+      - "--max-time=${GETFY_QUEUE_WORKER_MAX_TIME:-3600}"
+    volumes:
+      - getfy_storage:/var/www/html/storage
+      - getfy_env:/var/www/html/.docker
+    environment:
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
+      DB_CONNECTION: ${GETFY_DB_CONNECTION:-pgsql}
+      DB_HOST: ${GETFY_DB_HOST:-postgres}
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-webhooks-out:
+    image: getfy_app:latest
+    restart: unless-stopped
+    command:
+      - "php"
+      - "artisan"
+      - "queue:work"
+      - "--queue=webhooks-outbound,webhooks"
+      - "--sleep=2"
+      - "--tries=3"
+      - "--timeout=60"
+    volumes:
+      - getfy_storage:/var/www/html/storage
+      - getfy_env:/var/www/html/.docker
+    environment:
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
+      DB_CONNECTION: ${GETFY_DB_CONNECTION:-pgsql}
+      DB_HOST: ${GETFY_DB_HOST:-postgres}
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-webhooks-in:
+    image: getfy_app:latest
+    restart: unless-stopped
+    command:
+      - "php"
+      - "artisan"
+      - "queue:work"
+      - "--queue=webhooks-inbound"
+      - "--sleep=1"
+      - "--tries=3"
+      - "--timeout=120"
+    volumes:
+      - getfy_storage:/var/www/html/storage
+      - getfy_env:/var/www/html/.docker
+    environment:
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
+      API_INBOUND_WEBHOOKS_ASYNC: "true"
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-payouts:
+    image: getfy_app:latest
+    restart: unless-stopped
+    command:
+      - "php"
+      - "artisan"
+      - "queue:work"
+      - "--queue=payouts"
+      - "--sleep=3"
+      - "--tries=3"
+      - "--timeout=120"
+    volumes:
+      - getfy_storage:/var/www/html/storage
+      - getfy_env:/var/www/html/.docker
+    environment:
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
+      DB_CONNECTION: ${GETFY_DB_CONNECTION:-pgsql}
+      DB_HOST: ${GETFY_DB_HOST:-postgres}
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+    depends_on:
       redis:
         condition: service_healthy
 

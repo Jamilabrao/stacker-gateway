@@ -22,7 +22,9 @@ class PanelPushService
      */
     public function sendAndPersistToTenant(?int $tenantId, string $type, string $title, string $body, ?string $url = null, ?string $eventKey = null): int
     {
-        $subscriptions = PanelPushSubscription::where('tenant_id', $tenantId)->get();
+        $subscriptions = $this->subscriptionsForDelivery(
+            PanelPushSubscription::where('tenant_id', $tenantId)->get()
+        );
 
         if ($subscriptions->isEmpty()) {
             return 0;
@@ -52,7 +54,7 @@ class PanelPushService
             }
         }
 
-        $result = $this->sendToSubscriptions($subscriptions, $title, $body, $url);
+        $result = $this->sendToSubscriptions($subscriptions, $title, $body, $url, $eventKey);
         $sent = (int) ($result['sent'] ?? 0);
 
         Log::info('PanelPushService: sendAndPersistToTenant', [
@@ -73,7 +75,7 @@ class PanelPushService
      */
     public function sendAndPersistToAll(string $type, string $title, string $body, ?string $url = null): array
     {
-        $subscriptions = PanelPushSubscription::query()->get();
+        $subscriptions = $this->subscriptionsForDelivery(PanelPushSubscription::query()->get());
         $userIds = $subscriptions->pluck('user_id')->unique()->filter()->values();
         foreach ($userIds as $userId) {
             PanelNotification::create([
@@ -91,7 +93,9 @@ class PanelPushService
 
     public function sendToTenant(?int $tenantId, string $title, string $body, ?string $url = null): int
     {
-        $subscriptions = PanelPushSubscription::where('tenant_id', $tenantId)->get();
+        $subscriptions = $this->subscriptionsForDelivery(
+            PanelPushSubscription::where('tenant_id', $tenantId)->get()
+        );
         if ($subscriptions->isEmpty()) {
             Log::warning('PanelPushService: nenhuma inscrição push para o tenant', ['tenant_id' => $tenantId]);
 
@@ -107,7 +111,7 @@ class PanelPushService
      * @param  Collection<int, PanelPushSubscription>  $subscriptions
      * @return array{sent:int,failed:int,invalid:int,expired:int,total:int}
      */
-    public function sendToSubscriptions(Collection $subscriptions, string $title, string $body, ?string $url = null): array
+    public function sendToSubscriptions(Collection $subscriptions, string $title, string $body, ?string $url = null, ?string $tag = null): array
     {
         try {
             \App\Support\PanelPushSettings::applyToConfig();
@@ -121,7 +125,8 @@ class PanelPushService
             return ['sent' => 0, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => $subscriptions->count()];
         }
 
-        $result = $this->dispatcher->send($subscriptions, $title, $body, $url);
+        $deliverable = $this->subscriptionsForDelivery($subscriptions);
+        $result = $this->dispatcher->send($deliverable, $title, $body, $url, $tag);
 
         if (($result['sent'] ?? 0) > 0) {
             Log::info('PanelPushService: push enviado', $result);
@@ -130,5 +135,20 @@ class PanelPushService
         }
 
         return $result;
+    }
+
+    /**
+     * Uma entrega por usuário (inscrição mais recente válida), evitando push duplicado no mesmo aparelho.
+     *
+     * @param  Collection<int, PanelPushSubscription>  $subscriptions
+     * @return Collection<int, PanelPushSubscription>
+     */
+    private function subscriptionsForDelivery(Collection $subscriptions): Collection
+    {
+        return $subscriptions
+            ->filter(fn (PanelPushSubscription $subscription) => $subscription->isValidForPush())
+            ->sortByDesc(fn (PanelPushSubscription $subscription) => $subscription->updated_at?->getTimestamp() ?? $subscription->id)
+            ->unique('user_id')
+            ->values();
     }
 }

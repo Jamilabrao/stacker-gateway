@@ -17,7 +17,7 @@ class VapidPushChannel implements PanelPushChannel
     /**
      * @param  Collection<int, PanelPushSubscription>  $subscriptions
      */
-    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null): array
+    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null, ?string $tag = null): array
     {
         $vapidSubs = $subscriptions->filter(fn (PanelPushSubscription $s) => ! $s->isFcm());
         $total = $vapidSubs->count();
@@ -54,13 +54,14 @@ class VapidPushChannel implements PanelPushChannel
         ];
 
         $icon = PanelPwaIconUrls::primaryNotificationIconUrl();
-        $payload = json_encode([
+        $payload = json_encode(array_filter([
             'title' => $title,
             'body' => $body,
             'url' => $url,
             'icon' => $icon,
             'badge' => $icon,
-        ]);
+            'tag' => $tag,
+        ], fn ($v) => $v !== null && $v !== ''));
 
         $sent = 0;
         $invalidCount = 0;

@@ -10,5 +10,5 @@ interface PanelPushChannel
      * @param  Collection<int, \App\Models\PanelPushSubscription>  $subscriptions
      * @return array{sent:int,failed:int,invalid:int,expired:int,total:int}
      */
-    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null): array;
+    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null, ?string $tag = null): array;
 }

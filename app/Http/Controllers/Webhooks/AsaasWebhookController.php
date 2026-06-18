@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\Order;
 use App\Support\GatewayInboundWebhookAuth;
 use Illuminate\Http\JsonResponse;
@@ -54,7 +54,7 @@ class AsaasWebhookController extends Controller
             $mappedStatus = 'pending';
         }
 
-        ProcessPaymentWebhook::dispatchSync('asaas', $transactionId, $event, $mappedStatus, $request->all());
+        PaymentWebhookDispatcher::dispatch('asaas', $transactionId, $event, $mappedStatus, $request->all());
 
         return response()->json(['received' => true]);
     }

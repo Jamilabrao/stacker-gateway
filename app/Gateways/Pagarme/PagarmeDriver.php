@@ -289,7 +289,8 @@ class PagarmeDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         $amountCents = (int) max(1, (int) round($amount * 100));
         $customer = $this->buildCustomer($consumer);

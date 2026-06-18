@@ -4,6 +4,7 @@ namespace App\Services\Payout;
 
 use App\Models\GatewayCredential;
 use App\Models\Setting;
+use App\Services\CajuPay\CajuPayAccountResolver;
 
 /**
  * Provedor de payout da plataforma (saque automático PIX).
@@ -36,6 +37,12 @@ class PlatformPayoutGateway
     {
         $connected = [];
         foreach (self::PAYOUT_ORDER as $slug) {
+            if ($slug === 'cajupay') {
+                if (app(CajuPayAccountResolver::class)->anyConnectedForPayout()) {
+                    $connected[$slug] = true;
+                }
+                continue;
+            }
             $cred = GatewayCredential::resolveForPayment(null, $slug);
             if ($cred !== null && $cred->is_connected) {
                 $connected[$slug] = true;

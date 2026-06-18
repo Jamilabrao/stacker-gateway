@@ -8,7 +8,6 @@ defineOptions({ layout: LayoutInfoprodutor });
 
 const form = useForm({
     name: '',
-    slug: '',
     description: '',
     type: 'area_membros',
     price: 0,
@@ -26,10 +25,6 @@ const form = useForm({
                     <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome</label>
                     <input v-model="form.name" type="text" required class="mt-1 block w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2" />
                     <p v-if="form.errors.name" class="mt-1 text-sm text-red-600">{{ form.errors.name }}</p>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Slug (opcional)</label>
-                    <input v-model="form.slug" type="text" class="mt-1 block w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-3 py-2" />
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Descrição</label>

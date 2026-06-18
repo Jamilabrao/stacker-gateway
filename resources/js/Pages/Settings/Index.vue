@@ -546,6 +546,54 @@ function syncEmailSettingsFromProps() {
     applyEmailPublicFieldsFromSettings(page.props.settings);
 }
 
+function applyLegalSettingsFromSettings(s) {
+    if (!s) return;
+    form.legal_privacy_policy_html = s.legal_privacy_policy_html ?? '';
+    form.legal_terms_of_use_html = s.legal_terms_of_use_html ?? '';
+    form.legal_privacy_contact_email = s.legal_privacy_contact_email ?? '';
+    form.legal_cookie_banner_enabled = s.legal_cookie_banner_enabled !== false;
+}
+
+function syncLegalSettingsFromProps() {
+    applyLegalSettingsFromSettings(page.props.settings);
+}
+
+function applySecuritySettingsFromSettings(s) {
+    if (!s) return;
+    form.checkout_turnstile_enabled = s.checkout_turnstile_enabled ?? '0';
+    form.checkout_turnstile_site_key = s.checkout_turnstile_site_key ?? '';
+    form.checkout_turnstile_mode = s.checkout_turnstile_mode ?? 'pix_boleto';
+    form.checkout_turnstile_secret_configured = Boolean(s.checkout_turnstile_secret_configured);
+}
+
+function syncSecuritySettingsFromProps() {
+    applySecuritySettingsFromSettings(page.props.settings);
+}
+
+function buildSettingsPayload() {
+    const data = form.data();
+    if (activeTab.value === 'lgpd') {
+        return {
+            legal_privacy_policy_html: data.legal_privacy_policy_html,
+            legal_terms_of_use_html: data.legal_terms_of_use_html,
+            legal_privacy_contact_email: data.legal_privacy_contact_email,
+            legal_cookie_banner_enabled: data.legal_cookie_banner_enabled,
+        };
+    }
+    if (activeTab.value === 'seguranca') {
+        return {
+            checkout_turnstile_enabled: data.checkout_turnstile_enabled,
+            checkout_turnstile_site_key: data.checkout_turnstile_site_key,
+            checkout_turnstile_secret_key: data.checkout_turnstile_secret_key,
+            checkout_turnstile_mode: data.checkout_turnstile_mode,
+        };
+    }
+    return {
+        ...data,
+        email_provider: activeEmailProvider.value,
+    };
+}
+
 function buildEmailSettingsPayload() {
     const provider = activeEmailProvider.value;
     const payload = {
@@ -607,13 +655,14 @@ function saveFromSidebar() {
 function submitSettings() {
     form.email_provider = activeEmailProvider.value;
     form
-        .transform((data) => ({
-            ...data,
-            email_provider: activeEmailProvider.value,
-        }))
+        .transform(() => buildSettingsPayload())
         .put('/plataforma/configuracoes', {
             preserveScroll: true,
-            onSuccess: () => syncEmailSettingsFromProps(),
+            onSuccess: () => {
+                syncEmailSettingsFromProps();
+                syncLegalSettingsFromProps();
+                syncSecuritySettingsFromProps();
+            },
             onFinish: () => {
                 form.transform((data) => data);
             },
@@ -1210,6 +1259,34 @@ const selectClass =
                 </div>
             </Transition>
 
+            <!-- Aba LGPD -->
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'lgpd'" class="space-y-6">
+                    <LegalTab :form="form" :legal-defaults="legal_defaults" />
+                </div>
+            </Transition>
+
+            <!-- Aba Segurança -->
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'seguranca'" class="space-y-6">
+                    <SecurityTab :form="form" />
+                </div>
+            </Transition>
+
             <div
                 class="flex items-center gap-3 pt-4 sm:pt-2 md:pt-4 sticky bottom-4 z-10 -mx-2 rounded-xl border border-zinc-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur sm:static sm:mx-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:shadow-none dark:border-zinc-700 dark:bg-zinc-800/95 sm:dark:bg-transparent sm:dark:border-0"
             >
@@ -1264,32 +1341,6 @@ const selectClass =
                 </p>
             </div>
         </template>
-
-        <Transition
-            enter-active-class="transition duration-200 ease-out"
-            enter-from-class="opacity-0"
-            enter-to-class="opacity-100"
-            leave-active-class="transition duration-150 ease-in"
-            leave-from-class="opacity-100"
-            leave-to-class="opacity-0"
-        >
-            <div v-show="activeTab === 'lgpd'" class="w-full max-w-full space-y-6">
-                <LegalTab :form="form" :legal-defaults="legal_defaults" />
-            </div>
-        </Transition>
-
-        <Transition
-            enter-active-class="transition duration-200 ease-out"
-            enter-from-class="opacity-0"
-            enter-to-class="opacity-100"
-            leave-active-class="transition duration-150 ease-in"
-            leave-from-class="opacity-100"
-            leave-to-class="opacity-0"
-        >
-            <div v-show="activeTab === 'seguranca'" class="w-full max-w-full space-y-6">
-                <SecurityTab :form="form" />
-            </div>
-        </Transition>
 
         <Transition
             enter-active-class="transition duration-200 ease-out"

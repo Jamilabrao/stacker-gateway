@@ -11,6 +11,7 @@ use App\Models\SubscriptionPlan;
 use App\Support\ApiHostedCheckoutPricing;
 use App\Services\ApiPixAccess;
 use App\Services\MerchantOperationalGuard;
+use App\Services\MinimumChargeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -28,13 +29,14 @@ class CheckoutSessionsController extends Controller
         }
         MerchantOperationalGuard::assertCanAcceptPayments((int) $app->tenant_id);
 
+        $apiMin = app(MinimumChargeService::class)->apiPixMinimumBrlForTenant((int) $app->tenant_id);
         $validated = $request->validate([
             'customer' => ['required', 'array'],
             'customer.email' => ['required', 'email'],
             'customer.name' => ['nullable', 'string', 'max:255'],
             'customer.cpf' => ['nullable', 'string', 'max:14'],
             'customer.phone' => ['nullable', 'string', 'max:24'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'amount' => ['required', 'numeric', 'min:'.$apiMin],
             'currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
             'product_id' => ['nullable', 'string', 'exists:products,id'],
             'product_offer_id' => ['nullable', 'integer', 'exists:product_offers,id'],
@@ -45,6 +47,7 @@ class CheckoutSessionsController extends Controller
         ]);
 
         $tenantId = $app->tenant_id;
+        $chargeBrl = null;
         if (! empty($validated['product_id'])) {
             $product = Product::where('id', $validated['product_id'])->where('tenant_id', $tenantId)->first();
             if (! $product) {
@@ -79,7 +82,15 @@ class CheckoutSessionsController extends Controller
             if (abs($expectedBrl - $requestedBrl) > 0.02) {
                 return response()->json(['message' => 'Valor não corresponde ao preço do produto.'], 422);
             }
+            $chargeBrl = $expectedBrl;
         }
+
+        if ($chargeBrl === null) {
+            $requestCurrency = strtoupper((string) ($validated['currency'] ?? 'BRL'));
+            $chargeBrl = ApiHostedCheckoutPricing::amountToBrl((float) $validated['amount'], $requestCurrency);
+        }
+
+        app(MinimumChargeService::class)->assertApiPayment($chargeBrl, (int) $tenantId);
 
         $expiresIn = (int) ($validated['expires_in'] ?? 30);
         $expiresAt = now()->addMinutes($expiresIn);

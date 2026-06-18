@@ -94,7 +94,8 @@ class EfiDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         $options = $this->buildOptions($credentials);
         if (empty($options['certificate'])) {

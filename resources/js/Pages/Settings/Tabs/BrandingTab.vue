@@ -1,8 +1,9 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Button from '@/components/ui/Button.vue';
 import { Upload, Trash2, Copy } from 'lucide-vue-next';
+import { normalizeThemePrimary } from '@/lib/emailCampaignBody';
 
 const loading = ref(true);
 const saving = ref(false);
@@ -129,6 +130,17 @@ async function syncGlobal() {
 onMounted(() => {
     load();
 });
+
+watch(
+    () => form.theme_primary,
+    (color) => {
+        const normalized = normalizeThemePrimary(color, null);
+        if (normalized && typeof document !== 'undefined') {
+            document.documentElement.style.setProperty('--color-primary', normalized);
+        }
+    },
+    { immediate: true },
+);
 
 const imageFields = [
     'app_logo',

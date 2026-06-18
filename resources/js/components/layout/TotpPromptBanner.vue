@@ -11,6 +11,7 @@ const dismissed = ref(false);
 const userId = computed(() => page.props.auth?.user?.id ?? null);
 const totpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
 const showTotpPrompt = computed(() => Boolean(page.props.auth?.user?.show_totp_prompt));
+const needsKycAttention = computed(() => Boolean(page.props.auth?.user?.needs_kyc_attention));
 const isPlatformAdmin = computed(() => Boolean(page.props.auth?.is_platform_admin));
 
 const profileHref = computed(() => (
@@ -41,7 +42,7 @@ function dismiss() {
 }
 
 const show = computed(() => {
-    if (dismissed.value || totpEnabled.value || !userId.value) {
+    if (dismissed.value || totpEnabled.value || !userId.value || needsKycAttention.value) {
         return false;
     }
     if (!showTotpPrompt.value) {

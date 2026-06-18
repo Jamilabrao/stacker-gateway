@@ -17,7 +17,7 @@ class Order extends Model
         'api_application_id', 'api_checkout_session_id',
         'status', 'amount', 'shipping_amount', 'shipping_store_id', 'shipping_rule_id', 'shipping_address',
         'email', 'cpf', 'phone', 'customer_ip', 'coupon_code',
-        'gateway', 'gateway_id', 'payment_method', 'approved_manually', 'metadata', 'period_start', 'period_end', 'is_renewal',
+        'gateway', 'gateway_id', 'cajupay_account_id', 'payment_method', 'approved_manually', 'metadata', 'period_start', 'period_end', 'is_renewal',
     ];
 
     protected function casts(): array
@@ -289,6 +289,16 @@ class Order extends Model
         return $tenantId === null
             ? $query->whereNull('tenant_id')
             : $query->where('tenant_id', $tenantId);
+    }
+
+    /**
+     * Venda originada via PixGO (venda rápida PIX no painel).
+     */
+    public function isPixGoSale(): bool
+    {
+        $m = $this->metadata ?? [];
+
+        return is_array($m) && ($m['source'] ?? null) === 'pixgo';
     }
 
     /**

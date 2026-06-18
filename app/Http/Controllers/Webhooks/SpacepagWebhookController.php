@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\Order;
 use App\Support\GatewayInboundWebhookAuth;
 use App\Models\Withdrawal;
@@ -62,7 +62,7 @@ class SpacepagWebhookController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            ProcessPaymentWebhook::dispatchSync('spacepag', $transactionId, (string) $event, (string) $status, $request->all());
+            PaymentWebhookDispatcher::dispatch('spacepag', $transactionId, (string) $event, (string) $status, $request->all());
 
             return response()->json(['received' => true]);
         }

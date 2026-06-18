@@ -1,5 +1,5 @@
 <script setup>
-import { useForm, usePage, Link } from '@inertiajs/vue3';
+import { useForm, usePage, Link, router } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import VendasTabs from '@/components/vendas/VendasTabs.vue';
 import Button from '@/components/ui/Button.vue';
@@ -31,6 +31,10 @@ function submitDefense() {
         preserveScroll: true,
     });
 }
+
+function generateDossier() {
+    router.post(`/vendas/disputas/${props.dispute.id}/gerar-dossie`, {}, { preserveScroll: true });
+}
 </script>
 
 <template>
@@ -54,6 +58,10 @@ function submitDefense() {
         <div class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60">
             <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Disputa MED — pedido #{{ dispute.order?.public_reference ?? dispute.order?.id }}</h1>
             <dl class="mt-4 grid gap-2 text-sm">
+                <div v-if="dispute.reason" class="flex justify-between gap-4">
+                    <dt class="text-zinc-500">Motivo</dt>
+                    <dd class="text-right">{{ dispute.reason }}</dd>
+                </div>
                 <div class="flex justify-between gap-4">
                     <dt class="text-zinc-500">Valor contestado</dt>
                     <dd class="font-medium">{{ formatBRL(dispute.amount_cents) }}</dd>
@@ -74,6 +82,18 @@ function submitDefense() {
             <p v-if="dispute.defense_text" class="mt-4 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-800">
                 {{ dispute.defense_text }}
             </p>
+            <div class="mt-4 flex flex-wrap gap-2">
+                <Button type="button" variant="outline" @click="generateDossier">
+                    Gerar prova de entrega (PDF)
+                </Button>
+                <a
+                    v-if="dispute.has_dossier"
+                    :href="`/vendas/disputas/${dispute.id}/dossie`"
+                    class="inline-flex items-center rounded-lg border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-50 dark:border-zinc-600"
+                >
+                    Baixar dossiê
+                </a>
+            </div>
         </div>
 
         <form

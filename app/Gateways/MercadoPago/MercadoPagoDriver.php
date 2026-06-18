@@ -93,7 +93,8 @@ class MercadoPagoDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         $this->setCredentials($credentials);
         if ($amount <= 0) {

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Webhooks;
 
 use App\Gateways\GatewayRegistry;
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
@@ -67,7 +67,7 @@ class MercadoPagoWebhookController extends Controller
             $status = 'pending';
         }
 
-        ProcessPaymentWebhook::dispatchSync('mercadopago', $transactionId, $event, $status, $payload);
+        PaymentWebhookDispatcher::dispatch('mercadopago', $transactionId, $event, $status, $payload);
 
         return response()->json(['received' => true]);
     }

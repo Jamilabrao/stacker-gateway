@@ -5,6 +5,7 @@ import axios from 'axios';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import GatewayCard from '@/components/settings/GatewayCard.vue';
 import GatewayConfigSidebar from '@/components/settings/GatewayConfigSidebar.vue';
+import CajuPayAccountSidebar from '@/components/settings/CajuPayAccountSidebar.vue';
 import {
     Banknote,
     Barcode,
@@ -14,6 +15,8 @@ import {
     Percent,
     QrCode,
     Repeat,
+    SlidersHorizontal,
+    Zap,
 } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
 import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
@@ -56,6 +59,10 @@ const props = defineProps({
         default: () => ({}),
     },
     api_pix_enabled: { type: Boolean, default: true },
+    pixgo_enabled: { type: Boolean, default: false },
+    pixgo_sidebar_label: { type: String, default: 'PixGO' },
+    api_pix_minimum_charge_brl: { type: Number, default: 0.01 },
+    platform_minimum_charge_brl: { type: Number, default: 0 },
     /** @type {'auto'|'cajupay'|'spacepag'|'woovi'|'onlyup'} */
     payout_gateway_preference: { type: String, default: 'auto' },
     /** Slug efetivo usado hoje (pode diferir do preferido se este não estiver conectado). */
@@ -85,7 +92,11 @@ const props = defineProps({
         }),
     },
     platform_totp_enabled: { type: Boolean, default: false },
+    cajupay_accounts: { type: Array, default: () => [] },
+    cajupay_credential_keys: { type: Array, default: () => [] },
 });
+
+const cajupayGateway = computed(() => (props.gateways || []).find((g) => g.slug === 'cajupay') ?? null);
 
 const GATEWAYS_API_BASE = '/plataforma/financeiro/gateways';
 
@@ -287,7 +298,7 @@ async function savePayoutPreference() {
 }
 
 function allAllowedTabIds() {
-    return ['adquirentes', 'metodos', 'taxas', 'saques', 'liquidacao'];
+    return ['adquirentes', 'metodos', 'taxas', 'limites', 'saques', 'liquidacao', 'pixgo'];
 }
 
 const activeTab = ref('adquirentes');
@@ -300,8 +311,10 @@ const tabs = computed(() => [
     { id: 'adquirentes', label: 'Adquirentes', icon: CreditCard },
     { id: 'metodos', label: 'Formas de pagamento', icon: LayoutGrid },
     { id: 'taxas', label: 'Taxas', icon: Percent },
+    { id: 'limites', label: 'Limites', icon: SlidersHorizontal },
     { id: 'saques', label: 'Saques', icon: Banknote },
     { id: 'liquidacao', label: 'Liquidação', icon: CalendarClock },
+    { id: 'pixgo', label: 'Pix GO', icon: Zap },
 ]);
 
 const MANUAL_APPROVAL_PIN_MAX_LENGTH = 6;
@@ -499,8 +512,24 @@ const gatewaySidebarOpen = ref(false);
 const selectedGatewaySlug = ref(null);
 
 function openGatewaySidebar(slug) {
+    if (slug === 'cajupay') {
+        cajupaySidebarOpen.value = true;
+        return;
+    }
     selectedGatewaySlug.value = slug;
     gatewaySidebarOpen.value = true;
+}
+
+const cajupaySidebarOpen = ref(false);
+
+function closeCajuPaySidebar() {
+    cajupaySidebarOpen.value = false;
+}
+
+function onCajuPayAccountSaved() {
+    router.reload({
+        only: ['cajupay_accounts', 'gateways', 'gateway_order', 'payout_gateway_preference', 'payout_gateway_active'],
+    });
 }
 
 function closeGatewaySidebar() {
@@ -599,6 +628,42 @@ function submitFees() {
                 feeForm.reset();
             },
         });
+}
+
+const pixgoForm = useForm({
+    pixgo_enabled: props.pixgo_enabled,
+    pixgo_sidebar_label: props.pixgo_sidebar_label || 'PixGO',
+});
+
+function submitPixGo() {
+    pixgoForm.put('/plataforma/financeiro/pixgo', {
+        preserveScroll: true,
+        onSuccess: () => {
+            pixgoForm.defaults({
+                pixgo_enabled: props.pixgo_enabled,
+                pixgo_sidebar_label: props.pixgo_sidebar_label,
+            });
+            pixgoForm.reset();
+        },
+    });
+}
+
+const chargeLimitsForm = useForm({
+    api_pix_minimum_charge_brl: props.api_pix_minimum_charge_brl ?? 0.01,
+    platform_minimum_charge_brl: props.platform_minimum_charge_brl ?? 0,
+});
+
+function submitChargeLimits() {
+    chargeLimitsForm.put('/plataforma/financeiro/limites', {
+        preserveScroll: true,
+        onSuccess: () => {
+            chargeLimitsForm.defaults({
+                api_pix_minimum_charge_brl: props.api_pix_minimum_charge_brl,
+                platform_minimum_charge_brl: props.platform_minimum_charge_brl,
+            });
+            chargeLimitsForm.reset();
+        },
+    });
 }
 
 function settlementBlock(key) {
@@ -716,7 +781,7 @@ function submitSettlement() {
                         />
                     </div>
                     <div
-                        v-if="props.gateways.length === 0"
+                        v-if="!props.gateways?.length"
                         class="rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:text-zinc-400"
                     >
                         Nenhum adquirente disponível.
@@ -1182,6 +1247,71 @@ function submitSettlement() {
             leave-from-class="opacity-100"
             leave-to-class="opacity-0"
         >
+            <div v-show="activeTab === 'limites'" class="space-y-6">
+                <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Ticket mínimo de cobrança
+                    </h2>
+                    <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+                        Defina valores mínimos independentes para a API PIX externa e para o checkout próprio da plataforma
+                        (produtos, ofertas, planos e pagamentos no checkout infoprodutor). Valores padrão; cada infoprodutor pode
+                        ter taxas, limites e API PIX personalizados em <strong>Infoprodutores → Editar</strong>.
+                    </p>
+                    <form class="space-y-6" @submit.prevent="submitChargeLimits">
+                        <div class="grid gap-6 sm:grid-cols-2">
+                            <div>
+                                <label class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                    Ticket mínimo API PIX (R$)
+                                </label>
+                                <input
+                                    v-model.number="chargeLimitsForm.api_pix_minimum_charge_brl"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                />
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                    Aplica a cobranças via API REST e checkout hospedado gerado pela API. Padrão: R$ 0,01.
+                                </p>
+                                <p v-if="chargeLimitsForm.errors.api_pix_minimum_charge_brl" class="mt-1 text-xs text-red-600">
+                                    {{ chargeLimitsForm.errors.api_pix_minimum_charge_brl }}
+                                </p>
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                    Ticket mínimo plataforma (R$)
+                                </label>
+                                <input
+                                    v-model.number="chargeLimitsForm.platform_minimum_charge_brl"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                />
+                                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                    Aplica a preços de produtos/ofertas/planos e ao total pago no checkout. Use 0 para sem limite.
+                                </p>
+                                <p v-if="chargeLimitsForm.errors.platform_minimum_charge_brl" class="mt-1 text-xs text-red-600">
+                                    {{ chargeLimitsForm.errors.platform_minimum_charge_brl }}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="flex justify-end">
+                            <Button type="submit" :disabled="chargeLimitsForm.processing">Salvar limites</Button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        </Transition>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
             <div v-show="activeTab === 'saques'" class="space-y-6">
                 <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
                     <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -1424,6 +1554,64 @@ function submitSettlement() {
                 </section>
             </div>
         </Transition>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'pixgo'" class="space-y-6">
+                <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        PixGO — venda rápida PIX
+                    </h2>
+                    <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+                        Maquininha virtual no painel do vendedor: digita o valor, gera PIX e aguarda pagamento.
+                        Quando desabilitado, o menu e as rotas ficam ocultos para todos os infoprodutores.
+                    </p>
+                    <form class="space-y-6" @submit.prevent="submitPixGo">
+                        <label class="flex items-center gap-3 text-sm text-zinc-700 dark:text-zinc-300">
+                            <input
+                                v-model="pixgoForm.pixgo_enabled"
+                                type="checkbox"
+                                class="h-4 w-4 rounded border-zinc-300"
+                            />
+                            PixGO habilitado globalmente
+                        </label>
+                        <div>
+                            <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                Nome no menu lateral
+                            </label>
+                            <input
+                                v-model="pixgoForm.pixgo_sidebar_label"
+                                type="text"
+                                maxlength="32"
+                                placeholder="PixGO"
+                                class="w-full max-w-md rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                            />
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                Ex.: PixGO, aparece abaixo de Produtos no painel do vendedor.
+                            </p>
+                        </div>
+                        <div class="flex justify-end">
+                            <Button type="submit" :disabled="pixgoForm.processing">Salvar PixGO</Button>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        </Transition>
+
+        <CajuPayAccountSidebar
+            :open="cajupaySidebarOpen"
+            :gateway="cajupayGateway"
+            :accounts="props.cajupay_accounts"
+            :credential-keys-prop="props.cajupay_credential_keys"
+            @close="closeCajuPaySidebar"
+            @saved="onCajuPayAccountSaved"
+        />
 
         <GatewayConfigSidebar
             :open="gatewaySidebarOpen"

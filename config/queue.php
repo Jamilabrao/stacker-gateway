@@ -4,6 +4,14 @@ return [
 
     'webhooks_queue' => env('WEBHOOKS_QUEUE', 'webhooks'),
 
+    'webhooks_outbound_queue' => env('WEBHOOKS_OUTBOUND_QUEUE', 'webhooks-outbound'),
+
+    'webhooks_inbound_queue' => env('WEBHOOKS_INBOUND_QUEUE', 'webhooks-inbound'),
+
+    'payments_queue' => env('PAYMENTS_QUEUE', 'payments'),
+
+    'payouts_queue' => env('PAYOUTS_QUEUE', 'payouts'),
+
     /*
     |--------------------------------------------------------------------------
     | Default Queue Connection Name

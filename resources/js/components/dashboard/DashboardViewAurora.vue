@@ -222,7 +222,7 @@ const auroraChartOptions = computed(() => {
                     :label="labels.refunds"
                     :value="displayCurrency(reembolsos_total)"
                     :footer="`${displayNumber(reembolsos_count)} pedido(s)`"
-                    href="/reembolsos"
+                    href="/vendas/reembolsos"
                     variant="stacked"
                     tint="orange"
                 />

@@ -76,17 +76,35 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('api', function (Request $request) {
+            $apiKey = $request->attributes->get('api_key');
+            $app = $request->attributes->get('api_application');
+            $tier = 'legacy';
+            if ($apiKey && isset($apiKey->rate_limit_tier)) {
+                $tier = (string) $apiKey->rate_limit_tier;
+            } elseif ($app && isset($app->rate_limit_tier)) {
+                $tier = (string) $app->rate_limit_tier;
+            }
+            $limits = config('getfy.api.rate_limits', []);
+            $perMinute = (int) ($limits[$tier] ?? $limits['legacy'] ?? 120);
+
             $publicKey = trim((string) $request->header('X-Public-Key', ''));
             if ($publicKey !== '') {
-                return Limit::perMinute(120)->by('pk:'.$publicKey);
+                return Limit::perMinute($perMinute)->by('pk:'.$publicKey);
             }
 
-            $app = $request->attributes->get('api_application');
             if ($app && isset($app->id)) {
-                return Limit::perMinute(120)->by('app:'.$app->id);
+                return Limit::perMinute($perMinute)->by('app:'.$app->id);
             }
 
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            return Limit::perMinute(max(60, (int) ($limits['legacy'] ?? 120) / 2))->by($request->ip());
+        });
+
+        RateLimiter::for('api-withdrawals', function (Request $request) {
+            $perMinute = (int) config('getfy.api.rate_limits.withdrawals_write', 30);
+            $app = $request->attributes->get('api_application');
+            $key = $app && isset($app->id) ? 'app:'.$app->id : $request->ip();
+
+            return Limit::perMinute($perMinute)->by($key);
         });
 
         $checkoutLimits = config('getfy.checkout_security.rate_limits', []);

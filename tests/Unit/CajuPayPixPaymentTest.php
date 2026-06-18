@@ -14,6 +14,7 @@ class CajuPayPixPaymentTest extends TestCase
             'https://api.cajupay.com.br/api/payments/pix' => function ($request) {
                 $body = $request->data();
                 $this->assertSame('https://example.test/webhook', $body['postback_url'] ?? null);
+                $this->assertSame('https://loja.exemplo.com/checkout/42', $body['partner_checkout_url'] ?? null);
 
                 return Http::response([
                     'payment_id' => 'pay_test_123',
@@ -34,7 +35,8 @@ class CajuPayPixPaymentTest extends TestCase
                 'phone' => '11999998888',
             ],
             '42',
-            'https://example.test/webhook'
+            'https://example.test/webhook',
+            ['partner_checkout_url' => 'https://loja.exemplo.com/checkout/42']
         );
 
         $this->assertSame('pay_test_123', $result['transaction_id']);

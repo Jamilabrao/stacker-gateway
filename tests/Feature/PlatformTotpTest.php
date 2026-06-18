@@ -26,6 +26,22 @@ class PlatformTotpTest extends TestCase
         $this->assertTrue(PlatformTotpService::verifyCodeForUser($admin->fresh(), $code));
     }
 
+    public function test_totp_enrollment_uses_platform_app_name_as_issuer(): void
+    {
+        config(['getfy.app_name' => 'Minha Plataforma']);
+
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+            'email' => 'admin@example.com',
+        ]);
+
+        $setup = PlatformTotpService::beginEnrollment($admin->fresh());
+
+        $this->assertStringContainsString('otpauth://totp/Minha%20Plataforma:admin%40example.com', $setup['otpauth_url']);
+        $this->assertStringContainsString('issuer=Minha%20Plataforma', $setup['otpauth_url']);
+    }
+
     public function test_manual_withdrawal_approval_requires_pin_when_auto_disabled(): void
     {
         $admin = User::factory()->create([

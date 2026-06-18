@@ -156,7 +156,7 @@ if [ -f ".docker/stack.env" ]; then
   fi
 fi
 
-$SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh >/dev/null 2>&1 || true
+$SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh docker/verify-workers.sh >/dev/null 2>&1 || true
 
 echo ""
 echo "=== Limites de upload (PHP / Member Builder) ==="
@@ -184,6 +184,14 @@ $SUDO env \
   GETFY_APP_ENV=production \
   GETFY_APP_DEBUG=false \
   sh docker/up.sh
+
+$SUDO mkdir -p .docker
+echo "standard" | $SUDO tee .docker/compose-profile >/dev/null
+
+echo ""
+echo "=== Verificação de workers (API) ==="
+$SUDO chmod +x docker/verify-workers.sh 2>/dev/null || true
+$SUDO sh docker/verify-workers.sh || true
 
 IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
 if [ -z "$IP" ]; then

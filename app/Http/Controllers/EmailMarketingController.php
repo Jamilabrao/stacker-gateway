@@ -91,6 +91,7 @@ class EmailMarketingController extends Controller
             'email_configured' => $emailConfigured,
             'products' => $products,
             'default_message_text' => EmailCampaignTemplate::defaultMessageText(),
+            'campaign_theme_primary' => BrandingEmailData::forTenant(null)['theme_primary'],
         ]);
     }
 
@@ -152,6 +153,7 @@ class EmailMarketingController extends Controller
             'email_configured' => $emailConfigured,
             'products' => $products,
             'default_message_text' => EmailCampaignTemplate::defaultMessageText(),
+            'campaign_theme_primary' => BrandingEmailData::forTenant(null)['theme_primary'],
         ]);
     }
 

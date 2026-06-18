@@ -3,274 +3,66 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Events\BoletoGenerated;
-use App\Events\OrderCompleted;
-use App\Events\OrderPending;
-use App\Events\PixGenerated;
-use App\Models\ApiApplication;
+use App\Jobs\CreatePixChargeJob;
 use App\Models\Order;
-use App\Models\OrderItem;
-use App\Models\Product;
-use App\Models\ProductOffer;
-use App\Models\SubscriptionPlan;
-use App\Models\User;
-use App\Services\BuyerAccountService;
+use App\Services\Api\ApiAuthContext;
+use App\Services\Api\ApiIdempotencyService;
 use App\Services\ApiPixAccess;
 use App\Services\MerchantOperationalGuard;
 use App\Services\PaymentService;
-use App\Services\Shipping\CheckoutShippingHelper;
-use App\Support\FakeConsumerData;
-use Illuminate\Database\QueryException;
+use App\Events\OrderPending;
+use App\Events\PixGenerated;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
 
 class PaymentsController extends Controller
 {
-    /**
-     * Resolve application from request (set by middleware).
-     */
-    private function application(Request $request): ApiApplication
-    {
-        $app = $request->attributes->get('api_application');
-        if (! $app instanceof ApiApplication) {
-            abort(500, 'API application not resolved');
-        }
-        if (! ApiPixAccess::effectiveForTenant($app->tenant_id)) {
-            abort(403, 'API PIX disabled for this tenant.');
-        }
-        MerchantOperationalGuard::assertCanAcceptPayments((int) $app->tenant_id);
+    use Concerns\HandlesApiPayments;
 
-        return $app;
-    }
-
-    /**
-     * Idempotency: return cached response if key was already used.
-     *
-     * @return JsonResponse|null  Cached response or null to continue
-     */
-    private function idempotencyReturn(int $appId, string $key, callable $buildResponse): JsonResponse
+    public function createPix(Request $request, ApiIdempotencyService $idempotency): JsonResponse
     {
-        $cacheKey = 'idempotency:api:' . $appId . ':' . $key;
-        $cached = Cache::get($cacheKey);
-        if (is_array($cached)) {
-            return response()->json($cached['body'], $cached['status']);
-        }
-        $response = $buildResponse();
-        if ($response instanceof JsonResponse) {
-            Cache::put($cacheKey, [
-                'status' => $response->getStatusCode(),
-                'body' => json_decode($response->getContent(), true),
-            ], now()->addHours(24));
-        }
-        return $response;
-    }
-
-    /**
-     * Common customer validation and user resolution.
-     */
-    private function validateCustomerAndGetUser(Request $request, ApiApplication $app): array
-    {
+        $ctx = $this->resolvePaymentContext($request, 'payments:write');
         $validated = $request->validate([
             'customer' => ['required', 'array'],
             'customer.email' => ['required', 'email'],
             'customer.name' => ['nullable', 'string', 'max:255'],
             'customer.cpf' => ['nullable', 'string', 'max:14'],
             'customer.phone' => ['nullable', 'string', 'max:24'],
-        ]);
-        $customer = $validated['customer'];
-        $email = $customer['email'];
-        $name = trim((string) ($customer['name'] ?? ''));
-        if ($name === '') {
-            $name = $email;
-        }
-        $buyer = app(BuyerAccountService::class)->ensureBuyerFromCheckout(
-            $email,
-            $name,
-            bcrypt(Str::random(32)),
-            false,
-        );
-        $user = $buyer['user'];
-        return [
-            'user' => $user,
-            'consumer' => [
-                'name' => $name,
-                'document' => preg_replace('/\D/', '', (string) ($customer['cpf'] ?? '')),
-                'email' => $email,
-            ],
-            'cpf' => $customer['cpf'] ?? null,
-            'phone' => $customer['phone'] ?? null,
-        ];
-    }
-
-    /**
-     * Create order for API (with or without product).
-     *
-     * @return array{order: Order, product: Product|null, amount: float, gateway_config: array}
-     */
-    private function createOrderForApi(Request $request, ApiApplication $app, float $amount, string $currency, ?string $productId, ?int $productOfferId, ?int $subscriptionPlanId, string $paymentMethod, array $metadata, array $userConsumer): array
-    {
-        $tenantId = $app->tenant_id;
-        $product = null;
-        $productOfferId = $productOfferId ?: null;
-        $subscriptionPlanId = $subscriptionPlanId ?: null;
-        $orderAmount = $amount;
-        $periodStart = null;
-        $periodEnd = null;
-
-        if ($productId !== null && $productId !== '') {
-            $product = Product::where('id', $productId)->where('tenant_id', $tenantId)->first();
-            if (! $product) {
-                abort(422, 'Produto não encontrado.');
-            }
-            if (! $product->isAvailableForPurchase()) {
-                abort(422, 'Produto indisponível para compra.');
-            }
-            $offer = $productOfferId ? ProductOffer::where('id', $productOfferId)->where('product_id', $product->id)->first() : null;
-            $plan = $subscriptionPlanId ? SubscriptionPlan::where('id', $subscriptionPlanId)->where('product_id', $product->id)->first() : null;
-            if ($offer) {
-                $orderAmount = (float) $offer->price;
-                $currency = $offer->getCurrencyOrDefault();
-            } elseif ($plan) {
-                $orderAmount = (float) $plan->price;
-                $currency = $plan->getCurrencyOrDefault();
-                [$periodStart, $periodEnd] = $plan->getCurrentPeriod();
-            } else {
-                $orderAmount = (float) $product->price;
-                $currency = $product->currency ?? 'BRL';
-            }
-        }
-
-        $rates = config('products.rates', ['brl_eur' => 0.16, 'brl_usd' => 0.18]);
-        if ($currency !== 'BRL') {
-            $orderAmount = $currency === 'EUR' ? $orderAmount / ($rates['brl_eur'] ?? 0.16) : $orderAmount / ($rates['brl_usd'] ?? 0.18);
-        }
-
-        $consumer = $userConsumer['consumer'];
-        $fake = FakeConsumerData::getForGateway(mt_rand(1, 999999));
-        if (strlen($consumer['document'] ?? '') < 11) {
-            $consumer['document'] = $fake['document'];
-        }
-        if (trim($consumer['name'] ?? '') === '') {
-            $consumer['name'] = $fake['name'];
-        }
-
-        $metadata['checkout_payment_method'] = $paymentMethod;
-
-        $shippingHelper = app(CheckoutShippingHelper::class);
-        $shippingResolved = null;
-        if ($product !== null && $shippingHelper->productRequiresShipping($product)) {
-            if (strtoupper($currency) !== 'BRL') {
-                abort(422, 'Produtos físicos estão disponíveis apenas em BRL.');
-            }
-            $addrValidated = $request->validate($shippingHelper->shippingAddressValidationRules());
-            $shippingResolved = $shippingHelper->resolveForCheckout($product, $addrValidated);
-            $orderAmount = round($orderAmount + $shippingResolved['shipping_amount'], 2);
-            $metadata = array_merge($metadata, $shippingResolved['metadata_shipping']);
-        }
-
-        $orderPayload = [
-            'tenant_id' => $tenantId,
-            'user_id' => $userConsumer['user']->id,
-            'product_id' => $product?->id,
-            'product_offer_id' => $productOfferId,
-            'subscription_plan_id' => $subscriptionPlanId,
-            'api_application_id' => $app->id,
-            'api_checkout_session_id' => null,
-            'status' => 'pending',
-            'amount' => $orderAmount,
-            'email' => $consumer['email'],
-            'cpf' => $userConsumer['cpf'] ?? null,
-            'phone' => $userConsumer['phone'] ?? null,
-            'customer_ip' => $request->ip(),
-            'coupon_code' => null,
-            'gateway' => null,
-            'gateway_id' => null,
-            'payment_method' => $paymentMethod,
-            'metadata' => $metadata,
-            'period_start' => $periodStart,
-            'period_end' => $periodEnd,
-            'is_renewal' => false,
-        ];
-        if ($shippingResolved !== null) {
-            $orderPayload['shipping_amount'] = $shippingResolved['shipping_amount'];
-            $orderPayload['shipping_store_id'] = $shippingResolved['shipping_store_id'];
-            $orderPayload['shipping_rule_id'] = $shippingResolved['shipping_rule_id'];
-            $orderPayload['shipping_address'] = $shippingResolved['shipping_address'];
-        }
-
-        try {
-            $order = Order::create($orderPayload);
-        } catch (QueryException $e) {
-            if (str_contains($e->getMessage(), 'api_application_id')) {
-                report($e);
-
-                abort(503, 'API PIX indisponível: execute as migrações do banco no servidor (php artisan migrate).');
-            }
-
-            throw $e;
-        }
-
-        if ($product !== null) {
-            OrderItem::create([
-                'order_id' => $order->id,
-                'product_id' => $product->id,
-                'product_offer_id' => $productOfferId,
-                'subscription_plan_id' => $subscriptionPlanId,
-                'amount' => $orderAmount,
-                'position' => 0,
-            ]);
-        }
-
-        $gatewayConfig = $app->payment_gateways ?? ApiApplication::defaultPaymentGateways();
-
-        return [
-            'order' => $order,
-            'product' => $product,
-            'amount' => $orderAmount,
-            'consumer' => $consumer,
-            'gateway_config' => $gatewayConfig,
-        ];
-    }
-
-    public function createPix(Request $request): JsonResponse
-    {
-        $app = $this->application($request);
-        $validated = $request->validate([
-            'customer' => ['required', 'array'],
-            'customer.email' => ['required', 'email'],
-            'customer.name' => ['nullable', 'string', 'max:255'],
-            'customer.cpf' => ['nullable', 'string', 'max:14'],
-            'customer.phone' => ['nullable', 'string', 'max:24'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'amount' => $this->apiPaymentAmountRules((int) $ctx->application->tenant_id),
             'currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
             'product_id' => ['nullable', 'string', 'exists:products,id'],
             'product_offer_id' => ['nullable', 'integer', 'exists:product_offers,id'],
             'subscription_plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id'],
             'metadata' => ['nullable', 'array'],
+            'partner_checkout_url' => ['nullable', 'string', 'max:512', 'regex:/^https:\/\//i'],
             'idempotency_key' => ['nullable', 'string', 'max:128'],
         ]);
 
         $idemKey = $request->input('idempotency_key') ?: $request->header('Idempotency-Key');
-        if ($idemKey !== null && $idemKey !== '') {
-            return $this->idempotencyReturn($app->id, $idemKey, function () use ($request, $app, $validated) {
-                return $this->doCreatePix($request, $app, $validated);
-            });
-        }
 
-        return $this->doCreatePix($request, $app, $validated);
+        return $idempotency->handle(
+            $ctx->application,
+            $ctx->apiKey,
+            is_string($idemKey) ? $idemKey : null,
+            $request->getContent() ?: json_encode($validated),
+            fn () => $this->doCreatePix($request, $ctx, $validated),
+        );
     }
 
-    private function doCreatePix(Request $request, ApiApplication $app, array $validated): JsonResponse
+    private function doCreatePix(Request $request, ApiAuthContext $ctx, array $validated): JsonResponse
     {
-        $userConsumer = $this->validateCustomerAndGetUser($request, $app);
+        $app = $ctx->application;
+        $userConsumer = $this->validateCustomerAndGetUser($request, $app, $ctx);
         $amount = (float) $validated['amount'];
         $currency = strtoupper((string) ($validated['currency'] ?? 'BRL'));
         $metadata = $validated['metadata'] ?? [];
         $metadata['source'] = 'api';
+        $partnerUrl = trim((string) ($validated['partner_checkout_url'] ?? ''));
+        if ($partnerUrl !== '') {
+            $metadata['partner_checkout_url'] = $partnerUrl;
+        }
 
-        $ctx = $this->createOrderForApi(
+        $ctxData = $this->createOrderForApi(
             $request,
             $app,
             $amount,
@@ -280,16 +72,26 @@ class PaymentsController extends Controller
             $validated['subscription_plan_id'] ?? null,
             'pix',
             $metadata,
-            $userConsumer
+            $userConsumer,
+            $ctx,
         );
 
-        $order = $ctx['order'];
+        $order = $ctxData['order'];
+        event(new OrderPending($order));
+
+        if ($ctx->wantsAsyncPayments($request)) {
+            CreatePixChargeJob::dispatch($order->id);
+
+            return response()->json([
+                'order_id' => $order->id,
+                'status' => 'processing',
+            ], 202);
+        }
+
         $paymentService = app(PaymentService::class);
 
         try {
-            event(new OrderPending($order));
-            // API PIX (gateway): o integrador não escolhe adquirente; sempre usa ordem global da plataforma.
-            $result = $paymentService->createPixPayment($order, $ctx['product'], $ctx['consumer'], null);
+            $result = $paymentService->createPixPayment($order, $ctxData['product'], $ctxData['consumer'], null);
             event(new PixGenerated($order, [
                 'qrcode' => $result['qrcode'] ?? null,
                 'copy_paste' => $result['copy_paste'] ?? null,
@@ -305,22 +107,23 @@ class PaymentsController extends Controller
             ], 201);
         } catch (\Throwable $e) {
             $order->delete();
+
             return response()->json([
                 'message' => $e->getMessage() ?: 'Não foi possível gerar o PIX.',
             ], 422);
         }
     }
 
-    public function createCard(Request $request): JsonResponse
+    public function createCard(Request $request, ApiIdempotencyService $idempotency): JsonResponse
     {
-        $app = $this->application($request);
+        $ctx = $this->resolvePaymentContext($request, 'payments:write');
         $validated = $request->validate([
             'customer' => ['required', 'array'],
             'customer.email' => ['required', 'email'],
             'customer.name' => ['nullable', 'string', 'max:255'],
             'customer.cpf' => ['nullable', 'string', 'max:14'],
             'customer.phone' => ['nullable', 'string', 'max:24'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'amount' => $this->apiPaymentAmountRules((int) $ctx->application->tenant_id),
             'currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
             'product_id' => ['nullable', 'string', 'exists:products,id'],
             'product_offer_id' => ['nullable', 'integer', 'exists:product_offers,id'],
@@ -332,24 +135,26 @@ class PaymentsController extends Controller
         ]);
 
         $idemKey = $request->input('idempotency_key') ?: $request->header('Idempotency-Key');
-        if ($idemKey !== null && $idemKey !== '') {
-            return $this->idempotencyReturn($app->id, $idemKey, function () use ($request, $app, $validated) {
-                return $this->doCreateCard($request, $app, $validated);
-            });
-        }
 
-        return $this->doCreateCard($request, $app, $validated);
+        return $idempotency->handle(
+            $ctx->application,
+            $ctx->apiKey,
+            is_string($idemKey) ? $idemKey : null,
+            $request->getContent() ?: json_encode($validated),
+            fn () => $this->doCreateCard($request, $ctx, $validated),
+        );
     }
 
-    private function doCreateCard(Request $request, ApiApplication $app, array $validated): JsonResponse
+    private function doCreateCard(Request $request, ApiAuthContext $ctx, array $validated): JsonResponse
     {
-        $userConsumer = $this->validateCustomerAndGetUser($request, $app);
+        $app = $ctx->application;
+        $userConsumer = $this->validateCustomerAndGetUser($request, $app, $ctx);
         $amount = (float) $validated['amount'];
         $currency = strtoupper((string) ($validated['currency'] ?? 'BRL'));
         $metadata = $validated['metadata'] ?? [];
         $metadata['source'] = 'api';
 
-        $ctx = $this->createOrderForApi(
+        $ctxData = $this->createOrderForApi(
             $request,
             $app,
             $amount,
@@ -359,21 +164,22 @@ class PaymentsController extends Controller
             $validated['subscription_plan_id'] ?? null,
             'card',
             $metadata,
-            $userConsumer
+            $userConsumer,
+            $ctx,
         );
 
-        $order = $ctx['order'];
+        $order = $ctxData['order'];
         $paymentService = app(PaymentService::class);
         $card = ['payment_token' => $validated['card']['payment_token'], 'card_mask' => $validated['card']['card_mask'] ?? null];
 
         try {
             event(new OrderPending($order));
-            $result = $paymentService->createCardPayment($order, $ctx['product'], $ctx['consumer'], $card, null);
+            $result = $paymentService->createCardPayment($order, $ctxData['product'], $ctxData['consumer'], $card, null);
             $status = $result['status'] ?? 'pending';
             if ($status === 'paid' || $status === 'approved' || $status === 'completed') {
                 $order->update(['status' => 'completed', 'payment_method' => 'card']);
                 $order->grantPurchasedProductAccessToBuyer();
-                event(new OrderCompleted($order));
+                event(new \App\Events\OrderCompleted($order));
             }
 
             $response = [
@@ -384,25 +190,27 @@ class PaymentsController extends Controller
             if (isset($result['client_secret'])) {
                 $response['client_secret'] = $result['client_secret'];
             }
+
             return response()->json($response, 201);
         } catch (\Throwable $e) {
             $order->delete();
+
             return response()->json([
                 'message' => $e->getMessage() ?: 'Falha no pagamento com cartão.',
             ], 422);
         }
     }
 
-    public function createBoleto(Request $request): JsonResponse
+    public function createBoleto(Request $request, ApiIdempotencyService $idempotency): JsonResponse
     {
-        $app = $this->application($request);
+        $ctx = $this->resolvePaymentContext($request, 'payments:write');
         $validated = $request->validate([
             'customer' => ['required', 'array'],
             'customer.email' => ['required', 'email'],
             'customer.name' => ['nullable', 'string', 'max:255'],
             'customer.cpf' => ['nullable', 'string', 'max:14'],
             'customer.phone' => ['nullable', 'string', 'max:24'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'amount' => $this->apiPaymentAmountRules((int) $ctx->application->tenant_id),
             'currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
             'product_id' => ['nullable', 'string', 'exists:products,id'],
             'product_offer_id' => ['nullable', 'integer', 'exists:product_offers,id'],
@@ -412,24 +220,26 @@ class PaymentsController extends Controller
         ]);
 
         $idemKey = $request->input('idempotency_key') ?: $request->header('Idempotency-Key');
-        if ($idemKey !== null && $idemKey !== '') {
-            return $this->idempotencyReturn($app->id, $idemKey, function () use ($request, $app, $validated) {
-                return $this->doCreateBoleto($request, $app, $validated);
-            });
-        }
 
-        return $this->doCreateBoleto($request, $app, $validated);
+        return $idempotency->handle(
+            $ctx->application,
+            $ctx->apiKey,
+            is_string($idemKey) ? $idemKey : null,
+            $request->getContent() ?: json_encode($validated),
+            fn () => $this->doCreateBoleto($request, $ctx, $validated),
+        );
     }
 
-    private function doCreateBoleto(Request $request, ApiApplication $app, array $validated): JsonResponse
+    private function doCreateBoleto(Request $request, ApiAuthContext $ctx, array $validated): JsonResponse
     {
-        $userConsumer = $this->validateCustomerAndGetUser($request, $app);
+        $app = $ctx->application;
+        $userConsumer = $this->validateCustomerAndGetUser($request, $app, $ctx);
         $amount = (float) $validated['amount'];
         $currency = strtoupper((string) ($validated['currency'] ?? 'BRL'));
         $metadata = $validated['metadata'] ?? [];
         $metadata['source'] = 'api';
 
-        $ctx = $this->createOrderForApi(
+        $ctxData = $this->createOrderForApi(
             $request,
             $app,
             $amount,
@@ -439,22 +249,23 @@ class PaymentsController extends Controller
             $validated['subscription_plan_id'] ?? null,
             'boleto',
             $metadata,
-            $userConsumer
+            $userConsumer,
+            $ctx,
         );
 
-        $order = $ctx['order'];
+        $order = $ctxData['order'];
         $paymentService = app(PaymentService::class);
 
         try {
             event(new OrderPending($order));
-            $result = $paymentService->createBoletoPayment($order, $ctx['product'], $ctx['consumer'], null);
+            $result = $paymentService->createBoletoPayment($order, $ctxData['product'], $ctxData['consumer'], null);
             $boletoData = [
                 'amount' => $result['amount'] ?? $order->amount,
                 'expire_at' => $result['expire_at'] ?? null,
                 'barcode' => $result['barcode'] ?? null,
                 'pdf_url' => $result['pdf_url'] ?? null,
             ];
-            event(new BoletoGenerated($order, $boletoData));
+            event(new \App\Events\BoletoGenerated($order, $boletoData));
 
             return response()->json([
                 'order_id' => $order->id,
@@ -467,6 +278,7 @@ class PaymentsController extends Controller
             ], 201);
         } catch (\Throwable $e) {
             $order->delete();
+
             return response()->json([
                 'message' => $e->getMessage() ?: 'Não foi possível gerar o boleto.',
             ], 422);

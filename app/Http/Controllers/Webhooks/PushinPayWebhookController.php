@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\Order;
 use App\Support\GatewayInboundWebhookAuth;
 use Illuminate\Http\JsonResponse;
@@ -47,7 +47,7 @@ class PushinPayWebhookController extends Controller
             $mappedStatus = 'cancelled';
         }
 
-        ProcessPaymentWebhook::dispatchSync('pushinpay', $transactionId, $event, $mappedStatus, $request->all());
+        PaymentWebhookDispatcher::dispatch('pushinpay', $transactionId, $event, $mappedStatus, $request->all());
 
         return response()->json(['received' => true]);
     }

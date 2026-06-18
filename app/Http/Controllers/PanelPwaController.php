@@ -180,6 +180,12 @@ class PanelPwaController extends Controller
             ]
         );
 
+        PanelPushSubscription::query()
+            ->where('user_id', $user->id)
+            ->where('provider', PanelPushSubscription::PROVIDER_VAPID)
+            ->where('id', '!=', $subscription->id)
+            ->delete();
+
         return response()->json([
             'success' => true,
             'subscribed' => true,

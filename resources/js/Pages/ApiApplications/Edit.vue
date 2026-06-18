@@ -11,7 +11,26 @@ const props = defineProps({
     application: { type: Object, required: true },
     api_key_reveal: { type: Object, default: null },
     webhook_secret_mask: { type: String, default: '' },
+    additional_keys: { type: Array, default: () => [] },
+    available_scopes: { type: Array, default: () => [] },
 });
+
+const newKeyForm = useForm({
+    name: '',
+    scopes: ['payments:read', 'payments:write'],
+});
+
+function submitNewKey() {
+    newKeyForm.post(`/aplicacoes-api/${props.application.id}/keys`, {
+        preserveScroll: true,
+        onSuccess: () => newKeyForm.reset('name'),
+    });
+}
+
+function deleteKey(keyId) {
+    if (!confirm('Remover esta chave API? Integrações que a usam deixarão de funcionar.')) return;
+    router.delete(`/aplicacoes-api/${props.application.id}/keys/${keyId}`, { preserveScroll: true });
+}
 
 const form = useForm({
     name: props.application.name,
@@ -347,6 +366,33 @@ function regenerateKey() {
             <div class="flex items-center gap-2">
                 <input v-model="form.is_active" type="checkbox" id="is_active" class="h-4 w-4 rounded border-zinc-300" />
                 <label for="is_active" class="text-sm text-zinc-700 dark:text-zinc-300">Aplicação ativa</label>
+            </div>
+
+            <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-900">
+                <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Chaves adicionais (com permissões)</h2>
+                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    A chave principal mantém acesso total (legado). Crie chaves extras com escopos limitados.
+                </p>
+                <ul v-if="additional_keys.length" class="mt-4 space-y-2">
+                    <li v-for="key in additional_keys" :key="key.id" class="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700">
+                        <div>
+                            <p class="font-medium text-zinc-900 dark:text-white">{{ key.name }}</p>
+                            <p class="font-mono text-xs text-zinc-500">{{ key.public_key }}</p>
+                            <p class="text-xs text-zinc-500">{{ (key.scopes || []).join(', ') }}</p>
+                        </div>
+                        <Button type="button" size="sm" variant="outline" @click="deleteKey(key.id)">Remover</Button>
+                    </li>
+                </ul>
+                <form class="mt-4 grid gap-3 sm:grid-cols-2" @submit.prevent="submitNewKey">
+                    <input v-model="newKeyForm.name" type="text" placeholder="Nome da chave" class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800" required />
+                    <div class="sm:col-span-2 flex flex-wrap gap-2">
+                        <label v-for="scope in available_scopes" :key="scope" class="inline-flex items-center gap-1 text-sm">
+                            <input v-model="newKeyForm.scopes" type="checkbox" :value="scope" class="rounded" />
+                            {{ scope }}
+                        </label>
+                    </div>
+                    <Button type="submit" :disabled="newKeyForm.processing">Criar chave</Button>
+                </form>
             </div>
 
             <div class="flex gap-2">

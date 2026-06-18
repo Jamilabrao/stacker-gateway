@@ -86,7 +86,8 @@ class CajuPayDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         if (! $this->hasApiKeys($credentials)) {
             throw new \RuntimeException('CajuPay: configure a chave pública e a chave secreta da API (painel CajuPay → API / Chaves).');
@@ -125,6 +126,11 @@ class CajuPayDriver implements GatewayDriver
         $postbackUrl = trim($postbackUrl);
         if ($postbackUrl !== '') {
             $body['postback_url'] = $postbackUrl;
+        }
+
+        $partnerCheckoutUrl = trim((string) ($options['partner_checkout_url'] ?? ''));
+        if ($partnerCheckoutUrl !== '') {
+            $body['partner_checkout_url'] = $partnerCheckoutUrl;
         }
 
         $response = $this->postPixCharge($credentials, $body, $baseIdempotencyKey);
@@ -1053,6 +1059,88 @@ class CajuPayDriver implements GatewayDriver
             return array_values(array_filter($data, static fn ($it) => is_array($it)));
         } catch (\Throwable $e) {
             Log::debug('CajuPayDriver listWebhookEndpoints', ['message' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /**
+     * @return array{endpoint_id: string, signing_secret: string|null, created: bool, already_exists: bool, raw: array<string, mixed>}
+     */
+    public function registerWebhookEndpointIdempotent(array $credentials, string $url, bool $rotateIfExists = false): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: configure as chaves de API antes de registrar o webhook.');
+        }
+        if ($url === '') {
+            throw new \RuntimeException('CajuPay: URL do webhook vazia.');
+        }
+
+        $http = $this->httpForCredentials($credentials);
+
+        try {
+            $response = $http->post('/api/webhooks/endpoints/register', [
+                'url' => $url,
+                'description' => 'Getfy ('.parse_url($url, PHP_URL_HOST).')',
+                'event_types' => ['checkout.payment.*', 'pix.payment.*'],
+                'rotate_if_exists' => $rotateIfExists,
+            ]);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('CajuPay: falha ao contatar o registro de webhooks: '.$e->getMessage(), 0, $e);
+        }
+
+        if (! $response->successful()) {
+            $msg = $response->body();
+            if (strlen($msg) > 300) {
+                $msg = substr($msg, 0, 300).'…';
+            }
+            throw new \RuntimeException('CajuPay: '.($msg !== '' ? $msg : 'Erro ao registrar webhook.'));
+        }
+
+        $data = $response->json();
+        if (! is_array($data)) {
+            throw new \RuntimeException('CajuPay: resposta inválida ao registrar webhook.');
+        }
+
+        $endpoint = is_array($data['endpoint'] ?? null) ? $data['endpoint'] : $data;
+        $endpointId = $endpoint['id'] ?? ($data['id'] ?? null);
+        $signingSecret = $data['signing_secret'] ?? null;
+
+        if (! is_string($endpointId) || $endpointId === '') {
+            throw new \RuntimeException('CajuPay: endpoint_id ausente na resposta de webhook.');
+        }
+
+        return [
+            'endpoint_id' => $endpointId,
+            'signing_secret' => is_string($signingSecret) && $signingSecret !== '' ? $signingSecret : null,
+            'created' => (bool) ($data['created'] ?? false),
+            'already_exists' => (bool) ($data['already_exists'] ?? false),
+            'raw' => $data,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getWebhookSetupStatus(array $credentials): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            return [];
+        }
+
+        try {
+            $response = $this->httpForCredentials($credentials)
+                ->get('/api/webhooks/setup-status');
+
+            if (! $response->successful()) {
+                return [];
+            }
+
+            $data = $response->json();
+
+            return is_array($data) ? $data : [];
+        } catch (\Throwable $e) {
+            Log::debug('CajuPayDriver getWebhookSetupStatus', ['message' => $e->getMessage()]);
 
             return [];
         }

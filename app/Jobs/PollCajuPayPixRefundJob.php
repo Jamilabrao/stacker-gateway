@@ -45,8 +45,8 @@ class PollCajuPayPixRefundJob implements ShouldQueue
             return;
         }
 
-        $credential = GatewayCredential::resolveForPayment((int) $order->tenant_id, 'cajupay');
-        if (! $credential) {
+        $account = app(CajuPayAccountResolver::class)->resolveForOrder($order);
+        if (! $account) {
             return;
         }
 
@@ -56,7 +56,7 @@ class PollCajuPayPixRefundJob implements ShouldQueue
         }
 
         try {
-            $body = $driver->getPixRefund($credential->getDecryptedCredentials(), $paymentId);
+            $body = $driver->getPixRefund($account->getDecryptedCredentials(), $paymentId);
         } catch (\Throwable $e) {
             Log::debug('PollCajuPayPixRefundJob: consulta falhou', ['order_id' => $order->id, 'message' => $e->getMessage()]);
             if ($this->attempt < 24) {

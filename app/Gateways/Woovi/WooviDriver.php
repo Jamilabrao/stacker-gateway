@@ -64,7 +64,8 @@ class WooviDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         $appId = $this->appId($credentials);
         if ($appId === '') {

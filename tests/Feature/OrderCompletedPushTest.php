@@ -51,16 +51,19 @@ class OrderCompletedPushTest extends TestCase
             'provider' => PanelPushSubscription::PROVIDER_VAPID,
             'endpoint' => 'https://push.example.com/sub/1',
             'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+            'vapid_public_key' => config('getfy.pwa.vapid_public'),
         ]);
 
         $dispatcher = Mockery::mock(PanelPushDispatcher::class);
         $dispatcher->shouldReceive('send')
             ->once()
-            ->withArgs(function ($subscriptions, string $title, string $body, ?string $url) use ($product) {
+            ->withArgs(function ($subscriptions, string $title, string $body, ?string $url, ?string $tag) use ($product) {
                 return $subscriptions->count() === 1
                     && $title === 'Venda aprovada (PIX)'
                     && str_contains($body, $product->name)
-                    && str_contains((string) $url, '/vendas');
+                    && str_contains((string) $url, '/vendas')
+                    && is_string($tag)
+                    && str_starts_with($tag, 'sale_');
             })
             ->andReturn(['sent' => 1, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => 1]);
 
@@ -101,6 +104,7 @@ class OrderCompletedPushTest extends TestCase
             'provider' => PanelPushSubscription::PROVIDER_VAPID,
             'endpoint' => 'https://push.example.com/sub/2',
             'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+            'vapid_public_key' => config('getfy.pwa.vapid_public'),
         ]);
 
         $order = Order::query()->create([

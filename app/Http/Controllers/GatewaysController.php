@@ -7,6 +7,7 @@ use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
 use App\Models\Setting;
+use App\Services\CajuPay\CajuPayWebhookBootstrapService;
 use App\Support\PlatformConfigContext;
 use App\Services\PlatformAuditService;
 use Illuminate\Http\JsonResponse;
@@ -331,6 +332,34 @@ class GatewaysController extends Controller
         ]);
 
         $tenantId = PlatformConfigContext::settingsTenantId();
+
+        if ($slug === 'cajupay') {
+            $default = \App\Models\CajuPayAccount::query()->default()->first();
+            if ($default !== null) {
+                $default->is_enabled = $validated['is_enabled'];
+                $default->save();
+
+                $legacy = GatewayCredential::forTenant($tenantId)->where('gateway_slug', 'cajupay')->first();
+                if ($legacy !== null) {
+                    $legacy->is_enabled = $validated['is_enabled'];
+                    $legacy->save();
+                }
+
+                PlatformAuditService::log('platform.gateway.enabled', [
+                    'gateway_slug' => $slug,
+                    'is_enabled' => $default->is_enabled,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'is_enabled' => $default->is_enabled,
+                    'message' => $default->is_enabled
+                        ? 'Adquirente ativado para cobrança.'
+                        : 'Adquirente desativado. Não será usado em novos pagamentos.',
+                ]);
+            }
+        }
+
         $credential = GatewayCredential::forTenant($tenantId)->where('gateway_slug', $slug)->first();
         if ($credential === null) {
             return response()->json([
@@ -476,59 +505,10 @@ class GatewaysController extends Controller
      */
     private function ensureCajuPayWebhookRegistered(CajuPayDriver $driver, array $credentials, ?string &$warning): array
     {
-        $warning = null;
-        try {
-            $url = route('webhooks.cajupay');
-        } catch (\Throwable) {
-            $warning = 'Webhook CajuPay: rota webhooks.cajupay indisponível.';
+        $result = app(CajuPayWebhookBootstrapService::class)->bootstrap($credentials);
+        $warning = $result['warning'];
 
-            return $credentials;
-        }
-
-        try {
-            $existing = $driver->listWebhookEndpoints($credentials);
-        } catch (\Throwable $e) {
-            $existing = [];
-            Log::debug('GatewaysController: list webhooks CajuPay falhou', ['error' => $e->getMessage()]);
-        }
-
-        $foundId = null;
-        foreach ($existing as $endpoint) {
-            if (! is_array($endpoint)) {
-                continue;
-            }
-            if (($endpoint['url'] ?? null) === $url) {
-                $foundId = is_string($endpoint['id'] ?? null) ? $endpoint['id'] : null;
-                break;
-            }
-        }
-
-        $hasSecret = ! empty($credentials['checkout_webhook_signing_secret'])
-            || ! empty($credentials['webhook_signing_secret']);
-
-        if ($foundId !== null && ! empty($credentials['webhook_endpoint_id']) && $hasSecret) {
-            return $credentials;
-        }
-
-        try {
-            $reg = $driver->registerWebhookEndpoint($credentials, $url, $foundId);
-        } catch (\Throwable $e) {
-            $warning = 'Webhook ainda não registrado: '.$e->getMessage();
-            Log::warning('GatewaysController: registro de webhook CajuPay falhou', [
-                'error' => $e->getMessage(),
-                'url' => $url,
-            ]);
-
-            return $credentials;
-        }
-
-        $credentials['webhook_endpoint_id'] = $reg['endpoint_id'];
-        if (! empty($reg['signing_secret'])) {
-            $credentials['checkout_webhook_signing_secret'] = $reg['signing_secret'];
-            $credentials['webhook_signing_secret'] = $reg['signing_secret'];
-        }
-
-        return $credentials;
+        return $result['credentials'];
     }
 
     public function updateCertificate(Request $request, string $slug): JsonResponse

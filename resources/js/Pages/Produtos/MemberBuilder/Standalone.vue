@@ -1901,7 +1901,8 @@ async function saveCommunityPageModal() {
         };
         let res;
         if (editing) {
-            res = await axios.put(`${base.value}/community-pages/${editing.id}`, payload, { headers: headers() });
+            // POST explícito: PUT com JSON falha em alguns ambientes (proxy/servidor)
+            res = await axios.post(`${base.value}/community-pages/${editing.id}`, payload, { headers: headers() });
         } else {
             res = await axios.post(`${base.value}/community-pages`, payload, { headers: headers() });
         }
@@ -1922,8 +1923,8 @@ async function deleteCommunityPage(pageId) {
         message: 'Remover esta página e todos os posts?',
         confirmLabel: 'Remover',
         onConfirm: async () => {
-            const res = await axios.delete(`${base.value}/community-pages/${pageId}`, {
-                headers: { ...headers(), Accept: 'application/json' },
+            const res = await axios.post(`${base.value}/community-pages/${pageId}/delete`, {}, {
+                headers: headers(),
             });
             if (Array.isArray(res?.data?.community_pages)) {
                 communityPagesList.value = res.data.community_pages;

@@ -78,7 +78,11 @@ class PlatformAdminAlertCounts
             return 0;
         }
 
-        return (int) MedDispute::query()->open()->count();
+        if (! Schema::hasColumn('med_disputes', 'responsible_party')) {
+            return (int) MedDispute::query()->open()->count();
+        }
+
+        return (int) MedDispute::query()->platformManaged()->open()->count();
     }
 
     public function refundRequestsPendingCount(): int

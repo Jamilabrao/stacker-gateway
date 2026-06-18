@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
@@ -74,7 +74,7 @@ class StripeWebhookController extends Controller
             $paymentIntent = $event->data->object;
             $piId = $paymentIntent->id ?? null;
             if ($piId) {
-                ProcessPaymentWebhook::dispatchSync('stripe', $piId, 'payment_intent.succeeded', 'paid', $payloadData);
+                PaymentWebhookDispatcher::dispatch('stripe', $piId, 'payment_intent.succeeded', 'paid', $payloadData);
             }
         }
 

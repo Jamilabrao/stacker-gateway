@@ -55,6 +55,7 @@ const permissionDefs = [
     { key: 'integracoes.view', label: t('sidebar.integrations', 'Integrações') },
     { key: 'email_marketing.view', label: t('team.permission_email_marketing', 'E-mail Marketing') },
     { key: 'api_pagamentos.view', label: t('team.permission_api_payments', 'API de Pagamentos') },
+    { key: 'pixgo.view', label: t('team.permission_pixgo', 'PixGO') },
     { key: 'configuracoes.view', label: t('team.permission_settings', 'Configurações') },
     { key: 'equipe.manage', label: t('team.permission_manage_team', 'Gerenciar equipe') },
 ];

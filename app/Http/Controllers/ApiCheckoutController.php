@@ -22,11 +22,13 @@ use App\Services\PushinPayPixRecorrenteService;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Services\StorageService;
 use App\Services\Checkout\CheckoutAbuseGuard;
+use App\Services\MinimumChargeService;
 use App\Support\CheckoutTurnstileSettings;
 use App\Support\FakeConsumerData;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -395,6 +397,14 @@ class ApiCheckoutController extends Controller
             } catch (\RuntimeException $e) {
                 return redirect()->back()->with('error', $e->getMessage());
             }
+        }
+
+        try {
+            app(MinimumChargeService::class)->assertApiPayment($amount, (int) $tenantId);
+        } catch (ValidationException $e) {
+            $msg = collect($e->errors())->flatten()->first() ?? 'Valor abaixo do mínimo para cobrança via API.';
+
+            return redirect()->back()->with('error', $msg);
         }
 
         $orderPayload = [

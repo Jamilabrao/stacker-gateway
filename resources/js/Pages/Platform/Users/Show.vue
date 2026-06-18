@@ -125,6 +125,12 @@ function formatFeePreview(percent, fixed) {
             </div>
             <div class="flex flex-wrap gap-2">
                 <Link
+                    :href="`/plataforma/usuarios?edit=${merchant.id}`"
+                    class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
+                >
+                    Editar configurações
+                </Link>
+                <Link
                     :href="`/plataforma/verificacoes-kyc/usuario/${merchant.id}`"
                     class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
                 >
@@ -360,6 +366,7 @@ function formatFeePreview(percent, fixed) {
                         <tr>
                             <th class="px-3 py-2">Canal</th>
                             <th class="px-3 py-2 text-right">Taxa efetiva</th>
+                            <th class="px-3 py-2 text-center">Override?</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -371,6 +378,9 @@ function formatFeePreview(percent, fixed) {
                             <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">{{ row.label }}</td>
                             <td class="px-3 py-2 text-right tabular-nums text-zinc-900 dark:text-white">
                                 {{ formatFeePreview(row.percent, row.fixed) }}
+                            </td>
+                            <td class="px-3 py-2 text-center text-xs text-zinc-600 dark:text-zinc-400">
+                                {{ row.has_override ? 'Sim' : 'Não' }}
                             </td>
                         </tr>
                     </tbody>

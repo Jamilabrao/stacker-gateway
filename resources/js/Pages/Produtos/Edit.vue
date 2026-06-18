@@ -138,7 +138,6 @@ const ci = props.produto.checkout_config?.card_installments ?? { enabled: false,
 const pme = props.produto.checkout_config?.payment_methods_enabled ?? {};
 const form = useForm({
     name: props.produto.name,
-    slug: props.produto.slug,
     description: props.produto.description ?? '',
     type: props.produto.type,
     billing_type: props.produto.billing_type ?? 'one_time',
@@ -310,6 +309,12 @@ function durationPresetLabel(p) {
 const priceNum = computed(() => parseFloat(form.price) || 0);
 const priceEur = computed(() => (priceNum.value * (props.exchange_rates.brl_eur ?? 0.16)).toFixed(2));
 const priceUsd = computed(() => (priceNum.value * (props.exchange_rates.brl_usd ?? 0.18)).toFixed(2));
+const platformMinCharge = computed(() => Number(page.props.platform_minimum_charge_brl ?? 0));
+const platformMinChargeLabel = computed(() =>
+    platformMinCharge.value > 0
+        ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(platformMinCharge.value)
+        : null
+);
 
 /** Valor mínimo por parcela (R$) exigido pelos processadores — abaixo disso as parcelas costumam ser recusadas. */
 const MIN_PARCELA_BRL = 5;
@@ -1029,7 +1034,6 @@ function submit() {
     if (form.image) {
         const fd = new FormData();
         fd.append('name', form.name);
-        fd.append('slug', form.slug);
         fd.append('description', form.description);
         fd.append('type', form.type);
         fd.append('billing_type', form.billing_type);
@@ -1175,7 +1179,7 @@ function submit() {
                 <section class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95">
                     <div class="border-b border-zinc-200/80 bg-zinc-50/80 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/50">
                         <h2 class="text-base font-semibold text-zinc-900 dark:text-white">{{ t('products.edit.basic_info', 'Informações básicas') }}</h2>
-                        <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{{ t('products.edit.basic_info_hint', 'Nome, identificador e imagem do produto.') }}</p>
+                        <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{{ t('products.edit.basic_info_hint', 'Nome, descrição e imagem do produto.') }}</p>
                     </div>
                     <div class="p-6">
                         <div class="grid gap-6 lg:grid-cols-[1fr,auto]">
@@ -1190,18 +1194,6 @@ function submit() {
                                         :class="inputClass"
                                     />
                                     <p v-if="form.errors.name" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.name }}</p>
-                                </div>
-                                <div>
-                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ t('products.edit.slug_url', 'Slug (URL)') }} *</label>
-                                    <input
-                                        v-model="form.slug"
-                                        type="text"
-                                        required
-                                        placeholder="curso-completo-x"
-                                        :class="inputClass"
-                                    />
-                                    <p v-if="form.errors.slug" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.slug }}</p>
-                                    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ t('products.edit.slug_hint', 'Usado em URLs e área de membros. Apenas letras minúsculas, números e hífens.') }}</p>
                                 </div>
                                 <div>
                                     <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ t('common.description', 'Descrição') }}</label>
@@ -1272,12 +1264,15 @@ function submit() {
                                     v-model="form.price"
                                     type="number"
                                     step="any"
-                                    min="0"
+                                    :min="platformMinCharge"
                                     inputmode="decimal"
                                     required
                                     placeholder="0,00"
                                     :class="inputClass"
                                 />
+                                <p v-if="platformMinChargeLabel" class="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
+                                    Ticket mínimo da plataforma: {{ platformMinChargeLabel }}
+                                </p>
                                 <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">Aproximado: € {{ priceEur }} · US$ {{ priceUsd }}</p>
                                 <p v-if="form.errors.price" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.price }}</p>
                             </div>
@@ -1347,7 +1342,10 @@ function submit() {
                                     <p class="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ editingOffer ? t('products.edit.edit_offer', 'Editar oferta') : t('products.edit.new_offer', 'Nova oferta') }}</p>
                                     <div class="grid gap-3 sm:grid-cols-[1fr,1fr,auto]">
                                         <input v-model="offerForm.name" type="text" required :class="inputClass" placeholder="Nome (ex: Básico)" />
-                                        <input v-model="offerForm.price" type="number" step="any" min="0" inputmode="decimal" required :class="inputClass" placeholder="Preço" />
+                                        <input v-model="offerForm.price" type="number" step="any" :min="platformMinCharge" inputmode="decimal" required :class="inputClass" placeholder="Preço" />
+                                        <p v-if="platformMinChargeLabel" class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                            Ticket mínimo: {{ platformMinChargeLabel }}
+                                        </p>
                                         <select v-model="offerForm.currency" :class="inputClass + ' min-w-0'">
                                             <option value="BRL">BRL</option>
                                             <option value="EUR">EUR</option>
@@ -1403,7 +1401,10 @@ function submit() {
                                     <p class="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ editingPlan ? t('products.edit.edit_plan', 'Editar plano') : t('products.edit.new_plan', 'Novo plano') }}</p>
                                     <div class="grid gap-3 sm:grid-cols-2">
                                         <input v-model="planForm.name" type="text" required :class="inputClass" placeholder="Nome (ex: Mensal)" />
-                                        <input v-model="planForm.price" type="number" step="any" min="0" inputmode="decimal" required :class="inputClass" placeholder="Preço" />
+                                        <input v-model="planForm.price" type="number" step="any" :min="platformMinCharge" inputmode="decimal" required :class="inputClass" placeholder="Preço" />
+                                        <p v-if="platformMinChargeLabel" class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                            Ticket mínimo: {{ platformMinChargeLabel }}
+                                        </p>
                                         <select v-model="planForm.currency" :class="inputClass">
                                             <option value="BRL">BRL</option>
                                             <option value="EUR">EUR</option>

@@ -1,0 +1,21 @@
+<?php
+
+namespace Tests\Feature;
+
+use Tests\TestCase;
+
+class SecurityHeadersMetaPixelTest extends TestCase
+{
+    public function test_production_csp_allows_meta_pixel_connect_endpoints(): void
+    {
+        config(['app.env' => 'production']);
+
+        $response = $this->get('/');
+
+        $csp = (string) $response->headers->get('Content-Security-Policy');
+        $this->assertNotSame('', $csp);
+        $this->assertStringContainsString('connect.facebook.net', $csp);
+        $this->assertStringContainsString('https://www.facebook.com', $csp);
+        $this->assertStringContainsString('https://graph.facebook.com', $csp);
+    }
+}

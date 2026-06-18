@@ -173,6 +173,52 @@ class PlatformMerchantFeesUpdateTest extends TestCase
         $this->assertSame(9.0, $api['percent']);
     }
 
+    public function test_admin_can_save_explicit_api_pix_and_withdrawal_overrides(): void
+    {
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 3.0, 'fixed' => 0.0],
+            'card' => ['percent' => 3.0, 'fixed' => 0.0],
+            'apple_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'google_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'boleto' => ['percent' => 2.0, 'fixed' => 0.0],
+            'withdrawal' => ['percent' => 1.0, 'fixed' => 0.5],
+        ], null);
+
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $merchant = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $merchant->forceFill([
+            'tenant_id' => $merchant->id,
+            'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
+        ])->save();
+
+        $this->actingAs($admin)->put(route('plataforma.usuarios.update', $merchant), [
+            'name' => $merchant->name,
+            'email' => $merchant->email,
+            'merchant_fees' => [
+                'api_pix' => ['percent' => 4.5, 'fixed' => 2.0],
+                'withdrawal' => ['percent' => 2.5, 'fixed' => 1.0],
+            ],
+        ])->assertRedirect();
+
+        $merchant->refresh();
+        $this->assertSame(4.5, $merchant->merchant_fees['api_pix']['percent']);
+        $this->assertSame(2.5, $merchant->merchant_fees['withdrawal']['percent']);
+
+        $api = EffectiveMerchantFees::calculateSaleFee((int) $merchant->id, 'pix', 100.0, 'api');
+        $this->assertSame(4.5, $api['percent']);
+        $this->assertSame(6.5, $api['fee']);
+
+        $withdrawal = EffectiveMerchantFees::calculateWithdrawalFee((int) $merchant->id, 100.0);
+        $this->assertSame(3.5, $withdrawal['fee']);
+        $this->assertSame(96.5, $withdrawal['net']);
+    }
+
     public function test_partial_profile_update_without_merchant_fees_preserves_overrides(): void
     {
         Setting::set('merchant_fee_rules', [

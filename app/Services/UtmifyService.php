@@ -69,11 +69,11 @@ class UtmifyService
                     'priceInCents' => 1000,
                 ],
             ],
-            'trackingParameters' => [
+            'trackingParameters' => $this->buildTrackingParameters(null, [
                 'utm_source' => 'test',
                 'utm_medium' => 'test',
                 'utm_campaign' => 'test',
-            ],
+            ]),
             'commission' => [
                 'totalPriceInCents' => 1000,
                 'gatewayFeeInCents' => 0,
@@ -141,17 +141,7 @@ class UtmifyService
             ];
         }
 
-        // Ordem alinhada à documentação UTMIFY; omite chaves vazias para não enviar null artificial.
-        $trackingParameters = [];
-        foreach (['src', 'sck', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as $key) {
-            $raw = $session?->{$key} ?? ($meta[$key] ?? null);
-            if (! is_string($raw)) continue;
-            $trimmed = trim((string) $raw);
-            if ($trimmed === '') {
-                continue;
-            }
-            $trackingParameters[$key] = $trimmed;
-        }
+        $trackingParameters = $this->buildTrackingParameters($session, $meta);
 
         $totalCents = (int) round((float) $order->amount * 100);
         $commission = [
@@ -179,6 +169,41 @@ class UtmifyService
         }
 
         return $body;
+    }
+
+    /**
+     * UTMIFY exige utm_content e utm_term sempre presentes (string ou null).
+     *
+     * @param  array<string, mixed>  $meta
+     * @return array<string, string|null>
+     */
+    private function buildTrackingParameters(?CheckoutSession $session, array $meta): array
+    {
+        $trackingParameters = [];
+
+        foreach (['src', 'sck', 'utm_source', 'utm_medium', 'utm_campaign'] as $key) {
+            $raw = $session?->{$key} ?? ($meta[$key] ?? null);
+            if (! is_string($raw)) {
+                continue;
+            }
+            $trimmed = trim($raw);
+            if ($trimmed !== '') {
+                $trackingParameters[$key] = $trimmed;
+            }
+        }
+
+        foreach (['utm_content', 'utm_term'] as $key) {
+            $raw = $session?->{$key} ?? ($meta[$key] ?? null);
+            if (is_string($raw)) {
+                $trimmed = trim($raw);
+
+                $trackingParameters[$key] = $trimmed !== '' ? $trimmed : null;
+            } else {
+                $trackingParameters[$key] = null;
+            }
+        }
+
+        return $trackingParameters;
     }
 
     /**

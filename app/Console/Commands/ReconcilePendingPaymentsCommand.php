@@ -13,7 +13,8 @@ class ReconcilePendingPaymentsCommand extends Command
     protected $signature = 'payments:reconcile-pending
                             {--limit=200 : Máximo de pedidos para checar por execução}
                             {--days=30 : Considerar pedidos criados nos últimos X dias}
-                            {--min-age-minutes=2 : Não checar pedidos atualizados muito recentemente}';
+                            {--min-age-minutes=2 : Não checar pedidos atualizados muito recentemente}
+                            {--source= : Filtrar por metadata.source (ex.: pixgo)}';
 
     protected $description = 'Reconfirma pagamentos pendentes no gateway e aprova automaticamente quando liquidado.';
 
@@ -22,6 +23,7 @@ class ReconcilePendingPaymentsCommand extends Command
         $limit = max(1, (int) $this->option('limit'));
         $days = max(1, (int) $this->option('days'));
         $minAgeMinutes = max(0, (int) $this->option('min-age-minutes'));
+        $sourceFilter = trim((string) $this->option('source'));
 
         $query = Order::query()
             ->where('status', 'pending')
@@ -30,6 +32,10 @@ class ReconcilePendingPaymentsCommand extends Command
             ->whereNotNull('gateway_id')
             ->where('gateway_id', '!=', '')
             ->where('created_at', '>=', now()->subDays($days));
+
+        if ($sourceFilter !== '') {
+            $query->where('metadata->source', $sourceFilter);
+        }
 
         if ($minAgeMinutes > 0) {
             $query->where('updated_at', '<=', now()->subMinutes($minAgeMinutes));
@@ -43,8 +49,14 @@ class ReconcilePendingPaymentsCommand extends Command
         $checked = 0;
         $paid = 0;
         $cancelled = 0;
+        $skipped = 0;
 
         foreach ($orders as $order) {
+            if ($this->isPastReconcileWindow($order)) {
+                $skipped++;
+                continue;
+            }
+
             $checked++;
 
             $gatewaySlug = is_string($order->gateway) ? $order->gateway : '';
@@ -96,9 +108,24 @@ class ReconcilePendingPaymentsCommand extends Command
             }
         }
 
-        $this->info("Checados: {$checked} | Pagos: {$paid} | Cancelados: {$cancelled}");
+        $this->info("Checados: {$checked} | Pagos: {$paid} | Cancelados: {$cancelled} | Ignorados (janela): {$skipped}");
 
         return self::SUCCESS;
     }
-}
 
+    private function isPastReconcileWindow(Order $order): bool
+    {
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $until = $meta['reconcile_until'] ?? null;
+
+        if (! is_string($until) || trim($until) === '') {
+            return false;
+        }
+
+        try {
+            return now()->greaterThan(\Illuminate\Support\Carbon::parse($until));
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+}

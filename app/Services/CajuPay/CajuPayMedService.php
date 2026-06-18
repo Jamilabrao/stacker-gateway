@@ -4,14 +4,23 @@ namespace App\Services\CajuPay;
 
 use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\GatewayRegistry;
-use App\Models\GatewayCredential;
 use App\Models\MedDispute;
 use App\Models\Order;
+use App\Services\Med\MedPolicyService;
+use App\Services\Med\MedResolutionService;
+use App\Services\MedEmailNotifications;
 use App\Services\PlatformOrderAdminService;
 use App\Support\CajuPayPaymentId;
 use Illuminate\Http\UploadedFile;
+
 class CajuPayMedService
 {
+    public function __construct(
+        protected MedPolicyService $policy,
+        protected MedResolutionService $resolution,
+        protected MedEmailNotifications $notifications,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $object  data.object do webhook
      */
@@ -27,28 +36,73 @@ class CajuPayMedService
             CajuPayPaymentId::persistOnOrder($order, $paymentId);
         }
 
+        $responsibleParty = $this->policy->responsiblePartyForOrder($order);
+        $reason = trim((string) ($object['reason'] ?? $object['reason_description'] ?? $object['description'] ?? ''));
+        $reasonCode = trim((string) ($object['reason_code'] ?? ''));
+
         $dispute = MedDispute::query()->updateOrCreate(
             ['cajupay_dispute_id' => $disputeId],
             [
                 'order_id' => $order->id,
                 'tenant_id' => (int) $order->tenant_id,
+                'responsible_party' => $responsibleParty,
                 'cajupay_payment_id' => $paymentId !== '' ? $paymentId : CajuPayPaymentId::fromOrder($order),
                 'status' => MedDispute::STATUS_OPEN,
                 'outcome' => null,
                 'amount_cents' => (int) ($object['amount_cents'] ?? 0),
                 'currency' => (string) ($object['currency'] ?? 'BRL'),
                 'txid' => isset($object['txid']) ? (string) $object['txid'] : null,
+                'reason' => $reason !== '' ? $reason : null,
+                'reason_code' => $reasonCode !== '' ? $reasonCode : null,
                 'opened_at' => now(),
                 'metadata' => ['webhook' => $object],
             ]
         );
 
-        if (! in_array($order->fresh()->status, ['disputed'], true)) {
+        if ($this->policy->shouldHoldTenantBalance($dispute) && ! in_array($order->fresh()->status, ['disputed'], true)) {
             try {
                 PlatformOrderAdminService::markDisputed($order->fresh());
             } catch (\InvalidArgumentException) {
                 //
             }
+        }
+
+        if ($dispute->wasRecentlyCreated) {
+            $this->notifications->medOpened($dispute->fresh());
+        }
+
+        return $dispute->fresh();
+    }
+
+    /**
+     * Checkout/card disputed — plataforma gerencia, sem retenção no infoprodutor.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    public function syncOpenedFromCheckoutDispute(Order $order, array $context = []): MedDispute
+    {
+        $disputeId = 'checkout-order-'.$order->id;
+        $reason = trim((string) ($context['reason'] ?? $context['gateway_event'] ?? 'checkout.payment.disputed'));
+
+        $dispute = MedDispute::query()->updateOrCreate(
+            ['cajupay_dispute_id' => $disputeId],
+            [
+                'order_id' => $order->id,
+                'tenant_id' => (int) $order->tenant_id,
+                'responsible_party' => MedDispute::PARTY_PLATFORM,
+                'cajupay_payment_id' => CajuPayPaymentId::fromOrder($order),
+                'status' => MedDispute::STATUS_OPEN,
+                'outcome' => null,
+                'amount_cents' => (int) round(((float) $order->amount) * 100),
+                'currency' => 'BRL',
+                'reason' => $reason !== '' ? $reason : null,
+                'opened_at' => now(),
+                'metadata' => ['checkout_dispute' => $context],
+            ]
+        );
+
+        if ($dispute->wasRecentlyCreated) {
+            $this->notifications->medOpened($dispute->fresh());
         }
 
         return $dispute->fresh();
@@ -86,10 +140,13 @@ class CajuPayMedService
             default => MedDispute::STATUS_RESOLVED_WON,
         };
 
+        $responsibleParty = $this->policy->responsiblePartyForOrder($order);
+
         if ($dispute === null) {
             $dispute = MedDispute::query()->create([
                 'order_id' => $order->id,
                 'tenant_id' => (int) $order->tenant_id,
+                'responsible_party' => $responsibleParty,
                 'cajupay_dispute_id' => $disputeId !== '' ? $disputeId : 'unknown-'.$order->id,
                 'cajupay_payment_id' => CajuPayPaymentId::fromOrder($order),
                 'status' => $mappedStatus,
@@ -111,17 +168,8 @@ class CajuPayMedService
             ]);
         }
 
-        $freshOrder = $order->fresh();
-
-        if ($outcome === 'lost') {
-            if (in_array($freshOrder->status, ['completed', 'disputed'], true)) {
-                PlatformOrderAdminService::refundPaidOrDisputed($freshOrder);
-            }
-        } elseif (in_array($outcome, ['won', 'cancelled'], true)) {
-            if ($freshOrder->status === 'disputed') {
-                PlatformOrderAdminService::releaseMedHoldAndComplete($freshOrder);
-            }
-        }
+        $this->resolution->applyWalletOutcome($dispute->fresh(), $outcome !== '' ? $outcome : 'won');
+        $this->notifications->medResolved($dispute->fresh());
 
         return $dispute->fresh();
     }
@@ -130,6 +178,7 @@ class CajuPayMedService
     {
         return MedDispute::query()
             ->forTenant($tenantId)
+            ->tenantManaged()
             ->open()
             ->count();
     }
@@ -139,8 +188,8 @@ class CajuPayMedService
      */
     public function resolveDriverForTenant(int $tenantId): ?array
     {
-        $credential = GatewayCredential::resolveForPayment($tenantId, 'cajupay');
-        if (! $credential) {
+        $account = app(CajuPayAccountResolver::class)->resolveForTenant($tenantId);
+        if ($account === null) {
             return null;
         }
         $driver = GatewayRegistry::driver('cajupay');
@@ -150,7 +199,27 @@ class CajuPayMedService
 
         return [
             'driver' => $driver,
-            'credentials' => $credential->getDecryptedCredentials(),
+            'credentials' => $account->getDecryptedCredentials(),
+        ];
+    }
+
+    /**
+     * @return array{driver: CajuPayDriver, credentials: array<string, mixed>}|null
+     */
+    public function resolveDriverForOrder(Order $order): ?array
+    {
+        $account = app(CajuPayAccountResolver::class)->resolveForOrder($order);
+        if ($account === null) {
+            return null;
+        }
+        $driver = GatewayRegistry::driver('cajupay');
+        if (! $driver instanceof CajuPayDriver) {
+            return null;
+        }
+
+        return [
+            'driver' => $driver,
+            'credentials' => $account->getDecryptedCredentials(),
         ];
     }
 
@@ -161,6 +230,7 @@ class CajuPayMedService
     {
         $q = MedDispute::query()
             ->forTenant($tenantId)
+            ->tenantManaged()
             ->with(['order.product'])
             ->orderByDesc('id');
 
@@ -179,10 +249,14 @@ class CajuPayMedService
             throw new \InvalidArgumentException('Disputa não encontrada.');
         }
 
+        if (! $dispute->isTenantManaged()) {
+            throw new \InvalidArgumentException('Disputa não encontrada.');
+        }
+
         $dispute->load(['order.product', 'order.user']);
 
-        $resolved = $this->resolveDriverForTenant($tenantId);
-        if ($resolved !== null) {
+        $resolved = $this->resolveDriverForOrder($dispute->order) ?? $this->resolveDriverForTenant($tenantId);
+        if ($resolved !== null && $dispute->cajupay_dispute_id && ! str_starts_with($dispute->cajupay_dispute_id, 'checkout-order-')) {
             try {
                 $remote = $resolved['driver']->getMedDispute($resolved['credentials'], $dispute->cajupay_dispute_id);
                 $dispute->setAttribute('remote_detail', $remote);
@@ -203,7 +277,8 @@ class CajuPayMedService
             throw new \InvalidArgumentException('Esta disputa não está aberta para defesa.');
         }
 
-        $resolved = $this->resolveDriverForTenant((int) $dispute->tenant_id);
+        $dispute->loadMissing('order');
+        $resolved = $this->resolveDriverForOrder($dispute->order) ?? $this->resolveDriverForTenant((int) $dispute->tenant_id);
         if ($resolved === null) {
             throw new \RuntimeException('Credencial CajuPay não configurada.');
         }
@@ -223,12 +298,14 @@ class CajuPayMedService
             }
         }
 
-        $resolved['driver']->submitMedDefense(
-            $resolved['credentials'],
-            $dispute->cajupay_dispute_id,
-            $text,
-            $attachments
-        );
+        if ($dispute->cajupay_dispute_id && ! str_starts_with($dispute->cajupay_dispute_id, 'checkout-order-')) {
+            $resolved['driver']->submitMedDefense(
+                $resolved['credentials'],
+                $dispute->cajupay_dispute_id,
+                $text,
+                $attachments
+            );
+        }
 
         $dispute->update([
             'defense_text' => $text,
@@ -243,6 +320,15 @@ class CajuPayMedService
     {
         return MedDispute::query()
             ->where('order_id', $order->id)
+            ->open()
+            ->exists();
+    }
+
+    public function orderHasOpenTenantMed(Order $order): bool
+    {
+        return MedDispute::query()
+            ->where('order_id', $order->id)
+            ->tenantManaged()
             ->open()
             ->exists();
     }

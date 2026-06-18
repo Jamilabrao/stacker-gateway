@@ -100,6 +100,22 @@ return [
         'enabled' => filter_var(env('GETFY_MP_BALANCE_TOOL_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    /**
+     * API PIX / saques (integradores e escala).
+     */
+    'api' => [
+        'inbound_webhooks_async' => filter_var(env('API_INBOUND_WEBHOOKS_ASYNC', true), FILTER_VALIDATE_BOOLEAN),
+        'rate_limits' => [
+            'legacy' => max(60, (int) env('API_RATE_LEGACY_PER_MINUTE', 120)),
+            'standard' => max(60, (int) env('API_RATE_STANDARD_PER_MINUTE', 600)),
+            'withdrawals_write' => max(5, (int) env('API_RATE_WITHDRAWALS_PER_MINUTE', 30)),
+        ],
+        'withdrawals' => [
+            'max_per_day' => max(1, (int) env('API_WITHDRAWALS_MAX_PER_DAY', 50)),
+            'max_amount_per_day' => max(1000, (float) env('API_WITHDRAWALS_MAX_AMOUNT_PER_DAY', 500000)),
+        ],
+    ],
+
     'checkout_security' => [
         'min_seconds_before_pay' => max(0, (int) env('CHECKOUT_MIN_SECONDS_BEFORE_PAY', 2)),
         'duplicate_pending_minutes' => max(1, (int) env('CHECKOUT_DUPLICATE_PENDING_MINUTES', 15)),

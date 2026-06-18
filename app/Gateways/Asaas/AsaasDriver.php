@@ -166,7 +166,8 @@ class AsaasDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         $baseUrl = $this->getBaseUrl($credentials);
         $customerId = $this->ensureCustomer($credentials, $consumer, $externalId);

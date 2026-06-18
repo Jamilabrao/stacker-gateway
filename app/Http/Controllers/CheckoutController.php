@@ -27,6 +27,7 @@ use App\Services\AffiliateConversionPixels;
 use App\Services\BuyerAccountService;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\GeoIp;
+use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
 use App\Services\PhysicalProductAccess;
 use App\Services\PushinPayPixRecorrenteService;
@@ -721,6 +722,11 @@ class CheckoutController extends Controller
 
                 return back()->with('error', $e->getMessage())->withInput();
             }
+        }
+
+        $minimumGuard = $this->guardPlatformMinimumCheckout($totalAmount, $request, (int) $product->tenant_id);
+        if ($minimumGuard !== null) {
+            return $minimumGuard;
         }
 
         $periodStart = null;
@@ -1695,11 +1701,11 @@ class CheckoutController extends Controller
 
         $totalAmount = (float) $context['total_amount'];
 
-        $credential = GatewayCredential::resolveForPayment($product->tenant_id, 'cajupay');
-        if (! $credential) {
+        $account = app(\App\Services\CajuPay\CajuPayAccountResolver::class)->resolveForTenant($product->tenant_id);
+        if (! $account) {
             return response()->json(['message' => 'CajuPay não está conectado.'], 422);
         }
-        $credentials = $credential->getDecryptedCredentials();
+        $credentials = $account->getDecryptedCredentials();
         if (empty($credentials['public_key']) || empty($credentials['secret_key'])) {
             return response()->json(['message' => 'CajuPay: chaves de API não configuradas.'], 422);
         }
@@ -2009,6 +2015,8 @@ class CheckoutController extends Controller
             $totalAmount = round($totalAmount + $shippingResolved['shipping_amount'], 2);
         }
 
+        app(MinimumChargeService::class)->assertPlatformCheckout($totalAmount, (int) $product->tenant_id);
+
         return [
             'offer' => $offer,
             'plan' => $plan,
@@ -2143,6 +2151,7 @@ class CheckoutController extends Controller
             'status' => 'pending',
             'gateway' => 'cajupay',
             'gateway_id' => $draft['checkout_session_id'] ?? null,
+            'cajupay_account_id' => app(\App\Services\CajuPay\CajuPayAccountResolver::class)->accountIdForTenant($tenantId),
             'payment_method' => 'card',
         ];
         if ($shippingResolved !== null) {
@@ -2151,6 +2160,14 @@ class CheckoutController extends Controller
             $orderPayload['shipping_rule_id'] = $shippingResolved['shipping_rule_id'];
             $orderPayload['shipping_address'] = $shippingResolved['shipping_address'];
             $orderPayload['metadata'] = array_merge($orderMetadata, $shippingResolved['metadata_shipping']);
+        }
+
+        try {
+            app(MinimumChargeService::class)->assertPlatformCheckout($totalAmount, (int) $product->tenant_id);
+        } catch (ValidationException $e) {
+            throw new \RuntimeException(
+                collect($e->errors())->flatten()->first() ?? 'Valor abaixo do mínimo da plataforma.'
+            );
         }
 
         $order = Order::create($orderPayload);
@@ -2551,5 +2568,26 @@ class CheckoutController extends Controller
             'type' => 'card',
         ]);
         $subscription->update(['saved_payment_method_id' => $spm->id]);
+    }
+
+    /**
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse|null
+     */
+    private function guardPlatformMinimumCheckout(float $totalAmount, Request $request, ?int $tenantId = null)
+    {
+        try {
+            app(MinimumChargeService::class)->assertPlatformCheckout($totalAmount, $tenantId);
+        } catch (ValidationException $e) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => collect($e->errors())->flatten()->first() ?? 'Valor abaixo do mínimo.',
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+
+            return back()->withErrors($e->errors())->withInput();
+        }
+
+        return null;
     }
 }

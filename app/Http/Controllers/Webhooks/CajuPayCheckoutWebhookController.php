@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\GatewayCredential;
 use App\Models\Order;
+use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Services\CajuPay\CajuPayCheckoutCompletionService;
 use App\Services\CajuPay\CajuPayMedService;
 use App\Services\PlatformOrderAdminService;
@@ -129,7 +130,7 @@ class CajuPayCheckoutWebhookController extends Controller
             if ($dispatchId === '') {
                 return response('ok', 200);
             }
-            ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'checkout.payment.failed', 'rejected', $webhookMeta);
+            PaymentWebhookDispatcher::dispatch(self::SLUG, $dispatchId, 'checkout.payment.failed', 'rejected', $webhookMeta);
 
             return response('ok', 200);
         }
@@ -138,7 +139,7 @@ class CajuPayCheckoutWebhookController extends Controller
             if ($dispatchId === '') {
                 return response('ok', 200);
             }
-            ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'checkout.payment.refunded', 'refunded', $webhookMeta);
+            PaymentWebhookDispatcher::dispatch(self::SLUG, $dispatchId, 'checkout.payment.refunded', 'refunded', $webhookMeta);
 
             return response('ok', 200);
         }
@@ -147,7 +148,7 @@ class CajuPayCheckoutWebhookController extends Controller
             if ($dispatchId === '') {
                 return response('ok', 200);
             }
-            ProcessPaymentWebhook::dispatchSync(self::SLUG, $dispatchId, 'checkout.payment.disputed', 'disputed', $webhookMeta);
+            PaymentWebhookDispatcher::dispatch(self::SLUG, $dispatchId, 'checkout.payment.disputed', 'disputed', $webhookMeta);
 
             return response('ok', 200);
         }
@@ -367,35 +368,51 @@ class CajuPayCheckoutWebhookController extends Controller
 
         $signedPayload = $timestamp.'.'.$rawBody;
 
-        $query = GatewayCredential::query()
-            ->where('gateway_slug', self::SLUG)
-            ->where('is_connected', true);
-        if ($preferTenantId !== null) {
-            $query->where('tenant_id', $preferTenantId);
-        }
-        $candidates = $query->get();
+        $resolver = app(CajuPayAccountResolver::class);
+        $candidates = $resolver->allConnectedForWebhookValidation();
 
-        if ($candidates->isEmpty() && $preferTenantId !== null) {
-            $candidates = GatewayCredential::query()
+        if ($candidates->isEmpty()) {
+            $legacy = GatewayCredential::query()
                 ->where('gateway_slug', self::SLUG)
                 ->where('is_connected', true)
                 ->get();
-        }
-
-        foreach ($candidates as $credential) {
-            $creds = $credential->getDecryptedCredentials();
-            foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret'] as $key) {
-                $secret = trim((string) ($creds[$key] ?? ''));
-                if ($secret === '') {
-                    continue;
-                }
-                $expected = hash_hmac('sha256', $signedPayload, $secret);
-                if (hash_equals($expected, $signatureHex)) {
+            foreach ($legacy as $credential) {
+                $secret = $this->matchSigningSecret($credential->getDecryptedCredentials(), $signedPayload, $signatureHex);
+                if ($secret !== null) {
                     return $secret;
                 }
+            }
+
+            return null;
+        }
+
+        foreach ($candidates as $account) {
+            $secret = $this->matchSigningSecret($account->getDecryptedCredentials(), $signedPayload, $signatureHex);
+            if ($secret !== null) {
+                return $secret;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $creds
+     */
+    private function matchSigningSecret(array $creds, string $signedPayload, string $signatureHex): ?string
+    {
+        foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret'] as $key) {
+            $secret = trim((string) ($creds[$key] ?? ''));
+            if ($secret === '') {
+                continue;
+            }
+            $expected = hash_hmac('sha256', $signedPayload, $secret);
+            if (hash_equals($expected, $signatureHex)) {
+                return $secret;
             }
         }
 
         return null;
     }
 }
+

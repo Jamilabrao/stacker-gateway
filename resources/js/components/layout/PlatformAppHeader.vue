@@ -16,7 +16,8 @@ const { toggleSidebar, isMobileOpen, isMobile } = useSidebar();
 /** Atalhos no topo para rotas frequentes (reforço além do sidebar). */
 const quickLinks = [
     { label: 'Clientes', href: '/plataforma/clientes', match: (u) => u === '/plataforma/clientes' || u.startsWith('/plataforma/clientes/') },
-    { label: 'Transações', href: '/plataforma/transacoes', match: (u) => u === '/plataforma/transacoes' || u.startsWith('/plataforma/transacoes/') },
+    { label: 'Transações', href: '/plataforma/transacoes', match: (u) => (u === '/plataforma/transacoes' || u.startsWith('/plataforma/transacoes/')) && !u.startsWith('/plataforma/transacoes-api') },
+    { label: 'Transações API', href: '/plataforma/transacoes-api', match: (u) => u === '/plataforma/transacoes-api' || u.startsWith('/plataforma/transacoes-api/') },
     { label: 'Infoprodutores', href: '/plataforma/usuarios', match: (u) => u === '/plataforma/usuarios' || u.startsWith('/plataforma/usuarios/') },
 ];
 </script>

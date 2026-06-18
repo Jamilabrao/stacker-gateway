@@ -109,6 +109,13 @@ class Product extends Model
             if (empty($product->checkout_slug)) {
                 $product->checkout_slug = static::generateUniqueCheckoutSlug();
             }
+            if (empty($product->slug) && $product->tenant_id !== null) {
+                $source = trim((string) ($product->name ?? ''));
+                $product->slug = static::uniqueSlugForTenant(
+                    (int) $product->tenant_id,
+                    $source !== '' ? $source : 'produto'
+                );
+            }
         });
 
         static::updating(function (Product $product): void {
@@ -125,6 +132,36 @@ class Product extends Model
         } while (static::withTrashed()->where('checkout_slug', $slug)->exists());
 
         return $slug;
+    }
+
+    /**
+     * Slug interno único por tenant (inclui produtos excluídos — constraint no banco não ignora soft delete).
+     */
+    public static function uniqueSlugForTenant(int $tenantId, string $source, ?string $ignoreProductId = null): string
+    {
+        $base = Str::slug($source);
+        if ($base === '') {
+            $base = 'produto';
+        }
+
+        $candidate = $base;
+        $suffix = 2;
+        while (static::slugExistsForTenant($tenantId, $candidate, $ignoreProductId)) {
+            $candidate = $base.'-'.$suffix;
+            $suffix++;
+        }
+
+        return $candidate;
+    }
+
+    public static function slugExistsForTenant(int $tenantId, string $slug, ?string $ignoreProductId = null): bool
+    {
+        $query = static::withTrashed()->forTenant($tenantId)->where('slug', $slug);
+        if ($ignoreProductId !== null && $ignoreProductId !== '') {
+            $query->where('id', '!=', $ignoreProductId);
+        }
+
+        return $query->exists();
     }
 
     /**
@@ -369,6 +406,17 @@ class Product extends Model
     }
 
     /**
+     * Meta/TikTok pixel IDs: apenas dígitos (aceita colar "ID: 1234567890").
+     */
+    public static function normalizePixelIdString(string $raw): string
+    {
+        $digits = preg_replace('/\D/', '', $raw) ?? '';
+        $len = strlen($digits);
+
+        return ($len >= 5 && $len <= 20) ? $digits : '';
+    }
+
+    /**
      * Normaliza um bloco de plataforma (novo formato com entries ou legado com pixel_id / conversion_id na raiz).
      *
      * @param  array<string, mixed>  $block
@@ -399,7 +447,7 @@ class Product extends Model
                 }
 
                 if ($platform === 'meta' || $platform === 'tiktok') {
-                    $pixelId = trim((string) ($e['pixel_id'] ?? ''));
+                    $pixelId = static::normalizePixelIdString(trim((string) ($e['pixel_id'] ?? '')));
                     if ($pixelId === '') {
                         continue;
                     }
@@ -439,7 +487,7 @@ class Product extends Model
             $id = Str::uuid()->toString();
 
             if ($platform === 'meta' || $platform === 'tiktok') {
-                $pixelId = trim((string) ($block['pixel_id'] ?? ''));
+                $pixelId = static::normalizePixelIdString(trim((string) ($block['pixel_id'] ?? '')));
                 $accessToken = trim((string) ($block['access_token'] ?? ''));
                 if ($pixelId !== '' || $accessToken !== '') {
                     $entries[] = [

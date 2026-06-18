@@ -12,12 +12,13 @@ function showNotificationFromPayload(payload) {
     const url = data.url || null;
     const icon = n.icon || data.icon || data.badge || new URL('/icons/icon-192x192.png', self.location.origin).href;
     const badge = data.badge || icon;
+    const tag = data.tag || url || 'panel-fcm-push';
 
     return self.registration.showNotification(title, {
         body: body,
         icon: icon,
         badge: badge,
-        tag: url || 'panel-fcm-push',
+        tag: tag,
         data: { url: url },
     });
 }

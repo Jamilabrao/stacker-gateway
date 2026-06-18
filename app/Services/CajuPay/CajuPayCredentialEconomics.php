@@ -21,6 +21,11 @@ class CajuPayCredentialEconomics
      */
     public static function fromGateway(): array
     {
+        $account = app(CajuPayAccountResolver::class)->defaultOrFirstConnected();
+        if ($account !== null && $account->is_connected) {
+            return self::fromCredentialsArray($account->getDecryptedCredentials());
+        }
+
         $cred = GatewayCredential::resolveForPayment(null, 'cajupay');
         if ($cred === null || ! $cred->is_connected) {
             return self::defaults();

@@ -1,11 +1,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
+import { Moon, Sun } from 'lucide-vue-next';
 import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
+import { usePanelColorScheme } from '@/composables/usePanelColorScheme';
 
 const page = usePage();
 const dropdownOpen = ref(false);
 const dropdownRef = ref(null);
+
+const { theme, showToggler, setTheme } = usePanelColorScheme();
 
 const user = computed(() => page.props.auth?.user ?? null);
 const isPlatformAdmin = computed(() => !!page.props.auth?.is_platform_admin);
@@ -93,6 +97,10 @@ onMounted(() => {
 onUnmounted(() => {
     document.removeEventListener('click', handleClickOutside);
 });
+
+function cycleTheme() {
+    setTheme(theme.value === 'dark' ? 'light' : 'dark');
+}
 </script>
 
 <template>
@@ -179,6 +187,16 @@ onUnmounted(() => {
             >
                 Meu perfil
             </Link>
+            <button
+                v-if="showToggler && !page.url.startsWith('/plataforma')"
+                type="button"
+                class="mt-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 lg:hidden"
+                @click="cycleTheme()"
+            >
+                <Sun v-if="theme === 'light'" class="h-4 w-4 shrink-0" aria-hidden="true" />
+                <Moon v-else class="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{{ theme === 'dark' ? 'Tema claro' : 'Tema escuro' }}</span>
+            </button>
             <Link
                 v-if="isPlatformAdmin"
                 href="/plataforma/logout"

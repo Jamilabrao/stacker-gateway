@@ -16,6 +16,7 @@ import {
     AlertTriangle,
     Banknote,
     CircleDollarSign,
+    Code2,
     Trophy,
     BadgeCheck,
     Package,
@@ -68,6 +69,7 @@ const navItemsCore = [
     { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
     { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
     { name: 'Transações', href: '/plataforma/transacoes', icon: ArrowLeftRight, badgeKey: 'transacoes' },
+    { name: 'Transações API', href: '/plataforma/transacoes-api', icon: Code2 },
     { name: 'Disputas MED', href: '/plataforma/disputas', icon: AlertTriangle, badgeKey: 'disputas' },
     { name: 'Produtos', href: '/plataforma/produtos', icon: Package },
     { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck, badgeKey: 'kyc' },
@@ -107,8 +109,12 @@ function isActive(href) {
     if (href === '/plataforma/dashboard') {
         return url === '/plataforma/dashboard';
     }
+    if (href === '/plataforma/transacoes-api') {
+        return url === '/plataforma/transacoes-api' || url.startsWith('/plataforma/transacoes-api/');
+    }
     if (href === '/plataforma/transacoes') {
-        return url === '/plataforma/transacoes' || url.startsWith('/plataforma/transacoes/');
+        return (url === '/plataforma/transacoes' || url.startsWith('/plataforma/transacoes/'))
+            && !url.startsWith('/plataforma/transacoes-api');
     }
     if (href === '/plataforma/disputas') {
         return url === '/plataforma/disputas' || url.startsWith('/plataforma/disputas/');

@@ -4,15 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\MedDispute;
 use App\Services\CajuPay\CajuPayMedService;
+use App\Services\Med\MedDefenseDossierService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class SellerMedDisputesController extends Controller
 {
     public function __construct(
-        protected CajuPayMedService $medService
+        protected CajuPayMedService $medService,
+        protected MedDefenseDossierService $dossierService,
     ) {}
 
     public function index(Request $request): Response
@@ -32,6 +35,9 @@ class SellerMedDisputesController extends Controller
     public function show(Request $request, MedDispute $dispute): Response
     {
         $tenantId = (int) $request->user()->tenant_id;
+        if ((int) $dispute->tenant_id !== $tenantId || ! $dispute->isTenantManaged()) {
+            abort(404);
+        }
         $dispute = $this->medService->getForTenant($tenantId, $dispute);
 
         return Inertia::render('Disputas/Show', [
@@ -69,6 +75,50 @@ class SellerMedDisputesController extends Controller
             ->with('success', 'Defesa enviada à CajuPay.');
     }
 
+    public function generateDossier(Request $request, MedDispute $dispute): RedirectResponse
+    {
+        $tenantId = (int) $request->user()->tenant_id;
+        if ((int) $dispute->tenant_id !== $tenantId || ! $dispute->isTenantManaged()) {
+            abort(403);
+        }
+
+        try {
+            $this->dossierService->generate($dispute);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return back()->with('error', 'Não foi possível gerar o dossiê.');
+        }
+
+        return back()->with('success', 'Dossiê PDF gerado.');
+    }
+
+    public function downloadDossier(Request $request, MedDispute $dispute): BinaryFileResponse|RedirectResponse
+    {
+        $tenantId = (int) $request->user()->tenant_id;
+        if ((int) $dispute->tenant_id !== $tenantId || ! $dispute->isTenantManaged()) {
+            abort(403);
+        }
+
+        if ($dispute->defense_dossier_path === null) {
+            try {
+                $this->dossierService->generate($dispute);
+                $dispute->refresh();
+            } catch (\Throwable $e) {
+                report($e);
+
+                return back()->with('error', 'Dossiê indisponível.');
+            }
+        }
+
+        $path = $this->dossierService->downloadPath($dispute);
+        if ($path === null) {
+            return back()->with('error', 'Dossiê indisponível.');
+        }
+
+        return response()->download($path, 'med-dossie-'.$dispute->id.'.pdf');
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -91,6 +141,8 @@ class SellerMedDisputesController extends Controller
             'opened_at' => $dispute->opened_at?->toIso8601String(),
             'resolved_at' => $dispute->resolved_at?->toIso8601String(),
             'is_open' => $dispute->isOpen(),
+            'reason' => $dispute->reason,
+            'has_dossier' => $dispute->defense_dossier_path !== null,
             'order' => $order ? [
                 'id' => $order->id,
                 'public_reference' => $order->public_reference,

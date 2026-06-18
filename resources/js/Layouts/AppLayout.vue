@@ -32,6 +32,12 @@ watch(
     },
 );
 const customerPanel = computed(() => !!page.props.customer_panel);
+const isPixGoRoute = computed(() => {
+    const path = (page.url ?? '').split('?')[0];
+    return path === '/pixgo' || path.startsWith('/pixgo/');
+});
+const showAppHeader = computed(() => !customerPanel.value && !isPixGoRoute.value);
+const showMobileBottomNav = computed(() => !customerPanel.value && !isPixGoRoute.value);
 const pageTitle = computed(() => page.props.pageTitle ?? null);
 const pageTitleBadge = computed(() => page.props.pageTitleBadge ?? null);
 const contentMaxWidth = computed(() => (page.props.layoutFullWidth ? 'max-w-[1600px]' : 'max-w-7xl'));
@@ -97,6 +103,9 @@ const mainOffsetClass = computed(() => {
 });
 
 const contentShellClass = computed(() => {
+    if (isPixGoRoute.value) {
+        return 'flex min-h-[calc(100dvh-0px)] flex-1 flex-col overflow-hidden rounded-none bg-[#0a0a0a] shadow-none lg:min-h-[calc(100dvh-1rem)]';
+    }
     if (isThemedShell.value && !customerPanel.value) {
         const prefix = isKawaii.value ? 'kawaii-content-shell' : 'aurora-content-shell';
         return `${prefix} flex min-h-0 flex-1 flex-col overflow-hidden rounded-none`;
@@ -105,6 +114,9 @@ const contentShellClass = computed(() => {
 });
 
 const mainAreaPaddingClass = computed(() => {
+    if (isPixGoRoute.value) {
+        return 'p-0';
+    }
     if (isThemedShell.value && !customerPanel.value) {
         return 'p-3 pt-2 md:p-4 md:pt-2 lg:px-6 lg:pb-6 lg:pt-3';
     }
@@ -112,6 +124,9 @@ const mainAreaPaddingClass = computed(() => {
 });
 
 const mainContentPaddingClass = computed(() => {
+    if (isPixGoRoute.value) {
+        return 'flex-1 p-0';
+    }
     if (isThemedShell.value && !customerPanel.value) {
         return 'flex-1 px-4 pb-24 pt-2 md:px-6 md:pt-2 lg:pb-8';
     }
@@ -173,14 +188,14 @@ onBeforeUnmount(() => {
             :class="[mainOffsetClass, mainAreaPaddingClass]"
         >
             <div class="flex w-full shrink-0 flex-col gap-2">
-                <div v-if="!customerPanel" class="-mx-3 md:-mx-4 lg:-mx-6">
+                <div v-if="!customerPanel && !isPixGoRoute" class="-mx-3 md:-mx-4 lg:-mx-6">
                     <DemoModeBanner />
                     <TotpPromptBanner />
                     <DemoExploreBanner class="mx-3 mb-2 md:mx-4 lg:mx-6" />
                     <CloudBillingBanner />
                     <KycBanner />
                 </div>
-                <AppHeader :page-title="pageTitle" :page-title-badge="pageTitleBadge" />
+                <AppHeader v-if="showAppHeader" :page-title="pageTitle" :page-title-badge="pageTitleBadge" />
                 <slot name="header-actions" />
             </div>
             <div
@@ -210,24 +225,25 @@ onBeforeUnmount(() => {
                 </div>
             </div>
             <FlashToast />
-            <div v-if="!customerPanel" class="px-4 pt-3 lg:px-6">
+            <div v-if="!customerPanel && !isPixGoRoute" class="px-4 pt-3 lg:px-6">
                 <PushNotificationsBanner />
             </div>
-            <PwaInstallPrompt />
+            <PwaInstallPrompt v-if="!isPixGoRoute" />
             <NotificationsPanel
                 v-if="!customerPanel"
                 :open="showNotificationsPanel"
                 @update:open="showNotificationsPanel = $event"
                 @unread-count-update="onNotificationsUnreadCountUpdate"
             />
-            <MobileBottomNav v-if="!customerPanel" />
+            <MobileBottomNav v-if="showMobileBottomNav" />
             <div :class="contentShellClass">
                 <main :class="mainContentPaddingClass">
                     <div
                         class="w-full"
                         :class="[
-                            layoutContentFlushLeft ? 'max-w-none lg:-ml-6' : 'mx-auto',
-                            !layoutContentFlushLeft && contentMaxWidth,
+                            isPixGoRoute || layoutContentFlushLeft ? 'max-w-none' : 'mx-auto',
+                            layoutContentFlushLeft && !isPixGoRoute ? 'lg:-ml-6' : '',
+                            !isPixGoRoute && !layoutContentFlushLeft && contentMaxWidth,
                         ]"
                     >
                         <slot />

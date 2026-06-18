@@ -59,7 +59,7 @@ fi
 
 cd "$INSTALL_DIR"
 
-$SUDO chmod +x docker/ensure-upload-limits.sh 2>/dev/null || true
+$SUDO chmod +x docker/ensure-upload-limits.sh docker/detect-compose-files.sh docker/verify-workers.sh 2>/dev/null || true
 echo ""
 echo "=== Limites de upload (PHP / Member Builder) ==="
 $SUDO sh docker/ensure-upload-limits.sh
@@ -105,6 +105,11 @@ else
   $SUDO docker compose $COMPOSE_EXEC_ARGS exec -T app php artisan pwa:ensure-vapid || true
   $SUDO docker compose $COMPOSE_EXEC_ARGS exec -T app php artisan config:clear || true
 fi
+
+echo ""
+echo "=== Verificação de workers (API) ==="
+$SUDO chmod +x docker/verify-workers.sh 2>/dev/null || true
+$SUDO sh docker/verify-workers.sh || true
 
 echo ""
 echo "Atualização concluída (git + build frontend + stack reiniciado)."

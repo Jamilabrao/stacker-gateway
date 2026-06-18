@@ -7,6 +7,8 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductOffer;
 use App\Services\AccessEmailService;
+use App\Services\Med\MedPolicyService;
+use App\Services\PixGoAccess;
 use App\Services\OrderFeeBreakdownService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
@@ -42,9 +44,29 @@ class VendasController extends Controller
     {
         return match ($statusFilter) {
             'aprovadas' => $query->where('status', 'completed'),
-            'med' => $query->where('status', 'disputed'),
+            'med' => $query->where(function ($q) {
+                $q->whereHas('medDisputes', function ($d) {
+                    $d->tenantManaged()->open();
+                })->orWhere(function ($q2) {
+                    app(MedPolicyService::class)->scopeApiPixRestOrders($q2);
+                    $q2->where('status', 'disputed');
+                });
+            }),
             default => $query,
         };
+    }
+
+    private function applySaleChannelFilter($query, Request $request)
+    {
+        $channel = $this->normalizeString($request->query('sale_channel'));
+        if ($channel === 'api_pix') {
+            return app(MedPolicyService::class)->scopeApiPixRestOrders($query);
+        }
+        if ($channel === 'pixgo') {
+            return $query->where('metadata->source', 'pixgo');
+        }
+
+        return $query;
     }
 
     private function applyPeriodFilter($query, Request $request)
@@ -268,6 +290,7 @@ class VendasController extends Controller
         $query = $this->applySearchFilter($query, $request);
         $query = $this->applyProductFilters($query, $request);
         $query = $this->applyPaymentFilters($query, $request);
+        $query = $this->applySaleChannelFilter($query, $request);
         $query = $this->applyUtmFilters($query, $request, $tenantId);
 
         return [$query, $statusFilter];
@@ -288,6 +311,12 @@ class VendasController extends Controller
         $arr['amount_gross'] = $breakdown['gross'];
         $arr['amount_fee'] = $breakdown['fee'];
         $arr['amount_net'] = $breakdown['net'];
+        $policy = app(MedPolicyService::class);
+        $arr['is_api_pix'] = $policy->isApiPixRestOrder($o);
+        $arr['is_pixgo'] = $o->isPixGoSale();
+        $arr['sale_channel_label'] = $o->isPixGoSale()
+            ? PixGoAccess::sidebarLabel()
+            : ($policy->isApiPixRestOrder($o) ? 'API PIX' : null);
 
         return $arr;
     }
@@ -310,6 +339,7 @@ class VendasController extends Controller
             'utm_source' => $this->normalizeString($request->query('utm_source')),
             'utm_medium' => $this->normalizeString($request->query('utm_medium')),
             'utm_campaign' => $this->normalizeString($request->query('utm_campaign')),
+            'sale_channel' => $this->normalizeString($request->query('sale_channel')),
             'team' => auth()->user()?->isTeam() ? app(TeamAccessService::class)->allowedProductIdsFor(auth()->user()) : null,
         ]));
 
@@ -443,6 +473,7 @@ class VendasController extends Controller
                 'utm_source' => $this->normalizeString($request->query('utm_source')),
                 'utm_medium' => $this->normalizeString($request->query('utm_medium')),
                 'utm_campaign' => $this->normalizeString($request->query('utm_campaign')),
+                'sale_channel' => $this->normalizeString($request->query('sale_channel')),
             ],
             'products' => $products,
             'offers' => $offers,
@@ -567,6 +598,10 @@ class VendasController extends Controller
 
     private function productDisplayName(Order $order): string
     {
+        if ($order->isPixGoSale()) {
+            return 'Venda '.PixGoAccess::sidebarLabel();
+        }
+
         $product = $order->product;
         if (! $product) {
             return '—';

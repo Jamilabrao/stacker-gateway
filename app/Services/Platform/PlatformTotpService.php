@@ -38,7 +38,7 @@ class PlatformTotpService
         $user->totp_enabled_at = null;
         $user->save();
 
-        $issuer = (string) config('app.name', 'Getfy');
+        $issuer = self::totpIssuerName();
         $account = (string) ($user->email ?? 'admin');
         $issuerEncoded = rawurlencode($issuer);
         $accountEncoded = rawurlencode($account);
@@ -103,6 +103,21 @@ class PlatformTotpService
         }
 
         return false;
+    }
+
+    private static function totpIssuerName(): string
+    {
+        $name = trim((string) config('getfy.app_name', ''));
+        if ($name !== '') {
+            return $name;
+        }
+
+        $name = trim((string) config('app.name', ''));
+        if ($name !== '') {
+            return $name;
+        }
+
+        return 'Getfy';
     }
 
     private static function decryptSecret(User $user): ?string

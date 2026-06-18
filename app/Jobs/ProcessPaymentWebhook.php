@@ -40,7 +40,9 @@ class ProcessPaymentWebhook implements ShouldQueue
         public string $event,
         public string $status,
         public array $payload = []
-    ) {}
+    ) {
+        $this->onQueue((string) config('queue.webhooks_inbound_queue', 'webhooks-inbound'));
+    }
 
     public function handle(): void
     {
@@ -178,11 +180,14 @@ class ProcessPaymentWebhook implements ShouldQueue
         }
 
         $isDisputeEvent = in_array($this->event, ['order.disputed', 'payment.disputed'], true)
-            || ($this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.disputed');
+            || ($this->gatewaySlug === 'cajupay' && in_array($this->event, ['checkout.payment.disputed', 'card.payment.disputed'], true));
         if ($isDisputeEvent && in_array($this->status, ['disputed', 'chargeback'], true)) {
             if (in_array($order->status, ['completed', 'pending'], true)) {
                 try {
-                    PlatformOrderAdminService::markDisputed($order);
+                    app(\App\Services\CajuPay\CajuPayMedService::class)->syncOpenedFromCheckoutDispute($order, [
+                        'gateway_event' => $this->event,
+                        'status' => $this->status,
+                    ]);
                 } catch (\InvalidArgumentException) {
                     //
                 }

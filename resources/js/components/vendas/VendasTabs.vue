@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
-import { AlertTriangle, CircleDollarSign, Repeat } from 'lucide-vue-next';
+import { AlertTriangle, CircleDollarSign, Repeat, RotateCcw } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
 
@@ -13,12 +13,19 @@ const medOpenCount = computed(() => Number(page.props.med_open_count ?? 0));
 
 const isVendas = computed(() => {
     const url = page.url.split('?')[0];
-    return url === '/vendas' || (url.startsWith('/vendas') && !url.startsWith('/vendas/assinaturas') && !url.startsWith('/vendas/disputas'));
+    return url === '/vendas' || (
+        url.startsWith('/vendas')
+        && !url.startsWith('/vendas/assinaturas')
+        && !url.startsWith('/vendas/disputas')
+        && !url.startsWith('/vendas/reembolsos')
+    );
 });
 
 const isAssinaturas = computed(() => page.url.split('?')[0].startsWith('/vendas/assinaturas'));
 
 const isDisputas = computed(() => page.url.split('?')[0].startsWith('/vendas/disputas'));
+
+const isReembolsos = computed(() => page.url.split('?')[0].startsWith('/vendas/reembolsos'));
 
 const navClass = computed(() => {
     if (isAurora.value) return 'aurora-subnav';
@@ -61,6 +68,10 @@ function linkClass(active) {
             >
                 {{ medOpenCount > 99 ? '99+' : medOpenCount }}
             </span>
+        </Link>
+        <Link href="/vendas/reembolsos" :class="linkClass(isReembolsos)">
+            <RotateCcw class="h-4 w-4 shrink-0" aria-hidden="true" />
+            Reembolsos
         </Link>
     </nav>
 </template>

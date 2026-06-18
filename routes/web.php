@@ -387,8 +387,17 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/financeiro/gateways/{slug}/test', [\App\Http\Controllers\GatewaysController::class, 'test'])->name('financeiro.gateways.test');
         Route::post('/financeiro/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate'])->name('financeiro.gateways.certificate');
         Route::put('/financeiro/gateways/{slug}/certificate', [\App\Http\Controllers\GatewaysController::class, 'updateCertificate']);
+        Route::post('/financeiro/cajupay-contas', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'store'])->name('financeiro.cajupay-contas.store');
+        Route::get('/financeiro/cajupay-contas/{cajuPayAccount}', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'show'])->name('financeiro.cajupay-contas.show');
+        Route::put('/financeiro/cajupay-contas/{cajuPayAccount}', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'update'])->name('financeiro.cajupay-contas.update');
+        Route::post('/financeiro/cajupay-contas/{cajuPayAccount}/test', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'test'])->name('financeiro.cajupay-contas.test');
+        Route::post('/financeiro/cajupay-contas/{cajuPayAccount}/rotate-webhook-secret', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'rotateWebhookSecret'])->name('financeiro.cajupay-contas.rotate-webhook');
+        Route::patch('/financeiro/cajupay-contas/{cajuPayAccount}/default', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'setDefault'])->name('financeiro.cajupay-contas.default');
+        Route::delete('/financeiro/cajupay-contas/{cajuPayAccount}', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'destroy'])->name('financeiro.cajupay-contas.destroy');
         Route::put('/financeiro/metodos-pagamento', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePaymentMethods'])->name('financeiro.payment-methods.update');
         Route::put('/financeiro/taxas', [\App\Http\Controllers\Platform\FinancialController::class, 'updateFees'])->name('financeiro.taxas.update');
+        Route::put('/financeiro/pixgo', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePixGo'])->name('financeiro.pixgo.update');
+        Route::put('/financeiro/limites', [\App\Http\Controllers\Platform\FinancialController::class, 'updateChargeLimits'])->name('financeiro.limites.update');
         Route::put('/financeiro/liquidacao', [\App\Http\Controllers\Platform\FinancialController::class, 'updateSettlement'])->name('financeiro.liquidacao.update');
         Route::put('/financeiro/payout-gateway', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePayoutGatewayPreference'])->name('financeiro.payout-gateway.update');
         Route::put('/financeiro/saques-politica', [\App\Http\Controllers\Platform\FinancialController::class, 'updateWithdrawalPolicy'])->name('financeiro.saques-politica.update');
@@ -409,6 +418,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
 
         Route::get('/saques', [\App\Http\Controllers\Platform\WithdrawalsController::class, 'index'])->name('saques.index');
         Route::get('/transacoes', [\App\Http\Controllers\Platform\TransactionsController::class, 'index'])->name('transacoes.index');
+        Route::get('/transacoes-api', [\App\Http\Controllers\Platform\TransactionsController::class, 'apiIndex'])->name('transacoes-api.index');
         Route::get('/clientes', [\App\Http\Controllers\Platform\CustomersController::class, 'index'])->name('clientes.index');
         Route::delete('/clientes/{user}', [\App\Http\Controllers\Platform\CustomersController::class, 'destroy'])
             ->name('clientes.destroy')
@@ -434,6 +444,17 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
 
         Route::get('/disputas', [\App\Http\Controllers\Platform\MedDisputesController::class, 'index'])->name('disputas.index');
         Route::get('/disputas/{dispute}', [\App\Http\Controllers\Platform\MedDisputesController::class, 'show'])->name('disputas.show');
+        Route::post('/disputas/{dispute}/gerar-dossie', [\App\Http\Controllers\Platform\MedDisputesController::class, 'generateDossier'])
+            ->name('disputas.generate-dossier')
+            ->middleware('throttle:15,1');
+        Route::get('/disputas/{dispute}/dossie', [\App\Http\Controllers\Platform\MedDisputesController::class, 'downloadDossier'])
+            ->name('disputas.download-dossier');
+        Route::post('/disputas/{dispute}/defesa', [\App\Http\Controllers\Platform\MedDisputesController::class, 'submitDefense'])
+            ->name('disputas.defense')
+            ->middleware('throttle:15,1');
+        Route::post('/disputas/{dispute}/resolver', [\App\Http\Controllers\Platform\MedDisputesController::class, 'resolve'])
+            ->name('disputas.resolve')
+            ->middleware('throttle:15,1');
 
         Route::get('/verificacoes-kyc', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'index'])->name('kyc.index');
         Route::get('/verificacoes-kyc/documento/{document}', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'downloadDocument'])
@@ -564,15 +585,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         ->middleware('team.permission:dashboard.view')
         ->name('dashboard');
 
-    Route::get('/reembolsos', [\App\Http\Controllers\SellerRefundRequestsController::class, 'index'])
-        ->middleware('team.permission:vendas.view')
-        ->name('reembolsos.index');
-    Route::post('/reembolsos/{refundRequest}/aprovar', [\App\Http\Controllers\SellerRefundRequestsController::class, 'approve'])
-        ->middleware(['throttle:30,1', 'team.permission:vendas.view'])
-        ->name('reembolsos.approve');
-    Route::post('/reembolsos/{refundRequest}/recusar', [\App\Http\Controllers\SellerRefundRequestsController::class, 'reject'])
-        ->middleware(['throttle:30,1', 'team.permission:vendas.view'])
-        ->name('reembolsos.reject');
+    Route::redirect('/reembolsos', '/vendas/reembolsos')->middleware('team.permission:vendas.view');
 
     Route::get('/kyc', [\App\Http\Controllers\SellerKycController::class, 'show'])->name('kyc.upload');
     Route::post('/kyc/document', [\App\Http\Controllers\SellerKycController::class, 'uploadDocument'])->middleware('throttle:30,1')->name('kyc.document');
@@ -589,6 +602,15 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
             ->name('financeiro.seller.pix-saque');
     });
 
+    Route::middleware('team.permission:pixgo.view')->group(function () {
+        Route::get('/pixgo', [\App\Http\Controllers\PixGoController::class, 'index'])->name('pixgo.index');
+        Route::post('/pixgo/cobrar', [\App\Http\Controllers\PixGoController::class, 'charge'])
+            ->middleware('throttle:30,1')
+            ->name('pixgo.cobrar');
+        Route::get('/pixgo/cobranca/{token}', [\App\Http\Controllers\PixGoController::class, 'showCharge'])->name('pixgo.cobranca');
+        Route::get('/pixgo/status', [\App\Http\Controllers\PixGoController::class, 'status'])->name('pixgo.status');
+    });
+
     Route::middleware('team.permission:vendas.view')->group(function () {
         Route::get('/vendas', [\App\Http\Controllers\VendasController::class, 'index'])->name('vendas.index');
         Route::get('/vendas/export', [\App\Http\Controllers\VendasController::class, 'export'])->name('vendas.export');
@@ -599,6 +621,19 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/vendas/disputas/{dispute}/defesa', [\App\Http\Controllers\SellerMedDisputesController::class, 'submitDefense'])
             ->middleware('throttle:15,1')
             ->name('disputas.defense');
+        Route::post('/vendas/disputas/{dispute}/gerar-dossie', [\App\Http\Controllers\SellerMedDisputesController::class, 'generateDossier'])
+            ->middleware('throttle:15,1')
+            ->name('disputas.generate-dossier');
+        Route::get('/vendas/disputas/{dispute}/dossie', [\App\Http\Controllers\SellerMedDisputesController::class, 'downloadDossier'])
+            ->name('disputas.download-dossier');
+        Route::get('/vendas/reembolsos', [\App\Http\Controllers\SellerRefundRequestsController::class, 'index'])
+            ->name('reembolsos.index');
+        Route::post('/vendas/reembolsos/{refundRequest}/aprovar', [\App\Http\Controllers\SellerRefundRequestsController::class, 'approve'])
+            ->middleware('throttle:30,1')
+            ->name('reembolsos.approve');
+        Route::post('/vendas/reembolsos/{refundRequest}/recusar', [\App\Http\Controllers\SellerRefundRequestsController::class, 'reject'])
+            ->middleware('throttle:30,1')
+            ->name('reembolsos.reject');
     });
 
     Route::redirect('/disputas', '/vendas/disputas')->middleware('team.permission:vendas.view');
@@ -717,7 +752,10 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::put('/produtos/{produto}/member-builder/comments/{comment}', [\App\Http\Controllers\MemberBuilderController::class, 'updateComment'])->name('member-builder.comments.update');
         Route::post('/produtos/{produto}/member-builder/community-pages', [\App\Http\Controllers\MemberBuilderController::class, 'storeCommunityPage'])->name('member-builder.community-pages.store');
         Route::put('/produtos/{produto}/member-builder/community-pages/{page}', [\App\Http\Controllers\MemberBuilderController::class, 'updateCommunityPage'])->name('member-builder.community-pages.update');
+        // POST aceito para update/delete: JSON + PUT/DELETE falham em alguns proxies/servidores
+        Route::post('/produtos/{produto}/member-builder/community-pages/{page}', [\App\Http\Controllers\MemberBuilderController::class, 'updateCommunityPage'])->name('member-builder.community-pages.update.post');
         Route::delete('/produtos/{produto}/member-builder/community-pages/{page}', [\App\Http\Controllers\MemberBuilderController::class, 'destroyCommunityPage'])->name('member-builder.community-pages.destroy');
+        Route::post('/produtos/{produto}/member-builder/community-pages/{page}/delete', [\App\Http\Controllers\MemberBuilderController::class, 'destroyCommunityPage'])->name('member-builder.community-pages.destroy.post');
         Route::post('/produtos/{produto}/member-builder/send-push', [\App\Http\Controllers\MemberBuilderController::class, 'sendPushNotification'])->name('member-builder.send-push');
     });
 
@@ -749,13 +787,21 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::get('/aplicacoes-api/{apiApplication}/edit', [\App\Http\Controllers\ApiApplicationsController::class, 'edit'])->name('api-applications.edit');
         Route::put('/aplicacoes-api/{apiApplication}', [\App\Http\Controllers\ApiApplicationsController::class, 'update'])->name('api-applications.update');
         Route::delete('/aplicacoes-api/{apiApplication}', [\App\Http\Controllers\ApiApplicationsController::class, 'destroy'])->name('api-applications.destroy');
+        Route::post('/aplicacoes-api/{apiApplication}/keys', [\App\Http\Controllers\ApiApplicationsController::class, 'storeApiKey'])->name('api-applications.keys.store');
+        Route::put('/aplicacoes-api/{apiApplication}/keys/{apiKey}', [\App\Http\Controllers\ApiApplicationsController::class, 'updateApiKey'])->name('api-applications.keys.update');
+        Route::post('/aplicacoes-api/{apiApplication}/keys/{apiKey}/regenerate', [\App\Http\Controllers\ApiApplicationsController::class, 'regenerateApiKey'])->name('api-applications.keys.regenerate');
+        Route::post('/aplicacoes-api/{apiApplication}/keys/{apiKey}/reveal-secret', [\App\Http\Controllers\ApiApplicationsController::class, 'revealApiKeySecret'])
+            ->middleware('throttle:30,1')
+            ->name('api-applications.keys.reveal-secret');
+        Route::delete('/aplicacoes-api/{apiApplication}/keys/{apiKey}', [\App\Http\Controllers\ApiApplicationsController::class, 'destroyApiKey'])->name('api-applications.keys.destroy');
+        Route::patch('/aplicacoes-api/{apiApplication}/webhook', [\App\Http\Controllers\ApiApplicationsController::class, 'updateWebhook'])->name('api-applications.webhook.update');
+        Route::post('/aplicacoes-api/{apiApplication}/webhook/rotate-secret', [\App\Http\Controllers\ApiApplicationsController::class, 'rotateWebhookSecret'])->name('api-applications.webhook.rotate-secret');
+        Route::get('/aplicacoes-api/{apiApplication}/webhook/deliveries', [\App\Http\Controllers\ApiApplicationsController::class, 'webhookDeliveries'])->name('api-applications.webhook.deliveries');
         Route::post('/aplicacoes-api/{apiApplication}/regenerate-key', [\App\Http\Controllers\ApiApplicationsController::class, 'regenerateKey'])->name('api-applications.regenerate-key');
         Route::post('/aplicacoes-api/{apiApplication}/reveal-secret', [\App\Http\Controllers\ApiApplicationsController::class, 'revealSecret'])
             ->middleware('throttle:30,1')
             ->name('api-applications.reveal-secret');
         Route::post('/aplicacoes-api/toggle', [\App\Http\Controllers\ApiApplicationsController::class, 'updateApiPixToggle'])->name('api-applications.toggle');
-        Route::post('/aplicacoes-api/{apiApplication}/logo', [\App\Http\Controllers\ApiApplicationsController::class, 'uploadLogo'])->name('api-applications.logo.upload');
-        Route::delete('/aplicacoes-api/{apiApplication}/logo', [\App\Http\Controllers\ApiApplicationsController::class, 'removeLogo'])->name('api-applications.logo.remove');
     });
     Route::middleware('team.permission:integracoes.view')->group(function () {
         Route::post('/integracoes/plugins/{slug}/enable', [\App\Http\Controllers\IntegrationsController::class, 'enablePlugin'])->name('integrations.plugins.enable');
@@ -788,6 +834,8 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
 });
 
 Route::get('/docs/api-pagamentos', [\App\Http\Controllers\ApiDocsController::class, '__invoke'])->name('api-docs.pagamentos');
+Route::get('/docs/api-pagamentos/ia', [\App\Http\Controllers\ApiDocsController::class, 'ia'])->name('api-docs.pagamentos.ia');
+Route::get('/docs/api-pagamentos/llm/full.md', [\App\Http\Controllers\ApiDocsController::class, 'llmBundle'])->name('api-docs.pagamentos.llm');
 Route::get('/docs/api-pagamentos/testar', [\App\Http\Controllers\ApiDocsController::class, 'testar'])->name('api-docs.pagamentos.testar');
 
 // URLs antigas do painel do vendedor → painel da plataforma (operador)

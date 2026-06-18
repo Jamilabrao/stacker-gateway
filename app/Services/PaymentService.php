@@ -6,6 +6,7 @@ use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Product;
+use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Models\Setting;
 use App\Models\User;
 use App\Models\Subscription;
@@ -36,11 +37,11 @@ class PaymentService
             if (microtime(true) > $deadline) {
                 break;
             }
-            $credential = GatewayCredential::resolveForPayment($tenantId, $gatewaySlug);
-            if (! $credential) {
+            $resolved = $this->resolveGatewayPaymentContext($tenantId, $gatewaySlug);
+            if ($resolved === null) {
                 continue;
             }
-            $credentials = $credential->getDecryptedCredentials();
+            $credentials = $resolved['credentials'];
             if (! GatewayApiCredentials::isReadyForGateway($gatewaySlug, $credentials)) {
                 continue;
             }
@@ -56,12 +57,19 @@ class PaymentService
                 } elseif ($gatewaySlug !== 'spacepag') {
                     $postbackUrl = $this->webhookUrlForGateway($gatewaySlug);
                 }
+                $pixOptions = [];
+                $meta = is_array($order->metadata) ? $order->metadata : [];
+                $partnerUrl = trim((string) ($meta['partner_checkout_url'] ?? ''));
+                if ($partnerUrl !== '') {
+                    $pixOptions['partner_checkout_url'] = $partnerUrl;
+                }
                 $result = $driver->createPixPayment(
                     $credentials,
                     (float) $order->amount,
                     $consumer,
                     (string) $order->id,
-                    $postbackUrl
+                    $postbackUrl,
+                    $pixOptions
                 );
                 $copyPaste = $result['copy_paste'] ?? null;
                 $qrcode = $result['qrcode'] ?? null;
@@ -71,6 +79,7 @@ class PaymentService
                 $order->update([
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
+                    'cajupay_account_id' => $gatewaySlug === 'cajupay' ? ($resolved['cajupay_account_id'] ?? null) : $order->cajupay_account_id,
                 ]);
 
                 return [
@@ -115,11 +124,11 @@ class PaymentService
             if (microtime(true) > $deadline) {
                 break;
             }
-            $credential = GatewayCredential::resolveForPayment($tenantId, $gatewaySlug);
-            if (! $credential) {
+            $resolved = $this->resolveGatewayPaymentContext($tenantId, $gatewaySlug);
+            if ($resolved === null) {
                 continue;
             }
-            $credentials = $credential->getDecryptedCredentials();
+            $credentials = $resolved['credentials'];
             if (empty($credentials)) {
                 continue;
             }
@@ -139,6 +148,7 @@ class PaymentService
                 $order->update([
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
+                    'cajupay_account_id' => $gatewaySlug === 'cajupay' ? ($resolved['cajupay_account_id'] ?? null) : $order->cajupay_account_id,
                 ]);
                 $return = [
                     'transaction_id' => $result['transaction_id'] ?? '',
@@ -184,11 +194,11 @@ class PaymentService
             if (microtime(true) > $deadline) {
                 break;
             }
-            $credential = GatewayCredential::resolveForPayment($tenantId, $gatewaySlug);
-            if (! $credential) {
+            $resolved = $this->resolveGatewayPaymentContext($tenantId, $gatewaySlug);
+            if ($resolved === null) {
                 continue;
             }
-            $credentials = $credential->getDecryptedCredentials();
+            $credentials = $resolved['credentials'];
             if (empty($credentials)) {
                 continue;
             }
@@ -211,6 +221,7 @@ class PaymentService
                 $order->update([
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
+                    'cajupay_account_id' => $gatewaySlug === 'cajupay' ? ($resolved['cajupay_account_id'] ?? null) : $order->cajupay_account_id,
                 ]);
                 return [
                     'transaction_id' => $result['transaction_id'] ?? '',
@@ -250,11 +261,11 @@ class PaymentService
     {
         $orderSlugs = $this->getGatewayOrderForMethod($tenantId, $method, $product, $gatewayConfigOverride);
         foreach ($orderSlugs as $gatewaySlug) {
-            $credential = GatewayCredential::resolveForPayment($tenantId, $gatewaySlug);
-            if (! $credential) {
+            $resolved = $this->resolveGatewayPaymentContext($tenantId, $gatewaySlug);
+            if ($resolved === null) {
                 continue;
             }
-            $credentials = $credential->getDecryptedCredentials();
+            $credentials = $resolved['credentials'];
             if (empty($credentials)) {
                 continue;
             }
@@ -457,9 +468,15 @@ class PaymentService
             $slugsToCheck = $this->getGatewayOrderForMethod($tenantId, $methodKey, $product);
 
             foreach ($slugsToCheck as $slug) {
-                $cred = $credentialBySlug->get($slug);
-                if (! $cred) {
-                    continue;
+                if ($slug === 'cajupay') {
+                    if (! app(CajuPayAccountResolver::class)->isAvailableForTenant($tenantId)) {
+                        continue;
+                    }
+                } else {
+                    $cred = $credentialBySlug->get($slug);
+                    if (! $cred) {
+                        continue;
+                    }
                 }
                 $gateway = GatewayRegistry::get($slug);
                 if (! $gateway || ! in_array($methodKey, $gateway['methods'] ?? [], true)) {
@@ -523,9 +540,22 @@ class PaymentService
             }
             $slugsToCheck = $this->getGatewayOrderForMethod($tenantId, $methodKey, $product);
             foreach ($slugsToCheck as $slug) {
-                $cred = $credentialBySlug->get($slug);
-                if (! $cred) {
+                if ($slug === 'cajupay') {
+                    if (app(CajuPayAccountResolver::class)->isAvailableForTenant($tenantId)) {
+                        $out[$methodKey] = true;
+                        break;
+                    }
                     continue;
+                }
+                if ($slug === 'cajupay') {
+                    if (! app(CajuPayAccountResolver::class)->isAvailableForTenant($tenantId)) {
+                        continue;
+                    }
+                } else {
+                    $cred = $credentialBySlug->get($slug);
+                    if (! $cred) {
+                        continue;
+                    }
                 }
                 $gateway = GatewayRegistry::get($slug);
                 if ($gateway && in_array($methodKey, $gateway['methods'] ?? [], true)) {
@@ -536,6 +566,13 @@ class PaymentService
         }
         $firstCardSlug = null;
         foreach ($this->getGatewayOrderForMethod($tenantId, 'card', $product) as $slug) {
+            if ($slug === 'cajupay') {
+                if (app(CajuPayAccountResolver::class)->isAvailableForTenant($tenantId)) {
+                    $firstCardSlug = $slug;
+                    break;
+                }
+                continue;
+            }
             if (! $credentialBySlug->get($slug)) {
                 continue;
             }
@@ -584,5 +621,34 @@ class PaymentService
             return route($name);
         }
         return url('/webhooks/gateways/' . $gatewaySlug);
+    }
+
+    /**
+     * @return array{credentials: array<string, mixed>, cajupay_account_id: ?int}|null
+     */
+    private function resolveGatewayPaymentContext(?int $tenantId, string $gatewaySlug): ?array
+    {
+        if ($gatewaySlug === 'cajupay') {
+            $account = app(CajuPayAccountResolver::class)->resolveForTenant($tenantId);
+            if ($account === null) {
+                return null;
+            }
+            $credentials = $account->getDecryptedCredentials();
+
+            return [
+                'credentials' => $credentials,
+                'cajupay_account_id' => $account->id > 0 ? (int) $account->id : null,
+            ];
+        }
+
+        $credential = GatewayCredential::resolveForPayment($tenantId, $gatewaySlug);
+        if ($credential === null) {
+            return null;
+        }
+
+        return [
+            'credentials' => $credential->getDecryptedCredentials(),
+            'cajupay_account_id' => null,
+        ];
     }
 }

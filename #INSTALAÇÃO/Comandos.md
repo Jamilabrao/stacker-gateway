@@ -29,6 +29,31 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy
 
 Não use `docker compose up` só com `docker-compose.yml` se a instalação foi com Caddy — use sempre o `update.sh` (ele detecta o compose certo).
 
+### Redis e workers da API (obrigatório em produção)
+
+A API PIX async, webhooks de parceiros (`PUT /api/v1/webhook`) e saques usam filas Redis:
+
+| Fila | Uso |
+|------|-----|
+| `payments` | Gerar cobrança PIX após `POST /api/v1/payments/pix` |
+| `webhooks-outbound` | Entregar webhooks para URL do parceiro |
+| `webhooks-inbound` | Processar webhooks dos gateways (async) |
+| `webhooks` | Webhooks internos (painel / integrações) |
+| `payouts` | Saques async |
+
+**Produção:** use `install.sh` (workers dedicados + Redis) ou `install-caddy.sh` (Redis + container `queue` consolidado).  
+**Não use** `install-no-redis.sh` com API em produção (perfil legado, fila no PostgreSQL).
+
+Após `install.sh` ou `update.sh`, a verificação automática roda `docker/verify-workers.sh`. Manualmente:
+
+```bash
+cd /opt/getfy
+sh docker/verify-workers.sh
+COMPOSE="$(sh docker/detect-compose-files.sh)"
+docker compose -f "$COMPOSE" --env-file .docker/stack.env ps
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec redis redis-cli LLEN queues:payments
+```
+
 Qualquer modificação que você fizer no código, após finalizado, basta subir o repositorio para o github novamente, usando o GitHub Desktop ou pelo comando no terminal 
 git add .
 git commit -m update
@@ -148,7 +173,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy
 | Git **needs merge** | `public/build` no índice | Bloco git do início deste ficheiro |
 | **composer install** no Docker build: `curl error 28` / `api.github.com` timeout | Rede do BuildKit no VPS não alcança GitHub a tempo | Na VPS: `cd /opt/getfy && sh docker/install-composer-deps.sh` e depois `update.sh` (versão recente instala vendor no host antes do build) |
 | **composer install**: `ext-gd * -> it is missing` (imagem `composer:2`) | Imagem oficial do Composer não traz GD; `setasign/fpdf` exige a extensão | Atualize o repo (`update.sh` recente usa `docker/composer.Dockerfile`). Ou na VPS: `cd /opt/getfy && sh docker/install-composer-deps.sh` |
-| Webhook **Pedido pago** não dispara (teste manual funciona) | Jobs na fila `webhooks` sem worker | Após `update.sh`: `docker compose exec redis redis-cli LLEN queues:webhooks` (deve ser 0). Logs em **Integrações > Webhooks > Ver logs** |
+| Webhook **Pedido pago** não dispara (teste manual funciona) | Jobs presos em `webhooks` / worker parado | `sh docker/verify-workers.sh`; `redis-cli LLEN queues:webhooks` |
+| **API PIX** fica em `pending` | Fila `payments` sem worker | `redis-cli LLEN queues:payments`; logs `worker-payments` ou `queue` |
+| **Webhook parceiro** não chega | Fila `webhooks-outbound` sem worker | `redis-cli LLEN queues:webhooks-outbound` |
+| Instalação **sem Redis** + API | Perfil `no-redis` legado | Migrar para `install.sh` ou `install-caddy.sh` |
 
 #### Webhook de saída (Pedido pago)
 
@@ -156,10 +184,14 @@ Se o botão **Testar** em Integrações funciona mas o evento real após pagamen
 
 ```bash
 cd /opt/getfy
-# Jobs presos na fila de webhooks?
-docker compose exec redis redis-cli LLEN queues:webhooks
-# Worker deve processar webhooks,default (versões recentes do update.sh)
-docker compose logs queue --tail 20
+COMPOSE="$(sh docker/detect-compose-files.sh)"
+# Jobs presos nas filas da API?
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec redis redis-cli LLEN queues:webhooks
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec redis redis-cli LLEN queues:webhooks-outbound
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec redis redis-cli LLEN queues:payments
+# Logs do worker (perfil standard: worker-webhooks-out; Caddy: queue)
+docker compose -f "$COMPOSE" --env-file .docker/stack.env logs worker-webhooks-out queue --tail 30
+sh docker/verify-workers.sh
 ```
 
 Na UI: **Integrações > Webhooks > Ver logs** — após um pagamento, deve aparecer `pedido_pago` com `success: true`.

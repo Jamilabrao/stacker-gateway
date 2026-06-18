@@ -205,7 +205,7 @@ const kawaiiChartOptions = computed(() => {
                     :icon="RotateCcw"
                     :label="labels.refunds"
                     :value="displayCurrency(reembolsos_total)"
-                    href="/reembolsos"
+                    href="/vendas/reembolsos"
                     variant="stacked"
                     tint="orange"
                 />

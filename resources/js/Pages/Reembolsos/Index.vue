@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { router, useForm, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
+import VendasTabs from '@/components/vendas/VendasTabs.vue';
 import Button from '@/components/ui/Button.vue';
 import { X } from 'lucide-vue-next';
 import { htmlToText } from '@/lib/sanitizeHtml';
@@ -61,7 +62,7 @@ function statusClass(s) {
 
 function setFilter(status) {
     router.get(
-        '/reembolsos',
+        '/vendas/reembolsos',
         { status },
         { preserveState: true, preserveScroll: true, replace: true }
     );
@@ -73,7 +74,7 @@ function approve(rr) {
         return;
     }
     if (!confirm(`Aprovar reembolso do pedido #${rr.order_id}?`)) return;
-    router.post(`/reembolsos/${rr.id}/aprovar`, {}, { preserveScroll: true });
+    router.post(`/vendas/reembolsos/${rr.id}/aprovar`, {}, { preserveScroll: true });
 }
 
 function openReject(rr) {
@@ -90,7 +91,7 @@ function closeReject() {
 
 function submitReject() {
     if (!rejectId.value) return;
-    rejectForm.post(`/reembolsos/${rejectId.value}/recusar`, {
+    rejectForm.post(`/vendas/reembolsos/${rejectId.value}/recusar`, {
         preserveScroll: true,
         onSuccess: () => closeReject(),
     });
@@ -99,6 +100,15 @@ function submitReject() {
 
 <template>
     <div class="space-y-6">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Vendas</h1>
+            <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                Solicitações de reembolso dos seus compradores.
+            </p>
+        </div>
+
+        <VendasTabs />
+
         <p class="text-sm text-zinc-600 dark:text-zinc-400">Solicitações dos seus compradores.</p>
 
         <div

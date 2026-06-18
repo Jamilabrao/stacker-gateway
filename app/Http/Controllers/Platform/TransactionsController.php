@@ -66,20 +66,7 @@ class TransactionsController extends Controller
         ]);
 
         if (Schema::hasTable('orders')) {
-            $query = Order::query()
-                ->with([
-                    'user:id,name,email',
-                    'tenantOwner:id,name,email',
-                    'product:id,name,slug,checkout_slug',
-                    'productOffer:id,name,checkout_slug',
-                    'subscriptionPlan:id,name,checkout_slug',
-                    'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
-                    'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
-                    'orderItems.product:id,name',
-                    'orderItems.productOffer:id,name',
-                    'orderItems.subscriptionPlan:id,name',
-                ])
-                ->orderByDesc('created_at');
+            $query = $this->baseOrdersQuery();
 
             if ($status !== 'all') {
                 $query->where('orders.status', $status);
@@ -106,27 +93,7 @@ class TransactionsController extends Controller
                 ->flip()
                 ->all();
 
-            $ordersPaginator = $paginated->through(function (Order $o) use ($openMedOrderIds) {
-                $arr = $o->toArray();
-                $breakdown = OrderFeeBreakdownService::forOrder($o);
-                $arr['gateway_label'] = $o->paymentMethodDisplayLabel();
-                $arr['product_display_name'] = $this->productDisplayName($o);
-                $arr['checkout_url'] = url('/c/'.$o->getCheckoutSlug());
-                $arr['payment_type_label'] = $this->paymentTypeLabel($o);
-                $arr['amount_total'] = $breakdown['gross'];
-                $arr['amount_gross'] = $breakdown['gross'];
-                $arr['amount_fee'] = $breakdown['fee'];
-                $arr['amount_net'] = $breakdown['net'];
-                $arr['product_label'] = $this->orderProductLabel($o);
-                $arr['customer_name'] = $o->user?->name ?? '—';
-                $arr['customer_email'] = $o->user?->email ?? $o->email ?? '—';
-                $arr['infoprodutor_name'] = $o->tenantOwner?->name ?? '—';
-                $arr['infoprodutor_email'] = $o->tenantOwner?->email;
-                $arr['payment_method_label'] = $o->paymentMethodDisplayLabel();
-                $arr['has_open_med_dispute'] = isset($openMedOrderIds[$o->id]);
-
-                return $arr;
-            });
+            $ordersPaginator = $paginated->through(fn (Order $o) => $this->mapOrderForAdmin($o, $openMedOrderIds));
         }
 
         return Inertia::render('Platform/Transactions/Index', [
@@ -136,6 +103,118 @@ class TransactionsController extends Controller
                 'q' => $q,
             ],
         ]);
+    }
+
+    public function apiIndex(Request $request): Response
+    {
+        $status = $request->query('status', 'all');
+        if (! in_array($status, self::STATUS_OPTIONS, true)) {
+            $status = 'all';
+        }
+        $q = trim((string) $request->query('q', ''));
+
+        $ordersPaginator = new LengthAwarePaginator([], 0, 40, 1, [
+            'path' => $request->url(),
+            'query' => $request->query(),
+        ]);
+
+        if (Schema::hasTable('orders')) {
+            $query = $this->baseOrdersQuery()
+                ->whereNotNull('orders.api_application_id')
+                ->where('orders.payment_method', 'pix')
+                ->where('orders.metadata->source', 'api');
+
+            if ($status !== 'all') {
+                $query->where('orders.status', $status);
+            }
+
+            if ($q !== '') {
+                $query->where(function ($w) use ($q) {
+                    $w->where('orders.email', 'like', '%'.$q.'%')
+                        ->orWhereHas('user', function ($u) use ($q) {
+                            $u->where('name', 'like', '%'.$q.'%')
+                                ->orWhere('email', 'like', '%'.$q.'%');
+                        });
+                    if (ctype_digit($q)) {
+                        $w->orWhere('orders.id', $q);
+                    }
+                });
+            }
+
+            $paginated = $query->paginate(40)->withQueryString();
+            $openMedOrderIds = MedDispute::query()
+                ->whereIn('order_id', $paginated->getCollection()->pluck('id'))
+                ->open()
+                ->pluck('order_id')
+                ->flip()
+                ->all();
+
+            $ordersPaginator = $paginated->through(fn (Order $o) => $this->mapOrderForAdmin($o, $openMedOrderIds));
+        }
+
+        return Inertia::render('Platform/ApiTransactions/Index', [
+            'orders' => $ordersPaginator,
+            'filters' => [
+                'status' => $status,
+                'q' => $q,
+            ],
+        ]);
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Builder<Order>
+     */
+    private function baseOrdersQuery()
+    {
+        return Order::query()
+            ->with([
+                'user:id,name,email',
+                'tenantOwner:id,name,email',
+                'product:id,name,slug,checkout_slug',
+                'productOffer:id,name,checkout_slug',
+                'subscriptionPlan:id,name,checkout_slug',
+                'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
+                'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
+                'orderItems.product:id,name',
+                'orderItems.productOffer:id,name',
+                'orderItems.subscriptionPlan:id,name',
+                'apiApplication:id,name',
+            ])
+            ->orderByDesc('created_at');
+    }
+
+    /**
+     * @param  array<int, int>  $openMedOrderIds
+     * @return array<string, mixed>
+     */
+    private function mapOrderForAdmin(Order $o, array $openMedOrderIds): array
+    {
+        $arr = $o->toArray();
+        $breakdown = OrderFeeBreakdownService::forOrder($o);
+        $meta = is_array($o->metadata) ? $o->metadata : [];
+        $partnerCheckoutUrl = trim((string) ($meta['partner_checkout_url'] ?? ''));
+
+        $arr['gateway_label'] = $o->paymentMethodDisplayLabel();
+        $arr['product_display_name'] = $this->productDisplayName($o);
+        $arr['checkout_url'] = url('/c/'.$o->getCheckoutSlug());
+        $arr['partner_checkout_url'] = $partnerCheckoutUrl !== '' ? $partnerCheckoutUrl : null;
+        $arr['payment_type_label'] = $this->paymentTypeLabel($o);
+        $arr['amount_total'] = $breakdown['gross'];
+        $arr['amount_gross'] = $breakdown['gross'];
+        $arr['amount_fee'] = $breakdown['fee'];
+        $arr['amount_net'] = $breakdown['net'];
+        $arr['product_label'] = $this->orderProductLabel($o);
+        $arr['customer_name'] = $o->user?->name ?? '—';
+        $arr['customer_email'] = $o->user?->email ?? $o->email ?? '—';
+        $arr['infoprodutor_name'] = $o->tenantOwner?->name ?? '—';
+        $arr['infoprodutor_email'] = $o->tenantOwner?->email;
+        $arr['payment_method_label'] = $o->paymentMethodDisplayLabel();
+        $arr['has_open_med_dispute'] = isset($openMedOrderIds[$o->id]);
+        $arr['api_application_name'] = $o->apiApplication?->name;
+        $arr['is_pixgo'] = $o->isPixGoSale();
+        $arr['pixgo_label'] = \App\Services\PixGoAccess::sidebarLabel();
+
+        return $arr;
     }
 
     private function orderActionRedirectParams(Request $request): array
@@ -282,6 +361,10 @@ class TransactionsController extends Controller
 
     private function orderProductLabel(Order $order): string
     {
+        if ($order->isPixGoSale()) {
+            return 'Venda '.\App\Services\PixGoAccess::sidebarLabel();
+        }
+
         $product = $order->product;
         if (! $product) {
             return '—';

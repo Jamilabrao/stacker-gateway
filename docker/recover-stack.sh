@@ -106,7 +106,7 @@ else
 fi
 echo ""
 
-echo "=== 6) Subir stack completo (Caddy + app + postgres + redis + queue) ==="
+echo "=== 6) Subir stack completo (app + postgres + redis + workers/queue + scheduler) ==="
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 echo ""
 

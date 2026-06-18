@@ -8,12 +8,16 @@ use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
 use App\Services\AdminWalletAdjustmentService;
 use App\Gateways\GatewayRegistry;
+use App\Models\CajuPayAccount;
 use App\Models\MerchantAdminNote;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\EffectiveMerchantFees;
 use App\Services\MerchantWalletAdminBlockService;
+use App\Services\MinimumChargeService;
+use App\Services\ApiPixAccess;
+use App\Services\Med\MedPolicyService;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\SalesAchievementsService;
@@ -38,6 +42,7 @@ class UsersController extends Controller
 
     public function __construct(
         protected SalesAchievementsService $salesAchievements,
+        protected MinimumChargeService $minimumChargeService,
     ) {}
 
     public function index(Request $request): Response
@@ -99,6 +104,8 @@ class UsersController extends Controller
                 ];
             }
 
+            $chargeLimits = $tidInt > 0 ? $this->chargeLimitsPayloadForTenant($tidInt) : $this->emptyChargeLimitsPayload();
+
             return [
                 'id' => $u->id,
                 'name' => $u->name,
@@ -111,6 +118,11 @@ class UsersController extends Controller
                 'merchant_fees' => $u->merchant_fees ?? [],
                 'merchant_settlement_overrides' => $u->merchant_settlement_overrides ?? [],
                 'merchant_gateway_order' => $u->merchant_gateway_order ?? [],
+                'cajupay_account_id' => $u->cajupay_account_id,
+                'api_pix_mode' => $tidInt > 0 ? ApiPixAccess::tenantMode($tidInt) : ApiPixAccess::MODE_INHERIT,
+                'api_pix_enabled_effective' => $tidInt > 0 ? ApiPixAccess::effectiveForTenant($tidInt) : ApiPixAccess::globalEnabled(),
+                'med_zero_enabled' => $tidInt > 0 ? app(MedPolicyService::class)->medZeroForTenant($tidInt) : false,
+                'charge_limits' => $chargeLimits,
                 'saldo_disponivel' => $w ? (float) $w->available_balance : 0.0,
                 'saldo_pix' => $w ? (float) $w->pending_balance : 0.0,
                 'vendas_totais' => $salesTotals[$tidInt] ?? 0.0,
@@ -123,13 +135,34 @@ class UsersController extends Controller
         });
 
         $settingsTenantId = PlatformConfigContext::settingsTenantId();
+        $editUserId = $request->query('edit');
+        $editUserId = is_numeric($editUserId) ? (int) $editUserId : null;
 
         return Inertia::render('Platform/Users/Index', [
             'users' => $rows,
             'q' => $search,
+            'edit_user_id' => $editUserId,
             'gateways' => $this->buildGatewaysListForMerchantPicker(),
             'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
             'platform_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::platformDefaults()),
+            'platform_charge_limits' => [
+                'api_pix_minimum_charge_brl' => $this->minimumChargeService->apiPixMinimumBrl(),
+                'platform_minimum_charge_brl' => $this->minimumChargeService->platformMinimumBrl(),
+            ],
+            'platform_api_pix_enabled' => ApiPixAccess::globalEnabled(),
+            'cajupay_accounts' => CajuPayAccount::query()
+                ->enabled()
+                ->connected()
+                ->orderByDesc('is_default')
+                ->orderBy('name')
+                ->get(['id', 'name', 'is_default'])
+                ->map(fn (CajuPayAccount $a) => [
+                    'id' => $a->id,
+                    'name' => $a->name,
+                    'is_default' => $a->is_default,
+                ])
+                ->values()
+                ->all(),
         ]);
     }
 
@@ -176,7 +209,18 @@ class UsersController extends Controller
             'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),
             'wallet_transactions' => $this->walletTransactionsPayloadForTenant($tenantId),
             'wallet_transaction_type_labels' => WalletTransaction::typeLabels(),
-            'effective_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::forTenant($tenantId)),
+            'effective_merchant_fees' => $this->formatEffectiveFeesForFrontend(
+                EffectiveMerchantFees::forTenant($tenantId),
+                $user->merchant_fees
+            ),
+            'api_pix_mode' => ApiPixAccess::tenantMode($tenantId),
+            'api_pix_enabled_effective' => ApiPixAccess::effectiveForTenant($tenantId),
+            'charge_limits' => $this->chargeLimitsPayloadForTenant($tenantId),
+            'platform_charge_limits' => [
+                'api_pix_minimum_charge_brl' => $this->minimumChargeService->apiPixMinimumBrl(),
+                'platform_minimum_charge_brl' => $this->minimumChargeService->platformMinimumBrl(),
+            ],
+            'platform_api_pix_enabled' => ApiPixAccess::globalEnabled(),
             'admin_notes' => $adminNotes,
         ]);
     }
@@ -307,6 +351,13 @@ class UsersController extends Controller
             'admin_blocked_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
             'admin_block_until' => ['nullable', 'date'],
             'admin_block_note' => ['nullable', 'string', 'max:500'],
+            'api_pix_mode' => ['nullable', 'string', 'in:inherit,enabled,disabled'],
+            'med_zero_enabled' => ['nullable', 'boolean'],
+            'api_pix_minimum_charge_brl' => ['nullable', 'numeric', 'min:0', 'max:999999'],
+            'platform_minimum_charge_brl' => ['nullable', 'numeric', 'min:0', 'max:999999'],
+            'use_platform_api_pix_minimum' => ['nullable', 'boolean'],
+            'use_platform_platform_minimum' => ['nullable', 'boolean'],
+            'cajupay_account_id' => ['nullable', 'integer', 'exists:cajupay_accounts,id'],
         ], [
             'email.unique' => 'Este e-mail já está em uso.',
             'password.confirmed' => 'A confirmação da senha não confere.',
@@ -349,10 +400,87 @@ class UsersController extends Controller
             );
         }
 
+        if ($request->has('cajupay_account_id')) {
+            $accountId = $validated['cajupay_account_id'] ?? null;
+            if ($accountId !== null) {
+                $account = CajuPayAccount::query()->whereKey($accountId)->enabled()->connected()->first();
+                if ($account === null) {
+                    throw ValidationException::withMessages([
+                        'cajupay_account_id' => 'Conta CajuPay inválida ou indisponível.',
+                    ]);
+                }
+            }
+            $user->cajupay_account_id = $accountId;
+        }
+
         $user->save();
 
+        $tenantId = (int) ($user->tenant_id ?? $user->id);
+        if ($tenantId > 0) {
+            if ($request->has('api_pix_mode') && isset($validated['api_pix_mode'])) {
+                $prevMode = ApiPixAccess::tenantMode($tenantId);
+                $newMode = $validated['api_pix_mode'];
+                if ($prevMode !== $newMode) {
+                    ApiPixAccess::setTenantMode($tenantId, $newMode);
+                    PlatformAuditService::log('platform.merchant.api_pix_mode', [
+                        'merchant_user_id' => $user->id,
+                        'tenant_id' => $tenantId,
+                        'from' => $prevMode,
+                        'to' => $newMode,
+                    ], $request);
+                }
+            }
+
+            if ($request->has('med_zero_enabled')) {
+                $prevMedZero = app(MedPolicyService::class)->medZeroForTenant($tenantId);
+                $newMedZero = $request->boolean('med_zero_enabled');
+                if ($prevMedZero !== $newMedZero) {
+                    app(MedPolicyService::class)->setMedZeroForTenant($tenantId, $newMedZero);
+                    PlatformAuditService::log('platform.merchant.med_zero', [
+                        'merchant_user_id' => $user->id,
+                        'tenant_id' => $tenantId,
+                        'from' => $prevMedZero,
+                        'to' => $newMedZero,
+                    ], $request);
+                }
+            }
+
+            if ($this->requestTouchesApiPixMinimum($request)) {
+                $prevApi = $this->minimumChargeService->tenantApiPixOverride($tenantId);
+                $apiMin = $this->normalizeTenantChargeLimitInput(
+                    $request,
+                    'api_pix_minimum_charge_brl',
+                    'use_platform_api_pix_minimum'
+                );
+                $this->minimumChargeService->setTenantApiPixOverride($tenantId, $apiMin);
+                if ($prevApi !== $apiMin) {
+                    PlatformAuditService::log('platform.merchant.charge_limits', [
+                        'merchant_user_id' => $user->id,
+                        'tenant_id' => $tenantId,
+                        'api_pix_minimum_charge_brl' => $apiMin,
+                    ], $request);
+                }
+            }
+
+            if ($this->requestTouchesPlatformMinimum($request)) {
+                $prevPlatform = $this->minimumChargeService->tenantPlatformOverride($tenantId);
+                $platformMin = $this->normalizeTenantChargeLimitInput(
+                    $request,
+                    'platform_minimum_charge_brl',
+                    'use_platform_platform_minimum'
+                );
+                $this->minimumChargeService->setTenantPlatformOverride($tenantId, $platformMin);
+                if ($prevPlatform !== $platformMin) {
+                    PlatformAuditService::log('platform.merchant.charge_limits', [
+                        'merchant_user_id' => $user->id,
+                        'tenant_id' => $tenantId,
+                        'platform_minimum_charge_brl' => $platformMin,
+                    ], $request);
+                }
+            }
+        }
+
         if (Schema::hasTable('tenant_wallets') && Schema::hasColumn('tenant_wallets', 'admin_withdrawal_blocked')) {
-            $tenantId = (int) ($user->tenant_id ?? $user->id);
             if ($tenantId > 0) {
                 $wallet = TenantWallet::query()->firstOrCreate(
                     ['tenant_id' => $tenantId],
@@ -497,9 +625,10 @@ class UsersController extends Controller
 
     /**
      * @param  array<string, array{percent: float, fixed: float}>  $fees
-     * @return list<array{key: string, label: string, percent: float, fixed: float}>
+     * @param  array<string, mixed>|null  $rawOverrides
+     * @return list<array{key: string, label: string, percent: float, fixed: float, has_override: bool}>
      */
-    private function formatEffectiveFeesForFrontend(array $fees): array
+    private function formatEffectiveFeesForFrontend(array $fees, ?array $rawOverrides = null): array
     {
         $labels = [
             'pix' => 'PIX (checkout)',
@@ -514,14 +643,84 @@ class UsersController extends Controller
         $rows = [];
         foreach (['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'] as $key) {
             $block = $fees[$key] ?? ['percent' => 0.0, 'fixed' => 0.0];
+            $overrideBlock = is_array($rawOverrides) ? ($rawOverrides[$key] ?? null) : null;
+            $hasOverride = is_array($overrideBlock) && (
+                (array_key_exists('percent', $overrideBlock) && $overrideBlock['percent'] !== '' && $overrideBlock['percent'] !== null)
+                || (array_key_exists('fixed', $overrideBlock) && $overrideBlock['fixed'] !== '' && $overrideBlock['fixed'] !== null)
+            );
             $rows[] = [
                 'key' => $key,
                 'label' => $labels[$key],
                 'percent' => round((float) ($block['percent'] ?? 0), 4),
                 'fixed' => round((float) ($block['fixed'] ?? 0), 2),
+                'has_override' => $hasOverride,
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * @return array{
+     *     api_pix_minimum_charge_brl: float|null,
+     *     platform_minimum_charge_brl: float|null,
+     *     api_pix_minimum_effective_brl: float,
+     *     platform_minimum_effective_brl: float
+     * }
+     */
+    private function chargeLimitsPayloadForTenant(int $tenantId): array
+    {
+        return [
+            'api_pix_minimum_charge_brl' => $this->minimumChargeService->tenantApiPixOverride($tenantId),
+            'platform_minimum_charge_brl' => $this->minimumChargeService->tenantPlatformOverride($tenantId),
+            'api_pix_minimum_effective_brl' => $this->minimumChargeService->apiPixMinimumBrlForTenant($tenantId),
+            'platform_minimum_effective_brl' => $this->minimumChargeService->platformMinimumBrlForTenant($tenantId),
+        ];
+    }
+
+    /**
+     * @return array{
+     *     api_pix_minimum_charge_brl: null,
+     *     platform_minimum_charge_brl: null,
+     *     api_pix_minimum_effective_brl: float,
+     *     platform_minimum_effective_brl: float
+     * }
+     */
+    private function emptyChargeLimitsPayload(): array
+    {
+        return [
+            'api_pix_minimum_charge_brl' => null,
+            'platform_minimum_charge_brl' => null,
+            'api_pix_minimum_effective_brl' => $this->minimumChargeService->apiPixMinimumBrl(),
+            'platform_minimum_effective_brl' => $this->minimumChargeService->platformMinimumBrl(),
+        ];
+    }
+
+    private function requestTouchesApiPixMinimum(Request $request): bool
+    {
+        return $request->hasAny(['api_pix_minimum_charge_brl', 'use_platform_api_pix_minimum']);
+    }
+
+    private function requestTouchesPlatformMinimum(Request $request): bool
+    {
+        return $request->hasAny(['platform_minimum_charge_brl', 'use_platform_platform_minimum']);
+    }
+
+    private function normalizeTenantChargeLimitInput(Request $request, string $field, string $inheritFlag): ?float
+    {
+        if ($request->boolean($inheritFlag)) {
+            return null;
+        }
+
+        if (! $request->has($field)) {
+            return null;
+        }
+
+        $raw = $request->input($field);
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        return round(max(0, (float) $raw), 2);
     }
 }

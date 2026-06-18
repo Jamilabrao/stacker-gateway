@@ -45,6 +45,42 @@ class MemberBuilderCommunityPageTest extends TestCase
         $this->assertCount(2, $second->json('community_pages'));
     }
 
+    public function test_can_update_community_page_via_post_route(): void
+    {
+        $this->withoutMiddleware(EnsureInstalled::class);
+
+        $owner = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+            'account_status' => 'approved',
+            'kyc_status' => User::KYC_APPROVED,
+        ]);
+        $owner->forceFill(['tenant_id' => $owner->id])->save();
+
+        $product = $this->createTestProduct([
+            'type' => Product::TYPE_AREA_MEMBROS,
+            'tenant_id' => $owner->id,
+            'checkout_slug' => 'mbcup'.substr(uniqid('', true), -8),
+            'slug' => 'mcu-'.substr(uniqid('', true), -8),
+        ]);
+
+        $page = MemberCommunityPage::create([
+            'product_id' => $product->id,
+            'title' => 'Original',
+            'slug' => 'original',
+            'position' => 1,
+            'is_public_posting' => true,
+            'is_default' => false,
+        ]);
+
+        $response = $this->actingAs($owner)->postJson(
+            route('member-builder.community-pages.update.post', ['produto' => $product->id, 'page' => $page->id]),
+            ['title' => 'teste', 'is_public_posting' => true, 'is_default' => false]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('community_pages.0.title', 'teste');
+    }
+
     public function test_member_area_internal_products_include_checkout_url(): void
     {
         $this->withoutMiddleware(EnsureInstalled::class);

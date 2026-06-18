@@ -16,6 +16,7 @@ interface GatewayDriver
      *
      * @param  array<string, string>  $credentials
      * @param  array{name: string, document: string, email: string}  $consumer
+     * @param  array<string, mixed>  $options
      * @return array{transaction_id: string, qrcode?: string, copy_paste?: string, raw?: array}
      */
     public function createPixPayment(
@@ -23,7 +24,8 @@ interface GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array;
 
     /**

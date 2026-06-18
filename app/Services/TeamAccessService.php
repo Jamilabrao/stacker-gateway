@@ -85,6 +85,7 @@ class TeamAccessService
             'integracoes.view' => true,
             'email_marketing.view' => true,
             'api_pagamentos.view' => true,
+            'pixgo.view' => true,
             'configuracoes.view' => true,
             'equipe.manage' => true,
         ];

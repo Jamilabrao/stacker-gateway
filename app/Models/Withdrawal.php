@@ -22,6 +22,8 @@ class Withdrawal extends Model
         'payout_external_id',
         'payout_meta',
         'payout_manual',
+        'api_application_id',
+        'api_key_id',
     ];
 
     protected function casts(): array

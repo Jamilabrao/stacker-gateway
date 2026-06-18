@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Support\ApiScopes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Schema;
@@ -33,7 +34,15 @@ class ApiApplication extends Model
         'webhook_url',
         'default_return_url',
         'webhook_secret',
+        'webhook_events',
+        'webhook_enabled',
         'is_active',
+        'is_legacy',
+        'scopes',
+        'strict_idempotency',
+        'async_payments',
+        'rate_limit_tier',
+        'legacy_api_key_sha256',
     ];
 
     protected function casts(): array
@@ -41,8 +50,29 @@ class ApiApplication extends Model
         return [
             'payment_gateways' => 'array',
             'allowed_ips' => 'array',
+            'webhook_events' => 'array',
+            'webhook_enabled' => 'boolean',
+            'scopes' => 'array',
             'is_active' => 'boolean',
+            'is_legacy' => 'boolean',
+            'strict_idempotency' => 'boolean',
+            'async_payments' => 'boolean',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $model) {
+            if ($model->is_legacy === null) {
+                $model->is_legacy = true;
+            }
+            if ($model->scopes === null) {
+                $model->scopes = ApiScopes::legacyDefaults();
+            }
+            if ($model->rate_limit_tier === null) {
+                $model->rate_limit_tier = 'legacy';
+            }
+        });
     }
 
     /**
@@ -157,6 +187,23 @@ class ApiApplication extends Model
         return $this->hasMany(Order::class, 'api_application_id');
     }
 
+    public function apiKeys(): HasMany
+    {
+        return $this->hasMany(ApiKey::class, 'api_application_id');
+    }
+
+    public function isLegacyApplication(): bool
+    {
+        return (bool) ($this->is_legacy ?? true);
+    }
+
+    public function hasScope(string $scope): bool
+    {
+        $scopes = $this->scopes ?? ApiScopes::legacyDefaults();
+
+        return ApiScopes::hasScope(is_array($scopes) ? $scopes : [], $scope, $this->isLegacyApplication());
+    }
+
     /**
      * Generate a unique slug for the tenant.
      */
@@ -213,6 +260,11 @@ class ApiApplication extends Model
             'default_return_url' => null,
             'webhook_secret' => null,
             'is_active' => true,
+            'is_legacy' => true,
+            'scopes' => ApiScopes::legacyDefaults(),
+            'strict_idempotency' => false,
+            'async_payments' => false,
+            'rate_limit_tier' => 'legacy',
             'checkout_sidebar_bg' => null,
         ];
         if (Schema::hasColumn((new static)->getTable(), 'secret_encrypted')) {

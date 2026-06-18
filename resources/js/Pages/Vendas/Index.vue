@@ -116,6 +116,7 @@ const filterForm = ref({
     utm_source: props.filters?.utm_source ?? '',
     utm_medium: props.filters?.utm_medium ?? '',
     utm_campaign: props.filters?.utm_campaign ?? '',
+    sale_channel: props.filters?.sale_channel ?? '',
 });
 
 const advancedFiltersOpen = ref(false);
@@ -141,6 +142,7 @@ watch(
         filterForm.value.utm_source = f.utm_source ?? '';
         filterForm.value.utm_medium = f.utm_medium ?? '';
         filterForm.value.utm_campaign = f.utm_campaign ?? '';
+        filterForm.value.sale_channel = f.sale_channel ?? '';
     },
     { deep: true },
 );
@@ -174,6 +176,7 @@ function buildQuery(overrides = {}) {
         }
         if (typeof v === 'string' && v.trim() === '') return;
         if ((k === 'period' || k === 'payment_method' || k === 'payment_status') && v === 'all') return;
+        if (k === 'sale_channel' && (v === '' || v === 'all')) return;
         cleaned[k] = v;
     });
     if (cleaned.period !== 'custom') {
@@ -445,6 +448,7 @@ function buildExportSearchParams(format) {
         }
         if (typeof v === 'string' && v.trim() === '') return;
         if ((k === 'period' || k === 'payment_method' || k === 'payment_status') && v === 'all') return;
+        if (k === 'sale_channel' && (v === '' || v === 'all')) return;
         params.append(k, String(v));
     });
     return params;
@@ -726,6 +730,18 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 </button>
                 <div v-if="advancedFiltersOpen" class="mt-3 grid gap-3 lg:grid-cols-3">
                     <div>
+                        <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Canal</label>
+                        <select
+                            v-model="filterForm.sale_channel"
+                            class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                            @change="onFilterChange"
+                        >
+                            <option value="">Todos</option>
+                            <option value="api_pix">API PIX</option>
+                            <option value="pixgo">PixGO</option>
+                        </select>
+                    </div>
+                    <div>
                         <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">utm_source</label>
                         <input
                             v-model="filterForm.utm_source"
@@ -777,6 +793,14 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                         </p>
                         <p class="mt-1 break-words text-sm font-semibold leading-snug text-zinc-900 dark:text-white">
                             {{ v.product_display_name ?? v.product?.name ?? '–' }}
+                            <span
+                                v-if="v.is_api_pix"
+                                class="ml-1 inline-flex rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                            >API PIX</span>
+                            <span
+                                v-if="v.is_pixgo"
+                                class="ml-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
+                            >{{ v.sale_channel_label || 'PixGO' }}</span>
                         </p>
                     </div>
                     <div class="flex shrink-0 items-center gap-1" @click.stop>
@@ -911,6 +935,14 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                         </td>
                         <td class="px-4 py-3 text-sm text-zinc-900 dark:text-white">
                             {{ v.product_display_name ?? v.product?.name ?? '–' }}
+                            <span
+                                v-if="v.is_api_pix"
+                                class="ml-1 inline-flex rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                            >API PIX</span>
+                            <span
+                                v-if="v.is_pixgo"
+                                class="ml-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
+                            >{{ v.sale_channel_label || 'PixGO' }}</span>
                         </td>
                         <td class="px-4 py-3">
                             <div class="flex flex-col gap-0.5">

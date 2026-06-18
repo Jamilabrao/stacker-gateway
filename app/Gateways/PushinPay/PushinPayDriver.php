@@ -75,7 +75,8 @@ class PushinPayDriver implements GatewayDriver
         float $amount,
         array $consumer,
         string $externalId,
-        string $postbackUrl
+        string $postbackUrl,
+        array $options = []
     ): array {
         $token = $this->getToken($credentials);
         if ($token === null) {

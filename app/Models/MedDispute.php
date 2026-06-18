@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class MedDispute extends Model
 {
+    public const PARTY_PLATFORM = 'platform';
+
+    public const PARTY_TENANT = 'tenant';
+
     public const STATUS_OPEN = 'open';
 
     public const STATUS_DEFENSE_SUBMITTED = 'defense_submitted';
@@ -20,6 +24,7 @@ class MedDispute extends Model
     protected $fillable = [
         'order_id',
         'tenant_id',
+        'responsible_party',
         'cajupay_dispute_id',
         'cajupay_payment_id',
         'status',
@@ -27,10 +32,15 @@ class MedDispute extends Model
         'amount_cents',
         'currency',
         'txid',
+        'reason',
+        'reason_code',
         'defense_text',
+        'defense_dossier_path',
         'defended_at',
         'opened_at',
         'resolved_at',
+        'resolved_by_user_id',
+        'resolution_note',
         'metadata',
     ];
 
@@ -53,6 +63,31 @@ class MedDispute extends Model
     public function tenantOwner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'tenant_id', 'id');
+    }
+
+    public function resolvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'resolved_by_user_id');
+    }
+
+    public function scopeTenantManaged($query)
+    {
+        return $query->where('responsible_party', self::PARTY_TENANT);
+    }
+
+    public function scopePlatformManaged($query)
+    {
+        return $query->where('responsible_party', self::PARTY_PLATFORM);
+    }
+
+    public function isTenantManaged(): bool
+    {
+        return $this->responsible_party === self::PARTY_TENANT;
+    }
+
+    public function isPlatformManaged(): bool
+    {
+        return $this->responsible_party === self::PARTY_PLATFORM;
     }
 
     public function scopeOpen($query)

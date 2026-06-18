@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, watch } from 'vue';
+import { onMounted, watch } from 'vue';
 
 const props = defineProps({
     pixels: { type: Object, default: () => ({}) },
@@ -14,6 +14,10 @@ let gtagExternalScriptInserted = false;
 const gtagConfiguredIds = new Set();
 const metaInitedPixelIds = new Set();
 const tiktokLoadedPixelIds = new Set();
+const META_FBEvents_SRC = 'https://connect.facebook.net/en_US/fbevents.js';
+const META_FBEvents_SCRIPT_ID = 'getfy-meta-fbevents';
+let metaLibLoadPromise = null;
+let metaLibReady = false;
 
 /** Permite apenas IDs alfanuméricos, hífen e underscore para evitar XSS. */
 function isValidPixelId(id) {
@@ -35,14 +39,30 @@ function fingerprintPixels(pixels) {
     }
 }
 
+function normalizeMetaPixelId(raw) {
+    const digits = String(raw ?? '').replace(/\D/g, '');
+    if (digits.length < 5 || digits.length > 20) return '';
+    return digits;
+}
+
 function getMetaEntries(p) {
     const m = p?.meta;
     if (!m?.enabled) return [];
     if (Array.isArray(m.entries)) {
-        return m.entries.filter((e) => e && isValidPixelId(String(e.pixel_id || '').trim()));
+        return m.entries
+            .map((e) => {
+                if (!e || typeof e !== 'object') return null;
+                const pixelId = normalizeMetaPixelId(e.pixel_id);
+                if (!pixelId || !isValidPixelId(pixelId)) return null;
+                return { ...e, pixel_id: pixelId };
+            })
+            .filter(Boolean);
     }
-    if (m.pixel_id && isValidPixelId(String(m.pixel_id).trim())) {
-        return [m];
+    if (m.pixel_id) {
+        const pixelId = normalizeMetaPixelId(m.pixel_id);
+        if (pixelId && isValidPixelId(pixelId)) {
+            return [{ ...m, pixel_id: pixelId }];
+        }
     }
     return [];
 }
@@ -83,6 +103,72 @@ function getGaEntries(p) {
     return [];
 }
 
+function bootstrapMetaQueue() {
+    if (window.fbq) return;
+    const n = (window.fbq = function (...args) {
+        if (n.callMethod) {
+            n.callMethod(...args);
+        } else {
+            n.queue.push(args);
+        }
+    });
+    if (!window._fbq) window._fbq = n;
+    n.push = n;
+    n.loaded = true;
+    n.version = '2.0';
+    n.queue = n.queue || [];
+}
+
+function ensureMetaLibLoaded() {
+    bootstrapMetaQueue();
+    if (metaLibReady) {
+        return Promise.resolve();
+    }
+    if (metaLibLoadPromise) {
+        return metaLibLoadPromise;
+    }
+
+    metaLibLoadPromise = new Promise((resolve, reject) => {
+        let script = document.getElementById(META_FBEvents_SCRIPT_ID);
+        const finish = () => {
+            metaLibReady = true;
+            resolve();
+        };
+        const fail = () => reject(new Error('meta_fbevents_load_failed'));
+
+        if (!script) {
+            script = document.createElement('script');
+            script.id = META_FBEvents_SCRIPT_ID;
+            script.async = true;
+            script.src = META_FBEvents_SRC;
+            script.onload = finish;
+            script.onerror = fail;
+            document.head.appendChild(script);
+            return;
+        }
+
+        if (script.getAttribute('data-loaded') === '1') {
+            finish();
+            return;
+        }
+
+        script.addEventListener(
+            'load',
+            () => {
+                script.setAttribute('data-loaded', '1');
+                finish();
+            },
+            { once: true }
+        );
+        script.addEventListener('error', fail, { once: true });
+    }).catch((err) => {
+        metaLibLoadPromise = null;
+        throw err;
+    });
+
+    return metaLibLoadPromise;
+}
+
 function injectMetaLibAndInit(metaEntries) {
     const ids = metaEntries.map((e) => String(e.pixel_id).trim()).filter((id) => id && isValidPixelId(id));
     if (!ids.length) return;
@@ -95,30 +181,26 @@ function injectMetaLibAndInit(metaEntries) {
                 metaInitedPixelIds.add(id);
             }
         });
-        // Dispara a cada carga real da página (F5 = nova visualização; não deduplicar em sessionStorage
-        // senão o PageView deixa de aparecer após refresh e o pixel parece "sumir" no depurador).
         window.fbq('track', 'PageView');
     };
 
-    if (typeof window.fbq === 'function') {
+    if (metaLibReady && typeof window.fbq === 'function') {
         runInits();
         return;
     }
 
-    const s = document.createElement('script');
-    s.async = true;
-    s.defer = true;
-    s.innerHTML =
-        "!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');";
-    document.head.appendChild(s);
+    ensureMetaLibLoaded()
+        .then(runInits)
+        .catch(() => {});
 
     const deadline = Date.now() + 10000;
     const t = setInterval(() => {
-        if (typeof window.fbq === 'function') {
+        if (typeof window.fbq === 'function' && ids.every((id) => metaInitedPixelIds.has(id))) {
             clearInterval(t);
-            runInits();
         } else if (Date.now() > deadline) {
             clearInterval(t);
+        } else if (typeof window.fbq === 'function') {
+            runInits();
         }
     }, 30);
 }
@@ -247,7 +329,6 @@ function init() {
     if (fp === lastPixelsFingerprint) return;
     lastPixelsFingerprint = fp;
 
-    metaInitedPixelIds.clear();
     tiktokLoadedPixelIds.clear();
     gtagConfiguredIds.clear();
 
@@ -460,6 +541,7 @@ defineExpose({
         const waitMs = 4200;
         try {
             injectMetaLibAndInit(metaEntries);
+            await ensureMetaLibLoaded().catch(() => {});
             await waitForMeta(waitMs);
             if (typeof window.fbq !== 'function') {
                 return false;
@@ -491,7 +573,7 @@ defineExpose({
         const metaEntries = p.meta?.enabled ? getMetaEntries(p) : [];
         if (metaEntries.length) {
             injectMetaLibAndInit(metaEntries);
-            // Evita corrida: fbq pode existir mas pixel ainda não ter sido initado.
+            await ensureMetaLibLoaded().catch(() => {});
             await waitForMeta(4200);
             await waitForMetaPixelInit(metaEntries, 4200);
         }

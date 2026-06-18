@@ -1,19 +1,19 @@
 <script setup>
-import { computed } from 'vue';
-import { usePage } from '@inertiajs/vue3';
+import { computed, toRef } from 'vue';
 import { wrapCampaignBodyHtml } from '@/lib/emailCampaignBody';
+import { useBrandingThemePrimary } from '@/composables/useBrandingThemePrimary';
 
 const model = defineModel({ type: String, required: true });
 
 const props = defineProps({
     error: { type: String, default: '' },
+    themePrimary: { type: String, default: '' },
 });
 
-const page = usePage();
-const themePrimary = computed(() => page.props.public_branding?.theme_primary ?? null);
+const resolvedThemePrimary = useBrandingThemePrimary(toRef(props, 'themePrimary'));
 
 const previewHtml = computed(() => wrapCampaignBodyHtml(model.value, {
-    themePrimary: themePrimary.value,
+    themePrimary: resolvedThemePrimary.value,
 }));
 </script>
 

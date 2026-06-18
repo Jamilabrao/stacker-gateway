@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\ApiPixAccess;
 use App\Services\EffectiveMerchantFees;
 use App\Services\PaymentService;
+use App\Support\ApiScopes;
 use Illuminate\Support\Facades\Schema;
 use Mockery;
 use Tests\TestCase;
@@ -30,11 +31,14 @@ class ApiPixExternalTest extends TestCase
             'name' => 'API App',
             'slug' => ApiApplication::generateUniqueSlug($tenantId, 'API App'),
             'api_key_hash' => ApiApplication::hashApiKey($legacy),
+            'legacy_api_key_sha256' => hash('sha256', $legacy),
             'public_key' => $public,
             'secret_key_hash' => ApiApplication::hashSecretKey($secret),
             'payment_gateways' => ApiApplication::defaultPaymentGateways(),
             'allowed_ips' => [],
             'is_active' => $active,
+            'is_legacy' => true,
+            'scopes' => ApiScopes::legacyDefaults(),
             'webhook_url' => null,
             'default_return_url' => null,
             'webhook_secret' => null,
@@ -133,7 +137,11 @@ class ApiPixExternalTest extends TestCase
         ], null);
 
         $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
-        $seller->forceFill(['tenant_id' => $seller->id])->save();
+        $seller->forceFill([
+            'tenant_id' => $seller->id,
+            'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
+        ])->save();
 
         $cred = new GatewayCredential([
             'tenant_id' => null,

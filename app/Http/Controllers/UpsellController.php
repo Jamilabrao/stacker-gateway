@@ -14,6 +14,7 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\AccessEmailService;
+use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -466,6 +467,7 @@ class UpsellController extends Controller
             }
 
             $amount = $offer ? (float) $offer->price : (float) $product->price;
+            app(MinimumChargeService::class)->assertPlatformCheckout($amount, (int) $order->tenant_id);
             $checkoutSlug = $offer && $offer->checkout_slug ? $offer->checkout_slug : $product->checkout_slug;
 
             $newOrder = Order::create([

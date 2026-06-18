@@ -13,6 +13,10 @@ fi
 if [ -f .docker/compose-profile ]; then
   PROFILE="$(tr -d ' \t\r\n' < .docker/compose-profile)"
   case "$PROFILE" in
+    standard)
+      printf '%s' "docker-compose.yml"
+      exit 0
+      ;;
     caddy)
       printf '%s' "docker-compose.caddy.yml"
       exit 0

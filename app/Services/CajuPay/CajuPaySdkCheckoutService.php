@@ -162,11 +162,11 @@ class CajuPaySdkCheckoutService
 
     public static function resolveCredentialsForOrder(Order $order): ?array
     {
-        $credential = GatewayCredential::resolveForPayment($order->tenant_id, 'cajupay');
-        if (! $credential) {
+        $account = app(\App\Services\CajuPay\CajuPayAccountResolver::class)->resolveForOrder($order);
+        if (! $account) {
             return null;
         }
-        $credentials = $credential->getDecryptedCredentials();
+        $credentials = $account->getDecryptedCredentials();
 
         return $credentials === [] ? null : $credentials;
     }

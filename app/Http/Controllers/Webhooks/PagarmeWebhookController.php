@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Webhooks;
 
 use App\Gateways\GatewayRegistry;
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessPaymentWebhook;
+use App\Support\PaymentWebhookDispatcher;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use Illuminate\Http\JsonResponse;
@@ -49,7 +49,7 @@ class PagarmeWebhookController extends Controller
         $type = (string) ($payload['type'] ?? '');
 
         if (str_contains($type, 'refunded')) {
-            ProcessPaymentWebhook::dispatchSync(self::SLUG, $chargeId, 'order.refunded', 'refunded', is_array($payload) ? $payload : []);
+            PaymentWebhookDispatcher::dispatch(self::SLUG, $chargeId, 'order.refunded', 'refunded', is_array($payload) ? $payload : []);
 
             return response()->json(['received' => true]);
         }
@@ -77,7 +77,7 @@ class PagarmeWebhookController extends Controller
             $status = 'rejected';
         }
 
-        ProcessPaymentWebhook::dispatchSync(self::SLUG, $chargeId, $event, $status, is_array($payload) ? $payload : []);
+        PaymentWebhookDispatcher::dispatch(self::SLUG, $chargeId, $event, $status, is_array($payload) ? $payload : []);
 
         return response()->json(['received' => true]);
     }

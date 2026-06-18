@@ -43,6 +43,16 @@ class MerchantWithdrawalService
             $withdrawal->status = self::STATUS_PROCESSING;
             $withdrawal->save();
 
+            try {
+                app(\App\Services\Api\ApiWithdrawalWebhookService::class)
+                    ->dispatchForWithdrawal($withdrawal->fresh(), 'withdrawal.processing');
+            } catch (\Throwable $e) {
+                Log::warning('MerchantWithdrawalService: falha webhook withdrawal.processing', [
+                    'withdrawal_id' => $withdrawal->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+
             return $withdrawal->fresh();
         });
     }
@@ -206,6 +216,18 @@ class MerchantWithdrawalService
             }
         });
 
+        if ($shouldNotify) {
+            try {
+                app(\App\Services\Api\ApiWithdrawalWebhookService::class)
+                    ->dispatchForWithdrawal($withdrawal->fresh(), 'withdrawal.completed');
+            } catch (\Throwable $e) {
+                Log::warning('MerchantWithdrawalService: falha webhook withdrawal.completed', [
+                    'withdrawal_id' => $withdrawal->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
         if (! $shouldNotify) {
             return;
         }
@@ -263,6 +285,15 @@ class MerchantWithdrawalService
         });
 
         if ($marked) {
+            try {
+                app(\App\Services\Api\ApiWithdrawalWebhookService::class)
+                    ->dispatchForWithdrawal($withdrawal->fresh(), 'withdrawal.failed');
+            } catch (\Throwable $e) {
+                Log::warning('MerchantWithdrawalService: falha webhook withdrawal.failed', [
+                    'withdrawal_id' => $withdrawal->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
             app(PlatformEmailNotifications::class)->withdrawalFailed($withdrawal->fresh(), $reason);
         }
     }
@@ -295,6 +326,16 @@ class MerchantWithdrawalService
             $locked->status = self::STATUS_REJECTED;
             $locked->save();
         });
+
+        try {
+            app(\App\Services\Api\ApiWithdrawalWebhookService::class)
+                ->dispatchForWithdrawal($withdrawal->fresh(), 'withdrawal.rejected');
+        } catch (\Throwable $e) {
+            Log::warning('MerchantWithdrawalService: falha webhook withdrawal.rejected', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

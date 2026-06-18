@@ -44,6 +44,43 @@ class PanelPushSubscribeTest extends TestCase
         ]);
     }
 
+    public function test_vapid_resubscribe_replaces_previous_endpoint_for_same_user(): void
+    {
+        $this->configureTestVapidPush();
+        $user = $this->createSellerUser();
+
+        PanelPushSubscription::create([
+            'user_id' => $user->id,
+            'tenant_id' => $user->tenant_id,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'endpoint' => 'https://push.example.com/old-endpoint',
+            'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+        ]);
+
+        $this->actingAs($user)->postJson('/painel/push-subscribe', [
+            'endpoint' => 'https://push.example.com/new-endpoint',
+            'keys' => [
+                'auth' => 'dGVzdB',
+                'p256dh' => 'dGVzdB',
+            ],
+        ])->assertOk();
+
+        $this->assertSame(
+            1,
+            PanelPushSubscription::query()
+                ->where('user_id', $user->id)
+                ->where('provider', PanelPushSubscription::PROVIDER_VAPID)
+                ->count()
+        );
+        $this->assertDatabaseHas('panel_push_subscriptions', [
+            'user_id' => $user->id,
+            'endpoint' => 'https://push.example.com/new-endpoint',
+        ]);
+        $this->assertDatabaseMissing('panel_push_subscriptions', [
+            'endpoint' => 'https://push.example.com/old-endpoint',
+        ]);
+    }
+
     public function test_fcm_push_subscribe_stores_token(): void
     {
         config(['getfy.pwa.push_provider' => PanelPushSettings::PROVIDER_FCM]);

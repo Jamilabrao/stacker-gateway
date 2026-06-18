@@ -38,7 +38,7 @@ class RefundRequestService
             return;
         }
 
-        $url = url('/reembolsos');
+        $url = url('/vendas/reembolsos');
         Mail::to($owner->email)->send(new RefundRequestSellerMail($request->fresh(['order.product']), $url));
     }
 

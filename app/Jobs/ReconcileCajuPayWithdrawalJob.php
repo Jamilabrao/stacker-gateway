@@ -47,7 +47,7 @@ class ReconcileCajuPayWithdrawalJob implements ShouldQueue
 
         $apiStatus = null;
         try {
-            $apiStatus = app(CajuPayPayoutService::class)->getPayoutSettlementStatus($externalId);
+            $apiStatus = app(CajuPayPayoutService::class)->getPayoutSettlementStatus($externalId, (int) $withdrawal->tenant_id);
         } catch (\Throwable $e) {
             Log::warning('ReconcileCajuPayWithdrawalJob: falha na consulta', [
                 'withdrawal_id' => $this->withdrawalId,

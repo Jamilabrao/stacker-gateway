@@ -142,10 +142,17 @@ fi
 
 cd "$INSTALL_DIR"
 
+echo ""
+echo "========================================================================"
+echo " AVISO: install-no-redis.sh é legado / dev-only."
+echo " Para API PIX, webhooks de parceiros e produção, use install.sh ou install-caddy.sh (com Redis)."
+echo "========================================================================"
+echo ""
+
 # shellcheck source=docker/prompt-public-url.sh
 . docker/prompt-public-url.sh
 
-$SUDO chmod +x docker/up.sh >/dev/null 2>&1 || true
+$SUDO chmod +x docker/up.sh docker/verify-workers.sh >/dev/null 2>&1 || true
 
 export GETFY_QUEUE_CONNECTION="${GETFY_QUEUE_CONNECTION:-database}"
 export GETFY_CACHE_STORE="${GETFY_CACHE_STORE:-file}"
@@ -165,6 +172,13 @@ $SUDO env \
   GETFY_COMPOSE_FILES="${GETFY_COMPOSE_FILES:-docker-compose.no-redis.yml}" \
   sh docker/up.sh
 
+$SUDO mkdir -p .docker
+echo "no-redis" | $SUDO tee .docker/compose-profile >/dev/null
+
+echo ""
+echo "=== Verificação de workers (API) ==="
+$SUDO sh docker/verify-workers.sh || true
+
 IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
 if [ -z "$IP" ]; then
   IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
@@ -175,6 +189,7 @@ fi
 
 echo ""
 echo "Getfy iniciado via Docker (sem Redis; fila database/cache file)."
+echo "AVISO: perfil legado — não recomendado para API em produção. Prefira install.sh ou install-caddy.sh."
 echo "Abra: http://$IP:$HTTP_PORT/docker-setup"
 echo ""
 echo "Se você adicionou seu usuário ao grupo docker, reabra o SSH para aplicar."

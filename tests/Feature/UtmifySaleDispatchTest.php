@@ -56,7 +56,9 @@ class UtmifySaleDispatchTest extends TestCase
                 && ($body['status'] ?? '') === 'paid'
                 && ($body['orderId'] ?? '') === (string) $order->id
                 && ($body['trackingParameters']['utm_source'] ?? '') === 'facebook'
-                && ($body['trackingParameters']['utm_campaign'] ?? '') === 'black-friday';
+                && ($body['trackingParameters']['utm_campaign'] ?? '') === 'black-friday'
+                && array_key_exists('utm_content', $body['trackingParameters'] ?? [])
+                && array_key_exists('utm_term', $body['trackingParameters'] ?? []);
         });
 
         $order->refresh();

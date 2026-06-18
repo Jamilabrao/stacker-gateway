@@ -94,6 +94,40 @@ class LegalDocumentsTest extends TestCase
         $this->assertStringContainsString('Admin custom', $stored);
     }
 
+    public function test_legal_settings_persist_with_large_settings_payload(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $response = $this->actingAs($admin)->put(route('plataforma.settings.update'), [
+            'legal_privacy_contact_email' => 'dpo@teste.local',
+            'legal_privacy_policy_html' => '<h1>Custom</h1><p>Texto alterado na UI.</p>',
+            'legal_terms_of_use_html' => '<h1>Termos</h1><p>Termos alterados na UI.</p>',
+            'legal_cookie_banner_enabled' => false,
+            'checkout_translations' => config('checkout_translations'),
+            'currencies' => config('products.currencies'),
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => '587',
+            'smtp_username' => 'user@example.com',
+            'smtp_encryption' => 'tls',
+            'mail_from_address' => 'noreply@example.com',
+            'mail_from_name' => 'Getfy',
+            'email_provider' => 'smtp',
+        ]);
+
+        $response->assertRedirect();
+
+        $storedPrivacy = (string) Setting::get(LegalDocumentsService::SETTING_PRIVACY_HTML, '', null);
+        $storedTerms = (string) Setting::get(LegalDocumentsService::SETTING_TERMS_HTML, '', null);
+
+        $this->assertStringContainsString('Texto alterado na UI', $storedPrivacy);
+        $this->assertStringContainsString('Termos alterados na UI', $storedTerms);
+        $this->assertSame('dpo@teste.local', Setting::get(LegalDocumentsService::SETTING_PRIVACY_EMAIL, null, null));
+        $this->assertSame('0', Setting::get(LegalDocumentsService::SETTING_COOKIE_BANNER, null, null));
+    }
+
     /**
      * @return array<string, mixed>
      */

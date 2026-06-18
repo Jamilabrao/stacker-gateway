@@ -8,6 +8,8 @@ import DocCode from '@/components/docs/DocCode.vue';
 import DocTable from '@/components/docs/DocTable.vue';
 import DocCallout from '@/components/docs/DocCallout.vue';
 import {
+    apiKeyScopes,
+    balanceResponseFields,
     commonApiErrors,
     customerFields,
     endpointSummary,
@@ -17,17 +19,33 @@ import {
     integrationSteps,
     navSections,
     orderStatusValues,
+    partnerIntegrationSteps,
+    partnerRecommendedScopes,
     paymentStatusResponseFields,
+    payoutDestinationFields,
+    payoutDestinationKeyTypeRules,
+    pixAsyncResponseFields,
     pixRequestFields,
     pixResponseFields,
-    sessionFields,
     webhookEvents,
+    webhookProvisionExample,
+    webhookProvisionFields,
+    webhookProvisionResponseExample,
+    withdrawalRequestFields,
+    withdrawalResponseFields,
+    withdrawalWebhookEvents,
+    withdrawalWebhookExample,
     webhookPayloadExample,
     webhookVerifyNodeExample,
     webhookVerifyPhpExample,
     whenToUse,
+    paymentConfirmationLayers,
+    paymentConfirmationChecklist,
+    reconciliationPhpExample,
+    reconciliationNodeExample,
+    idempotentHandlerExample,
 } from './apiPagamentosData';
-import { ChevronRight, Menu, X } from 'lucide-vue-next';
+import { ChevronRight, FlaskConical, Menu, X } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutDoc });
 
@@ -59,6 +77,7 @@ const pixCurlExample = computed(
     },
     "amount": 97.90,
     "currency": "BRL",
+    "partner_checkout_url": "https://loja.exemplo.com/checkout/ped-1001",
     "metadata": { "external_id": "ped-1001" }
   }'`
 );
@@ -75,6 +94,7 @@ const pixNodeExample = computed(
   body: JSON.stringify({
     customer: { email: 'cliente@exemplo.com', name: 'Cliente' },
     amount: 97.90,
+    partner_checkout_url: 'https://loja.exemplo.com/checkout/' + orderId,
     metadata: { external_id: orderId },
   }),
 });
@@ -143,8 +163,17 @@ onMounted(() => nextTick(setupObserver));
                             }}</span>
                         </div>
                         <ul class="space-y-0.5">
-                            <li v-for="item in section.items" :key="item.id">
+                            <li v-for="item in section.items" :key="item.id ?? item.href">
+                                <Link
+                                    v-if="item.href"
+                                    :href="item.href"
+                                    class="doc-nav-link flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                                >
+                                    {{ item.title }}
+                                    <ChevronRight class="h-3.5 w-3.5 shrink-0 opacity-70" />
+                                </Link>
                                 <a
+                                    v-else
                                     :href="`#${item.id}`"
                                     class="doc-nav-link flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition"
                                     :class="
@@ -180,19 +209,38 @@ onMounted(() => nextTick(setupObserver));
 
             <div class="border-b border-white/5 px-4 pb-8 pt-6 lg:px-0 lg:pt-2">
                 <div class="mx-auto max-w-3xl">
-                    <h1 class="text-2xl font-bold tracking-tight text-white sm:text-3xl">API PIX (Gateway)</h1>
+                    <h1 class="text-2xl font-bold tracking-tight text-white sm:text-3xl">API de Pagamentos e Saques</h1>
                     <p class="mt-2 text-base leading-relaxed text-zinc-400">
                         Para <strong class="text-zinc-200">marketplaces, ERPs, SaaS e parceiros</strong>: crie cobranças
-                        via API, exiba QR Code ou copia e cola, acompanhe status e receba webhooks.
+                        PIX, acompanhe pagamentos, consulte saldo, solicite saques e receba webhooks em tempo real.
                     </p>
                     <div class="mt-4 flex flex-wrap gap-2">
                         <span class="rounded-full bg-teal-500/20 px-3 py-1 text-xs font-medium text-teal-300">REST</span>
                         <span class="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-zinc-400">JSON</span>
                         <Link
                             href="/docs/api-pagamentos/testar"
-                            class="rounded-full border border-teal-500/40 bg-teal-500/10 px-3 py-1 text-xs font-medium text-teal-300 hover:bg-teal-500/20"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-teal-500/40 bg-teal-500/10 px-3 py-1 text-xs font-medium text-teal-300 hover:bg-teal-500/20"
                         >
-                            Testar API →
+                            <FlaskConical class="h-3.5 w-3.5" />
+                            Testar API
+                            <ChevronRight class="h-3.5 w-3.5 opacity-80" />
+                        </Link>
+                        <Link
+                            href="/docs/api-pagamentos/ia"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-violet-500/40 bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-300 hover:bg-violet-500/20"
+                        >
+                            <img
+                                src="/images/docs/openai-chatgpt.svg"
+                                alt=""
+                                class="h-3.5 w-3.5 object-contain brightness-0 invert"
+                            />
+                            <img
+                                src="/images/docs/claude-ai.svg"
+                                alt=""
+                                class="h-3.5 w-3.5 object-contain"
+                            />
+                            Integrar com IA
+                            <ChevronRight class="h-3.5 w-3.5 opacity-80" />
                         </Link>
                     </div>
                 </div>
@@ -236,8 +284,11 @@ onMounted(() => nextTick(setupObserver));
                     </ol>
                     <DocCallout type="tip" title="Webhook vs polling">
                         Prefira webhook <code class="rounded bg-white/10 px-1 py-0.5">order.completed</code> para
-                        liberar o produto. Use GET /payments/{order_id} como fallback ou em ambientes sem webhook
-                        público.
+                        liberar o produto. Use GET /payments/{order_id} como fallback no servidor — veja
+                        <a href="#confirmacao-pagamento-fallbacks" class="text-teal-300 underline hover:text-teal-200">
+                            Confirmação de pagamento e fallbacks
+                        </a>.
+                        Polling no checkout é só para UX; não substitui webhook + job de reconciliação.
                     </DocCallout>
                 </DocSection>
 
@@ -248,40 +299,32 @@ onMounted(() => nextTick(setupObserver));
                 </DocSection>
 
                 <DocSection id="para-parceiros" title="Integração para parceiros">
+                    <p class="text-zinc-400 leading-relaxed mb-4">
+                        Fluxo <strong class="text-zinc-200">recomendado</strong> quando o vendedor conecta as credenciais
+                        na sua plataforma — provisione o webhook automaticamente via API.
+                    </p>
                     <ol class="doc-ol">
-                        <li>
-                            O vendedor habilita a API e obtém o par em
-                            <strong class="text-zinc-200">Chaves da API</strong>.
-                        </li>
-                        <li>
-                            Seu backend chama
-                            <code class="rounded bg-white/10 px-1 py-0.5 text-teal-300">POST /api/v1/payments/pix</code>.
-                        </li>
-                        <li>Exiba o QR Code ou copia e cola ao cliente final.</li>
-                        <li>
-                            Receba
-                            <code class="rounded bg-white/10 px-1 py-0.5">order.completed</code>
-                            no webhook.
-                        </li>
+                        <li v-for="(step, i) in partnerIntegrationSteps" :key="i">{{ step }}</li>
                     </ol>
+                    <DocCallout type="tip" title="Scopes recomendados para chave de parceiro">
+                        <code class="rounded bg-white/10 px-1 py-0.5 text-teal-300">{{ partnerRecommendedScopes }}</code>
+                        — ou use a chave principal (acesso total).
+                    </DocCallout>
                 </DocSection>
 
                 <DocSection id="visao-geral" title="Visão geral">
-                    <h3 class="doc-h3">Checkout transparente (PIX)</h3>
                     <ul class="doc-ul">
                         <li>QR Code em base64 e código copia e cola na resposta.</li>
                         <li>Consulte status com GET ou use webhooks.</li>
-                    </ul>
-                    <h3 class="doc-h3">Checkout Pro</h3>
-                    <ul class="doc-ul">
                         <li>
-                            Redirecione para
-                            <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">checkout_url</code>.
+                            Opcionalmente envie
+                            <code class="rounded bg-white/10 px-1 py-0.5">partner_checkout_url</code>
+                            (HTTPS) com a URL do checkout no seu site — recomendado em produção.
                         </li>
                     </ul>
                 </DocSection>
 
-                <DocSection id="quando-usar" title="Modos de checkout">
+                <DocSection id="quando-usar" title="Quando usar">
                     <DocTable
                         :columns="[
                             { key: 'cenario', label: 'Cenário' },
@@ -297,7 +340,7 @@ onMounted(() => nextTick(setupObserver));
                         <li><code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">X-Secret-Key</code></li>
                     </ul>
                     <DocCode label="http">
-                        POST /api/v1/checkout/sessions HTTP/1.1
+                        POST /api/v1/payments/pix HTTP/1.1
                         Host: {{ hostExample }}
                         X-Public-Key: gpk_xxxxxxxx
                         X-Secret-Key: gsk_xxxxxxxx
@@ -312,7 +355,31 @@ onMounted(() => nextTick(setupObserver));
                             <code class="rounded bg-white/10 px-1 py-0.5">/aplicacoes-api</code>).
                         </li>
                         <li>Copie Public key e Secret key (revelar quando necessário).</li>
+                        <li>
+                            Legado: também aceitamos
+                            <code class="rounded bg-white/10 px-1 py-0.5">Authorization: Bearer</code>
+                            ou header
+                            <code class="rounded bg-white/10 px-1 py-0.5">X-API-Key</code>.
+                        </li>
                     </ol>
+                </DocSection>
+
+                <DocSection id="api-keys-scopes" title="Chaves adicionais e permissões">
+                    <p class="text-zinc-400 leading-relaxed mb-4">
+                        A <strong class="text-zinc-200">chave principal</strong> da conta tem acesso total (pagamentos,
+                        saques, consultas). Você pode criar <strong class="text-zinc-200">chaves adicionais</strong> no
+                        painel com permissões limitadas (least-privilege).
+                    </p>
+                    <DocTable
+                        :columns="[
+                            { key: 'scope', label: 'Permissão' },
+                            { key: 'desc', label: 'Descrição' },
+                        ]"
+                        :rows="apiKeyScopes"
+                    />
+                    <DocCallout type="tip" title="Compatibilidade">
+                        Integrações existentes com a chave principal continuam funcionando sem alteração.
+                    </DocCallout>
                 </DocSection>
 
                 <DocSection id="seguranca" title="Segurança">
@@ -324,21 +391,54 @@ onMounted(() => nextTick(setupObserver));
 
                 <DocSection id="integracao-conta" title="Chaves e configuração">
                     <p class="text-zinc-400 leading-relaxed">
-                        Cada conta tem um par Public + Secret. Configure webhook, IPs permitidos e URL de retorno no
-                        painel.
+                        Cada conta tem um par Public + Secret. Configure IPs permitidos no painel. Para webhook, use
+                        <code class="rounded bg-white/10 px-1 py-0.5 text-teal-300">PUT /api/v1/webhook</code>
+                        (recomendado para parceiros) ou configure manualmente em
+                        <code class="rounded bg-white/10 px-1 py-0.5">/aplicacoes-api</code>.
                     </p>
                 </DocSection>
 
-                <DocSection id="processadora-webhooks" title="Webhooks">
+                <DocSection id="webhook-provision-api" title="Provisionar webhook (API)">
+                    <DocEndpoint
+                        method="PUT"
+                        path="/api/v1/webhook"
+                        description="Registra a URL de recebimento e habilita todos os eventos. Retorna webhook_secret na primeira configuração."
+                    >
+                        <p class="text-zinc-400 leading-relaxed mb-4">
+                            Permissão: <code class="rounded bg-white/10 px-1 py-0.5">webhooks:write</code>.
+                            URL deve ser HTTPS. Todos os eventos de pagamento e saque são habilitados automaticamente.
+                        </p>
+                        <DocTable :columns="fieldColumns" :rows="webhookProvisionFields" />
+                        <h4 class="doc-h4">Request</h4>
+                        <DocCode label="json">{{ webhookProvisionExample }}</DocCode>
+                        <h4 class="doc-h4">Resposta 200 (primeira configuração)</h4>
+                        <DocCode label="json">{{ webhookProvisionResponseExample }}</DocCode>
+                        <DocCallout type="warning" title="Reconexão">
+                            Chamadas repetidas com a mesma URL não devolvem o secret. Use
+                            <code class="rounded bg-white/10 px-1 py-0.5">rotate_secret: true</code>
+                            ou
+                            <code class="rounded bg-white/10 px-1 py-0.5">POST /api/v1/webhook/rotate-secret</code>.
+                        </DocCallout>
+                    </DocEndpoint>
+                    <DocEndpoint
+                        method="GET"
+                        path="/api/v1/webhook"
+                        description="Consulta configuração atual (sem expor o secret)."
+                    />
+                    <DocEndpoint
+                        method="POST"
+                        path="/api/v1/webhook/rotate-secret"
+                        description="Gera novo webhook_secret (requer URL já configurada)."
+                    />
+                </DocSection>
+
+                <DocSection id="processadora-webhooks" title="Webhooks (configuração)">
                     <p class="text-zinc-400 leading-relaxed mb-4">
                         Configure
                         <code class="rounded bg-white/10 px-1 py-0.5 text-teal-300">webhook_url</code>
-                        na integração.
+                        via <code class="rounded bg-white/10 px-1 py-0.5">PUT /api/v1/webhook</code> (recomendado) ou no
+                        painel em <code class="rounded bg-white/10 px-1 py-0.5">/aplicacoes-api</code>.
                     </p>
-                </DocSection>
-
-                <DocSection id="dados-comuns-customer" title="Dados comuns (customer)">
-                    <DocTable :columns="fieldColumns" :rows="customerFields" />
                 </DocSection>
 
                 <DocSection id="post-payments-pix">
@@ -347,18 +447,33 @@ onMounted(() => nextTick(setupObserver));
                         path="/api/v1/payments/pix"
                         description="Cria cobrança PIX: pedido + QR Code e copia e cola."
                     >
+                        <p class="mb-4 text-sm">
+                            <Link
+                                href="/docs/api-pagamentos/testar?op=post-payments-pix"
+                                class="inline-flex items-center gap-1 text-teal-400 hover:underline"
+                            >
+                                <FlaskConical class="h-3.5 w-3.5" />
+                                Testar este endpoint →
+                            </Link>
+                        </p>
                         <DocCallout type="warning" title="amount vs product_id">
                             Sem <code class="rounded bg-white/10 px-1 py-0.5">product_id</code>, o valor cobrado é o
                             <code class="rounded bg-white/10 px-1 py-0.5">amount</code> enviado. Com
                             <code class="rounded bg-white/10 px-1 py-0.5">product_id</code>, o valor vem do
                             produto, oferta ou plano — o amount do body é <strong class="text-zinc-200">ignorado</strong>.
                         </DocCallout>
+                        <DocCallout type="info" title="Ticket mínimo API PIX">
+                            O administrador define o valor mínimo em <strong class="text-zinc-200">Plataforma → Financeiro → Limites</strong>.
+                            Cobranças abaixo desse valor retornam <strong class="text-zinc-200">422</strong> com mensagem indicando o mínimo
+                            (vale para <code class="rounded bg-white/10 px-1 py-0.5">amount</code> livre e para preço efetivo com
+                            <code class="rounded bg-white/10 px-1 py-0.5">product_id</code>).
+                        </DocCallout>
                         <h4 class="doc-h4">Resposta 201</h4>
                         <DocTable :columns="fieldColumns" :rows="pixResponseFields" />
                         <DocCode label="json">
                             {
                               "order_id": 456,
-                              "transaction_id": "efi-tx-abc123",
+                              "transaction_id": "tx-abc123",
                               "qrcode": "data:image/png;base64,...",
                               "copy_paste": "00020126580014br.gov.bcb.pix...",
                               "status": "pending"
@@ -366,9 +481,26 @@ onMounted(() => nextTick(setupObserver));
                         </DocCode>
                         <p class="mt-4 text-sm text-zinc-400">
                             Erro 422: <code class="rounded bg-white/10 px-1 py-0.5">{ "message": "..." }</code> —
-                            falha de validação ou gateway PIX indisponível.
+                            falha de validação ou indisponibilidade temporária.
                         </p>
                     </DocEndpoint>
+                </DocSection>
+
+                <DocSection id="pix-async" title="Modo assíncrono (opcional)">
+                    <p class="text-zinc-400 leading-relaxed mb-4">
+                        Por padrão, <code class="rounded bg-white/10 px-1 py-0.5">POST /payments/pix</code> responde
+                        <strong class="text-zinc-200">201</strong> com QR e copia e cola na mesma requisição
+                        (comportamento legado, recomendado para a maioria das integrações).
+                    </p>
+                    <p class="text-zinc-400 leading-relaxed mb-4">
+                        Para alto volume, envie o header
+                        <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">X-Async: true</code>
+                        e receba <strong class="text-zinc-200">202</strong> com
+                        <code class="rounded bg-white/10 px-1 py-0.5">status: processing</code>. Consulte
+                        <code class="rounded bg-white/10 px-1 py-0.5">GET /payments/{order_id}</code> ou aguarde o
+                        webhook <code class="rounded bg-white/10 px-1 py-0.5">pix.generated</code>.
+                    </p>
+                    <DocTable :columns="fieldColumns" :rows="pixAsyncResponseFields" />
                 </DocSection>
 
                 <DocSection id="post-payments-pix-campos" title="Campos do request (PIX)">
@@ -379,6 +511,15 @@ onMounted(() => nextTick(setupObserver));
                     <DocCode label="bash">{{ pixCurlExample }}</DocCode>
                     <h4 class="doc-h4">Node.js (fetch)</h4>
                     <DocCode label="javascript">{{ pixNodeExample }}</DocCode>
+                </DocSection>
+
+                <DocSection id="get-payments-list">
+                    <DocEndpoint method="GET" path="/api/v1/payments" description="Lista pedidos da integração autenticada.">
+                        <p class="mb-4 text-sm text-zinc-400">
+                            Query opcional: <code class="rounded bg-white/10 px-1 py-0.5">status</code>,
+                            <code class="rounded bg-white/10 px-1 py-0.5">per_page</code> (máx. 100).
+                        </p>
+                    </DocEndpoint>
                 </DocSection>
 
                 <DocSection id="get-payments-order-id">
@@ -394,8 +535,7 @@ onMounted(() => nextTick(setupObserver));
                               "status": "completed",
                               "amount": 97.90,
                               "email": "cliente@exemplo.com",
-                              "gateway": "efi",
-                              "gateway_id": "tx-abc",
+                              "transaction_id": "tx-abc",
                               "metadata": { "external_id": "ped-1001" },
                               "created_at": "2026-06-13T14:00:00.000000Z",
                               "updated_at": "2026-06-13T14:05:12.000000Z"
@@ -434,51 +574,107 @@ onMounted(() => nextTick(setupObserver));
                     </DocEndpoint>
                 </DocSection>
 
-                <DocSection id="post-checkout-sessions">
+                <DocSection id="get-balance">
+                    <DocEndpoint method="GET" path="/api/v1/balance" description="Saldo disponível por carteira (PIX, cartão, boleto).">
+                        <DocTable :columns="fieldColumns" :rows="balanceResponseFields" />
+                        <DocCallout type="tip" title="Liquidação">
+                            Valores em <code class="rounded bg-white/10 px-1 py-0.5">pending_balance</code> ainda não
+                            estão disponíveis para saque.
+                        </DocCallout>
+                    </DocEndpoint>
+                </DocSection>
+
+                <DocSection id="put-payout-destination">
                     <DocEndpoint
-                        method="POST"
-                        path="/api/v1/checkout/sessions"
-                        description="Sessão de checkout hospedado; retorna checkout_url."
+                        method="PUT"
+                        path="/api/v1/payout-destination"
+                        description="Define a chave PIX de destino para saques."
                     >
-                        <DocTable :columns="fieldColumns" :rows="sessionFields" />
+                        <DocTable :columns="fieldColumns" :rows="payoutDestinationFields" />
+                        <h4 class="doc-h4">Regras por tipo de chave</h4>
+                        <DocTable
+                            :columns="[
+                                { key: 'pix_key_type', label: 'pix_key_type' },
+                                { key: 'key_owner_document', label: 'key_owner_document' },
+                            ]"
+                            :rows="payoutDestinationKeyTypeRules"
+                        />
                         <DocCode label="json">
-                            { "session_id": "123", "checkout_url": "{{ siteBase }}/api-checkout/xxxxxxxx",
-                            "expires_at": "2026-03-09T12:30:00.000000Z" }
+                            {
+                              "pix_key": "cliente@exemplo.com",
+                              "pix_key_type": "email",
+                              "key_owner_document": "52998224725"
+                            }
                         </DocCode>
+                        <DocCallout type="warning" title="Antes do primeiro saque">
+                            Configure o destino completo (incluindo CPF/CNPJ do titular quando exigido) antes de
+                            <code class="rounded bg-white/10 px-1 py-0.5">POST /withdrawals</code>. Destino incompleto
+                            retorna <strong class="text-zinc-200">422</strong>.
+                        </DocCallout>
                     </DocEndpoint>
                 </DocSection>
 
-                <DocSection id="post-payments-card">
-                    <DocEndpoint
-                        method="POST"
-                        path="/api/v1/payments/card"
-                        description="Pagamento com cartão (payment_token obrigatório)."
-                    >
-                        <DocCode label="json">{ "order_id": 456, "status": "paid" }</DocCode>
+                <DocSection id="post-withdrawals">
+                    <DocEndpoint method="POST" path="/api/v1/withdrawals" description="Solicita saque do saldo disponível.">
+                        <p class="mb-4 text-sm">
+                            <Link
+                                href="/docs/api-pagamentos/testar?op=post-withdrawals"
+                                class="inline-flex items-center gap-1 text-teal-400 hover:underline"
+                            >
+                                <FlaskConical class="h-3.5 w-3.5" />
+                                Testar este endpoint →
+                            </Link>
+                        </p>
+                        <DocTable :columns="fieldColumns" :rows="withdrawalRequestFields" />
+                        <h4 class="doc-h4">Resposta 201</h4>
+                        <DocTable :columns="fieldColumns" :rows="withdrawalResponseFields" />
+                        <DocCallout type="warning" title="Pré-requisito">
+                            Destino PIX configurado via <code class="rounded bg-white/10 px-1 py-0.5">PUT /payout-destination</code>
+                            com CPF/CNPJ do titular quando a chave for e-mail, telefone ou aleatória.
+                        </DocCallout>
+                        <DocCallout type="warning" title="Idempotência">
+                            Use <code class="rounded bg-white/10 px-1 py-0.5">Idempotency-Key</code> para evitar saques
+                            duplicados em caso de retry de rede.
+                        </DocCallout>
                     </DocEndpoint>
                 </DocSection>
 
-                <DocSection id="post-payments-boleto">
-                    <DocEndpoint method="POST" path="/api/v1/payments/boleto" description="Gera boleto.">
-                        <DocCode label="json">
-                            { "order_id": 456, "barcode": "...", "pdf_url": "https://...", "status": "pending" }
-                        </DocCode>
+                <DocSection id="get-withdrawals">
+                    <DocEndpoint method="GET" path="/api/v1/withdrawals" description="Lista saques da conta.">
+                        <p class="mb-4 text-sm text-zinc-400">
+                            Query opcional: <code class="rounded bg-white/10 px-1 py-0.5">status</code>,
+                            <code class="rounded bg-white/10 px-1 py-0.5">per_page</code>.
+                        </p>
                     </DocEndpoint>
                 </DocSection>
 
-                <DocSection id="idempotencia-pix" title="Idempotência (PIX e demais criações)">
+                <DocSection id="webhooks-saque" title="Webhooks de saque">
+                    <DocTable
+                        :columns="[
+                            { key: 'event', label: 'Evento' },
+                            { key: 'desc', label: 'Descrição' },
+                        ]"
+                        :rows="withdrawalWebhookEvents"
+                    />
+                    <h4 class="doc-h4">Exemplo withdrawal.completed</h4>
+                    <DocCode label="json">{{ withdrawalWebhookExample }}</DocCode>
+                </DocSection>
+
+                <DocSection id="idempotencia-pix" title="Idempotência">
                     <p class="text-zinc-400 leading-relaxed mb-4">
                         Use
                         <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">idempotency_key</code>
                         no body ou header
                         <code class="rounded bg-white/10 px-1.5 py-0.5 text-teal-300">Idempotency-Key</code>
-                        (máx. 128 caracteres). A mesma chave dentro de 24h devolve a resposta original sem criar novo
-                        pedido.
+                        (máx. 128 caracteres). A mesma chave devolve a resposta original sem duplicar a operação.
                     </p>
-                    <DocCallout type="tip" title="Recomendado">Use em todas as criações de pagamento (PIX, cartão, boleto, sessão).</DocCallout>
+                    <DocCallout type="tip" title="Chave principal">
+                        Na chave principal, idempotência é opcional (recomendada). Chaves adicionais podem exigir
+                        idempotência obrigatória.
+                    </DocCallout>
                 </DocSection>
 
-                <DocSection id="webhooks-eventos" title="Eventos">
+                <DocSection id="webhooks-eventos" title="Eventos de pagamento">
                     <DocTable
                         :columns="[
                             { key: 'event', label: 'Evento' },
@@ -497,10 +693,18 @@ onMounted(() => nextTick(setupObserver));
                     <DocCode label="json">{{ webhookPayloadExample }}</DocCode>
                 </DocSection>
 
-                <DocSection id="webhooks-assinatura" title="Assinatura do webhook">
+                <DocSection id="webhooks-assinatura" title="Assinatura e entrega">
                     <p class="text-zinc-400 leading-relaxed mb-4">
-                        Header <strong>X-Webhook-Signature</strong>: HMAC-SHA256 do body bruto (string JSON exata) com o
-                        webhook secret configurado na aplicação.
+                        Headers enviados em cada webhook:
+                    </p>
+                    <ul class="doc-ul mb-4">
+                        <li><code class="rounded bg-white/10 px-1 py-0.5">X-Webhook-Signature</code> — HMAC-SHA256 do body bruto</li>
+                        <li><code class="rounded bg-white/10 px-1 py-0.5">X-Webhook-Id</code> — ID único do evento (use para deduplicar)</li>
+                        <li><code class="rounded bg-white/10 px-1 py-0.5">X-Webhook-Timestamp</code> — Unix timestamp do envio</li>
+                    </ul>
+                    <p class="text-zinc-400 leading-relaxed mb-4">
+                        Em caso de falha na entrega (seu endpoint offline ou não-2xx), reenviamos automaticamente com
+                        backoff exponencial. Responda <strong class="text-zinc-200">HTTP 2xx</strong> rapidamente.
                     </p>
                     <h4 class="doc-h4">PHP</h4>
                     <DocCode label="php">{{ webhookVerifyPhpExample }}</DocCode>
@@ -512,10 +716,70 @@ onMounted(() => nextTick(setupObserver));
                 <DocSection id="webhooks-boas-praticas" title="Boas práticas (webhooks)">
                     <ul class="doc-ul">
                         <li>Responda HTTP 2xx em até alguns segundos; processe assincronamente se necessário.</li>
-                        <li>Trate eventos duplicados (mesmo order_id + event).</li>
+                        <li>Deduplique por <code class="rounded bg-white/10 px-1 py-0.5">event_id</code> (cada entrega tem ID único).</li>
                         <li>Use <code class="rounded bg-white/10 px-1 py-0.5">metadata</code> para correlacionar com seu pedido interno.</li>
-                        <li>Não dependa só de polling — webhook é o caminho recomendado para liberar acesso.</li>
+                        <li>Trate <code class="rounded bg-white/10 px-1 py-0.5">order.completed</code> como confirmação de pagamento.</li>
                     </ul>
+                </DocSection>
+
+                <DocSection id="confirmacao-pagamento-fallbacks" title="Confirmação de pagamento e fallbacks">
+                    <p class="text-zinc-400 leading-relaxed mb-4">
+                        Não confie em um único canal para saber se o PIX foi pago. Implemente
+                        <strong class="text-zinc-200">três camadas</strong> complementares: webhook assinado (primário),
+                        reconciliação em background no servidor (fallback obrigatório) e polling opcional na UI (só UX).
+                    </p>
+                    <DocTable
+                        :columns="[
+                            { key: 'layer', label: 'Camada' },
+                            { key: 'where', label: 'Onde roda' },
+                            { key: 'role', label: 'Função' },
+                        ]"
+                        :rows="paymentConfirmationLayers"
+                    />
+                    <h3 class="doc-h3">Fluxo recomendado</h3>
+                    <DocCode label="text">POST /payments/pix → salvar order_id no pedido interno
+       ↓
+Webhook order.completed (HMAC) → marcar pago + liberar produto (idempotente)
+       ↓ (se falhar / atrasar)
+Job reconciliação (1–2 min) → GET /payments → mesmo handler idempotente
+       ↓ (paralelo, só UX)
+Polling no checkout (opcional) → atualiza tela</DocCode>
+                    <DocCallout type="warning" title="Nunca libere só com polling do browser">
+                        O polling na tela do QR não cobre o caso em que o comprador paga e fecha a aba. O job de
+                        reconciliação no servidor é <strong>obrigatório</strong> em produção, mesmo com webhook
+                        configurado.
+                    </DocCallout>
+                    <h3 class="doc-h3">Reconciliação em background</h3>
+                    <p class="text-zinc-400 leading-relaxed mb-4">
+                        Consulte a API a cada <strong class="text-zinc-200">60–120 segundos</strong> por
+                        <strong class="text-zinc-200">6–12 horas</strong> após criar a cobrança:
+                    </p>
+                    <ul class="doc-ul">
+                        <li>
+                            Individual:
+                            <code class="rounded bg-white/10 px-1 py-0.5">GET /api/v1/payments/{order_id}</code>
+                        </li>
+                        <li>
+                            Em lote:
+                            <code class="rounded bg-white/10 px-1 py-0.5">GET /api/v1/payments?status=pending&amp;per_page=100</code>
+                        </li>
+                        <li>Se <code class="rounded bg-white/10 px-1 py-0.5">status === "completed"</code>, execute o mesmo pipeline do webhook.</li>
+                    </ul>
+                    <h4 class="doc-h4">PHP (scheduler)</h4>
+                    <DocCode label="php">{{ reconciliationPhpExample }}</DocCode>
+                    <h4 class="doc-h4">Node.js (cron)</h4>
+                    <DocCode label="javascript">{{ reconciliationNodeExample }}</DocCode>
+                    <h4 class="doc-h4">Handler idempotente (compartilhado)</h4>
+                    <DocCode label="php">{{ idempotentHandlerExample }}</DocCode>
+                    <h3 class="doc-h3">Checklist de segurança</h3>
+                    <ul class="doc-ul">
+                        <li v-for="(item, i) in paymentConfirmationChecklist" :key="i">{{ item }}</li>
+                    </ul>
+                    <p class="mt-4 text-sm text-zinc-500">
+                        <Link href="/docs/api-pagamentos/testar" class="text-teal-400 hover:underline">Testar API</Link>
+                        ·
+                        <Link href="/docs/api-pagamentos/ia" class="text-teal-400 hover:underline">Integrar com IA</Link>
+                    </p>
                 </DocSection>
 
                 <DocSection id="erros-comuns" title="Erros comuns e troubleshooting">
@@ -530,10 +794,9 @@ onMounted(() => nextTick(setupObserver));
                     />
                     <h3 class="doc-h3">PIX não gera QR / copy_paste</h3>
                     <ul class="doc-ul">
-                        <li>Gateway PIX não conectado em Integrações → Gateways</li>
-                        <li>API PIX desabilitada para o vendedor</li>
+                        <li>API PIX desabilitada para a conta</li>
+                        <li>Conta aguardando aprovação ou verificação</li>
                         <li><code class="rounded bg-white/10 px-1 py-0.5">amount</code> menor que 0.01 ou produto indisponível</li>
-                        <li>Resposta 422 com <code class="rounded bg-white/10 px-1 py-0.5">message</code> do gateway — verifique logs do servidor</li>
                     </ul>
                 </DocSection>
 

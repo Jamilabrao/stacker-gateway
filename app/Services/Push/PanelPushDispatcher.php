@@ -17,7 +17,7 @@ class PanelPushDispatcher
      * @param  Collection<int, PanelPushSubscription>  $subscriptions
      * @return array{sent:int,failed:int,invalid:int,expired:int,total:int}
      */
-    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null): array
+    public function send(Collection $subscriptions, string $title, string $body, ?string $url = null, ?string $tag = null): array
     {
         $provider = PanelPushSettings::activeProvider();
         $filtered = $subscriptions->filter(function (PanelPushSubscription $s) use ($provider) {
@@ -34,6 +34,6 @@ class PanelPushDispatcher
 
         $channel = $provider === PanelPushSettings::PROVIDER_FCM ? $this->fcm : $this->vapid;
 
-        return $channel->send($filtered, $title, $body, $url);
+        return $channel->send($filtered, $title, $body, $url, $tag);
     }
 }

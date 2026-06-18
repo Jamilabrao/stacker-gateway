@@ -20,8 +20,8 @@ import {
     TicketPercent,
     GraduationCap,
     UserPlus,
-    RotateCcw,
     Truck,
+    Zap,
 } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
 
@@ -77,11 +77,33 @@ export function useAppSidebarNav() {
 
         const items = [];
 
-        if (canView('dashboard.view')) items.push({ name: t('sidebar.dashboard', 'Dashboard'), href: '/dashboard', icon: LayoutDashboard });
-        if (canView('vendas.view')) items.push({ name: t('sidebar.sales', 'Vendas'), href: '/vendas', icon: CircleDollarSign });
-        if (canView('vendas.view')) items.push({ name: 'Reembolsos', href: '/reembolsos', icon: RotateCcw });
+        if (canView('dashboard.view')) {
+            items.push({ name: t('sidebar.dashboard', 'Dashboard'), href: '/dashboard', icon: LayoutDashboard });
+        }
+
+        if (canView('vendas.view')) {
+            items.push({
+                name: t('sidebar.sales', 'Vendas'),
+                href: '/vendas',
+                icon: CircleDollarSign,
+            });
+        }
+
+        if (canView('relatorios.view')) {
+            items.push({ name: t('sidebar.reports', 'Relatórios'), href: '/relatorios', icon: BarChart3 });
+        }
+
+        items.push({ separator: true });
+
         if (canView('produtos.view')) {
             items.push({ name: t('sidebar.products', 'Produtos'), href: '/produtos', icon: Package });
+            if (page.props.pixgo_enabled_effective && canView('pixgo.view')) {
+                items.push({
+                    name: page.props.pixgo_sidebar_label || 'PixGO',
+                    href: '/pixgo',
+                    icon: Zap,
+                });
+            }
             items.push({
                 name: t('sidebar.affiliate_showcase', 'Vitrine'),
                 href: '/produtos/vitrine-afiliacao',
@@ -94,10 +116,11 @@ export function useAppSidebarNav() {
             items.push({ name: t('sidebar.students', 'Alunos'), href: '/produtos/alunos', icon: GraduationCap });
             items.push({ name: t('sidebar.affiliates_menu', 'Afiliados'), href: '/afiliados', icon: UserPlus });
         }
-        if (canView('relatorios.view')) items.push({ name: t('sidebar.reports', 'Relatórios'), href: '/relatorios', icon: BarChart3 });
-        if (canView('integracoes.view')) items.push({ name: t('sidebar.integrations', 'Integrações'), href: '/integracoes', icon: Cable });
-        if (canView('api_pagamentos.view') && page.props.api_pix_enabled_effective) {
-            items.push({ name: 'API Pagamentos', href: '/aplicacoes-api', icon: CodeXml });
+
+        items.push({ separator: true });
+
+        if (canView('integracoes.view')) {
+            items.push({ name: t('sidebar.integrations', 'Integrações'), href: '/integracoes', icon: Cable });
         }
 
         if ((page.props.auth?.user?.role === 'admin' || page.props.auth?.user?.role === 'infoprodutor') && pluginNavItems.value.length) {
@@ -107,17 +130,35 @@ export function useAppSidebarNav() {
         if (page.props.auth?.user?.role === 'infoprodutor' || canView('equipe.manage')) {
             items.push({ name: t('sidebar.team', 'Equipe'), href: '/usuarios/equipe', icon: Users });
         }
-        if (canView('financeiro.view')) items.push({ name: t('sidebar.finance', 'Financeiro'), href: '/financeiro', icon: Wallet });
 
-        items.push({ separator: true });
+        if (canView('api_pagamentos.view') && page.props.api_pix_enabled_effective) {
+            items.push({
+                name: 'API PIX',
+                href: '/aplicacoes-api',
+                icon: CodeXml,
+                badge: 'pix-in-out',
+            });
+        }
+
+        if (canView('financeiro.view')) {
+            items.push({ name: t('sidebar.finance', 'Financeiro'), href: '/financeiro', icon: Wallet });
+        }
+
+        if (!page.props.customer_panel) {
+            items.push({ separator: true });
+            items.push({ pwaInstall: true });
+        }
+
         return items;
     });
 
     function isActive(href) {
         const url = page.url.split('?')[0];
-        if (href === '/reembolsos') return url === '/reembolsos' || url.startsWith('/reembolsos/');
         if (href === '/frete') return url === '/frete' || url.startsWith('/frete/');
         if (href === '/dashboard') return url === '/dashboard' || url === '/';
+        if (href === '/vendas') {
+            return url === '/vendas' || url.startsWith('/vendas/');
+        }
         if (href === '/produtos/vitrine-afiliacao') {
             return url === '/produtos/vitrine-afiliacao' || url.startsWith('/produtos/vitrine-afiliacao/');
         }
@@ -142,6 +183,12 @@ export function useAppSidebarNav() {
                 return false;
             }
             return url === '/produtos' || url.startsWith('/produtos/');
+        }
+        if (href === '/aplicacoes-api') {
+            return url === '/aplicacoes-api' || url.startsWith('/aplicacoes-api/');
+        }
+        if (href === '/pixgo') {
+            return url === '/pixgo' || url.startsWith('/pixgo/');
         }
         return url === href || url.startsWith(href + '/');
     }

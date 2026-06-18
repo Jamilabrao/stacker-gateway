@@ -1,13 +1,12 @@
 <script setup>
-import { computed, inject, ref } from 'vue';
-import { PanelsTopLeft, Bell, Globe2 } from 'lucide-vue-next';
+import { computed, inject } from 'vue';
+import { PanelsTopLeft, Bell } from 'lucide-vue-next';
 import { usePage } from '@inertiajs/vue3';
-import { router } from '@inertiajs/vue3';
 import { useSidebar } from '@/composables/useSidebar';
 import ConquistasWidget from '@/components/layout/ConquistasWidget.vue';
-import ThemeToggler from '@/components/layout/ThemeToggler.vue';
 import UserMenu from '@/components/layout/UserMenu.vue';
 import KawaiiHeaderRevenue from '@/components/kawaii/KawaiiHeaderRevenue.vue';
+import LocaleThemeControls from '@/components/layout/LocaleThemeControls.vue';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
 import { useThemedPageHeading } from '@/composables/useThemedPageHeading';
@@ -61,32 +60,29 @@ const iconBtnClass = computed(() => {
     return 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200';
 });
 
-const showLanguage = computed(() => !!page.props?.auth?.user && !page.url.startsWith('/plataforma'));
-const languageOpen = ref(false);
-
 const { toggleSidebar, isMobileOpen, isMobile } = useSidebar();
 
 const openNotificationsPanel = inject('openNotificationsPanel', () => {});
 const notificationsUnreadCount = inject('notificationsUnreadCount', { value: 0 });
 const unreadBadge = computed(() => Math.max(0, notificationsUnreadCount?.value ?? 0));
-const switchingLanguage = ref(false);
-const { t, locale, availableLanguages } = useI18n();
-const currentLanguageName = computed(() => {
-    const current = (availableLanguages.value || []).find((lang) => lang.code === locale.value);
-    return current?.name || t('header.language', 'Idioma');
+const { t } = useI18n();
+
+const controlsVariant = computed(() => {
+    if (isKawaii.value) return 'kawaii';
+    if (isAurora.value) return 'aurora';
+    return 'default';
 });
 
-async function switchLanguage(nextLocale) {
-    if (!nextLocale || switchingLanguage.value || nextLocale === locale.value) return;
-    switchingLanguage.value = true;
-    try {
-        await window.axios.post('/painel/idioma', { locale: nextLocale });
-        languageOpen.value = false;
-        router.reload({ preserveScroll: true });
-    } finally {
-        switchingLanguage.value = false;
-    }
-}
+const dashboardGreetingTitleClass = computed(() => {
+    if (isAurora.value) return 'text-base font-semibold tracking-tight sm:text-lg';
+    if (isKawaii.value) return 'text-lg font-bold tracking-tight md:text-xl';
+    return 'text-xl font-bold tracking-tight md:text-2xl';
+});
+
+const dashboardGreetingSubtitleClass = computed(() => {
+    if (isAurora.value) return 'mt-0.5 truncate text-xs sm:text-sm';
+    return 'mt-0.5 truncate text-sm';
+});
 </script>
 
 <template>
@@ -106,10 +102,10 @@ async function switchLanguage(nextLocale) {
                 <PanelsTopLeft class="h-5 w-5" aria-hidden="true" />
             </button>
             <div v-if="hidePageTitleOnThemedDashboard" class="min-w-0">
-                <h1 class="truncate text-xl font-bold tracking-tight md:text-2xl" :class="titleClass">
+                <h1 class="truncate" :class="[dashboardGreetingTitleClass, titleClass]">
                     Olá, {{ greetingName }} 👋
                 </h1>
-                <p class="mt-0.5 truncate text-sm" :class="subtitleClass">
+                <p class="truncate" :class="[dashboardGreetingSubtitleClass, subtitleClass]">
                     Aqui está o resumo do seu negócio hoje.
                 </p>
             </div>
@@ -137,34 +133,18 @@ async function switchLanguage(nextLocale) {
         <div class="flex shrink-0 items-center gap-2">
             <KawaiiHeaderRevenue v-if="isKawaii && isDashboard && !customerPanel" />
             <ConquistasWidget v-if="!customerPanel && !themedShell && (!isDashboard || !isMobile)" />
-            <div v-if="showLanguage" class="relative">
-                <button
-                    type="button"
-                    class="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors"
-                    :class="iconBtnClass"
-                    :aria-label="t('header.language', 'Idioma')"
-                    :title="currentLanguageName"
-                    @click="languageOpen = !languageOpen"
-                >
-                    <Globe2 class="h-5 w-5" aria-hidden="true" />
-                </button>
-                <div
-                    v-if="languageOpen"
-                    class="absolute right-0 z-[100000] mt-2 min-w-[180px] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                >
-                    <button
-                        v-for="lang in availableLanguages"
-                        :key="lang.code"
-                        type="button"
-                        class="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                        @click="switchLanguage(lang.code)"
-                    >
-                        <span>{{ lang.name }}</span>
-                        <span v-if="lang.code === locale" class="text-xs text-[var(--color-primary)]">✓</span>
-                    </button>
-                </div>
-            </div>
-            <ThemeToggler />
+            <LocaleThemeControls
+                language-only
+                :variant="controlsVariant"
+                size="md"
+            />
+            <LocaleThemeControls
+                theme-only
+                class="hidden lg:flex"
+                :variant="controlsVariant"
+                theme-style="toggle"
+                size="md"
+            />
             <button
                 v-if="!customerPanel"
                 type="button"

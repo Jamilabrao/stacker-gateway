@@ -34,7 +34,7 @@ self.addEventListener('message', function (event) {
 
 self.addEventListener('push', function (event) {
   if (!event.data) return;
-  let payload = { title: 'Notificação', body: '', url: null, icon: null, badge: null };
+  let payload = { title: 'Notificação', body: '', url: null, icon: null, badge: null, tag: null };
   try {
     const data = event.data.json();
     payload = {
@@ -43,6 +43,7 @@ self.addEventListener('push', function (event) {
       url: data.url ?? null,
       icon: data.icon ?? null,
       badge: data.badge ?? null,
+      tag: data.tag ?? null,
     };
   } catch (_) {
     try {
@@ -63,7 +64,7 @@ self.addEventListener('push', function (event) {
         body: payload.body,
         icon: icon,
         badge: badge,
-        tag: payload.url || 'panel-push',
+        tag: payload.tag || payload.url || 'panel-push',
         data: { url: payload.url },
       });
     })()

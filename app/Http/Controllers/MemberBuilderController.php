@@ -20,6 +20,8 @@ use App\Models\MemberPushSubscription;
 use App\Http\Middleware\ApplyBrandingConfig;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use App\Services\MemberAreaResolver;
@@ -1234,20 +1236,26 @@ class MemberBuilderController extends Controller
     public function storeCommunityPage(Request $request, Product $produto): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
+
+        if ($response = $this->ensureCommunityPagesTableReady($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
-            'icon' => ['nullable', 'string', 'max:100'],
+            'icon' => ['nullable', 'string', 'max:50'],
             'slug' => ['nullable', 'string', 'max:255'],
             'banner' => ['nullable', 'string', 'max:500'],
             'is_public_posting' => ['boolean'],
             'is_default' => ['boolean'],
         ]);
-        if ($request->boolean('is_default')) {
-            MemberCommunityPage::where('product_id', $produto->id)->update(['is_default' => false]);
-        }
-        $max = MemberCommunityPage::where('product_id', $produto->id)->max('position') ?? 0;
 
         try {
+            if ($request->boolean('is_default')) {
+                MemberCommunityPage::where('product_id', $produto->id)->update(['is_default' => false]);
+            }
+            $max = MemberCommunityPage::where('product_id', $produto->id)->max('position') ?? 0;
+
             MemberCommunityPage::create([
                 'product_id' => $produto->id,
                 'title' => $validated['title'],
@@ -1259,69 +1267,100 @@ class MemberBuilderController extends Controller
                 'is_default' => $request->boolean('is_default', false),
             ]);
         } catch (QueryException $e) {
-            return $this->communityPageSaveErrorResponse($request, 'Não foi possível criar a página. Verifique se já existe uma página com o mesmo identificador.');
+            return $this->communityPageSaveErrorResponse($request, $this->communityPageDatabaseErrorMessage($e));
+        } catch (\Throwable $e) {
+            Log::error('member_builder.community_page_store_failed', [
+                'product_id' => $produto->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return $this->communityPageSaveErrorResponse($request, 'Não foi possível criar a página da comunidade. Tente novamente.');
         }
 
-        if ($request->expectsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => 'Página da comunidade criada.',
-                'community_pages' => $this->buildCommunityPagesPayload($produto),
-            ]);
-        }
-        return back()->with('success', 'Página da comunidade criada.');
+        return $this->communityPageSuccessResponse(
+            $request,
+            $produto,
+            'Página da comunidade criada.',
+            'Página da comunidade criada.'
+        );
     }
 
     public function updateCommunityPage(Request $request, Product $produto, MemberCommunityPage $page): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
-        if ($page->product_id !== $produto->id) {
+        if ((string) $page->product_id !== (string) $produto->id) {
             abort(404);
         }
+
+        if ($response = $this->ensureCommunityPagesTableReady($request)) {
+            return $response;
+        }
+
         $validated = $request->validate([
             'title' => ['sometimes', 'string', 'max:255'],
-            'icon' => ['nullable', 'string', 'max:100'],
+            'icon' => ['nullable', 'string', 'max:50'],
             'slug' => ['nullable', 'string', 'max:255'],
             'banner' => ['nullable', 'string', 'max:500'],
             'position' => ['sometimes', 'integer', 'min:0'],
             'is_public_posting' => ['boolean'],
             'is_default' => ['boolean'],
         ]);
-        if ($request->boolean('is_default')) {
-            MemberCommunityPage::where('product_id', $produto->id)->where('id', '!=', $page->id)->update(['is_default' => false]);
-        }
 
         try {
+            if ($request->boolean('is_default')) {
+                MemberCommunityPage::where('product_id', $produto->id)->where('id', '!=', $page->id)->update(['is_default' => false]);
+            }
+
             $page->update($validated);
         } catch (QueryException $e) {
-            return $this->communityPageSaveErrorResponse($request, 'Não foi possível atualizar a página. Verifique se já existe uma página com o mesmo identificador.');
+            return $this->communityPageSaveErrorResponse($request, $this->communityPageDatabaseErrorMessage($e));
+        } catch (\Throwable $e) {
+            Log::error('member_builder.community_page_update_failed', [
+                'product_id' => $produto->id,
+                'page_id' => $page->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return $this->communityPageSaveErrorResponse($request, 'Não foi possível atualizar a página da comunidade. Tente novamente.');
         }
 
-        if ($request->expectsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => 'Página atualizada.',
-                'community_pages' => $this->buildCommunityPagesPayload($produto),
-            ]);
-        }
-        return back()->with('success', 'Página atualizada.');
+        return $this->communityPageSuccessResponse(
+            $request,
+            $produto,
+            'Página atualizada.',
+            'Página atualizada.'
+        );
     }
 
     public function destroyCommunityPage(Request $request, Product $produto, MemberCommunityPage $page): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
-        if ($page->product_id !== $produto->id) {
+        if ((string) $page->product_id !== (string) $produto->id) {
             abort(404);
         }
-        $page->delete();
-        if ($request->expectsJson()) {
-            return response()->json([
-                'success' => true,
-                'message' => 'Página removida.',
-                'community_pages' => $this->buildCommunityPagesPayload($produto),
-            ]);
+
+        if ($response = $this->ensureCommunityPagesTableReady($request)) {
+            return $response;
         }
-        return back()->with('success', 'Página removida.');
+
+        try {
+            $page->delete();
+        } catch (\Throwable $e) {
+            Log::error('member_builder.community_page_destroy_failed', [
+                'product_id' => $produto->id,
+                'page_id' => $page->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return $this->communityPageSaveErrorResponse($request, 'Não foi possível remover a página da comunidade. Tente novamente.');
+        }
+
+        return $this->communityPageSuccessResponse(
+            $request,
+            $produto,
+            'Página removida.',
+            'Página removida.'
+        );
     }
 
     /**
@@ -1343,6 +1382,78 @@ class MemberBuilderController extends Controller
             'is_public_posting' => $p->is_public_posting,
             'is_default' => (bool) ($p->is_default ?? false),
         ])->values()->all();
+    }
+
+    private function ensureCommunityPagesTableReady(Request $request): JsonResponse|RedirectResponse|null
+    {
+        if (Schema::hasTable('member_community_pages')) {
+            return null;
+        }
+
+        return $this->communityPageSaveErrorResponse(
+            $request,
+            'A comunidade ainda não está disponível neste ambiente. Execute as migrações do banco (php artisan migrate) e tente novamente.'
+        );
+    }
+
+    private function communityPageDatabaseErrorMessage(QueryException $e): string
+    {
+        $message = strtolower($e->getMessage());
+        $previous = $e->getPrevious();
+        if ($previous instanceof \Throwable) {
+            $message .= ' '.strtolower($previous->getMessage());
+        }
+
+        if (str_contains($message, 'base table or view not found')
+            || str_contains($message, 'doesn\'t exist')
+            || str_contains($message, '42s02')) {
+            return 'A tabela da comunidade não existe neste banco. Execute php artisan migrate e tente novamente.';
+        }
+
+        if (str_contains($message, 'unknown column')) {
+            return 'O banco de dados está desatualizado para a comunidade. Execute php artisan migrate e tente novamente.';
+        }
+
+        if (str_contains($message, 'data truncated') && str_contains($message, 'product_id')) {
+            return 'O banco precisa de ajuste nas tabelas da área de membros. Execute php artisan migrate (migration fix_member_tables_product_id_uuid) e tente novamente.';
+        }
+
+        if (str_contains($message, 'duplicate') || str_contains($message, '1062')) {
+            return 'Não foi possível salvar a página. Verifique se já existe uma página com o mesmo identificador.';
+        }
+
+        return 'Não foi possível salvar a página da comunidade. Verifique se o banco está atualizado (php artisan migrate) e tente novamente.';
+    }
+
+    private function communityPageSuccessResponse(
+        Request $request,
+        Product $produto,
+        string $jsonMessage,
+        string $flashMessage
+    ): JsonResponse|RedirectResponse {
+        try {
+            $communityPages = $this->buildCommunityPagesPayload($produto);
+        } catch (\Throwable $e) {
+            Log::error('member_builder.community_pages_payload_failed', [
+                'product_id' => $produto->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return $this->communityPageSaveErrorResponse(
+                $request,
+                'A página foi salva, mas não foi possível atualizar a lista. Recarregue a página.'
+            );
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $jsonMessage,
+                'community_pages' => $communityPages,
+            ]);
+        }
+
+        return back()->with('success', $flashMessage);
     }
 
     private function communityPageSaveErrorResponse(Request $request, string $message): JsonResponse|RedirectResponse

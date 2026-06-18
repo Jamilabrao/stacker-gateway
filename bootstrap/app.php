@@ -65,6 +65,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'audit.log' => \App\Http\Middleware\AuditLogMiddleware::class,
             'guest' => \App\Http\Middleware\EnsureGuest::class,
             'api.application' => \App\Http\Middleware\AuthenticateApiApplication::class,
+            'api.scope' => \App\Http\Middleware\RequireApiScope::class,
+            'api.request-id' => \App\Http\Middleware\AddApiRequestId::class,
             'member.area.resolve' => \App\Http\Middleware\ResolveMemberAreaProduct::class,
             'member.area.resolve.by.host' => \App\Http\Middleware\ResolveMemberAreaByHost::class,
             'member.area.access' => \App\Http\Middleware\EnsureMemberAreaAccess::class,
@@ -193,6 +195,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('checkout:fire-abandoned-cart-webhooks --minutes=10')->everyMinute();
         $schedule->command('email-campaign:process')->everyMinute();
         $schedule->command('payments:reconcile-pending --limit=200 --days=45 --min-age-minutes=0')->everyTwoMinutes();
+        $schedule->command('payments:reconcile-pending --source=pixgo --limit=100 --days=1 --min-age-minutes=1')->everyMinute();
         $schedule->command('withdrawals:reconcile-spacepag --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-woovi --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-cajupay --limit=80 --min-age-minutes=0')->everyTwoMinutes();

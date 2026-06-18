@@ -221,7 +221,13 @@ const shippingDeliveryLabel = computed(() => {
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Produto</p>
-                                <p class="text-sm text-zinc-900 dark:text-white">{{ venda.product_display_name ?? venda.product?.name ?? '–' }}</p>
+                                <p class="text-sm text-zinc-900 dark:text-white">
+                                    {{ venda.product_display_name ?? venda.product?.name ?? '–' }}
+                                    <span
+                                        v-if="venda.is_pixgo"
+                                        class="ml-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
+                                    >{{ venda.sale_channel_label || 'PixGO' }}</span>
+                                </p>
                             </div>
                             <div
                                 v-if="hasShipping"
@@ -284,6 +290,18 @@ const shippingDeliveryLabel = computed(() => {
                                     <ExternalLink class="h-3.5 w-3.5 shrink-0" />
                                 </a>
                                 <p v-else class="text-sm text-zinc-500">–</p>
+                            </div>
+                            <div v-if="venda.partner_checkout_url || venda.metadata?.partner_checkout_url" class="space-y-1">
+                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Link checkout parceiro (API)</p>
+                                <a
+                                    :href="venda.partner_checkout_url || venda.metadata?.partner_checkout_url"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="inline-flex items-center gap-1 break-all text-sm text-[var(--color-primary)] hover:underline"
+                                >
+                                    {{ venda.partner_checkout_url || venda.metadata?.partner_checkout_url }}
+                                    <ExternalLink class="h-3.5 w-3.5 shrink-0" />
+                                </a>
                             </div>
                             <div
                                 v-for="row in utmRows"

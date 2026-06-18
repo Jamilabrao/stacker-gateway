@@ -376,15 +376,6 @@ const inputClass =
             {{ page.props.flash.error }}
         </p>
 
-        <div
-            v-if="canRequestWithdrawal && kycFinanceLocked"
-            class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
-        >
-            <strong>Verificação KYC pendente.</strong>
-            Conclua o envio dos documentos para cadastrar chave PIX e solicitar saques.
-            <Link href="/financeiro?tab=seus-dados" class="ml-1 font-semibold text-amber-800 underline hover:text-amber-950 dark:text-amber-200">Enviar documentos</Link>
-        </div>
-
         <!-- Grelha de saldos -->
         <section v-if="wallet" class="space-y-4">
             <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -931,14 +922,6 @@ const inputClass =
                                 }}</Button>
                             </div>
                         </form>
-                    </div>
-
-                    <div
-                        v-else-if="canRequestWithdrawal && kycFinanceLocked && payout_pix_setup"
-                        class="rounded-xl border border-amber-200/80 bg-amber-50/50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-100"
-                    >
-                        Cadastro de chave PIX e edição bloqueados até a verificação KYC ser aprovada pela plataforma.
-                        <Link href="/financeiro?tab=seus-dados" class="font-semibold underline">Enviar ou atualizar documentos</Link>
                     </div>
 
                     <div

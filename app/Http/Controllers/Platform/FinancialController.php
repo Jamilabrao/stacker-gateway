@@ -10,6 +10,8 @@ use App\Jobs\ReconcileSpacepagWithdrawalJob;
 use App\Jobs\ReconcileWooviWithdrawalJob;
 use Plugins\OnlyUp\OnlyUpPayoutService;
 use Plugins\OnlyUp\ReconcileOnlyUpWithdrawalJob;
+use App\Http\Controllers\Platform\CajuPayAccountsController;
+use App\Models\CajuPayAccount;
 use App\Models\User;
 use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayPayoutService;
@@ -19,7 +21,9 @@ use App\Services\EffectiveMerchantFees;
 use App\Support\PercentDecimal;
 use App\Services\EffectiveSettlementRules;
 use App\Services\ApiPixAccess;
+use App\Services\PixGoAccess;
 use App\Services\MerchantWithdrawalService;
+use App\Services\MinimumChargeService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\Platform\PlatformTotpService;
@@ -50,9 +54,13 @@ class FinancialController extends Controller
         return Inertia::render('Platform/Financial/Index', [
             'gateways' => $this->buildGatewaysListForSettings($tenantId),
             'gateway_order' => $this->buildGatewayOrderForSettings($tenantId),
+            'cajupay_accounts' => CajuPayAccountsController::listForAdmin(),
+            'cajupay_credential_keys' => config('gateways.gateways.cajupay.credential_keys', []),
             'merchant_fee_rules' => EffectiveMerchantFees::platformDefaults(),
             'merchant_settlement_rules' => EffectiveSettlementRules::platformDefaults(),
             'api_pix_enabled' => ApiPixAccess::globalEnabled(),
+            'api_pix_minimum_charge_brl' => app(MinimumChargeService::class)->apiPixMinimumBrl(),
+            'platform_minimum_charge_brl' => app(MinimumChargeService::class)->platformMinimumBrl(),
             'payout_gateway_preference' => PlatformPayoutGateway::preference(),
             'payout_gateway_active' => PlatformPayoutGateway::activeSlug(),
             'gateway_webhook_security_warnings' => $this->gatewayWebhookSecurityWarnings($tenantId),
@@ -60,6 +68,8 @@ class FinancialController extends Controller
             'platform_payment_method_labels' => PlatformPaymentMethods::labelsForAdmin(),
             'withdrawal_policy' => WithdrawalPolicyService::toFrontendProps(),
             'platform_totp_enabled' => PlatformTotpService::isEnabledFor(request()->user()),
+            'pixgo_enabled' => PixGoAccess::globalEnabled(),
+            'pixgo_sidebar_label' => PixGoAccess::sidebarLabel(),
         ]);
     }
 
@@ -303,6 +313,49 @@ class FinancialController extends Controller
 
         return redirect()->route('plataforma.financeiro.index', ['tab' => 'taxas'])
             ->with('success', 'Taxas da plataforma atualizadas.');
+    }
+
+    public function updatePixGo(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'pixgo_enabled' => ['nullable', 'boolean'],
+            'pixgo_sidebar_label' => ['nullable', 'string', 'max:32'],
+        ]);
+
+        PixGoAccess::setEnabled($request->boolean('pixgo_enabled', false));
+        if (array_key_exists('pixgo_sidebar_label', $validated)) {
+            PixGoAccess::setSidebarLabel((string) ($validated['pixgo_sidebar_label'] ?? PixGoAccess::DEFAULT_SIDEBAR_LABEL));
+        }
+
+        PlatformAuditService::log('platform.financial.pixgo_updated', [
+            'pixgo_enabled' => PixGoAccess::globalEnabled(),
+            'pixgo_sidebar_label' => PixGoAccess::sidebarLabel(),
+        ], $request);
+
+        return redirect()->route('plataforma.financeiro.index', ['tab' => 'pixgo'])
+            ->with('success', 'Configurações PixGO atualizadas.');
+    }
+
+    public function updateChargeLimits(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'api_pix_minimum_charge_brl' => ['required', 'numeric', 'min:0', 'max:999999'],
+            'platform_minimum_charge_brl' => ['required', 'numeric', 'min:0', 'max:999999'],
+        ]);
+
+        $apiMin = round((float) $validated['api_pix_minimum_charge_brl'], 2);
+        $platformMin = round((float) $validated['platform_minimum_charge_brl'], 2);
+
+        Setting::set(MinimumChargeService::SETTING_API_PIX, (string) $apiMin, null);
+        Setting::set(MinimumChargeService::SETTING_PLATFORM, (string) $platformMin, null);
+
+        PlatformAuditService::log('platform.financial.charge_limits_updated', [
+            'api_pix_minimum_charge_brl' => $apiMin,
+            'platform_minimum_charge_brl' => $platformMin,
+        ], $request);
+
+        return redirect()->route('plataforma.financeiro.index', ['tab' => 'limites'])
+            ->with('success', 'Limites de cobrança atualizados.');
     }
 
     public function approveWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse

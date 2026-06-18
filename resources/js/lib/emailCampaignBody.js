@@ -3,7 +3,29 @@
  */
 export const CAMPAIGN_BODY_MARKER = 'data-campaign-body="1"';
 
-const DEFAULT_PRIMARY = '#4f46e5';
+const DEFAULT_PRIMARY = '#0ea5e9';
+
+/** @returns {string|null} Hex #RRGGBB normalizado ou null se inválido. */
+export function normalizeThemePrimary(raw, fallback = null) {
+    let value = String(raw ?? '').trim();
+    if (value === '') {
+        return fallback;
+    }
+
+    if (/^[0-9A-Fa-f]{6}$/.test(value)) {
+        value = `#${value}`;
+    }
+
+    if (/^#[0-9A-Fa-f]{3}$/i.test(value)) {
+        value = `#${value[1]}${value[1]}${value[2]}${value[2]}${value[3]}${value[3]}`;
+    }
+
+    if (/^#[0-9A-Fa-f]{6}$/i.test(value)) {
+        return value.toLowerCase();
+    }
+
+    return fallback;
+}
 
 export function defaultCampaignMessage() {
     return (
@@ -36,8 +58,7 @@ function plainTextToHtmlBlock(plainText) {
 }
 
 function resolveThemePrimary(themePrimary) {
-    const raw = String(themePrimary || '').trim();
-    return /^#[0-9A-Fa-f]{6}$/.test(raw) ? raw : DEFAULT_PRIMARY;
+    return normalizeThemePrimary(themePrimary, DEFAULT_PRIMARY) ?? DEFAULT_PRIMARY;
 }
 
 function darkenHex(hex, factor = 0.15) {

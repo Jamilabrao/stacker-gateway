@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive, watch } from 'vue';
+import { ref, computed, reactive, watch, onMounted } from 'vue';
 import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
@@ -18,12 +18,19 @@ defineOptions({ layout: LayoutPlatform });
 const props = defineProps({
     users: { type: Array, default: () => [] },
     q: { type: String, default: null },
+    edit_user_id: { type: Number, default: null },
     gateways: { type: Array, default: () => [] },
     platform_gateway_order: {
         type: Object,
         default: () => ({ pix: [], card: [], boleto: [], pix_auto: [] }),
     },
     platform_merchant_fees: { type: Array, default: () => [] },
+    platform_charge_limits: {
+        type: Object,
+        default: () => ({ api_pix_minimum_charge_brl: 0.01, platform_minimum_charge_brl: 0 }),
+    },
+    platform_api_pix_enabled: { type: Boolean, default: true },
+    cajupay_accounts: { type: Array, default: () => [] },
 });
 
 const page = usePage();
@@ -43,10 +50,15 @@ function applySearch() {
 }
 
 const editUser = ref(null);
+const savedFeeOverrides = ref(null);
+const savedSettlementOverrides = ref(null);
 const deletingId = ref(null);
 const feesDirty = ref(false);
 const settlementDirty = ref(false);
 const gatewayOrderDirty = ref(false);
+const cajupayAccountDirty = ref(false);
+const limitsDirty = ref(false);
+const apiPixDirty = ref(false);
 const initialGatewayPrimary = ref({});
 const adminNotesCountByUser = ref({});
 
@@ -61,6 +73,35 @@ function platformFeesMap() {
         }
     }
     return map;
+}
+
+function hasCustomFees(u) {
+    const fees = u?.merchant_fees;
+    return fees && typeof fees === 'object' && Object.keys(fees).length > 0;
+}
+
+function hasCustomSettlement(u) {
+    const s = u?.merchant_settlement_overrides;
+    return s && typeof s === 'object' && Object.keys(s).length > 0;
+}
+
+function hasCustomChargeLimits(u) {
+    const cl = u?.charge_limits;
+    if (!cl) return false;
+    return cl.api_pix_minimum_charge_brl != null || cl.platform_minimum_charge_brl != null;
+}
+
+function hasCustomApiPix(u) {
+    return u?.api_pix_mode && u.api_pix_mode !== 'inherit';
+}
+
+function feeRowHasSavedOverride(key) {
+    return overrideBlockIsExplicit(savedFeeOverrides.value, key);
+}
+
+function feeRowHasDraftOverride(key) {
+    const block = editForm.merchant_fees?.[key];
+    return overrideBlockIsExplicit({ [key]: block }, key);
 }
 
 function overrideBlockIsExplicit(rawOverrides, key) {
@@ -294,6 +335,20 @@ const editForm = useForm({
     admin_block_note: '',
     merchant_fees: defaultFeeOverrides(),
     merchant_settlement_overrides: defaultSettlementOverrides(),
+    api_pix_mode: 'inherit',
+    med_zero_enabled: false,
+    api_pix_minimum_charge_brl: '',
+    platform_minimum_charge_brl: '',
+    use_platform_api_pix_minimum: true,
+    use_platform_platform_minimum: true,
+    cajupay_account_id: '',
+});
+
+const showCajuPayAccountField = computed(() => {
+    const methods = ['pix', 'card'];
+    return methods.some((m) =>
+        (props.gateways || []).some((g) => g.slug === 'cajupay' && Array.isArray(g.methods) && g.methods.includes(m))
+    );
 });
 
 const feePercentRefs = {};
@@ -354,10 +409,16 @@ const isEditModalOpen = computed(() => editUser.value !== null);
 
 function openEditModal(u) {
     editUser.value = u;
+    savedFeeOverrides.value = u.merchant_fees ?? null;
+    savedSettlementOverrides.value = u.merchant_settlement_overrides ?? null;
     feesDirty.value = false;
     settlementDirty.value = false;
     gatewayOrderDirty.value = false;
+    cajupayAccountDirty.value = false;
+    limitsDirty.value = false;
+    apiPixDirty.value = false;
     const wa = u.wallet_admin;
+    const cl = u.charge_limits || {};
     editForm.defaults({
         name: u.name,
         email: u.email,
@@ -371,6 +432,15 @@ function openEditModal(u) {
         admin_block_note: wa?.admin_block_note || '',
         merchant_fees: mergeFeeOverrides(u.merchant_fees),
         merchant_settlement_overrides: mergeSettlementOverrides(u.merchant_settlement_overrides),
+        api_pix_mode: u.api_pix_mode || 'inherit',
+        med_zero_enabled: !!u.med_zero_enabled,
+        api_pix_minimum_charge_brl:
+            cl.api_pix_minimum_charge_brl != null ? String(cl.api_pix_minimum_charge_brl) : '',
+        platform_minimum_charge_brl:
+            cl.platform_minimum_charge_brl != null ? String(cl.platform_minimum_charge_brl) : '',
+        use_platform_api_pix_minimum: cl.api_pix_minimum_charge_brl == null,
+        use_platform_platform_minimum: cl.platform_minimum_charge_brl == null,
+        cajupay_account_id: u.cajupay_account_id != null ? String(u.cajupay_account_id) : '',
     });
     editForm.reset();
     syncMerchantPrimaryFromUser(u);
@@ -389,7 +459,55 @@ function onAdminNotesCountChanged(userId, count) {
 
 function closeEditModal() {
     editUser.value = null;
+    if (props.edit_user_id) {
+        router.get('/plataforma/usuarios', { q: props.q || undefined }, { preserveState: true, replace: true });
+    }
 }
+
+function restoreFeesDefaults() {
+    feesDirty.value = true;
+    editForm.merchant_fees = defaultFeeOverrides();
+}
+
+function restoreSettlementDefaults() {
+    settlementDirty.value = true;
+    editForm.merchant_settlement_overrides = defaultSettlementOverrides();
+}
+
+function markLimitsDirty() {
+    limitsDirty.value = true;
+}
+
+function markApiPixDirty() {
+    apiPixDirty.value = true;
+}
+
+const effectiveApiPixMinimumPreview = computed(() => {
+    if (!isEditModalOpen.value) return null;
+    if (editForm.use_platform_api_pix_minimum) {
+        return Number(props.platform_charge_limits?.api_pix_minimum_charge_brl) || 0;
+    }
+    const v = parseFloat(editForm.api_pix_minimum_charge_brl);
+    return Number.isFinite(v) ? v : Number(props.platform_charge_limits?.api_pix_minimum_charge_brl) || 0;
+});
+
+const effectivePlatformMinimumPreview = computed(() => {
+    if (!isEditModalOpen.value) return null;
+    if (editForm.use_platform_platform_minimum) {
+        return Number(props.platform_charge_limits?.platform_minimum_charge_brl) || 0;
+    }
+    const v = parseFloat(editForm.platform_minimum_charge_brl);
+    return Number.isFinite(v) ? v : Number(props.platform_charge_limits?.platform_minimum_charge_brl) || 0;
+});
+
+onMounted(() => {
+    if (props.edit_user_id) {
+        const u = props.users.find((row) => row.id === props.edit_user_id);
+        if (u) {
+            openEditModal(u);
+        }
+    }
+});
 
 function submitEdit() {
     if (!editUser.value) return;
@@ -425,6 +543,37 @@ function submitEdit() {
                 );
             } else {
                 delete payload.merchant_settlement_overrides;
+            }
+            if (apiPixDirty.value) {
+                payload.api_pix_mode = data.api_pix_mode || 'inherit';
+                payload.med_zero_enabled = !!data.med_zero_enabled;
+            } else {
+                delete payload.api_pix_mode;
+                delete payload.med_zero_enabled;
+            }
+            if (limitsDirty.value) {
+                payload.use_platform_api_pix_minimum = !!data.use_platform_api_pix_minimum;
+                payload.use_platform_platform_minimum = !!data.use_platform_platform_minimum;
+                if (data.use_platform_api_pix_minimum) {
+                    payload.api_pix_minimum_charge_brl = '';
+                } else {
+                    payload.api_pix_minimum_charge_brl = data.api_pix_minimum_charge_brl;
+                }
+                if (data.use_platform_platform_minimum) {
+                    payload.platform_minimum_charge_brl = '';
+                } else {
+                    payload.platform_minimum_charge_brl = data.platform_minimum_charge_brl;
+                }
+            } else {
+                delete payload.api_pix_minimum_charge_brl;
+                delete payload.platform_minimum_charge_brl;
+                delete payload.use_platform_api_pix_minimum;
+                delete payload.use_platform_platform_minimum;
+            }
+            if (cajupayAccountDirty.value) {
+                payload.cajupay_account_id = data.cajupay_account_id ? Number(data.cajupay_account_id) : null;
+            } else {
+                delete payload.cajupay_account_id;
             }
             return payload;
         })
@@ -545,6 +694,27 @@ function formatBlockUntilForInput(iso) {
                             >
                                 <MessageSquare class="h-3 w-3" />
                                 {{ adminNotesCountByUser[u.id] ?? u.admin_notes_count }}
+                            </span>
+                            <span
+                                v-if="hasCustomFees(u)"
+                                class="ml-2 inline-flex rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 dark:bg-violet-950/50 dark:text-violet-200"
+                                title="Taxas personalizadas"
+                            >
+                                Taxas custom
+                            </span>
+                            <span
+                                v-if="hasCustomSettlement(u)"
+                                class="ml-2 inline-flex rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/50 dark:text-sky-200"
+                                title="Liquidação personalizada"
+                            >
+                                Liquidação custom
+                            </span>
+                            <span
+                                v-if="u.med_zero_enabled"
+                                class="ml-2 inline-flex rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"
+                                title="MED Zero ativo"
+                            >
+                                MED Zero
                             </span>
                         </td>
                         <td class="max-w-[200px] truncate px-4 py-3 text-zinc-600 dark:text-zinc-300">{{ u.email }}</td>
@@ -699,7 +869,16 @@ function formatBlockUntilForInput(iso) {
                         </div>
                     </div>
                     <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Taxas (opcional)</p>
+                        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Taxas (opcional)</p>
+                            <button
+                                type="button"
+                                class="text-xs font-medium text-[var(--color-primary)] hover:underline"
+                                @click="restoreFeesDefaults"
+                            >
+                                Restaurar padrões da plataforma
+                            </button>
+                        </div>
                         <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
                             Sobrescreve os padrões em Financeiro → Taxas. Só o PIX tem taxa separada para API (REST ou link de checkout pela API); cartão e boleto usam as linhas Cartão / Boleto. Deixe em branco para herdar.
                             Percentual de 0 a 100 (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">2,5</code> = 2,5%). Fixo em reais (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">1,50</code> = R$ 1,50).
@@ -713,7 +892,12 @@ function formatBlockUntilForInput(iso) {
                             <div
                                 v-for="row in feeOverrideRows"
                                 :key="row.key"
-                                class="grid gap-2 sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] sm:items-center"
+                                class="grid gap-2 rounded-lg p-2 sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] sm:items-center"
+                                :class="
+                                    feeRowHasSavedOverride(row.key) || feeRowHasDraftOverride(row.key)
+                                        ? 'bg-violet-50/80 ring-1 ring-violet-200/80 dark:bg-violet-950/20 dark:ring-violet-800/50'
+                                        : ''
+                                "
                             >
                                 <div>
                                     <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
@@ -752,7 +936,16 @@ function formatBlockUntilForInput(iso) {
                         </div>
                     </div>
                     <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Liquidação (opcional)</p>
+                        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Liquidação (opcional)</p>
+                            <button
+                                type="button"
+                                class="text-xs font-medium text-[var(--color-primary)] hover:underline"
+                                @click="restoreSettlementDefaults"
+                            >
+                                Restaurar padrões da plataforma
+                            </button>
+                        </div>
                         <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
                             Sobrescreve Financeiro → Liquidação. Deixe em branco para herdar da plataforma.
                         </p>
@@ -795,6 +988,120 @@ function formatBlockUntilForInput(iso) {
                                 />
                             </div>
                         </div>
+                    </div>
+                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">API PIX</p>
+                        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                            Controla se este infoprodutor pode usar a API PIX (REST, checkout hospedado e chaves de API).
+                            Padrão global: {{ platform_api_pix_enabled ? 'habilitada' : 'desabilitada' }} em Financeiro → Taxas.
+                        </p>
+                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Modo</label>
+                        <select
+                            v-model="editForm.api_pix_mode"
+                            class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            @change="markApiPixDirty"
+                        >
+                            <option value="inherit">Herdar plataforma</option>
+                            <option value="enabled">Habilitada</option>
+                            <option value="disabled">Desabilitada</option>
+                        </select>
+                        <p v-if="editUser" class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                            Efetivo após salvar:
+                            <strong class="text-zinc-700 dark:text-zinc-200">
+                                {{
+                                    editForm.api_pix_mode === 'enabled'
+                                        ? 'Habilitada'
+                                        : editForm.api_pix_mode === 'disabled'
+                                          ? 'Desabilitada'
+                                          : platform_api_pix_enabled
+                                            ? 'Habilitada (herda plataforma)'
+                                            : 'Desabilitada (herda plataforma)'
+                                }}
+                            </strong>
+                        </p>
+                        <label class="mt-4 flex cursor-pointer items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                            <input
+                                v-model="editForm.med_zero_enabled"
+                                type="checkbox"
+                                class="rounded border-zinc-300"
+                                @change="markApiPixDirty"
+                            />
+                            MED Zero — plataforma assume MED de API PIX (sem retenção no infoprodutor)
+                        </label>
+                    </div>
+                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Limites de cobrança (opcional)</p>
+                        <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+                            Sobrescreve Financeiro → Limites. Vazio ou «usar padrão» herda os valores globais
+                            (API PIX: {{ formatBRL(platform_charge_limits.api_pix_minimum_charge_brl) }},
+                            plataforma: {{ formatBRL(platform_charge_limits.platform_minimum_charge_brl) }}).
+                        </p>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                    Ticket mínimo API PIX (R$)
+                                </label>
+                                <input
+                                    v-model="editForm.api_pix_minimum_charge_brl"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    :disabled="editForm.use_platform_api_pix_minimum"
+                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800"
+                                    @input="markLimitsDirty"
+                                />
+                                <label class="mt-2 flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                    <input
+                                        v-model="editForm.use_platform_api_pix_minimum"
+                                        type="checkbox"
+                                        class="rounded border-zinc-300"
+                                        @change="markLimitsDirty"
+                                    />
+                                    Usar padrão da plataforma
+                                </label>
+                                <p class="mt-1 text-xs text-zinc-500">Efetivo: {{ formatBRL(effectiveApiPixMinimumPreview) }}</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                    Ticket mínimo plataforma (R$)
+                                </label>
+                                <input
+                                    v-model="editForm.platform_minimum_charge_brl"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    :disabled="editForm.use_platform_platform_minimum"
+                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800"
+                                    @input="markLimitsDirty"
+                                />
+                                <label class="mt-2 flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                    <input
+                                        v-model="editForm.use_platform_platform_minimum"
+                                        type="checkbox"
+                                        class="rounded border-zinc-300"
+                                        @change="markLimitsDirty"
+                                    />
+                                    Usar padrão da plataforma
+                                </label>
+                                <p class="mt-1 text-xs text-zinc-500">Efetivo: {{ formatBRL(effectivePlatformMinimumPreview) }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-if="showCajuPayAccountField" class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+                        <p class="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">Conta CajuPay</p>
+                        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                            Direciona pagamentos, saques e API PIX deste infoprodutor para uma conta específica. Deixe em padrão para usar a conta global.
+                        </p>
+                        <select
+                            v-model="editForm.cajupay_account_id"
+                            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            @change="cajupayAccountDirty = true"
+                        >
+                            <option value="">Padrão da plataforma</option>
+                            <option v-for="acc in props.cajupay_accounts" :key="acc.id" :value="String(acc.id)">
+                                {{ acc.name }}{{ acc.is_default ? ' (padrão global)' : '' }}
+                            </option>
+                        </select>
                     </div>
                     <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
                         <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Ordem de adquirentes (opcional)</p>

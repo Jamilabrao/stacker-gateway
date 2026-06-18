@@ -19,6 +19,7 @@ use App\Models\ProductOrderBump;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\PaymentService;
+use App\Services\MinimumChargeService;
 use App\Services\PhysicalProductAccess;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
@@ -141,7 +142,7 @@ class ProdutosController extends Controller
             'description' => ['nullable', 'string'],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes())],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price' => $this->platformPriceRules(),
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'is_active' => ['boolean'],
             'image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
@@ -163,7 +164,7 @@ class ProdutosController extends Controller
         $baseSlug = trim((string) ($validated['slug'] ?? '')) !== ''
             ? Str::slug($validated['slug'])
             : Str::slug($validated['name']);
-        $validated['slug'] = $this->makeUniqueProductSlug($tenantId, $baseSlug);
+        $validated['slug'] = Product::uniqueSlugForTenant($tenantId, $baseSlug !== '' ? $baseSlug : 'produto');
         $validated['currency'] = $validated['currency'] ?? config('products.currency_default', 'BRL');
         $validated['price'] = MoneyDecimal::storageFromBrl(
             (float) $validated['price'],
@@ -209,12 +210,32 @@ class ProdutosController extends Controller
                 ->withInput();
         } catch (QueryException $e) {
             if ($this->isDuplicateProductSlugException($e)) {
-                return back()
-                    ->withErrors(['name' => 'Já existe um produto com este nome ou slug. Escolha outro nome.'])
-                    ->withInput();
-            }
+                $validated['slug'] = Product::uniqueSlugForTenant($tenantId, $baseSlug !== '' ? $baseSlug : 'produto');
+                try {
+                    $product = DB::transaction(function () use ($request, $validated, $deliverableLink) {
+                        $product = Product::create($validated);
 
-            throw $e;
+                        if ($request->has('deliverable_link')) {
+                            $config = $product->checkout_config ?? [];
+                            $config['deliverable_link'] = $deliverableLink ?? '';
+                            $product->update(['checkout_config' => $config]);
+                        }
+
+                        if ($request->hasFile('image')) {
+                            $path = app(StorageService::class)->putFile('products', $request->file('image'));
+                            $product->update(['image' => $path]);
+                        }
+
+                        return $product;
+                    });
+                } catch (QueryException) {
+                    return back()
+                        ->withErrors(['name' => 'Já existe um produto com este nome. Escolha outro nome.'])
+                        ->withInput();
+                }
+            } else {
+                throw $e;
+            }
         }
 
         event(new ProductCreated($product));
@@ -533,11 +554,10 @@ class ProdutosController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'slug' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes($produto))],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price' => $this->platformPriceRules(),
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'is_active' => ['boolean'],
             'image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
@@ -657,6 +677,9 @@ class ProdutosController extends Controller
         $physicalFreeShipping = $request->boolean('physical_free_shipping');
         $shippingStoreId = $validated['shipping_store_id'] ?? null;
         unset($validated['physical_free_shipping'], $validated['shipping_store_id']);
+
+        // Slug é gerado na criação e permanece estável (identificador interno).
+        unset($validated['slug']);
 
         if (($validated['type'] ?? $produto->type) === Product::TYPE_PRODUTO_FISICO) {
             if ($shippingStoreId !== null) {
@@ -840,13 +863,7 @@ class ProdutosController extends Controller
         $this->authorizeProduct($produto);
         $tenantId = auth()->user()->tenant_id;
         $baseName = $produto->name.' (cópia)';
-        $slug = Str::slug($baseName);
-        $uniqueSlug = $slug;
-        $n = 0;
-        while (Product::forTenant($tenantId)->where('slug', $uniqueSlug)->exists()) {
-            $n++;
-            $uniqueSlug = $slug.'-'.$n;
-        }
+        $uniqueSlug = Product::uniqueSlugForTenant($tenantId, $baseName);
 
         $dupConfig = $produto->checkout_config ?? [];
         if (is_array($dupConfig) && array_key_exists('payment_gateways', $dupConfig)) {
@@ -930,7 +947,7 @@ class ProdutosController extends Controller
         }
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price' => $this->platformPriceRules(),
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
         ]);
         $validated['product_id'] = $produto->id;
@@ -952,7 +969,7 @@ class ProdutosController extends Controller
         }
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price' => $this->platformPriceRules(),
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
         ]);
         $validated['currency'] = $validated['currency'] ?? $produto->currency ?? 'BRL';
@@ -1060,7 +1077,7 @@ class ProdutosController extends Controller
         }
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price' => $this->platformPriceRules(),
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'interval' => ['required', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
         ]);
@@ -1083,7 +1100,7 @@ class ProdutosController extends Controller
         }
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price' => $this->platformPriceRules(),
             'currency' => ['nullable', 'string', 'in:BRL,EUR,USD'],
             'interval' => ['required', 'string', 'in:weekly,monthly,quarterly,semi_annual,annual,lifetime'],
         ]);
@@ -1165,23 +1182,19 @@ class ProdutosController extends Controller
 
     private function makeUniqueProductSlug(int $tenantId, string $baseSlug): string
     {
-        $slug = $baseSlug !== '' ? $baseSlug : 'produto';
-        $candidate = $slug;
-        $n = 0;
-        while (Product::forTenant($tenantId)->where('slug', $candidate)->exists()) {
-            $n++;
-            $candidate = $slug.'-'.$n;
-        }
-
-        return $candidate;
+        return Product::uniqueSlugForTenant($tenantId, $baseSlug !== '' ? $baseSlug : 'produto');
     }
 
     private function isDuplicateProductSlugException(QueryException $e): bool
     {
         $message = strtolower($e->getMessage());
 
+        if (str_contains($message, '23505') || str_contains($message, 'unique violation')) {
+            return str_contains($message, 'slug') || str_contains($message, 'products_tenant_id');
+        }
+
         return str_contains($message, 'duplicate')
-            && (str_contains($message, 'slug') || str_contains($message, 'products.tenant_id'));
+            && (str_contains($message, 'slug') || str_contains($message, 'products.tenant_id') || str_contains($message, 'products_tenant_id'));
     }
 
     private function productToArray(Product $p, array $rates): array
@@ -1223,6 +1236,14 @@ class ProdutosController extends Controller
             'shipping_store_id' => $p->shipping_store_id,
             'physical_config' => $p->physical_config ?? ['free_shipping' => false],
         ];
+    }
+
+    private function platformPriceRules(): array
+    {
+        $tenantId = (int) (auth()->user()?->tenant_id ?? 0);
+        $min = app(MinimumChargeService::class)->platformMinimumBrlForTenant($tenantId > 0 ? $tenantId : null);
+
+        return ['required', 'numeric', 'min:'.$min];
     }
 
     private function assertPhysicalProductRules(string $type, string $billingType): void

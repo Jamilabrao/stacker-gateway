@@ -11,6 +11,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Subscription;
 use App\Services\EfiPixRecorrenteService;
+use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
 use App\Services\SubscriptionRenewalService;
 use App\Support\CheckoutCardContract;
@@ -220,6 +221,8 @@ class RenewalController extends Controller
         if ($currency !== 'BRL') {
             $amount = $currency === 'EUR' ? $amount / ($rates['brl_eur'] ?? 0.16) : $amount / ($rates['brl_usd'] ?? 0.18);
         }
+
+        app(MinimumChargeService::class)->assertPlatformCheckout(round($amount, 2), (int) $tenantId);
 
         [$periodStart, $periodEnd] = $plan->getCurrentPeriod();
         $paymentMethod = $request->input('payment_method', 'manual');
