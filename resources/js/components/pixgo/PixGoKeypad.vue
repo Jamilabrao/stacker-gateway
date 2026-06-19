@@ -1,6 +1,9 @@
 <script setup>
 import { computed } from 'vue';
 import { Trash2, Delete } from 'lucide-vue-next';
+import { usePixGoTheme } from '@/composables/usePixGoTheme';
+
+const { amountCardStyle } = usePixGoTheme();
 
 const props = defineProps({
     modelValue: { type: Number, default: 0 },
@@ -36,10 +39,11 @@ function backspace() {
 <template>
     <div class="w-full max-w-md">
         <div
-            class="rounded-2xl border border-lime-500/40 bg-zinc-950 px-6 py-8 text-center shadow-[0_0_40px_rgba(163,230,53,0.08)]"
+            class="rounded-2xl border border-[var(--color-primary)]/40 bg-zinc-950 px-6 py-8 text-center"
+            :style="amountCardStyle"
         >
-            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-lime-400/80">{{ label }}</p>
-            <p class="mt-3 text-4xl font-bold tracking-tight text-lime-400 sm:text-5xl">{{ formatted }}</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-primary)]/80">{{ label }}</p>
+            <p class="mt-3 text-4xl font-bold tracking-tight text-[var(--color-primary)] sm:text-5xl">{{ formatted }}</p>
         </div>
 
         <div class="mt-6 grid grid-cols-3 gap-3">

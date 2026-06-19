@@ -62,7 +62,7 @@ function goBack() {
                     <ArrowLeft class="h-5 w-5" />
                 </button>
                 <div class="flex items-center gap-2">
-                    <span class="flex h-9 w-9 items-center justify-center rounded-full bg-lime-400 text-black">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
                         <Zap class="h-4 w-4" />
                     </span>
                     <div>
@@ -75,14 +75,14 @@ function goBack() {
 
         <main class="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-4 py-8 lg:py-12">
             <p class="mb-8 hidden text-center text-sm text-zinc-500 lg:block">
-                Venda rápida PIX — digite o valor e gere o QR na hora.
+                Venda rápida PIX - digite o valor e gere o QR na hora.
             </p>
 
             <PixGoKeypad v-model="amountCents" />
 
             <button
                 type="button"
-                class="mt-6 w-full max-w-md rounded-xl bg-lime-500 py-4 text-lg font-bold text-black transition hover:bg-lime-400 disabled:cursor-not-allowed disabled:opacity-40"
+                class="mt-6 w-full max-w-md rounded-xl bg-[var(--color-primary)] py-4 text-lg font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 :disabled="!canCharge || form.processing"
                 @click="submitCharge"
             >
@@ -109,19 +109,19 @@ function goBack() {
                         v-model="form.buyer.name"
                         type="text"
                         placeholder="Nome"
-                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-lime-500/50 focus:outline-none"
+                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30"
                     />
                     <input
                         v-model="form.buyer.email"
                         type="email"
                         placeholder="E-mail"
-                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-lime-500/50 focus:outline-none"
+                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30"
                     />
                     <input
                         v-model="form.buyer.cpf"
                         type="text"
                         placeholder="CPF"
-                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-lime-500/50 focus:outline-none"
+                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30"
                     />
                 </div>
             </div>

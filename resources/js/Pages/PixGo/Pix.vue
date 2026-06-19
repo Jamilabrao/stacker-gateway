@@ -7,8 +7,11 @@ import confetti from 'canvas-confetti';
 import { ArrowLeft, Check, Copy, Zap } from 'lucide-vue-next';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import { copyTextToClipboard } from '@/lib/copyText';
+import { usePixGoTheme } from '@/composables/usePixGoTheme';
 
 defineOptions({ layout: LayoutInfoprodutor });
+
+const { confettiColors } = usePixGoTheme();
 
 const POLL_INTERVAL_MS = 2500;
 
@@ -77,7 +80,7 @@ async function checkStatus() {
                 clearInterval(pollInterval);
                 pollInterval = null;
             }
-            confetti({ particleCount: 80, spread: 60, origin: { y: 0.65 }, colors: ['#a3e635', '#84cc16'] });
+            confetti({ particleCount: 80, spread: 60, origin: { y: 0.65 }, colors: confettiColors.value });
         } else if (data.expired) {
             status.value = 'expired';
             feedback.value = 'Tempo esgotado. Gere uma nova cobrança.';
@@ -158,7 +161,7 @@ onUnmounted(() => {
                     <ArrowLeft class="h-5 w-5" />
                 </button>
                 <div class="flex items-center gap-2">
-                    <span class="flex h-9 w-9 items-center justify-center rounded-full bg-lime-400 text-black">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
                         <Zap class="h-4 w-4" />
                     </span>
                     <div>
@@ -171,14 +174,14 @@ onUnmounted(() => {
 
         <main class="mx-auto flex w-full max-w-md flex-1 flex-col items-center px-4 py-8">
             <div v-if="status === 'completed'" class="flex w-full flex-col items-center py-12 text-center">
-                <span class="flex h-20 w-20 items-center justify-center rounded-full bg-lime-500/20 text-lime-400">
+                <span class="flex h-20 w-20 items-center justify-center rounded-full bg-[var(--color-primary)]/20 text-[var(--color-primary)]">
                     <Check class="h-10 w-10" />
                 </span>
                 <h1 class="mt-6 text-2xl font-bold text-white">Pagamento recebido!</h1>
-                <p class="mt-2 text-lg text-lime-400">{{ amount_formatted }}</p>
+                <p class="mt-2 text-lg text-[var(--color-primary)]">{{ amount_formatted }}</p>
                 <button
                     type="button"
-                    class="mt-10 w-full rounded-xl bg-lime-500 py-4 text-lg font-bold text-black transition hover:bg-lime-400"
+                    class="mt-10 w-full rounded-xl bg-[var(--color-primary)] py-4 text-lg font-bold text-white transition hover:opacity-90"
                     @click="newSale"
                 >
                     Nova venda
@@ -189,7 +192,7 @@ onUnmounted(() => {
                 <p class="text-lg text-zinc-400">Cobrança expirada</p>
                 <button
                     type="button"
-                    class="mt-8 w-full rounded-xl bg-lime-500 py-4 font-bold text-black transition hover:bg-lime-400"
+                    class="mt-8 w-full rounded-xl bg-[var(--color-primary)] py-4 font-bold text-white transition hover:opacity-90"
                     @click="newSale"
                 >
                     Nova venda
@@ -197,9 +200,9 @@ onUnmounted(() => {
             </div>
 
             <template v-else>
-                <div class="w-full rounded-2xl border border-lime-500/30 bg-zinc-950 p-6 text-center">
-                    <p class="text-xs font-semibold uppercase tracking-widest text-lime-400/80">Valor</p>
-                    <p class="mt-2 text-3xl font-bold text-lime-400">{{ amount_formatted }}</p>
+                <div class="w-full rounded-2xl border border-[var(--color-primary)]/30 bg-zinc-950 p-6 text-center">
+                    <p class="text-xs font-semibold uppercase tracking-widest text-[var(--color-primary)]/80">Valor</p>
+                    <p class="mt-2 text-3xl font-bold text-[var(--color-primary)]">{{ amount_formatted }}</p>
                     <p class="mt-2 text-xs text-zinc-500">Expira em {{ timerDisplay }}</p>
                 </div>
 
@@ -226,7 +229,7 @@ onUnmounted(() => {
                     </div>
                     <button
                         type="button"
-                        class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-lime-500/40 py-3 text-sm font-medium text-lime-400 transition hover:bg-lime-500/10"
+                        class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-primary)]/40 py-3 text-sm font-medium text-[var(--color-primary)] transition hover:bg-[var(--color-primary)]/10"
                         @click="copyPixCode"
                     >
                         <Copy class="h-4 w-4" />
@@ -237,7 +240,7 @@ onUnmounted(() => {
                 <p class="mt-8 animate-pulse text-center text-sm text-zinc-500">
                     Aguardando confirmação do pagamento…
                 </p>
-                <p v-if="feedback" class="mt-2 text-center text-sm text-lime-400">{{ feedback }}</p>
+                <p v-if="feedback" class="mt-2 text-center text-sm text-[var(--color-primary)]">{{ feedback }}</p>
             </template>
         </main>
     </div>

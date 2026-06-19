@@ -1566,7 +1566,7 @@ function submitSettlement() {
             <div v-show="activeTab === 'pixgo'" class="space-y-6">
                 <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
                     <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                        PixGO — venda rápida PIX
+                        PixGO - venda rápida PIX
                     </h2>
                     <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
                         Maquininha virtual no painel do vendedor: digita o valor, gera PIX e aguarda pagamento.
