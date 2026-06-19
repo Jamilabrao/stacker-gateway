@@ -1,4 +1,20 @@
 /* Service worker for panel PWA */
+let activePushProvider = 'vapid';
+
+async function refreshPushProviderFromConfig() {
+  try {
+    const res = await fetch(new URL('/painel/push/client-config.json', self.location.origin).href);
+    const json = await res.json();
+    if (json && json.enabled && json.push_provider === 'fcm') {
+      activePushProvider = 'fcm';
+    } else {
+      activePushProvider = 'vapid';
+    }
+  } catch (_) {
+    activePushProvider = 'vapid';
+  }
+}
+
 self.addEventListener('fetch', function (event) {
   // Necessário para o Chrome Android considerar o app instalável como PWA (não só atalho).
   if (event.request.method !== 'GET') return;
@@ -24,7 +40,12 @@ self.addEventListener('install', function () {
   self.skipWaiting();
 });
 self.addEventListener('activate', function (event) {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async function () {
+      await refreshPushProviderFromConfig();
+      await self.clients.claim();
+    })()
+  );
 });
 self.addEventListener('message', function (event) {
   if (event.data && event.data.type === 'SKIP_WAITING') {
@@ -33,6 +54,9 @@ self.addEventListener('message', function (event) {
 });
 
 self.addEventListener('push', function (event) {
+  if (activePushProvider === 'fcm') {
+    return;
+  }
   if (!event.data) return;
   let payload = { title: 'Notificação', body: '', url: null, icon: null, badge: null, tag: null };
   try {
@@ -65,6 +89,7 @@ self.addEventListener('push', function (event) {
         icon: icon,
         badge: badge,
         tag: payload.tag || payload.url || 'panel-push',
+        renotify: false,
         data: { url: payload.url },
       });
     })()

@@ -120,4 +120,49 @@ class PanelPushServiceConfigTest extends TestCase
 
         $this->assertSame('https://push.example.com/sub/newer', $deliveredEndpoint);
     }
+
+    public function test_send_to_subscriptions_deduplicates_by_endpoint(): void
+    {
+        $keys = $this->configureTestVapidPush();
+        PanelPushSettings::storeVapidKeys($keys['publicKey'], $keys['privateKey']);
+
+        $sellerA = $this->createSellerUser();
+        $sellerB = $this->createSellerUser(['email' => 'seller-b-'.uniqid().'@example.com']);
+
+        $sharedEndpoint = 'https://push.example.com/sub/shared';
+        $subA = PanelPushSubscription::create([
+            'user_id' => $sellerA->id,
+            'tenant_id' => $sellerA->tenant_id,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'endpoint' => $sharedEndpoint,
+            'keys' => ['auth' => 'dGVzdA', 'p256dh' => 'dGVzdA'],
+            'vapid_public_key' => $keys['publicKey'],
+        ]);
+        $subB = PanelPushSubscription::create([
+            'user_id' => $sellerB->id,
+            'tenant_id' => $sellerB->tenant_id,
+            'provider' => PanelPushSubscription::PROVIDER_VAPID,
+            'endpoint' => $sharedEndpoint,
+            'keys' => ['auth' => 'dGVzdB', 'p256dh' => 'dGVzdB'],
+            'vapid_public_key' => $keys['publicKey'],
+        ]);
+        $subB->forceFill(['updated_at' => now()->subMinute()])->save();
+
+        $dispatcher = Mockery::mock(PanelPushDispatcher::class);
+        $dispatcher->shouldReceive('send')
+            ->once()
+            ->withArgs(function (Collection $subscriptions) {
+                return $subscriptions->count() === 1;
+            })
+            ->andReturn(['sent' => 1, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => 1]);
+
+        $this->app->instance(PanelPushDispatcher::class, $dispatcher);
+
+        app(PanelPushService::class)->sendToSubscriptions(
+            collect([$subA, $subB]),
+            'Teste',
+            'Corpo',
+            '/test'
+        );
+    }
 }

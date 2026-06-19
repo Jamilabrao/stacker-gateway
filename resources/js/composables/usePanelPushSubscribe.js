@@ -94,6 +94,50 @@ function resolveFirebaseSwUrl(pageProps) {
     return buildVersionedSwUrl('/firebase-messaging-sw.js', version);
 }
 
+function scriptUrlForRegistration(reg) {
+    return reg?.active?.scriptURL || reg?.installing?.scriptURL || reg?.waiting?.scriptURL || '';
+}
+
+async function unsubscribeRegistrationPush(reg) {
+    try {
+        const sub = await reg.pushManager?.getSubscription?.();
+        if (sub) {
+            await sub.unsubscribe();
+        }
+    } catch (_) {}
+}
+
+/**
+ * Remove SW/inscrições conflitantes (legado scope /, painel-sw vs firebase-messaging-sw).
+ */
+async function cleanupConflictingPushRegistrations(activeProvider) {
+    if (typeof navigator === 'undefined' || !navigator.serviceWorker?.getRegistrations) {
+        return;
+    }
+
+    const origin = window.location.origin;
+    const regs = await navigator.serviceWorker.getRegistrations();
+
+    for (const reg of regs) {
+        const scriptUrl = scriptUrlForRegistration(reg);
+        const scope = reg?.scope || '';
+        const isPainelSw = scriptUrl.includes('/painel-sw.js');
+        const isFirebaseSw = scriptUrl.includes('/firebase-messaging-sw.js');
+        const isRootScope = scope === `${origin}/`;
+        const shouldRemove =
+            (activeProvider === 'fcm' && isPainelSw) ||
+            (activeProvider !== 'fcm' && isFirebaseSw) ||
+            (isPainelSw && isRootScope);
+
+        if (shouldRemove) {
+            await unsubscribeRegistrationPush(reg);
+            try {
+                await reg.unregister();
+            } catch (_) {}
+        }
+    }
+}
+
 function registerSwLifecycleOnce(getCheckExistingSubscription) {
     if (swLifecycleRegistered || typeof navigator === 'undefined' || !navigator.serviceWorker) {
         return;
@@ -179,6 +223,7 @@ export function usePanelPushSubscribe() {
 
     async function registerPanelSw() {
         if (typeof navigator === 'undefined' || !navigator.serviceWorker) return null;
+        await cleanupConflictingPushRegistrations('vapid');
         try {
             return await navigator.serviceWorker.register(panelSwUrl.value, { scope: '/painel/' });
         } catch (e) {
@@ -189,6 +234,7 @@ export function usePanelPushSubscribe() {
 
     async function registerFirebaseSw() {
         if (typeof navigator === 'undefined' || !navigator.serviceWorker) return null;
+        await cleanupConflictingPushRegistrations('fcm');
         try {
             return await navigator.serviceWorker.register(firebaseSwUrl.value, { scope: '/painel/' });
         } catch (e) {

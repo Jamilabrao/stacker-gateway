@@ -87,7 +87,7 @@ class OrderCompletedPushTest extends TestCase
         ]);
     }
 
-    public function test_duplicate_order_completed_still_sends_push(): void
+    public function test_duplicate_order_completed_skips_second_push_for_same_event_key(): void
     {
         if (! Schema::hasTable('panel_push_subscriptions') || ! Schema::hasTable('panel_notifications')) {
             $this->markTestSkipped('panel push tables missing');
@@ -116,16 +116,6 @@ class OrderCompletedPushTest extends TestCase
             'metadata' => ['checkout_payment_method' => 'pix'],
         ]);
 
-        PanelNotification::create([
-            'tenant_id' => $seller->tenant_id,
-            'user_id' => $seller->id,
-            'type' => 'sale_approved',
-            'event_key' => 'sale_'.$order->id,
-            'title' => 'Venda aprovada (PIX)',
-            'body' => 'Legado',
-            'url' => '/vendas',
-        ]);
-
         $dispatcher = Mockery::mock(PanelPushDispatcher::class);
         $dispatcher->shouldReceive('send')
             ->once()
@@ -133,7 +123,11 @@ class OrderCompletedPushTest extends TestCase
 
         $this->app->instance(PanelPushDispatcher::class, $dispatcher);
 
-        app(SendPanelPushOnOrderCompleted::class)->handle(new OrderCompleted($order->fresh(['product'])));
+        $listener = app(SendPanelPushOnOrderCompleted::class);
+        $event = new OrderCompleted($order->fresh(['product']));
+
+        $listener->handle($event);
+        $listener->handle($event);
 
         $this->assertSame(
             1,

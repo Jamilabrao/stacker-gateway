@@ -186,6 +186,11 @@ class PanelPwaController extends Controller
             ->where('id', '!=', $subscription->id)
             ->delete();
 
+        PanelPushSubscription::query()
+            ->where('user_id', $user->id)
+            ->where('provider', PanelPushSubscription::PROVIDER_FCM)
+            ->delete();
+
         return response()->json([
             'success' => true,
             'subscribed' => true,

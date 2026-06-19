@@ -21,7 +21,7 @@ class PushSubscriptionsMultiDeviceTest extends TestCase
         $this->configureTestVapidPush();
     }
 
-    public function test_panel_allows_multiple_subscriptions_per_user(): void
+    public function test_panel_keeps_single_vapid_subscription_per_user_on_resubscribe(): void
     {
         $user = $this->createSellerUser();
 
@@ -37,8 +37,8 @@ class PushSubscriptionsMultiDeviceTest extends TestCase
         $this->actingAs($user)->postJson('/painel/push-subscribe', $payload1)->assertStatus(200);
         $this->actingAs($user)->postJson('/painel/push-subscribe', $payload2)->assertStatus(200);
 
-        $this->assertSame(2, PanelPushSubscription::where('user_id', $user->id)->count());
-        $this->assertNotNull(PanelPushSubscription::where('endpoint', $payload1['endpoint'])->first());
+        $this->assertSame(1, PanelPushSubscription::where('user_id', $user->id)->count());
+        $this->assertNull(PanelPushSubscription::where('endpoint', $payload1['endpoint'])->first());
         $this->assertNotNull(PanelPushSubscription::where('endpoint', $payload2['endpoint'])->first());
     }
 

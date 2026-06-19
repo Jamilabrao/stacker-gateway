@@ -6,6 +6,7 @@ use App\Models\PanelNotification;
 use App\Models\PanelPushSubscription;
 use App\Services\Push\PanelPushDispatcher;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class PanelPushService
@@ -52,6 +53,23 @@ class PanelPushService
             } else {
                 PanelNotification::create($attrs);
             }
+        }
+
+        $shouldSendPush = true;
+        if ($eventKey !== null && $eventKey !== '') {
+            if (! Cache::add('panel_push_sent:'.$eventKey, 1, now()->addSeconds(60))) {
+                $shouldSendPush = false;
+            }
+        }
+
+        if (! $shouldSendPush) {
+            Log::info('PanelPushService: push omitido (event_key já enviado recentemente)', [
+                'tenant_id' => $tenantId,
+                'type' => $type,
+                'event_key' => $eventKey,
+            ]);
+
+            return 0;
         }
 
         $result = $this->sendToSubscriptions($subscriptions, $title, $body, $url, $eventKey);
@@ -149,6 +167,7 @@ class PanelPushService
             ->filter(fn (PanelPushSubscription $subscription) => $subscription->isValidForPush())
             ->sortByDesc(fn (PanelPushSubscription $subscription) => $subscription->updated_at?->getTimestamp() ?? $subscription->id)
             ->unique('user_id')
+            ->unique('endpoint')
             ->values();
     }
 }

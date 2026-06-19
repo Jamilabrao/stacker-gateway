@@ -3,14 +3,14 @@ importScripts('https://www.gstatic.com/firebasejs/11.6.0/firebase-app-compat.js'
 importScripts('https://www.gstatic.com/firebasejs/11.6.0/firebase-messaging-compat.js');
 
 let messaging = null;
+let backgroundHandlerRegistered = false;
 
 function showNotificationFromPayload(payload) {
-    const n = payload.notification || {};
     const data = payload.data || {};
-    const title = n.title || data.title || 'Notificação';
-    const body = n.body || data.body || '';
+    const title = data.title || 'Notificação';
+    const body = data.body || '';
     const url = data.url || null;
-    const icon = n.icon || data.icon || data.badge || new URL('/icons/icon-192x192.png', self.location.origin).href;
+    const icon = data.icon || data.badge || new URL('/icons/icon-192x192.png', self.location.origin).href;
     const badge = data.badge || icon;
     const tag = data.tag || url || 'panel-fcm-push';
 
@@ -19,6 +19,7 @@ function showNotificationFromPayload(payload) {
         icon: icon,
         badge: badge,
         tag: tag,
+        renotify: false,
         data: { url: url },
     });
 }
@@ -29,7 +30,15 @@ function initFirebase(config) {
         firebase.initializeApp(config);
     }
     messaging = firebase.messaging();
+    if (backgroundHandlerRegistered) {
+        return;
+    }
+    backgroundHandlerRegistered = true;
     messaging.onBackgroundMessage(function (payload) {
+        // SDK/navegador já exibem quando há payload.notification — evita duplicata.
+        if (payload.notification) {
+            return;
+        }
         return showNotificationFromPayload(payload);
     });
 }

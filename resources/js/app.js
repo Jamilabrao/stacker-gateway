@@ -4,68 +4,30 @@ import { config as inertiaConfig } from '@inertiajs/core';
 inertiaConfig.set('prefetch.hoverDelay', 200);
 
 // Migração: versões antigas registravam /painel-sw.js com scope "/" e isso pode interceptar checkout + scripts de terceiros (Meta Pixel).
-// Aqui removemos automaticamente o registro legado (scope raiz) quando existir.
+// Remove inscrição push e o registro legado (scope raiz). Registro do SW ativo fica em usePanelPushSubscribe.
 if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.serviceWorker?.getRegistrations) {
     try {
-        navigator.serviceWorker.getRegistrations().then((regs) => {
+        navigator.serviceWorker.getRegistrations().then(async (regs) => {
             const origin = window.location.origin;
-            regs.forEach((reg) => {
+            for (const reg of regs) {
                 const scriptUrl = reg?.active?.scriptURL || reg?.installing?.scriptURL || reg?.waiting?.scriptURL || '';
                 const scope = reg?.scope || '';
                 const isPainelSw = typeof scriptUrl === 'string' && scriptUrl.includes('/painel-sw.js');
                 const isRootScope = typeof scope === 'string' && scope === `${origin}/`;
                 if (isPainelSw && isRootScope) {
-                    reg.unregister().catch(() => {});
+                    try {
+                        const sub = await reg.pushManager?.getSubscription?.();
+                        if (sub) {
+                            await sub.unsubscribe();
+                        }
+                    } catch (_) {}
+                    try {
+                        await reg.unregister();
+                    } catch (_) {}
                 }
-            });
+            }
         });
     } catch (_) {}
-}
-
-// Registrar Service Worker do painel apenas fora da área de membros e do checkout (sem prompts/efeitos PWA no checkout)
-let skipPanelPwa = false;
-if (typeof window !== 'undefined') {
-    const path = window.location.pathname;
-    const isPlatform = path.startsWith('/plataforma');
-    const isCheckout = path.startsWith('/c/') || path.startsWith('/checkout') || path.startsWith('/api-checkout');
-    let isMemberArea = path.startsWith('/m/');
-    if (!isMemberArea) {
-        try {
-            const appEl = document.getElementById('app');
-            const data = appEl?.getAttribute('data-page');
-            if (data) {
-                const page = JSON.parse(data);
-                const comp = page?.component;
-                const url = page?.url ?? '';
-                isMemberArea = (typeof comp === 'string' && comp.includes('MemberAreaApp')) || (typeof url === 'string' && url.startsWith('/m/'));
-            }
-        } catch (_) {}
-    }
-    skipPanelPwa = isMemberArea || isCheckout || isPlatform;
-}
-if (!skipPanelPwa && typeof navigator !== 'undefined' && navigator.serviceWorker) {
-    let panelSwUrl = '/painel-sw.js';
-    let pushProvider = 'vapid';
-    try {
-        const appEl = document.getElementById('app');
-        const data = appEl?.getAttribute('data-page');
-        if (data) {
-            const page = JSON.parse(data);
-            const props = page?.props ?? {};
-            if (props.pwa_sw_url) panelSwUrl = props.pwa_sw_url;
-            if (props.pwa_sw_version) {
-                const sep = panelSwUrl.includes('?') ? '&' : '?';
-                panelSwUrl = `${panelSwUrl}${sep}v=${encodeURIComponent(props.pwa_sw_version)}`;
-            }
-            if (props.push_provider) pushProvider = props.push_provider;
-        }
-    } catch (_) {}
-    // Em modo FCM o firebase-messaging-sw.js assume o scope; evita conflito com painel-sw.js.
-    if (pushProvider !== 'fcm') {
-        navigator.serviceWorker.register(panelSwUrl, { scope: '/painel/' }).catch((error) => {
-            console.warn('[PWA] Falha ao registrar service worker:', error);
-        });
-    }
 }
 
 import { createInertiaApp, usePage, router } from '@inertiajs/vue3';
