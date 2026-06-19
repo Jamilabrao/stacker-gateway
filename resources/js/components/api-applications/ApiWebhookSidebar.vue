@@ -44,9 +44,12 @@ watch(
         form.webhook_secret = w.has_secret ? props.webhookSecretMask : '';
         form.webhook_enabled = w.is_active !== false;
         form.clear_webhook = false;
-        const events = Array.isArray(w.events) ? [...w.events] : [];
-        form.webhook_events = events;
-        allEventsSelected.value = !events.length || events.length >= allEventKeys.value.length;
+        const allSelected = w.events_mode === 'all'
+            || !Array.isArray(w.events)
+            || w.events.length === 0
+            || w.events.length >= allEventKeys.value.length;
+        form.webhook_events = allSelected ? [] : [...w.events];
+        allEventsSelected.value = allSelected;
         form.clearErrors();
     },
     { immediate: true },

@@ -9,13 +9,16 @@ use Illuminate\Support\Str;
 
 class ApiWebhookConfigService
 {
+    /** Sentinel: do not change stored webhook_events. */
+    public const EVENTS_UNCHANGED = '__events_unchanged__';
+
     /**
-     * @param  list<string>|null  $events
+     * @param  list<string>|null|self::EVENTS_UNCHANGED  $events
      */
     public function updateFromPanel(
         ApiApplication $app,
         ?string $url,
-        ?array $events,
+        array|string|null $events,
         ?string $providedSecret,
         bool $hadSecret,
         ?bool $webhookEnabled = null,
@@ -33,8 +36,11 @@ class ApiWebhookConfigService
 
         $payload = [
             'webhook_url' => $url ?: null,
-            'webhook_events' => $events,
         ];
+
+        if ($events !== self::EVENTS_UNCHANGED) {
+            $payload['webhook_events'] = $events;
+        }
 
         if (is_string($url) && $url !== '') {
             $payload['webhook_secret'] = $secret;
@@ -63,7 +69,7 @@ class ApiWebhookConfigService
         $app->update([
             'webhook_url' => null,
             'webhook_secret' => null,
-            'webhook_events' => null,
+            'webhook_events' => ApiWebhookEvents::allSubscription(),
             'webhook_enabled' => true,
         ]);
     }
@@ -86,16 +92,22 @@ class ApiWebhookConfigService
             $revealed = $secret;
         }
 
-        $payload = [
+        $app->update([
             'webhook_url' => $url,
-            'webhook_events' => null,
             'webhook_secret' => $secret,
             'webhook_enabled' => $enabled,
-        ];
+        ]);
 
-        $app->update($payload);
+        $this->ensureAllEventsSubscribed($app);
 
         return new WebhookProvisionResult($app->fresh(), $revealed);
+    }
+
+    public function ensureAllEventsSubscribed(ApiApplication $app): void
+    {
+        ApiApplication::query()
+            ->whereKey($app->id)
+            ->update(['webhook_events' => ApiWebhookEvents::allSubscription()]);
     }
 
     public function rotateSecret(ApiApplication $app): string
@@ -121,9 +133,8 @@ class ApiWebhookConfigService
         }
 
         $events = array_values(array_unique($events));
-        $allEvents = ApiWebhookEvents::all();
-        if (count($events) === 0 || count($events) >= count($allEvents)) {
-            return null;
+        if (ApiWebhookEvents::isAllSubscription($events)) {
+            return ApiWebhookEvents::allSubscription();
         }
 
         return $events;
@@ -135,6 +146,7 @@ class ApiWebhookConfigService
     public function toResponseArray(ApiApplication $app, ?string $revealedSecret = null): array
     {
         $events = $app->webhook_events;
+        $allEvents = ApiWebhookEvents::isAllSubscription(is_array($events) ? $events : null);
         $hasSecret = ($app->webhook_secret ?? '') !== '';
         $enabled = Schema::hasColumn($app->getTable(), 'webhook_enabled')
             ? (bool) ($app->webhook_enabled ?? true)
@@ -143,8 +155,8 @@ class ApiWebhookConfigService
         $response = [
             'webhook_url' => $app->webhook_url,
             'webhook_enabled' => $enabled,
-            'webhook_events' => $events,
-            'events_mode' => $events === null ? 'all' : 'selected',
+            'webhook_events' => $allEvents ? null : $events,
+            'events_mode' => $allEvents ? 'all' : 'selected',
             'has_secret' => $hasSecret,
         ];
 

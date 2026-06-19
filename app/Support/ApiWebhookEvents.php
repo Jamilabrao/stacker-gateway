@@ -26,4 +26,21 @@ final class ApiWebhookEvents
     {
         return config('api_webhook_events.groups', []);
     }
+
+    /**
+     * Valor persistido para inscrição em todos os eventos (null = sem filtro).
+     */
+    public static function allSubscription(): ?array
+    {
+        return null;
+    }
+
+    public static function isAllSubscription(?array $events): bool
+    {
+        if ($events === null) {
+            return true;
+        }
+
+        return count($events) === 0 || count($events) >= count(self::all());
+    }
 }

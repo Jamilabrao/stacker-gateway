@@ -211,6 +211,24 @@ class ApiWebhookProvisionTest extends TestCase
         $this->assertNotEmpty($response->json('webhook_secret'));
     }
 
+    public function test_put_clears_partial_webhook_events_to_all(): void
+    {
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+        $keys = $this->createLegacyApiApp((int) $seller->id);
+        $keys['app']->update(['webhook_events' => ['order.completed', 'pix.generated']]);
+
+        $url = 'https://partner.example/webhooks/getfy/1';
+        $this->withHeaders($this->authHeaders($keys['public'], $keys['secret']))
+            ->putJson('/api/v1/webhook', ['webhook_url' => $url])
+            ->assertOk()
+            ->assertJsonPath('events_mode', 'all')
+            ->assertJsonPath('webhook_events', null);
+
+        $keys['app']->refresh();
+        $this->assertNull($keys['app']->webhook_events);
+    }
+
     public function test_scoped_key_with_webhooks_write_can_provision(): void
     {
         $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);

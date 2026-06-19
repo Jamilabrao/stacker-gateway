@@ -24,6 +24,7 @@ const deliveries = ref([...props.recentDeliveries]);
 const meta = ref({ page: 1, last_page: 1 });
 
 const eventLabel = computed(() => {
+    if (props.webhook.events_mode === 'all') return 'Todos os eventos';
     const events = props.webhook.events;
     if (!events || !events.length) return 'Todos os eventos';
     if (events.length <= 2) return events.join(', ');

@@ -294,7 +294,9 @@ class ApiApplicationsController extends Controller
             $webhookSecret = '';
         }
 
-        $events = $this->webhookConfigService->normalizePanelEvents($validated['webhook_events'] ?? null);
+        $events = array_key_exists('webhook_events', $validated)
+            ? $this->webhookConfigService->normalizePanelEvents($validated['webhook_events'] ?? null)
+            : ApiWebhookConfigService::EVENTS_UNCHANGED;
         $url = $validated['webhook_url'] ?? $apiApplication->webhook_url;
         $hadSecret = ($apiApplication->webhook_secret ?? '') !== '';
 
@@ -435,6 +437,8 @@ class ApiApplicationsController extends Controller
             ->all();
 
         $hasWebhook = is_string($app->webhook_url) && $app->webhook_url !== '';
+        $webhookEvents = $app->webhook_events;
+        $allWebhookEvents = ApiWebhookEvents::isAllSubscription(is_array($webhookEvents) ? $webhookEvents : null);
 
         return [
             'application' => [
@@ -451,7 +455,8 @@ class ApiApplicationsController extends Controller
                 'url' => $app->webhook_url,
                 'has_secret' => ($app->webhook_secret ?? '') !== '',
                 'webhook_secret_mask' => self::WEBHOOK_SECRET_MASK,
-                'events' => $app->webhook_events,
+                'events' => $allWebhookEvents ? null : $webhookEvents,
+                'events_mode' => $allWebhookEvents ? 'all' : 'selected',
                 'is_active' => Schema::hasColumn($app->getTable(), 'webhook_enabled')
                     ? (bool) ($app->webhook_enabled ?? true)
                     : (bool) $app->is_active,
