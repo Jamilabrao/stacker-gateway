@@ -47,6 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\ForceHttpsWhenForwardedProto::class,
             \App\Http\Middleware\EnsureDockerSetup::class,
             \App\Http\Middleware\EnsureInstalled::class,
+            \App\Http\Middleware\ConfigureCheckoutIframeSession::class,
             \App\Http\Middleware\ApplyBrandingConfig::class,
             \App\Http\Middleware\SetPanelLocale::class,
         ], append: [

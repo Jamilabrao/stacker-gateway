@@ -116,6 +116,11 @@ return [
         ],
     ],
 
+    'checkout_embed' => [
+        /** Permite embed do checkout público em iframe em sites externos (frame-ancestors *). */
+        'enabled' => filter_var(env('CHECKOUT_IFRAME_EMBED', true), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     'checkout_security' => [
         'min_seconds_before_pay' => max(0, (int) env('CHECKOUT_MIN_SECONDS_BEFORE_PAY', 2)),
         'duplicate_pending_minutes' => max(1, (int) env('CHECKOUT_DUPLICATE_PENDING_MINUTES', 15)),
