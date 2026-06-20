@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onUnmounted, onMounted, nextTick, toRef } from 'vue';
+import { ref, computed, watch, onUnmounted, onMounted, toRef } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import { useCheckoutLocale } from '@/composables/useCheckoutLocale';
@@ -14,6 +14,7 @@ import SupportButton from '@/components/checkout/SupportButton.vue';
 import ExitPopup from '@/components/checkout/ExitPopup.vue';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
 import { sendPurchasePixelAck } from '@/composables/usePurchasePixelAck';
+import { runCheckoutMetaTracking } from '@/composables/useMetaCheckoutTracking';
 
 defineOptions({ layout: null });
 
@@ -191,31 +192,33 @@ const conversionPixels = computed(() => props.conversion_pixels || {});
 
 const checkoutTotalInCurrency = computed(() => priceInCurrency(checkoutTotalBrl.value));
 
-/** Só marca sucesso após o track — se o ref ou o fbq falharem na 1ª tentativa, @ready / nextTick podem tentar de novo. */
-let initiateCheckoutSucceeded = false;
-async function fireInitiateCheckoutOnce() {
-    if (initiateCheckoutSucceeded) return;
-    await nextTick();
-    if (!conversionPixelsRef.value?.fireInitiateCheckoutReliable) {
-        return;
-    }
-    const ok = await conversionPixelsRef.value.fireInitiateCheckoutReliable(
-        checkoutTotalInCurrency.value,
-        displayCurrency.value,
-        props.product?.checkout_slug || ''
-    );
-    if (ok) {
-        initiateCheckoutSucceeded = true;
+let checkoutMetaTrackingDone = false;
+
+async function startCheckoutMetaTracking() {
+    if (checkoutMetaTrackingDone || props.checkout_builder_preview) return;
+    if (!props.checkout_session_token) return;
+
+    const result = await runCheckoutMetaTracking({
+        pixels: conversionPixels.value,
+        checkoutSessionToken: props.checkout_session_token,
+        value: checkoutTotalInCurrency.value,
+        currency: displayCurrency.value,
+        contentKey: props.product?.checkout_slug || '',
+        contentName: props.product?.name || '',
+    });
+
+    if (result?.ok) {
+        checkoutMetaTrackingDone = true;
     }
 }
 
 onMounted(async () => {
-    await fireInitiateCheckoutOnce();
+    await startCheckoutMetaTracking();
 });
 </script>
 
 <template>
-    <ConversionPixels ref="conversionPixelsRef" :pixels="conversionPixels" @ready="fireInitiateCheckoutOnce" />
+    <ConversionPixels ref="conversionPixelsRef" :pixels="conversionPixels" @meta-ready="startCheckoutMetaTracking" />
     <Head>
         <title>{{ pageTitle }}</title>
         <meta v-if="pageDescription" name="description" :content="pageDescription" />

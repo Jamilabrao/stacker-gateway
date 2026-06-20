@@ -12,6 +12,10 @@ return [
 
     'payouts_queue' => env('PAYOUTS_QUEUE', 'payouts'),
 
+    'meta_tracking_queue' => env('META_TRACKING_QUEUE', 'meta-tracking'),
+
+    'utmify_queue' => env('UTMIFY_QUEUE', 'utmify-tracking'),
+
     /*
     |--------------------------------------------------------------------------
     | Default Queue Connection Name

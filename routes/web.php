@@ -192,6 +192,7 @@ Route::post('/checkout/shipping-quote', [\App\Http\Controllers\CheckoutControlle
     ->name('checkout.shipping-quote')
     ->middleware('throttle:checkout-shipping-quote');
 Route::post('/checkout/pixel/purchase-ack', [\App\Http\Controllers\CheckoutController::class, 'purchasePixelAck'])->name('checkout.pixel.purchase-ack')->middleware('throttle:120,1');
+Route::post('/checkout/pixel/events', [\App\Http\Controllers\CheckoutMetaTrackingController::class, 'store'])->name('checkout.pixel.events')->middleware('throttle:120,1');
 Route::post('/checkout', [\App\Http\Controllers\CheckoutController::class, 'process'])
     ->name('checkout.process')
     ->middleware(['throttle:checkout-pay', 'throttle:checkout-pix', 'throttle:checkout-pix-email', 'throttle:checkout-card']);

@@ -28,6 +28,7 @@ use App\Services\BuyerAccountService;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\GeoIp;
 use App\Services\MinimumChargeService;
+use App\Services\Meta\MetaTrackingService;
 use App\Services\PaymentService;
 use App\Services\PhysicalProductAccess;
 use App\Services\PushinPayPixRecorrenteService;
@@ -359,6 +360,7 @@ class CheckoutController extends Controller
                 'session_token' => $sessionToken,
                 'step' => CheckoutSession::STEP_VISIT,
                 'customer_ip' => $request->ip(),
+                'affiliate_ref' => $affiliateRef !== '' ? $affiliateRef : null,
             ], CheckoutSession::trackingFromQuery($request)));
         }
         $payload['checkout_session_token'] = $sessionToken;
@@ -800,6 +802,9 @@ class CheckoutController extends Controller
             $orderMetadata['user_agent'] = $ua;
         }
 
+        $orderMetadata = $this->mergeCheckoutSessionMetaTracking($orderMetadata, $validated['checkout_session_token'] ?? null);
+        $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated);
+
         $orderPayload = [
             'tenant_id' => $tenantId,
             'user_id' => $user->id,
@@ -897,12 +902,12 @@ class CheckoutController extends Controller
                 $paymentService = app(PaymentService::class);
                 $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
                 $pixResult = $paymentService->createPixPayment($order, $product, $consumer);
+                $updateCheckoutSession($order);
                 event(new PixGenerated($order, [
                     'qrcode' => $pixResult['qrcode'] ?? null,
                     'copy_paste' => $pixResult['copy_paste'] ?? null,
                     'transaction_id' => $pixResult['transaction_id'] ?? null,
                 ]));
-                $updateCheckoutSession($order);
                 $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
                 $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
                 $pixToken = \Illuminate\Support\Str::random(32);
@@ -1016,12 +1021,12 @@ class CheckoutController extends Controller
                         'metadata' => array_merge($order->metadata ?? [], ['pushinpay_subscription_id' => $subscriptionId]),
                     ]);
 
+                    $updateCheckoutSession($order);
                     event(new PixGenerated($order, [
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
                         'transaction_id' => $txid,
                     ]));
-                    $updateCheckoutSession($order);
 
                     if ($request->expectsJson()) {
                         return $this->idempotencyReturn($idempotencyKey, response()->json([
@@ -1163,12 +1168,12 @@ class CheckoutController extends Controller
                         }
                     }
 
+                    $updateCheckoutSession($order);
                     event(new PixGenerated($order, [
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
                         'transaction_id' => $txid,
                     ]));
-                    $updateCheckoutSession($order);
 
                     if ($request->expectsJson()) {
                         return $this->idempotencyReturn($idempotencyKey, response()->json([
@@ -1333,6 +1338,7 @@ class CheckoutController extends Controller
                 $paymentService = app(PaymentService::class);
                 $cardResult = $paymentService->createCardPayment($order, $product, $consumer, $card);
                 $status = $cardResult['status'] ?? null;
+                $updateCheckoutSession($order);
                 if (in_array($status, ['paid', 'settled', 'approved', 'completed'], true)) {
                     $order->update(['status' => 'completed']);
                     $order->load('orderItems');
@@ -1352,7 +1358,6 @@ class CheckoutController extends Controller
                     }
                     event(new OrderCompleted($order));
                 }
-                $updateCheckoutSession($order);
                 $config = $this->getOrderCheckoutConfigForProcess($order, $product, $offer, $plan);
                 $redirectUrl = null;
                 $isApproved = in_array($status, ['paid', 'settled', 'approved'], true);
@@ -1449,8 +1454,8 @@ class CheckoutController extends Controller
                     'barcode' => $boletoResult['barcode'] ?? null,
                     'pdf_url' => $boletoResult['pdf_url'] ?? null,
                 ];
-                event(new BoletoGenerated($order, $boletoData));
                 $updateCheckoutSession($order);
+                event(new BoletoGenerated($order, $boletoData));
                 $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
                 $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
                 $boletoToken = Str::random(32);
@@ -2119,6 +2124,9 @@ class CheckoutController extends Controller
             $orderMetadata['user_agent'] = $ua;
         }
 
+        $orderMetadata = $this->mergeCheckoutSessionMetaTracking($orderMetadata, $validated['checkout_session_token'] ?? null);
+        $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated);
+
         $cpfDigits = preg_replace('/\D/', '', (string) ($validated['cpf'] ?? '')) ?: null;
         $phone = ($validated['phone'] ?? null) ?: null;
 
@@ -2589,5 +2597,59 @@ class CheckoutController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $orderMetadata
+     * @return array<string, mixed>
+     */
+    private function mergeCheckoutSessionMetaTracking(array $orderMetadata, mixed $sessionToken): array
+    {
+        $token = is_string($sessionToken) ? trim($sessionToken) : '';
+        if ($token === '') {
+            return $orderMetadata;
+        }
+
+        $session = CheckoutSession::where('session_token', $token)->first();
+        if (! $session) {
+            return $orderMetadata;
+        }
+
+        return app(MetaTrackingService::class)->mergeSessionAttributionIntoOrder($session, $orderMetadata);
+    }
+
+    /**
+     * @param  array<string, mixed>  $orderMetadata
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function mergeCheckoutSessionUtmsIntoOrderMetadata(array $orderMetadata, mixed $sessionToken, array $validated = []): array
+    {
+        $token = is_string($sessionToken) ? trim($sessionToken) : '';
+        if ($token !== '') {
+            $orderMetadata['checkout_session_token'] = $token;
+        }
+
+        $fromRequest = $this->utmPayloadFromValidated($validated);
+        $session = $token !== '' ? CheckoutSession::where('session_token', $token)->first() : null;
+
+        if ($session !== null) {
+            $merged = $this->mergeSessionUtms($session, $fromRequest);
+            foreach ($merged as $key => $value) {
+                if (is_string($value) && trim($value) !== '') {
+                    $orderMetadata[$key] = trim($value);
+                }
+            }
+
+            return $orderMetadata;
+        }
+
+        foreach ($fromRequest as $key => $value) {
+            if (is_string($value) && trim($value) !== '') {
+                $orderMetadata[$key] = trim($value);
+            }
+        }
+
+        return $orderMetadata;
     }
 }

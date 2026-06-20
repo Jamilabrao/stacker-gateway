@@ -5,7 +5,6 @@ namespace App\Listeners;
 use App\Events\OrderCompleted;
 use App\Jobs\MetaConversionsSendPurchaseJob;
 use App\Services\MetaPurchaseTrackingDiagnostics;
-use App\Support\IntegrationJobDispatch;
 use Illuminate\Contracts\Events\Dispatcher;
 
 class MetaConversionsEventSubscriber
@@ -24,11 +23,9 @@ class MetaConversionsEventSubscriber
     {
         $orderId = (int) $event->order->id;
 
-        if (IntegrationJobDispatch::shouldDispatchSync()) {
-            MetaConversionsSendPurchaseJob::dispatchSync($orderId);
-        } else {
-            MetaConversionsSendPurchaseJob::dispatch($orderId);
-            app(MetaPurchaseTrackingDiagnostics::class)->logQueueHintOnDispatch($orderId);
-        }
+        MetaConversionsSendPurchaseJob::dispatch($orderId)
+            ->onQueue((string) config('meta_tracking.queue', 'meta-tracking'));
+
+        app(MetaPurchaseTrackingDiagnostics::class)->logQueueHintOnDispatch($orderId);
     }
 }

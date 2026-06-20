@@ -3,10 +3,13 @@
 namespace Tests\Feature\Meta;
 
 use App\Events\OrderCompleted;
+use App\Jobs\Meta\SendMetaTrackingEventJob;
 use App\Jobs\MetaConversionsSendPurchaseJob;
+use App\Models\MetaTrackingEvent;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\MetaConversionsService;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -46,7 +49,7 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
         Queue::assertPushed(MetaConversionsSendPurchaseJob::class, fn ($job) => $job->orderId === $order->id);
     }
 
-    public function test_job_sets_metadata_on_successful_capi(): void
+    public function test_service_sets_metadata_on_successful_capi(): void
     {
         Http::fake([
             'graph.facebook.com/*' => Http::response(['events_received' => 1], 200),
@@ -77,12 +80,11 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
             ],
         ]);
 
-        (new MetaConversionsSendPurchaseJob($order->id))->handle(app(\App\Services\MetaConversionsService::class));
+        $results = app(MetaConversionsService::class)->sendPurchaseForOrder($order);
 
+        $this->assertNotEmpty($results);
         $order->refresh();
-        $meta = $order->metadata;
-        $this->assertTrue($meta['meta_capi_sent_purchase'] ?? false);
-        $this->assertNotEmpty($meta['meta_capi_sent_purchase_at'] ?? null);
+        $this->assertTrue($order->metadata['meta_capi_sent_purchase'] ?? false);
 
         $orderId = $order->id;
         Http::assertSent(function ($req) use ($orderId) {
@@ -124,7 +126,7 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
             'payment_method' => 'pix',
         ]);
 
-        (new MetaConversionsSendPurchaseJob($order->id))->handle(app(\App\Services\MetaConversionsService::class));
+        app(MetaConversionsService::class)->sendPurchaseForOrder($order);
 
         Http::assertNothingSent();
         $order->refresh();
@@ -156,20 +158,16 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
             'payment_method' => 'credit_card',
         ]);
 
-        (new MetaConversionsSendPurchaseJob($order->id))->handle(app(\App\Services\MetaConversionsService::class));
+        app(MetaConversionsService::class)->sendPurchaseForOrder($order);
 
         Http::assertNothingSent();
         $order->refresh();
         $this->assertSame('missing_access_token', $order->metadata['meta_capi_skipped_reason'] ?? null);
     }
 
-    public function test_order_completed_runs_meta_capi_sync_when_queue_default_is_sync(): void
+    public function test_order_completed_queues_send_meta_tracking_via_purchase_job(): void
     {
-        config(['queue.default' => 'sync']);
-
-        Http::fake([
-            'graph.facebook.com/*' => Http::response(['events_received' => 1], 200),
-        ]);
+        Queue::fake();
 
         User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
         $product = $this->createTestProduct([
@@ -194,7 +192,40 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
 
         event(new OrderCompleted($order));
 
-        $order->refresh();
-        $this->assertTrue($order->metadata['meta_capi_sent_purchase'] ?? false);
+        Queue::assertPushed(MetaConversionsSendPurchaseJob::class);
+    }
+
+    public function test_purchase_job_creates_tracking_records(): void
+    {
+        Queue::fake([SendMetaTrackingEventJob::class]);
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '777888999', 'access_token' => 'tok'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 10,
+            'email' => 'x@y.com',
+            'payment_method' => 'credit_card',
+        ]);
+
+        (new MetaConversionsSendPurchaseJob($order->id))->handle(app(\App\Services\Meta\MetaTrackingService::class));
+
+        $this->assertDatabaseHas('meta_tracking_events', [
+            'event_name' => 'Purchase',
+            'event_id' => 'order:'.$order->id,
+            'pixel_id' => '777888999',
+        ]);
     }
 }

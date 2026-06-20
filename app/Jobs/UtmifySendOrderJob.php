@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Order;
 use App\Models\UtmifyIntegration;
+use App\Models\UtmifyOrderDispatch;
 use App\Services\UtmifyService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -16,12 +17,9 @@ class UtmifySendOrderJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 10;
+    public int $tries;
 
-    public function backoff(): array
-    {
-        return [30, 60, 120, 300, 600, 1200, 1800, 3600];
-    }
+    public int $timeout;
 
     public function __construct(
         public int $utmifyIntegrationId,
@@ -29,7 +27,21 @@ class UtmifySendOrderJob implements ShouldQueue
         public string $utmifyStatus,
         public ?string $approvedAt = null,
         public ?string $refundedAt = null
-    ) {}
+    ) {
+        $this->tries = (int) config('utmify.retry.tries', 10);
+        $this->timeout = (int) config('utmify.retry.timeout', 60);
+        $this->onQueue((string) config('utmify.queue', 'utmify-tracking'));
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function backoff(): array
+    {
+        $backoff = config('utmify.retry.backoff', [30, 60, 120, 300, 600, 1200, 1800, 3600]);
+
+        return is_array($backoff) ? array_map('intval', $backoff) : [30, 60, 120];
+    }
 
     public function handle(UtmifyService $utmifyService): void
     {
@@ -58,18 +70,38 @@ class UtmifySendOrderJob implements ShouldQueue
             return;
         }
 
+        $dispatch = UtmifyOrderDispatch::query()->firstOrCreate(
+            [
+                'order_id' => $this->orderId,
+                'utmify_integration_id' => $this->utmifyIntegrationId,
+                'utmify_status' => $this->utmifyStatus,
+            ],
+            [
+                'tenant_id' => $order->tenant_id,
+                'dispatch_status' => UtmifyOrderDispatch::DISPATCH_PENDING,
+                'attempts' => 0,
+            ]
+        );
+
+        if ($dispatch->dispatch_status === UtmifyOrderDispatch::DISPATCH_SENT) {
+            return;
+        }
+
+        $dispatch->increment('attempts');
+
         try {
             $utmifyService->sendOrder($order, $this->utmifyStatus, $integration->api_key, [
                 'approved_at' => $this->approvedAt,
                 'refunded_at' => $this->refundedAt,
             ]);
 
-            if ($this->utmifyStatus === 'paid') {
-                $meta = is_array($order->metadata) ? $order->metadata : [];
-                $meta['utmify_paid_sent_at'] = now()->toIso8601String();
-                unset($meta['utmify_last_error'], $meta['utmify_failed_at']);
-                $order->update(['metadata' => $meta]);
-            }
+            $dispatch->update([
+                'dispatch_status' => UtmifyOrderDispatch::DISPATCH_SENT,
+                'sent_at' => now(),
+                'last_error' => null,
+            ]);
+
+            $this->markOrderSentMetadata($order);
 
             Log::info('UtmifySendOrderJob sent', [
                 'order_id' => $this->orderId,
@@ -77,6 +109,11 @@ class UtmifySendOrderJob implements ShouldQueue
                 'status' => $this->utmifyStatus,
             ]);
         } catch (\Throwable $e) {
+            $dispatch->update([
+                'dispatch_status' => UtmifyOrderDispatch::DISPATCH_PENDING,
+                'last_error' => mb_substr($e->getMessage(), 0, 500),
+            ]);
+
             Log::warning('UtmifySendOrderJob failed', [
                 'order_id' => $this->orderId,
                 'utmify_integration_id' => $this->utmifyIntegrationId,
@@ -100,6 +137,17 @@ class UtmifySendOrderJob implements ShouldQueue
             return;
         }
 
+        UtmifyOrderDispatch::query()
+            ->where('order_id', $this->orderId)
+            ->where('utmify_integration_id', $this->utmifyIntegrationId)
+            ->where('utmify_status', $this->utmifyStatus)
+            ->update([
+                'dispatch_status' => UtmifyOrderDispatch::DISPATCH_FAILED,
+                'last_error' => $exception !== null
+                    ? mb_substr($exception->getMessage(), 0, 500)
+                    : null,
+            ]);
+
         $meta['utmify_failed_at'] = now()->toIso8601String();
         if ($exception !== null) {
             $meta['utmify_last_error'] = mb_substr($exception->getMessage(), 0, 500);
@@ -114,17 +162,37 @@ class UtmifySendOrderJob implements ShouldQueue
         ]);
     }
 
+    private function markOrderSentMetadata(Order $order): void
+    {
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $now = now()->toIso8601String();
+
+        if ($this->utmifyStatus === 'paid') {
+            $meta['utmify_paid_sent_at'] = $now;
+            unset($meta['utmify_last_error'], $meta['utmify_failed_at']);
+        } elseif ($this->utmifyStatus === 'waiting_payment') {
+            $meta['utmify_waiting_sent_at'] = $now;
+        }
+
+        $order->update(['metadata' => $meta]);
+    }
+
     private function shouldSkipSend(Order $order): bool
     {
         $meta = is_array($order->metadata) ? $order->metadata : [];
         $paidAlreadySent = ! empty($meta['utmify_paid_sent_at']);
+        $waitingAlreadySent = ! empty($meta['utmify_waiting_sent_at']);
+
+        if ($this->dispatchAlreadySent()) {
+            return true;
+        }
 
         if ($this->utmifyStatus === 'paid' && $paidAlreadySent) {
             return true;
         }
 
         if ($this->utmifyStatus === 'waiting_payment') {
-            if ($order->status === 'completed' || $paidAlreadySent) {
+            if ($order->status === 'completed' || $paidAlreadySent || $waitingAlreadySent) {
                 return true;
             }
         }
@@ -134,5 +202,15 @@ class UtmifySendOrderJob implements ShouldQueue
         }
 
         return false;
+    }
+
+    private function dispatchAlreadySent(): bool
+    {
+        return UtmifyOrderDispatch::query()
+            ->where('order_id', $this->orderId)
+            ->where('utmify_integration_id', $this->utmifyIntegrationId)
+            ->where('utmify_status', $this->utmifyStatus)
+            ->where('dispatch_status', UtmifyOrderDispatch::DISPATCH_SENT)
+            ->exists();
     }
 }

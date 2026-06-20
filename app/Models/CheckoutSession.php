@@ -35,6 +35,7 @@ class CheckoutSession extends Model
         'checkout_slug', 'session_token', 'step', 'form_started_at', 'form_filled_at',
         'email', 'name', 'cpf', 'phone',
         'customer_ip', 'order_id',
+        'meta_fbp', 'meta_fbc', 'meta_user_agent', 'meta_page_url', 'affiliate_ref',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'sck', 'src',
         'abandoned_webhook_fired_at',
     ];

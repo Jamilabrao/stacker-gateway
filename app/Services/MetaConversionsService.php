@@ -2,14 +2,22 @@
 
 namespace App\Services;
 
+use App\Models\MetaTrackingEvent;
 use App\Models\Order;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
+use App\Services\Meta\MetaTrackingService;
 
+/**
+ * Backward-compatible sync sender used in tests and diagnostics.
+ * Production Purchase flow uses MetaConversionsSendPurchaseJob → SendMetaTrackingEventJob.
+ */
 class MetaConversionsService
 {
+    public function __construct(
+        private MetaTrackingService $trackingService,
+    ) {}
+
     /**
-     * Envia evento Purchase via Meta Conversion API para todos os pixels configurados no pedido.
+     * Envia evento Purchase via Meta Conversion API (síncrono, sem enfileirar).
      *
      * @return array<int, array{pixel_id: string, ok: bool, status: int|null, body: string|null, error: string|null}>
      */
@@ -25,155 +33,93 @@ class MetaConversionsService
             return [];
         }
 
-        $triggerType = $this->triggerTypeForOrder($order);
-        $eligibleEntries = [];
-        $hasPixelWithoutToken = false;
+        $triggerType = $this->trackingService->triggerTypeForOrder($order);
+        $eligibleEntries = $this->trackingService->eligibleMetaEntries($pixels, 'Purchase', $triggerType);
 
+        $hasPixelWithoutToken = false;
         foreach ($entries as $entry) {
             if (! is_array($entry)) {
                 continue;
             }
             $pixelId = trim((string) ($entry['pixel_id'] ?? ''));
-            if ($pixelId === '') {
-                continue;
-            }
             $accessToken = trim((string) ($entry['access_token'] ?? ''));
-            if ($accessToken === '') {
+            if ($pixelId !== '' && $accessToken === '') {
                 $hasPixelWithoutToken = true;
-
-                continue;
             }
-            if (! $this->shouldSendForEntry($entry, $triggerType)) {
-                continue;
-            }
-            $eligibleEntries[] = $entry;
         }
 
         if ($eligibleEntries === []) {
             if ($hasPixelWithoutToken) {
-                $this->recordSkippedReason($order, 'missing_access_token');
+                $this->trackingService->recordOrderSkippedReason($order, 'missing_access_token');
             }
 
             return [];
         }
 
-        $eventId = 'order:'.$order->id;
-        $eventTime = (int) ($order->updated_at?->timestamp ?? time());
-
-        $currency = 'BRL';
-        $amount = (float) $order->amount;
-        $customData = [
-            'currency' => $currency,
-            'value' => round(max(0, $amount), 2),
-            'order_id' => (string) $order->id,
-        ];
-
-        $metaArr = is_array($order->metadata) ? $order->metadata : [];
-        $fbp = isset($metaArr['fbp']) && is_string($metaArr['fbp']) ? trim($metaArr['fbp']) : null;
-        $fbc = isset($metaArr['fbc']) && is_string($metaArr['fbc']) ? trim($metaArr['fbc']) : null;
-        $ua = isset($metaArr['user_agent']) && is_string($metaArr['user_agent']) ? trim($metaArr['user_agent']) : null;
-
-        $ip = $order->customer_ip ?: null;
-
-        $email = $order->email ?: ($order->user?->email ?? null);
-        $phone = $order->phone ?: null;
-
-        $userData = array_filter([
-            'em' => $email ? [hash('sha256', strtolower(trim((string) $email)))] : null,
-            'ph' => $phone ? [hash('sha256', preg_replace('/\D/', '', (string) $phone) ?? '')] : null,
-            'client_ip_address' => $ip,
-            'client_user_agent' => $ua,
-            'fbp' => $fbp ?: null,
-            'fbc' => $fbc ?: null,
-        ]);
-
+        $eventId = MetaTrackingService::eventId('purchase', ['order_id' => $order->id]);
         $out = [];
+
         foreach ($eligibleEntries as $entry) {
-            $pixelId = trim((string) ($entry['pixel_id'] ?? ''));
-            $accessToken = trim((string) ($entry['access_token'] ?? ''));
+            $pixelId = $entry['pixel_id'];
 
-            $payload = [
-                'data' => [[
-                    'event_name' => 'Purchase',
-                    'event_time' => $eventTime,
+            $record = MetaTrackingEvent::query()->firstOrCreate(
+                [
                     'event_id' => $eventId,
-                    'action_source' => 'website',
-                    'user_data' => $userData,
-                    'custom_data' => $customData,
-                ]],
-            ];
+                    'pixel_id' => $pixelId,
+                ],
+                [
+                    'tenant_id' => $order->tenant_id ? (int) $order->tenant_id : null,
+                    'event_name' => 'Purchase',
+                    'context_type' => MetaTrackingEvent::CONTEXT_ORDER,
+                    'context_id' => (int) $order->id,
+                    'status' => MetaTrackingEvent::STATUS_PENDING,
+                    'attempts' => 0,
+                ]
+            );
 
-            $url = sprintf('https://graph.facebook.com/v20.0/%s/events', urlencode($pixelId));
-            try {
-                $resp = Http::timeout(12)->asJson()->post($url, $payload + [
-                    'access_token' => $accessToken,
-                ]);
+            if ($record->status === MetaTrackingEvent::STATUS_SENT) {
                 $out[] = [
                     'pixel_id' => $pixelId,
-                    'ok' => $resp->successful(),
-                    'status' => $resp->status(),
-                    'body' => $resp->body(),
-                    'error' => $resp->successful() ? null : 'meta_api_error',
-                ];
-            } catch (\Throwable $e) {
-                $out[] = [
-                    'pixel_id' => $pixelId,
-                    'ok' => false,
-                    'status' => null,
+                    'ok' => true,
+                    'status' => 200,
                     'body' => null,
-                    'error' => $e->getMessage(),
+                    'error' => null,
                 ];
+
+                continue;
             }
+
+            $record->increment('attempts');
+            $result = $this->trackingService->sendTrackingEventRecord($record);
+
+            if ($result['ok']) {
+                $record->update([
+                    'status' => MetaTrackingEvent::STATUS_SENT,
+                    'sent_at' => now(),
+                    'response_body' => isset($result['body']) ? mb_substr((string) $result['body'], 0, 2000) : null,
+                    'last_error' => null,
+                ]);
+            } else {
+                $record->update([
+                    'last_error' => mb_substr((string) ($result['error'] ?? 'meta_api_error'), 0, 500),
+                    'response_body' => isset($result['body']) ? mb_substr((string) $result['body'], 0, 2000) : null,
+                ]);
+            }
+
+            $out[] = [
+                'pixel_id' => $pixelId,
+                'ok' => $result['ok'],
+                'status' => $result['status'],
+                'body' => $result['body'],
+                'error' => $result['error'],
+            ];
+        }
+
+        $okAny = count(array_filter($out, fn ($x) => ($x['ok'] ?? false) === true)) > 0;
+        if ($okAny) {
+            $this->trackingService->markOrderPurchaseSent($order);
         }
 
         return $out;
-    }
-
-    /**
-     * Alinhado a ConversionPixels.vue shouldFireForEntry (triggerType pix/boleto/approved).
-     *
-     * @param  array<string, mixed>  $entry
-     */
-    private function shouldSendForEntry(array $entry, string $triggerType): bool
-    {
-        if ($triggerType === 'pix' && ($entry['fire_purchase_on_pix'] ?? true) === false) {
-            return false;
-        }
-        if ($triggerType === 'boleto' && ($entry['fire_purchase_on_boleto'] ?? true) === false) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private function triggerTypeForOrder(Order $order): string
-    {
-        $method = (string) ($order->payment_method ?? '');
-        if ($method === 'boleto') {
-            return 'boleto';
-        }
-        if (in_array($method, ['pix', 'pix_auto'], true)) {
-            return 'pix';
-        }
-
-        return 'approved';
-    }
-
-    private function recordSkippedReason(Order $order, string $reason): void
-    {
-        $meta = is_array($order->metadata) ? $order->metadata : [];
-        if (($meta['meta_capi_skipped_reason'] ?? null) === $reason) {
-            return;
-        }
-
-        $meta['meta_capi_skipped_reason'] = $reason;
-        $meta['meta_capi_skipped_at'] = now()->toIso8601String();
-        $order->update(['metadata' => $meta]);
-
-        Log::warning('Meta CAPI purchase skipped', [
-            'order_id' => $order->id,
-            'tenant_id' => $order->tenant_id,
-            'reason' => $reason,
-        ]);
     }
 }

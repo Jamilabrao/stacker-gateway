@@ -150,7 +150,9 @@ class UtmifySaleDispatchTest extends TestCase
         event(new PixGenerated($order, ['qr_code' => 'test']));
 
         Queue::assertPushed(UtmifySendOrderJob::class, function (UtmifySendOrderJob $job) use ($order) {
-            return $job->orderId === $order->id && $job->utmifyStatus === 'waiting_payment';
+            return $job->orderId === $order->id
+                && $job->utmifyStatus === 'waiting_payment'
+                && $job->queue === 'utmify-tracking';
         });
     }
 

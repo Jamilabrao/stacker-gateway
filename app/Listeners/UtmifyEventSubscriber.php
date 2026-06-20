@@ -9,7 +9,6 @@ use App\Events\OrderRejected;
 use App\Events\PixGenerated;
 use App\Jobs\UtmifySendOrderJob;
 use App\Models\UtmifyIntegration;
-use App\Support\IntegrationJobDispatch;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
@@ -84,6 +83,7 @@ class UtmifyEventSubscriber
             return;
         }
 
+        $queue = (string) config('utmify.queue', 'utmify-tracking');
         $dispatched = 0;
 
         foreach ($integrations as $integration) {
@@ -103,23 +103,13 @@ class UtmifyEventSubscriber
                 continue;
             }
 
-            if (IntegrationJobDispatch::shouldDispatchSync()) {
-                UtmifySendOrderJob::dispatchSync(
-                    $integration->id,
-                    $order->id,
-                    $utmifyStatus,
-                    $approvedAt,
-                    $refundedAt
-                );
-            } else {
-                UtmifySendOrderJob::dispatch(
-                    $integration->id,
-                    $order->id,
-                    $utmifyStatus,
-                    $approvedAt,
-                    $refundedAt
-                );
-            }
+            UtmifySendOrderJob::dispatch(
+                $integration->id,
+                $order->id,
+                $utmifyStatus,
+                $approvedAt,
+                $refundedAt
+            )->onQueue($queue);
 
             $dispatched++;
 
@@ -127,9 +117,9 @@ class UtmifyEventSubscriber
                 'utmify_integration_id' => $integration->id,
                 'order_id' => $order->id,
                 'status' => $utmifyStatus,
-                'sync' => IntegrationJobDispatch::shouldDispatchSync(),
+                'queue' => $queue,
                 'queue_connection' => config('queue.default'),
-                'queue_size' => $this->queueSize(),
+                'queue_size' => $this->queueSize($queue),
             ]);
         }
 
@@ -143,10 +133,10 @@ class UtmifyEventSubscriber
         }
     }
 
-    private function queueSize(): ?int
+    private function queueSize(string $queue): ?int
     {
         try {
-            return Queue::size();
+            return Queue::size($queue);
         } catch (\Throwable) {
             return null;
         }

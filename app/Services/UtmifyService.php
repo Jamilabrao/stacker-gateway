@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CheckoutSession;
 use App\Models\Order;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class UtmifyService
@@ -23,6 +24,15 @@ class UtmifyService
         array $options = []
     ): void {
         $body = $this->buildPayload($order, $utmifyStatus, $options);
+
+        if (config('utmify.debug')) {
+            Log::debug('Utmify API request', [
+                'order_id' => $order->id,
+                'status' => $utmifyStatus,
+                'trackingParameters' => $body['trackingParameters'] ?? [],
+            ]);
+        }
+
         $this->post($apiKey, $body);
     }
 
@@ -32,6 +42,38 @@ class UtmifyService
     public function sendTest(string $apiKey): void
     {
         $this->post($apiKey, $this->buildTestPayload());
+    }
+
+    public function resolveCheckoutSessionForOrder(Order $order): ?CheckoutSession
+    {
+        $session = CheckoutSession::query()->where('order_id', $order->id)->first();
+        if ($session) {
+            return $session;
+        }
+
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $token = isset($meta['checkout_session_token']) && is_string($meta['checkout_session_token'])
+            ? trim($meta['checkout_session_token'])
+            : '';
+
+        if ($token !== '') {
+            $session = CheckoutSession::query()->where('session_token', $token)->first();
+            if ($session) {
+                return $session;
+            }
+        }
+
+        if ($order->product_id && $order->tenant_id) {
+            return CheckoutSession::query()
+                ->where('product_id', $order->product_id)
+                ->where('tenant_id', $order->tenant_id)
+                ->whereNotNull('utm_source')
+                ->where('utm_source', '!=', '')
+                ->orderByDesc('id')
+                ->first();
+        }
+
+        return null;
     }
 
     /**
@@ -90,7 +132,7 @@ class UtmifyService
     {
         $order->loadMissing(['user', 'orderItems.product', 'orderItems.productOffer', 'orderItems.subscriptionPlan']);
 
-        $session = CheckoutSession::where('order_id', $order->id)->first();
+        $session = $this->resolveCheckoutSessionForOrder($order);
         $meta = is_array($order->metadata) ? $order->metadata : [];
 
         $orderId = $order->gateway_id ?: (string) $order->id;
@@ -173,16 +215,17 @@ class UtmifyService
 
     /**
      * UTMIFY exige utm_content e utm_term sempre presentes (string ou null).
+     * Prioridade: order.metadata > CheckoutSession.
      *
      * @param  array<string, mixed>  $meta
      * @return array<string, string|null>
      */
-    private function buildTrackingParameters(?CheckoutSession $session, array $meta): array
+    public function buildTrackingParameters(?CheckoutSession $session, array $meta): array
     {
         $trackingParameters = [];
 
         foreach (['src', 'sck', 'utm_source', 'utm_medium', 'utm_campaign'] as $key) {
-            $raw = $session?->{$key} ?? ($meta[$key] ?? null);
+            $raw = $meta[$key] ?? $session?->{$key} ?? null;
             if (! is_string($raw)) {
                 continue;
             }
@@ -193,7 +236,7 @@ class UtmifyService
         }
 
         foreach (['utm_content', 'utm_term'] as $key) {
-            $raw = $session?->{$key} ?? ($meta[$key] ?? null);
+            $raw = $meta[$key] ?? $session?->{$key} ?? null;
             if (is_string($raw)) {
                 $trimmed = trim($raw);
 
@@ -211,7 +254,7 @@ class UtmifyService
      */
     public function post(string $apiKey, array $body): \Illuminate\Http\Client\Response
     {
-        $response = Http::timeout(15)
+        $response = Http::timeout((int) config('utmify.http_timeout', 15))
             ->withHeaders(['x-api-token' => $apiKey])
             ->post(self::ENDPOINT, $body);
 

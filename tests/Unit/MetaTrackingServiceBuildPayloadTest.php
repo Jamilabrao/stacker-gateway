@@ -3,11 +3,11 @@
 namespace Tests\Unit;
 
 use App\Models\Order;
-use App\Services\MetaConversionsService;
+use App\Services\Meta\MetaTrackingService;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
-class MetaConversionsServiceBuildPayloadTest extends TestCase
+class MetaTrackingServiceBuildPayloadTest extends TestCase
 {
     public function test_send_purchase_uses_event_id_and_meta_tokens(): void
     {
@@ -22,7 +22,6 @@ class MetaConversionsServiceBuildPayloadTest extends TestCase
             'email' => 'buyer@example.com',
             'customer_ip' => '127.0.0.1',
             'metadata' => [
-                // dados que o checkout persiste
                 'fbp' => 'fb.1.1234567890.1111111111',
                 'fbc' => 'fb.1.1234567890.AbCdEfGhIj',
                 'user_agent' => 'UnitTest UA',
@@ -32,8 +31,6 @@ class MetaConversionsServiceBuildPayloadTest extends TestCase
         $order->created_at = now();
         $order->updated_at = now();
 
-        // Simula pixels vindos do produto/enrollment (AffiliateConversionPixels::forOrder)
-        // Aqui, setamos direto no relation product->conversion_pixels para o service ler via AffiliateConversionPixels.
         $order->setRelation('product', new \App\Models\Product([
             'tenant_id' => 1,
             'conversion_pixels' => [
@@ -46,23 +43,14 @@ class MetaConversionsServiceBuildPayloadTest extends TestCase
             ],
         ]));
 
-        $svc = new MetaConversionsService;
-        $results = $svc->sendPurchaseForOrder($order);
+        $svc = app(MetaTrackingService::class);
+        $context = app(\App\Services\Meta\MetaEventContextResolver::class)->forOrder($order);
+        $payload = $svc->buildPayload('Purchase', 'order:999', $context);
 
-        $this->assertNotEmpty($results);
-
-        Http::assertSent(function ($req) {
-            $data = $req->data();
-            $this->assertArrayHasKey('data', $data);
-            $evt = $data['data'][0] ?? null;
-            $this->assertSame('Purchase', $evt['event_name'] ?? null);
-            $this->assertSame('order:999', $evt['event_id'] ?? null);
-            $ud = $evt['user_data'] ?? [];
-            $this->assertSame('fb.1.1234567890.1111111111', $ud['fbp'] ?? null);
-            $this->assertSame('fb.1.1234567890.AbCdEfGhIj', $ud['fbc'] ?? null);
-
-            return true;
-        });
+        $this->assertSame('Purchase', $payload['data'][0]['event_name'] ?? null);
+        $this->assertSame('order:999', $payload['data'][0]['event_id'] ?? null);
+        $ud = $payload['data'][0]['user_data'] ?? [];
+        $this->assertSame('fb.1.1234567890.1111111111', $ud['fbp'] ?? null);
+        $this->assertSame('fb.1.1234567890.AbCdEfGhIj', $ud['fbc'] ?? null);
     }
 }
-
