@@ -21,6 +21,7 @@ import {
     Shield,
     Scale,
     PlayCircle,
+    Headset,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
@@ -31,6 +32,7 @@ import LanguagesTab from '@/Pages/Settings/Tabs/LanguagesTab.vue';
 import SecurityTab from '@/Pages/Settings/Tabs/SecurityTab.vue';
 import DemoTab from '@/Pages/Settings/Tabs/DemoTab.vue';
 import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
+import SellerPanelSupportTab from '@/Pages/Settings/Tabs/SellerPanelSupportTab.vue';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -74,7 +76,7 @@ const props = defineProps({
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'seguranca', 'lgpd', 'cron', 'update', 'demo'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'lgpd', 'cron', 'update', 'demo'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -166,6 +168,13 @@ const form = useForm({
     legal_terms_of_use_html: props.settings.legal_terms_of_use_html ?? '',
     legal_privacy_contact_email: props.settings.legal_privacy_contact_email ?? '',
     legal_cookie_banner_enabled: props.settings.legal_cookie_banner_enabled !== false,
+    seller_panel_support_enabled: props.settings.seller_panel_support_enabled ?? '0',
+    seller_panel_support_destination: props.settings.seller_panel_support_destination ?? 'whatsapp',
+    seller_panel_support_whatsapp: props.settings.seller_panel_support_whatsapp ?? '',
+    seller_panel_support_url: props.settings.seller_panel_support_url ?? '',
+    seller_panel_support_icon: props.settings.seller_panel_support_icon ?? 'whatsapp',
+    seller_panel_support_icon_image: props.settings.seller_panel_support_icon_image ?? '',
+    seller_panel_support_color: props.settings.seller_panel_support_color ?? '#25D366',
 });
 
 const showCloudR2Override = ref(false);
@@ -190,6 +199,7 @@ const coreTabsStatic = [
     { id: 'traducoes', label: 'Traduções', icon: Languages },
     { id: 'moedas', label: 'Moedas', icon: Banknote },
     { id: 'recursos', label: 'Recursos', icon: Truck },
+    { id: 'suporte_painel', label: 'Suporte do painel', icon: Headset },
     { id: 'seguranca', label: 'Segurança', icon: Shield },
     { id: 'lgpd', label: 'LGPD', icon: Scale },
     { id: 'cron', label: 'Cron', icon: Clock },
@@ -576,6 +586,21 @@ function syncSecuritySettingsFromProps() {
     applySecuritySettingsFromSettings(page.props.settings);
 }
 
+function applySupportSettingsFromSettings(s) {
+    if (!s) return;
+    form.seller_panel_support_enabled = s.seller_panel_support_enabled ?? '0';
+    form.seller_panel_support_destination = s.seller_panel_support_destination ?? 'whatsapp';
+    form.seller_panel_support_whatsapp = s.seller_panel_support_whatsapp ?? '';
+    form.seller_panel_support_url = s.seller_panel_support_url ?? '';
+    form.seller_panel_support_icon = s.seller_panel_support_icon ?? 'whatsapp';
+    form.seller_panel_support_icon_image = s.seller_panel_support_icon_image ?? '';
+    form.seller_panel_support_color = s.seller_panel_support_color ?? '#25D366';
+}
+
+function syncSupportSettingsFromProps() {
+    applySupportSettingsFromSettings(page.props.settings);
+}
+
 function buildSettingsPayload() {
     const data = form.data();
     if (activeTab.value === 'lgpd') {
@@ -594,6 +619,16 @@ function buildSettingsPayload() {
             checkout_turnstile_mode: data.checkout_turnstile_mode,
             registration_turnstile_enabled: data.registration_turnstile_enabled,
             registration_email_verification_enabled: data.registration_email_verification_enabled,
+        };
+    }
+    if (activeTab.value === 'suporte_painel') {
+        return {
+            seller_panel_support_enabled: data.seller_panel_support_enabled,
+            seller_panel_support_destination: data.seller_panel_support_destination,
+            seller_panel_support_whatsapp: data.seller_panel_support_whatsapp,
+            seller_panel_support_url: data.seller_panel_support_url,
+            seller_panel_support_icon: data.seller_panel_support_icon,
+            seller_panel_support_color: data.seller_panel_support_color,
         };
     }
     return {
@@ -670,6 +705,7 @@ function submitSettings() {
                 syncEmailSettingsFromProps();
                 syncLegalSettingsFromProps();
                 syncSecuritySettingsFromProps();
+                syncSupportSettingsFromProps();
             },
             onFinish: () => {
                 form.transform((data) => data);
@@ -1282,6 +1318,19 @@ const selectClass =
             </Transition>
 
             <!-- Aba Segurança -->
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'suporte_painel'" class="space-y-6">
+                    <SellerPanelSupportTab :form="form" />
+                </div>
+            </Transition>
+
             <Transition
                 enter-active-class="transition duration-200 ease-out"
                 enter-from-class="opacity-0"

@@ -34,6 +34,28 @@ final class SafeUrl
     }
 
     /**
+     * URL de imagem do app: http(s) absoluto ou path /storage/... do mesmo site.
+     */
+    public static function normalizeAppImageUrl(?string $url): ?string
+    {
+        $url = trim((string) $url);
+        if ($url === '') {
+            return null;
+        }
+
+        $http = self::normalizeHttpUrl($url);
+        if ($http !== null) {
+            return $http;
+        }
+
+        if (str_starts_with($url, '/storage/')) {
+            return url($url);
+        }
+
+        return null;
+    }
+
+    /**
      * Retorna URL segura ou null se inválida.
      */
     public static function normalizeHttpUrl(?string $url): ?string

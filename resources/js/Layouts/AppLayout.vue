@@ -13,6 +13,7 @@ import PushNotificationsBanner from '@/components/layout/PushNotificationsBanner
 import NotificationsPanel from '@/components/layout/NotificationsPanel.vue';
 import Backdrop from '@/components/layout/Backdrop.vue';
 import FlashToast from '@/components/layout/FlashToast.vue';
+import SellerSupportFab from '@/components/layout/SellerSupportFab.vue';
 import CloudBillingBanner from '@/components/layout/CloudBillingBanner.vue';
 import KycBanner from '@/components/layout/KycBanner.vue';
 import TotpPromptBanner from '@/components/layout/TotpPromptBanner.vue';
@@ -32,6 +33,16 @@ watch(
     },
 );
 const customerPanel = computed(() => !!page.props.customer_panel);
+const sellerPanelSupport = computed(() => page.props.seller_panel_support ?? null);
+const showSellerSupportFab = computed(() => {
+    const config = sellerPanelSupport.value;
+    if (!config || customerPanel.value || isPixGoRoute.value) {
+        return false;
+    }
+    const enabled = config.enabled === true || config.enabled === 1 || config.enabled === '1' || config.enabled === 'true';
+
+    return enabled && !!config.href;
+});
 const isPixGoRoute = computed(() => {
     const path = (page.url ?? '').split('?')[0];
     return path === '/pixgo' || path.startsWith('/pixgo/');
@@ -225,6 +236,10 @@ onBeforeUnmount(() => {
                 </div>
             </div>
             <FlashToast />
+            <SellerSupportFab
+                v-if="showSellerSupportFab"
+                :config="sellerPanelSupport"
+            />
             <div v-if="!customerPanel && !isPixGoRoute" class="px-4 pt-3 lg:px-6">
                 <PushNotificationsBanner />
             </div>

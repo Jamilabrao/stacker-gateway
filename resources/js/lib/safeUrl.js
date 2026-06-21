@@ -28,5 +28,16 @@ export function safeHttpHref(url, fallback = '#') {
 }
 
 export function safeHttpSrc(url) {
-    return isAllowedHttpUrl(url) ? String(url).trim() : '';
+    if (url == null || typeof url !== 'string') {
+        return '';
+    }
+    const trimmed = url.trim();
+    if (isAllowedHttpUrl(trimmed)) {
+        return trimmed;
+    }
+    if (trimmed.startsWith('/storage/')) {
+        return trimmed;
+    }
+
+    return '';
 }

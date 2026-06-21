@@ -372,6 +372,8 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/configuracoes/personalizacao/upload', [\App\Http\Controllers\BrandingSettingsController::class, 'upload'])->name('settings.branding.upload');
         Route::post('/configuracoes/personalizacao/clear-field', [\App\Http\Controllers\BrandingSettingsController::class, 'clearField'])->name('settings.branding.clear');
         Route::post('/configuracoes/personalizacao/sync-global', [\App\Http\Controllers\BrandingSettingsController::class, 'syncGlobal'])->name('settings.branding.sync-global');
+        Route::post('/configuracoes/suporte-painel/upload', [\App\Http\Controllers\SellerPanelSupportIconController::class, 'upload'])->name('settings.seller-panel-support.upload');
+        Route::post('/configuracoes/suporte-painel/clear-icon', [\App\Http\Controllers\SellerPanelSupportIconController::class, 'clearIcon'])->name('settings.seller-panel-support.clear-icon');
         Route::get('/configuracoes/demo/data', [\App\Http\Controllers\Platform\DemoModeController::class, 'data'])->name('settings.demo.data');
         Route::put('/configuracoes/demo', [\App\Http\Controllers\Platform\DemoModeController::class, 'update'])->name('settings.demo.update');
         Route::post('/configuracoes/demo/provision', [\App\Http\Controllers\Platform\DemoModeController::class, 'provision'])->name('settings.demo.provision');

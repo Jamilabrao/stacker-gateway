@@ -14,6 +14,7 @@ use App\Support\CheckoutTurnstileSettings;
 use App\Support\PlatformConfigContext;
 use App\Support\RegistrationEmailVerificationSettings;
 use App\Support\RegistrationTurnstileSettings;
+use App\Support\SellerPanelSupportSettings;
 use App\Support\DockerSetupState;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -127,6 +128,7 @@ class SettingsController extends Controller
                 ...($tenantId === null ? CheckoutTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? RegistrationTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? RegistrationEmailVerificationSettings::forSettingsForm() : []),
+                ...($tenantId === null ? SellerPanelSupportSettings::forSettingsForm() : []),
                 ...($tenantId === null ? [
                     'legal_privacy_policy_html' => $legalForm['legal_privacy_policy_html'],
                     'legal_terms_of_use_html' => $legalForm['legal_terms_of_use_html'],
@@ -187,6 +189,12 @@ class SettingsController extends Controller
             'checkout_turnstile_mode' => ['nullable', 'string', 'in:disabled,pix_boleto,all_payments'],
             'registration_turnstile_enabled' => ['nullable', 'boolean'],
             'registration_email_verification_enabled' => ['nullable', 'boolean'],
+            'seller_panel_support_enabled' => ['nullable', 'boolean'],
+            'seller_panel_support_destination' => ['nullable', 'string', 'in:whatsapp,url'],
+            'seller_panel_support_whatsapp' => ['nullable', 'string', 'max:32'],
+            'seller_panel_support_url' => ['nullable', 'string', 'max:2048'],
+            'seller_panel_support_icon' => ['nullable', 'string', 'in:whatsapp,message,headset,help,custom'],
+            'seller_panel_support_color' => ['nullable', 'string', 'max:16'],
             'legal_privacy_policy_html' => ['nullable', 'string', 'max:200000'],
             'legal_terms_of_use_html' => ['nullable', 'string', 'max:200000'],
             'legal_privacy_contact_email' => ['nullable', 'email', 'max:255'],
@@ -235,6 +243,8 @@ class SettingsController extends Controller
                     RegistrationEmailVerificationSettings::grandfatherExistingInfoprodutors();
                 }
             }
+
+            SellerPanelSupportSettings::persistFromValidated($validated);
         }
 
         if ($tenantId === null && array_key_exists('physical_products_enabled', $validated)) {
@@ -254,6 +264,14 @@ class SettingsController extends Controller
         ];
         $alwaysSetKeys = ['email_provider'];
         $brandingKeys = ['theme_primary', 'app_name', 'app_logo', 'app_logo_dark', 'app_logo_icon', 'app_logo_icon_dark'];
+        $sellerPanelSupportKeys = [
+            'seller_panel_support_enabled',
+            'seller_panel_support_destination',
+            'seller_panel_support_whatsapp',
+            'seller_panel_support_url',
+            'seller_panel_support_icon',
+            'seller_panel_support_color',
+        ];
         // Handle passwords separately (encrypt)
         if (array_key_exists('smtp_password', $validated) && $validated['smtp_password'] !== null && $validated['smtp_password'] !== '') {
             Setting::set('smtp_password', encrypt($validated['smtp_password']), $tenantId);
@@ -289,6 +307,9 @@ class SettingsController extends Controller
                 continue;
             }
             if (str_starts_with($key, 'legal_')) {
+                continue;
+            }
+            if (in_array($key, $sellerPanelSupportKeys, true)) {
                 continue;
             }
             if (in_array($key, $brandingKeys, true)) {

@@ -18,6 +18,7 @@ use App\Support\DemoMode;
 use App\Support\LoginTemplate;
 use App\Support\PanelColorScheme;
 use App\Support\SellerDashboardTemplate;
+use App\Support\SellerPanelSupportSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
@@ -294,6 +295,9 @@ class HandleInertiaRequests extends Middleware
             'physical_products_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? PhysicalProductAccess::globalEnabled()
                 : false,
+            'seller_panel_support' => $user && $user->canAccessSellerPanel()
+                ? SellerPanelSupportSettings::publicConfig()
+                : null,
             'pixgo_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? \App\Services\PixGoAccess::globalEnabled()
                 : false,
