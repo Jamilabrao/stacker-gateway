@@ -196,7 +196,11 @@ function injectCustomScripts() {
     });
 }
 
-async function initMetaAndEmitReady() {
+async function initMetaAndEmitReady(p) {
+    const metaEntries = getMetaEntries(p);
+    if (metaEntries.length) {
+        await initMetaPixels(metaEntries);
+    }
     emit('meta-ready');
 }
 
@@ -219,7 +223,7 @@ async function init() {
 
     emit('ready');
 
-    await initMetaAndEmitReady();
+    await initMetaAndEmitReady(p);
 }
 
 onMounted(init);

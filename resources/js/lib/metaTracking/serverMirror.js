@@ -1,13 +1,14 @@
-function getCsrfToken() {
-    const match = typeof document !== 'undefined' && document.cookie
-        ? document.cookie.match(/XSRF-TOKEN=([^;]+)/)
-        : null;
-    if (!match) return '';
-    try {
-        return decodeURIComponent(match[1]);
-    } catch {
-        return match[1];
-    }
+import { getCsrfToken } from '@/lib/csrfToken.js';
+
+const MAX_EVENT_SOURCE_URL_LENGTH = 2048;
+
+function truncateEventSourceUrl(url) {
+    if (!url || typeof url !== 'string') return undefined;
+    const trimmed = url.trim();
+    if (trimmed === '') return undefined;
+    return trimmed.length <= MAX_EVENT_SOURCE_URL_LENGTH
+        ? trimmed
+        : trimmed.slice(0, MAX_EVENT_SOURCE_URL_LENGTH);
 }
 
 /**
@@ -30,6 +31,7 @@ export function mirrorMetaEventToServer({
 
     const url = '/checkout/pixel/events';
     const csrf = getCsrfToken();
+    const normalizedEventSourceUrl = truncateEventSourceUrl(eventSourceUrl);
 
     const payload = {
         checkout_session_token: checkoutSessionToken,
@@ -40,7 +42,7 @@ export function mirrorMetaEventToServer({
     if (fbp) payload.fbp = fbp;
     if (fbc) payload.fbc = fbc;
     if (userAgent) payload.user_agent = userAgent;
-    if (eventSourceUrl) payload.event_source_url = eventSourceUrl;
+    if (normalizedEventSourceUrl) payload.event_source_url = normalizedEventSourceUrl;
     if (value != null && !Number.isNaN(Number(value))) payload.value = Number(value);
     if (currency) payload.currency = currency;
     if (Array.isArray(contentIds) && contentIds.length) payload.content_ids = contentIds;

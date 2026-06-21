@@ -172,15 +172,45 @@ class CheckoutSession extends Model
             : $query->where('tenant_id', $tenantId);
     }
 
+    private const UTM_VARCHAR_MAX = 255;
+
+    private const META_ATTRIBUTION_MAX = 512;
+
+    public static function truncateTrackingValue(?string $value, int $max): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if (mb_strlen($trimmed) <= $max) {
+            return $trimmed;
+        }
+
+        return mb_substr($trimmed, 0, $max);
+    }
+
     /**
      * @return array<string, string|null>
      */
     public static function trackingFromQuery(Request $request): array
     {
+        $varcharKeys = ['utm_source', 'utm_medium', 'utm_campaign'];
         $out = [];
         foreach (self::TRACKING_FIELD_KEYS as $k) {
             $v = $request->query($k);
-            $out[$k] = is_string($v) && trim($v) !== '' ? trim($v) : null;
+            if (! is_string($v) || trim($v) === '') {
+                $out[$k] = null;
+
+                continue;
+            }
+
+            $max = in_array($k, $varcharKeys, true) ? self::UTM_VARCHAR_MAX : PHP_INT_MAX;
+            $out[$k] = self::truncateTrackingValue($v, $max);
         }
 
         return $out;
@@ -198,13 +228,20 @@ class CheckoutSession extends Model
             return [];
         }
 
-        $fbclid = trim($fbclid);
-        $fbc = 'fb.1.'.(int) (microtime(true) * 1000).'.'.$fbclid;
+        $fbclid = self::truncateTrackingValue($fbclid, self::META_ATTRIBUTION_MAX);
+        if ($fbclid === null) {
+            return [];
+        }
 
-        return [
+        $fbc = self::truncateTrackingValue(
+            self::buildFbcFromFbclid($fbclid),
+            self::META_ATTRIBUTION_MAX
+        );
+
+        return array_filter([
             'meta_fbclid' => $fbclid,
             'meta_fbc' => $fbc,
-        ];
+        ], fn ($v) => is_string($v) && $v !== '');
     }
 
     public static function buildFbcFromFbclid(string $fbclid): string

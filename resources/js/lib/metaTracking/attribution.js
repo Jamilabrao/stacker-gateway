@@ -97,13 +97,28 @@ export async function waitForFbp(maxMs = 1500) {
     return getFbp();
 }
 
+const MAX_EVENT_SOURCE_URL_LENGTH = 2048;
+
+function truncateEventSourceUrl(url) {
+    if (!url || typeof url !== 'string') return undefined;
+    const trimmed = url.trim();
+    if (trimmed === '') return undefined;
+    return trimmed.length <= MAX_EVENT_SOURCE_URL_LENGTH
+        ? trimmed
+        : trimmed.slice(0, MAX_EVENT_SOURCE_URL_LENGTH);
+}
+
 export function getAttributionPayload() {
     ensureFbcFromFbclid();
+
+    const eventSourceUrl = typeof window !== 'undefined'
+        ? truncateEventSourceUrl(window.location.href)
+        : undefined;
 
     return {
         fbp: getFbp() || undefined,
         fbc: getFbc() || undefined,
         user_agent: typeof navigator !== 'undefined' ? navigator.userAgent || undefined : undefined,
-        event_source_url: typeof window !== 'undefined' ? window.location.href : undefined,
+        event_source_url: eventSourceUrl,
     };
 }

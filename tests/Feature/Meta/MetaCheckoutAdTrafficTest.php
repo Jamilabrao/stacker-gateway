@@ -128,4 +128,114 @@ class MetaCheckoutAdTrafficTest extends TestCase
         $this->assertNotNull($context->fbc);
         $this->assertStringContainsString('fallback_click_id', $context->fbc);
     }
+
+    public function test_checkout_pixel_events_accepts_post_without_csrf_when_session_token_valid(): void
+    {
+        Queue::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'checkout_slug' => 'metaad5',
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '444555666', 'access_token' => 'capitok'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $session = CheckoutSession::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'checkout_slug' => 'metaad5',
+            'session_token' => 'sess-no-csrf-token-test',
+            'step' => CheckoutSession::STEP_VISIT,
+            'customer_ip' => '127.0.0.1',
+        ]);
+
+        $response = $this->post('/checkout/pixel/events', [
+            'checkout_session_token' => $session->session_token,
+            'event_name' => 'PageView',
+            'event_id' => 'pv:'.$session->session_token,
+            'fbp' => 'fb.1.123.456',
+            'fbc' => 'fb.1.123.click',
+            'user_agent' => 'PHPUnit',
+            'event_source_url' => 'https://example.test/c/metaad5?fbclid=abc',
+            'value' => 49.9,
+            'currency' => 'BRL',
+            'content_ids' => ['metaad5'],
+            'content_name' => 'Produto teste',
+        ]);
+
+        $response->assertOk()->assertJson(['ok' => true]);
+        Queue::assertPushed(SendMetaTrackingEventJob::class);
+    }
+
+    public function test_checkout_get_with_realistic_long_ad_url(): void
+    {
+        Queue::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+
+        $this->createTestProduct([
+            'checkout_slug' => 'metaad6',
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '777888999', 'access_token' => 'tok'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $fbclid = 'IwY2xjawSk_g1leHRuA2FlbQEwAGFkaWQBqzWv-mMj5XNydGMGYXBwX2lkEDIyMjAzOTE3ODgyMDA4OTIAAR5v0DMdyhoI6KQ05WOGKyYcAeQAKc2nt9TfR7_dHrF70JRIiXtSv2Erea9upQ_aem_Tqn742jtrxDLUzrQzkv7xA';
+        $sck = 'FBhQwK21wXxR17/06 ABO Sem1%|120248844898790293hQwK21wXxR17/06 Sem1% MLP Dep/NaoAg|120248844898840293hQwK21wXxRDep — Cópia|120248844975690293hQwK21wXxRFacebook_Desktop_Feed';
+        $utmContent = 'Dep — Cópia|120248844975690293::'.$fbclid.'::';
+
+        $qs = http_build_query([
+            'fbclid' => $fbclid,
+            'sck' => $sck,
+            'utm_source' => 'FB',
+            'utm_medium' => '17/06 Sem1% MLP Dep/NaoAg|120248844898840293',
+            'utm_campaign' => '17/06 ABO Sem1%|120248844898790293',
+            'utm_content' => $utmContent,
+            'utm_term' => 'Facebook_Desktop_Feed',
+        ]);
+
+        $this->get('/c/metaad6?'.$qs)->assertOk();
+
+        $session = CheckoutSession::query()
+            ->where('checkout_slug', 'metaad6')
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($session);
+        $this->assertSame('FB', $session->utm_source);
+        $this->assertSame($fbclid, $session->meta_fbclid);
+        $this->assertNotEmpty($session->meta_fbc);
+        $this->assertStringContainsString($fbclid, $session->meta_fbc);
+        $this->assertSame($sck, $session->sck);
+        $this->assertSame($utmContent, $session->utm_content);
+    }
+
+    public function test_tracking_from_query_truncates_varchar_utm_fields(): void
+    {
+        $long = str_repeat('A', 300);
+        $request = \Illuminate\Http\Request::create('/c/test', 'GET', [
+            'utm_source' => $long,
+            'utm_medium' => $long,
+            'utm_campaign' => $long,
+            'utm_content' => $long,
+        ]);
+
+        $tracking = CheckoutSession::trackingFromQuery($request);
+
+        $this->assertSame(255, mb_strlen($tracking['utm_source'] ?? ''));
+        $this->assertSame(255, mb_strlen($tracking['utm_medium'] ?? ''));
+        $this->assertSame(255, mb_strlen($tracking['utm_campaign'] ?? ''));
+        $this->assertSame(300, mb_strlen($tracking['utm_content'] ?? ''));
+    }
 }

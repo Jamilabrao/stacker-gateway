@@ -1,14 +1,4 @@
-function getCsrfToken() {
-    const match = typeof document !== 'undefined' && document.cookie
-        ? document.cookie.match(/XSRF-TOKEN=([^;]+)/)
-        : null;
-    if (!match) return '';
-    try {
-        return decodeURIComponent(match[1]);
-    } catch {
-        return match[1];
-    }
-}
+import { getCsrfToken } from '@/lib/csrfToken.js';
 
 /**
  * Registra no servidor que o browser tentou disparar Purchase (diagnóstico + keepalive antes do redirect).

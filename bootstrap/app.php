@@ -39,8 +39,11 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         // Webhooks recebem POST de gateways externos sem CSRF token
+        // Checkout pixel mirror usa sendBeacon + checkout_session_token (público, throttled)
         $middleware->validateCsrfTokens(except: [
             'webhooks/gateways/*',
+            'checkout/pixel/events',
+            'checkout/pixel/purchase-ack',
         ]);
 
         $middleware->web(prepend: [
