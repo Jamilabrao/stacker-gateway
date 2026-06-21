@@ -42,6 +42,7 @@ use App\Support\CheckoutCardContract;
 use App\Support\CheckoutPaymentConsumer;
 use App\Support\CheckoutTranslations;
 use App\Support\CheckoutTurnstileSettings;
+use App\Support\SafeUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -1382,9 +1383,10 @@ class CheckoutController extends Controller
                         $redirectUrl = route('checkout.upsell', ['token' => $upsellToken]);
                     } else {
                         $customRedirect = $config['redirect_after_purchase'] ?? null;
-                        if (! empty($customRedirect) && is_string($customRedirect)) {
-                            $redirectUrl = $customRedirect;
-                        } else {
+                        if (is_string($customRedirect) && trim($customRedirect) !== '') {
+                            $redirectUrl = SafeUrl::normalizeCheckoutRedirect($customRedirect);
+                        }
+                        if ($redirectUrl === null) {
                             $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
                             $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
                         }
@@ -2332,9 +2334,10 @@ class CheckoutController extends Controller
                     $redirectUrl = route('checkout.upsell', ['token' => $upsellToken]);
                 } else {
                     $customRedirect = $config['redirect_after_purchase'] ?? null;
-                    if (! empty($customRedirect) && is_string($customRedirect)) {
-                        $redirectUrl = $customRedirect;
-                    } else {
+                    if (is_string($customRedirect) && trim($customRedirect) !== '') {
+                        $redirectUrl = SafeUrl::normalizeCheckoutRedirect($customRedirect);
+                    }
+                    if ($redirectUrl === null) {
                         $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
                         $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
                     }

@@ -47,6 +47,14 @@ final class CheckoutConfigUrlSanitizer
             }
         }
 
+        if (isset($config['redirect_after_purchase']) && is_string($config['redirect_after_purchase'])) {
+            $config['redirect_after_purchase'] = SafeUrl::normalizeCheckoutRedirect($config['redirect_after_purchase']) ?? '';
+        }
+
+        if (isset($config['deliverable_link']) && is_string($config['deliverable_link'])) {
+            $config['deliverable_link'] = SafeUrl::normalizeCheckoutRedirect($config['deliverable_link']) ?? '';
+        }
+
         return $config;
     }
 }

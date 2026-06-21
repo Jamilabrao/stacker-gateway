@@ -19,6 +19,7 @@ import {
 } from '@/composables/usePagarmeTokenizecard.js';
 import { loadCajuPaySdk } from '@/composables/useCajuPaySdk';
 import { isValidCpf } from '@/utils/brazilianDocuments.js';
+import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
 
 const STORAGE_KEY = 'checkout_draft';
 
@@ -1222,7 +1223,7 @@ async function pollCajuPayOrderStatus() {
             if (oid) {
                 emitPurchaseConfirmed(oid, 'approved');
             }
-            setTimeout(() => router.visit(data.redirect_url), 1200);
+            setTimeout(() => navigateAfterCheckout(data.redirect_url), 1200);
             return;
         }
         if (['rejected', 'cancelled', 'failed'].includes(data.status)) {
@@ -1551,7 +1552,7 @@ async function initMercadopagoBrick() {
                                 if (url) {
                                     cardApproved.value = true;
                                     emitPurchaseConfirmed(data.order_id, 'approved');
-                                    setTimeout(() => router.visit(url), 800);
+                                    setTimeout(() => navigateAfterCheckout(url), 800);
                                 }
                                 resolve();
                             } else {
@@ -1890,7 +1891,7 @@ function submit() {
                             cardApproved.value = true;
                             cardApprovedRedirectUrl.value = url;
                             emitPurchaseConfirmed(data.order_id, 'approved');
-                            setTimeout(() => router.visit(url), 1800);
+                            setTimeout(() => navigateAfterCheckout(url), 1800);
                         }
                     }
                 })
@@ -2017,7 +2018,7 @@ function submit() {
                         cardApproved.value = true;
                         cardApprovedRedirectUrl.value = url;
                         emitPurchaseConfirmed(data.order_id, 'approved');
-                        setTimeout(() => router.visit(url), 800);
+                        setTimeout(() => navigateAfterCheckout(url), 800);
                         return;
                     }
                 }
@@ -2028,7 +2029,7 @@ function submit() {
                         cardApproved.value = true;
                         cardApprovedRedirectUrl.value = url;
                         emitPurchaseConfirmed(data.order_id, 'approved');
-                        setTimeout(() => router.visit(url), 1800);
+                        setTimeout(() => navigateAfterCheckout(url), 1800);
                         return;
                     }
                     if (url && isPostUrl(url)) {
@@ -2040,7 +2041,7 @@ function submit() {
                         cardApproved.value = true;
                         cardApprovedRedirectUrl.value = fallback;
                         emitPurchaseConfirmed(data.order_id, 'approved');
-                        setTimeout(() => router.visit(fallback), 800);
+                        setTimeout(() => navigateAfterCheckout(fallback), 800);
                         return;
                     }
                     const pendingMsg = typeof data.message === 'string' && data.message.trim() !== ''

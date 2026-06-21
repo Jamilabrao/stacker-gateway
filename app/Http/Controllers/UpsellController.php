@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\AccessEmailService;
 use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
+use App\Support\SafeUrl;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -127,8 +128,11 @@ class UpsellController extends Controller
     {
         $config = $this->getOrderCheckoutConfig($order);
         $url = $config['redirect_after_purchase'] ?? null;
-        if (! empty($url) && is_string($url)) {
-            return $url;
+        if (is_string($url) && trim($url) !== '') {
+            $normalized = SafeUrl::normalizeCheckoutRedirect($url);
+            if ($normalized !== null) {
+                return $normalized;
+            }
         }
         $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
 
@@ -171,7 +175,12 @@ class UpsellController extends Controller
                     $subtitle = 'Seu pedido foi registrado. Você pode voltar para o site agora.';
                 }
                 if ($order->product->type !== Product::TYPE_AREA_MEMBROS_EXTERNA) {
-                    $accessLink = $accessEmailService->getAccessLinkForOrder($order);
+                    try {
+                        $accessLink = $accessEmailService->getAccessLinkForOrder($order);
+                    } catch (\Throwable $e) {
+                        report($e);
+                        $accessLink = '';
+                    }
                     if ($accessLink !== '') {
                         $redirectUrl = $accessLink;
                         if ($order->product->type === Product::TYPE_LINK) {

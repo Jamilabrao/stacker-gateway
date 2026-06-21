@@ -133,7 +133,16 @@ class CademiEventSubscriber
                     'produto_id' => $produtoId ?: null,
                     'mapping_scope' => $mapping['scope'] ?? null,
                 ]);
-                CademiGrantAccessJob::dispatchSync($integration->id, (int) $order->id);
+                try {
+                    CademiGrantAccessJob::dispatchSync($integration->id, (int) $order->id);
+                } catch (\Throwable $e) {
+                    Log::error('CademiEventSubscriber: falha no dispatchSync (checkout continua)', [
+                        'order_id' => $order->id,
+                        'integration_id' => $integration->id,
+                        'message' => $e->getMessage(),
+                    ]);
+                    report($e);
+                }
             } else {
                 Log::info('CademiEventSubscriber: dispatch async', [
                     'order_id' => $order->id,

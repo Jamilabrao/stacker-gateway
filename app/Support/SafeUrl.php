@@ -62,4 +62,34 @@ final class SafeUrl
     {
         return self::isAllowedHttpUrl($url) ? trim((string) $url) : null;
     }
+
+    /**
+     * Redirect pós-compra: path interno (/obrigado) ou URL http(s) absoluta.
+     */
+    public static function normalizeCheckoutRedirect(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        $url = trim($url);
+        if ($url === '') {
+            return null;
+        }
+
+        if (str_starts_with($url, '/') && ! str_starts_with($url, '//')) {
+            return $url;
+        }
+
+        $absolute = self::normalizeHttpUrl($url);
+        if ($absolute !== null) {
+            return $absolute;
+        }
+
+        if (preg_match('#^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}([/?#].*)?$#i', $url)) {
+            return self::normalizeHttpUrl('https://'.$url);
+        }
+
+        return null;
+    }
 }

@@ -151,4 +151,23 @@ class SecurityHardeningTest extends TestCase
 
         $this->assertSame($url, $config['support_button']['url']);
     }
+
+    public function test_checkout_config_sanitizer_normalizes_redirect_after_purchase(): void
+    {
+        $config = CheckoutConfigUrlSanitizer::sanitize([
+            'redirect_after_purchase' => 'example.com/obrigado',
+        ]);
+
+        $this->assertSame('https://example.com/obrigado', $config['redirect_after_purchase']);
+    }
+
+    public function test_safe_url_normalize_checkout_redirect_accepts_internal_path(): void
+    {
+        $this->assertSame('/checkout/obrigado', \App\Support\SafeUrl::normalizeCheckoutRedirect('/checkout/obrigado'));
+    }
+
+    public function test_safe_url_normalize_checkout_redirect_rejects_garbage(): void
+    {
+        $this->assertNull(\App\Support\SafeUrl::normalizeCheckoutRedirect('invalid'));
+    }
 }
