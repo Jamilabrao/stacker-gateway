@@ -352,17 +352,19 @@ class CheckoutController extends Controller
         $sessionToken = Str::uuid()->toString();
         $checkoutSession = null;
         if (! $isBuilderPreview) {
-            $checkoutSession = CheckoutSession::create(array_merge([
-                'tenant_id' => $product->tenant_id,
-                'product_id' => $product->id,
-                'product_offer_id' => $resolved['offer']?->id,
-                'subscription_plan_id' => $resolved['plan']?->id,
-                'checkout_slug' => $resolved['checkout_slug'],
-                'session_token' => $sessionToken,
-                'step' => CheckoutSession::STEP_VISIT,
-                'customer_ip' => $request->ip(),
-                'affiliate_ref' => $affiliateRef !== '' ? $affiliateRef : null,
-            ], CheckoutSession::trackingFromQuery($request), CheckoutSession::metaAttributionFromQuery($request)));
+            $checkoutSession = CheckoutSession::create(
+                CheckoutSession::filterAttributesForExistingColumns(array_merge([
+                    'tenant_id' => $product->tenant_id,
+                    'product_id' => $product->id,
+                    'product_offer_id' => $resolved['offer']?->id,
+                    'subscription_plan_id' => $resolved['plan']?->id,
+                    'checkout_slug' => $resolved['checkout_slug'],
+                    'session_token' => $sessionToken,
+                    'step' => CheckoutSession::STEP_VISIT,
+                    'customer_ip' => $request->ip(),
+                    'affiliate_ref' => $affiliateRef !== '' ? $affiliateRef : null,
+                ], CheckoutSession::trackingFromQuery($request), CheckoutSession::metaAttributionFromQuery($request)))
+            );
 
             app(MetaTrackingService::class)->queueCheckoutLandingEvents(
                 $checkoutSession,

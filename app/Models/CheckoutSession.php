@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class CheckoutSession extends Model
 {
@@ -247,6 +248,28 @@ class CheckoutSession extends Model
     public static function buildFbcFromFbclid(string $fbclid): string
     {
         return 'fb.1.'.(int) (microtime(true) * 1000).'.'.trim($fbclid);
+    }
+
+    /**
+     * Omite atributos cujas colunas ainda não existem (deploy antes do migrate).
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    public static function filterAttributesForExistingColumns(array $attributes): array
+    {
+        if (! Schema::hasTable('checkout_sessions')) {
+            return $attributes;
+        }
+
+        $out = [];
+        foreach ($attributes as $key => $value) {
+            if (Schema::hasColumn('checkout_sessions', $key)) {
+                $out[$key] = $value;
+            }
+        }
+
+        return $out;
     }
 
     /** Colunas para `with(['checkoutSession:…'])` em pedidos. */
