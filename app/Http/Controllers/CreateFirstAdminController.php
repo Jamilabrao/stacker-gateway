@@ -8,6 +8,7 @@ use App\Support\HtmlSanitizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
@@ -40,23 +41,25 @@ class CreateFirstAdminController extends Controller
             return redirect('/docker-setup');
         }
 
-        if (User::count() > 0) {
-            abort(403, 'O primeiro administrador já foi criado.');
-        }
-
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255'],
             'password' => ['required', 'confirmed', Password::defaults()],
         ]);
 
-        $user = User::create([
-            'name' => HtmlSanitizer::plainText($validated['name'], 255),
-            'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
-            'role' => User::ROLE_PLATFORM_ADMIN,
-            'tenant_id' => null,
-        ]);
+        $user = DB::transaction(function () use ($validated) {
+            if (User::query()->lockForUpdate()->count() > 0) {
+                abort(403, 'O primeiro administrador já foi criado.');
+            }
+
+            return User::create([
+                'name' => HtmlSanitizer::plainText($validated['name'], 255),
+                'email' => $validated['email'],
+                'password' => Hash::make($validated['password']),
+                'role' => User::ROLE_PLATFORM_ADMIN,
+                'tenant_id' => null,
+            ]);
+        });
 
         Auth::login($user);
 

@@ -350,8 +350,9 @@ class CheckoutController extends Controller
 
         $isBuilderPreview = $request->query('preview') === '1';
         $sessionToken = Str::uuid()->toString();
+        $checkoutSession = null;
         if (! $isBuilderPreview) {
-            CheckoutSession::create(array_merge([
+            $checkoutSession = CheckoutSession::create(array_merge([
                 'tenant_id' => $product->tenant_id,
                 'product_id' => $product->id,
                 'product_offer_id' => $resolved['offer']?->id,
@@ -361,7 +362,16 @@ class CheckoutController extends Controller
                 'step' => CheckoutSession::STEP_VISIT,
                 'customer_ip' => $request->ip(),
                 'affiliate_ref' => $affiliateRef !== '' ? $affiliateRef : null,
-            ], CheckoutSession::trackingFromQuery($request)));
+            ], CheckoutSession::trackingFromQuery($request), CheckoutSession::metaAttributionFromQuery($request)));
+
+            app(MetaTrackingService::class)->queueCheckoutLandingEvents(
+                $checkoutSession,
+                $product,
+                $payload['conversion_pixels'],
+                (float) $resolved['amount'],
+                (string) ($resolved['currency'] ?? 'BRL'),
+                $request->fullUrl(),
+            );
         }
         $payload['checkout_session_token'] = $sessionToken;
 
@@ -369,6 +379,7 @@ class CheckoutController extends Controller
         $payload['checkout_builder_preview'] = $isBuilderPreview;
 
         $payload['affiliate_ref'] = $affiliateRef;
+        $payload['meta_tracking_debug'] = config('meta_tracking.debug');
         $payload['turnstile'] = CheckoutTurnstileSettings::publicConfig();
 
         return Inertia::render('Checkout/Show', $payload);

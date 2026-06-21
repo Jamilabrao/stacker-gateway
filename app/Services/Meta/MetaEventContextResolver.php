@@ -29,7 +29,7 @@ class MetaEventContextResolver
 
         return new MetaEventContext(
             fbp: $this->firstNonEmpty($overrides['fbp'] ?? null, $session->meta_fbp),
-            fbc: $this->firstNonEmpty($overrides['fbc'] ?? null, $session->meta_fbc),
+            fbc: $this->resolveFbcForSession($session, $overrides),
             clientIp: $session->customer_ip,
             clientUserAgent: $this->firstNonEmpty($overrides['user_agent'] ?? null, $session->meta_user_agent),
             eventSourceUrl: $this->firstNonEmpty($overrides['event_source_url'] ?? null, $session->meta_page_url),
@@ -63,9 +63,11 @@ class MetaEventContextResolver
             $contentIds[] = (string) $order->product->checkout_slug;
         }
 
+        $sessionFbc = $session ? $this->resolveFbcForSession($session, []) : null;
+
         return new MetaEventContext(
             fbp: $this->firstNonEmpty($overrides['fbp'] ?? null, $meta['fbp'] ?? null, $session?->meta_fbp),
-            fbc: $this->firstNonEmpty($overrides['fbc'] ?? null, $meta['fbc'] ?? null, $session?->meta_fbc),
+            fbc: $this->firstNonEmpty($overrides['fbc'] ?? null, $meta['fbc'] ?? null, $sessionFbc),
             clientIp: $order->customer_ip ?: ($session?->customer_ip),
             clientUserAgent: $this->firstNonEmpty($overrides['user_agent'] ?? null, $meta['user_agent'] ?? null, $session?->meta_user_agent),
             eventSourceUrl: $this->firstNonEmpty($overrides['event_source_url'] ?? null, $session?->meta_page_url),
@@ -85,6 +87,24 @@ class MetaEventContextResolver
             numItems: max(1, $order->orderItems->count()),
             eventTime: (int) ($order->updated_at?->timestamp ?? time()),
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    private function resolveFbcForSession(CheckoutSession $session, array $overrides): ?string
+    {
+        $fbc = $this->firstNonEmpty($overrides['fbc'] ?? null, $session->meta_fbc);
+        if ($fbc !== null) {
+            return $fbc;
+        }
+
+        $fbclid = is_string($session->meta_fbclid) ? trim($session->meta_fbclid) : '';
+        if ($fbclid !== '') {
+            return CheckoutSession::buildFbcFromFbclid($fbclid);
+        }
+
+        return null;
     }
 
     /**

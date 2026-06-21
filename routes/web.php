@@ -234,6 +234,10 @@ Route::get('/conquistas/{slug}/share', [\App\Http\Controllers\ConquistasControll
     ->name('conquistas.share')
     ->where('slug', '[a-z0-9-]+');
 
+Route::get('/email/verificar/{id}/{hash}', [\App\Http\Controllers\EmailVerificationController::class, 'verify'])
+    ->middleware(['signed', 'throttle:6,1'])
+    ->name('verification.verify');
+
 Route::post('/cadastro', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'store'])->middleware('throttle:10,1');
 Route::post('/cadastro/validar-email', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateEmail'])->middleware('throttle:30,1');
 Route::post('/cadastro/validar-documento', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateDocument'])->middleware('throttle:30,1');
@@ -261,6 +265,10 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::match(['get', 'post'], '/logout', [LoginController::class, 'logout'])->name('logout');
     Route::get('/cadastro/infoprodutor', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'createUpgrade'])->name('cadastro.infoprodutor');
+    Route::get('/verificar-email', [\App\Http\Controllers\EmailVerificationController::class, 'notice'])->name('verification.notice');
+    Route::post('/email/verificacao/reenviar', [\App\Http\Controllers\EmailVerificationController::class, 'resend'])
+        ->middleware('throttle:email-verification-resend')
+        ->name('verification.resend');
 });
 
 Route::prefix('plataforma')->name('plataforma.')->group(function () {

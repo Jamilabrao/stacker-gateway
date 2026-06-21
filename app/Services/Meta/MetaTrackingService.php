@@ -130,6 +130,89 @@ class MetaTrackingService
         );
     }
 
+    /**
+     * Server-side backup: queue PageView + InitiateCheckout on checkout GET when ad traffic detected.
+     *
+     * @param  array<string, mixed>  $pixels
+     * @return array{pageview: array<int, int>, initiate_checkout: array<int, int>}
+     */
+    public function queueCheckoutLandingEvents(
+        CheckoutSession $session,
+        Product $product,
+        array $pixels,
+        float $value,
+        string $currency = 'BRL',
+        ?string $eventSourceUrl = null,
+    ): array {
+        if (! $this->shouldQueueCheckoutLandingBackup($session)) {
+            return ['pageview' => [], 'initiate_checkout' => []];
+        }
+
+        $entries = $this->eligibleMetaEntries($pixels, 'PageView');
+        if ($entries === []) {
+            return ['pageview' => [], 'initiate_checkout' => []];
+        }
+
+        $contentIds = [];
+        if ($session->checkout_slug) {
+            $contentIds[] = (string) $session->checkout_slug;
+        } elseif ($product->checkout_slug) {
+            $contentIds[] = (string) $product->checkout_slug;
+        }
+
+        $overrides = array_filter([
+            'value' => $value,
+            'currency' => strtoupper($currency),
+            'content_ids' => $contentIds,
+            'content_name' => $product->name,
+            'event_source_url' => $eventSourceUrl,
+            'user_agent' => request()->userAgent(),
+        ], fn ($v) => $v !== null && $v !== '');
+
+        $token = (string) $session->session_token;
+        $pageview = $this->queueSessionEvent(
+            $session,
+            'PageView',
+            self::eventId('pageview', ['session_token' => $token]),
+            $overrides,
+        );
+        $initiate = $this->queueSessionEvent(
+            $session,
+            'InitiateCheckout',
+            self::eventId('initiate_checkout', ['session_token' => $token]),
+            $overrides,
+        );
+
+        if (config('meta_tracking.debug')) {
+            Log::debug('Meta checkout landing backup queued', [
+                'checkout_session_id' => $session->id,
+                'pageview_queued' => count($pageview),
+                'initiate_checkout_queued' => count($initiate),
+            ]);
+        }
+
+        return [
+            'pageview' => $pageview,
+            'initiate_checkout' => $initiate,
+        ];
+    }
+
+    public function shouldQueueCheckoutLandingBackup(CheckoutSession $session): bool
+    {
+        if (trim((string) ($session->meta_fbclid ?? '')) !== '') {
+            return true;
+        }
+
+        foreach (['utm_source', 'utm_medium', 'utm_campaign', 'src', 'sck'] as $key) {
+            $value = $session->{$key} ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function queuePurchaseForOrder(Order $order): array
     {
         if (! $this->isServerEnabled('Purchase')) {
@@ -218,7 +301,9 @@ class MetaTrackingService
                 continue;
             }
 
-            SendMetaTrackingEventJob::dispatch($record->id)->onQueue((string) config('meta_tracking.queue'));
+            SendMetaTrackingEventJob::dispatch($record->id)
+                ->onQueue((string) config('meta_tracking.queue'))
+                ->afterResponse();
             $queued[] = $record->id;
         }
 

@@ -1,4 +1,4 @@
-import { ensureFbcFromFbclid, getAttributionPayload } from '@/lib/metaTracking/attribution.js';
+import { ensureFbcFromFbclid, getAttributionPayload, waitForFbp } from '@/lib/metaTracking/attribution.js';
 import {
     getMetaEntries,
     initMetaPixels,
@@ -21,10 +21,26 @@ function eventIdPurchase(orderId) {
     return orderId ? `order:${orderId}` : undefined;
 }
 
-let checkoutTrackingStarted = false;
+/** @type {Map<string, 'pending'|'done'>} */
+const checkoutTrackingByToken = new Map();
+
+function metaDebugEnabled() {
+    try {
+        return Boolean(window.__GETFY_META_TRACKING_DEBUG__);
+    } catch {
+        return false;
+    }
+}
+
+function logMetaDebug(message, data) {
+    if (!metaDebugEnabled()) return;
+    if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+        console.debug(`[meta-tracking] ${message}`, data ?? '');
+    }
+}
 
 /**
- * Fire PageView + InitiateCheckout (browser + CAPI mirror) once per checkout load.
+ * Fire PageView + InitiateCheckout (CAPI mirror first, browser pixel when fbq loads).
  */
 export async function runCheckoutMetaTracking({
     pixels,
@@ -34,57 +50,96 @@ export async function runCheckoutMetaTracking({
     contentKey = '',
     contentName = '',
 }) {
-    if (checkoutTrackingStarted) return { ok: false, reason: 'already_started' };
-    checkoutTrackingStarted = true;
+    const token = String(checkoutSessionToken || '').trim();
+    if (!token) {
+        return { ok: false, reason: 'missing_session_token' };
+    }
+
+    const state = checkoutTrackingByToken.get(token);
+    if (state === 'done') {
+        return { ok: false, reason: 'already_completed' };
+    }
+    if (state === 'pending') {
+        return { ok: false, reason: 'in_progress' };
+    }
+
+    checkoutTrackingByToken.set(token, 'pending');
 
     ensureFbcFromFbclid();
 
     const metaEntries = getMetaEntries(pixels);
     if (!metaEntries.length) {
-        checkoutTrackingStarted = false;
+        checkoutTrackingByToken.delete(token);
+        logMetaDebug('skipped', { reason: 'no_meta_pixels', token });
         return { ok: false, reason: 'no_meta_pixels' };
     }
 
-    const ready = await initMetaPixels(metaEntries);
-    if (!ready) {
-        checkoutTrackingStarted = false;
-        return { ok: false, reason: 'meta_not_ready' };
-    }
-
-    const attribution = getAttributionPayload();
-    const pvEventId = eventIdPageView(checkoutSessionToken);
-    const chkEventId = eventIdInitiateCheckout(checkoutSessionToken);
+    const pvEventId = eventIdPageView(token);
+    const chkEventId = eventIdInitiateCheckout(token);
     const checkoutPayload = buildCheckoutEventPayload(value, currency, contentKey);
 
-    if (pvEventId) {
-        trackPageView(pvEventId);
-        mirrorMetaEventToServer({
-            checkoutSessionToken,
-            eventName: 'PageView',
-            eventId: pvEventId,
-            ...attribution,
-            value: checkoutPayload.value,
-            currency: checkoutPayload.currency,
-            contentIds: checkoutPayload.content_ids,
-            contentName: contentName || contentKey || undefined,
-        });
-    }
+    const mirrorPromise = (async () => {
+        await waitForFbp(1500);
+        const attribution = getAttributionPayload();
 
-    if (chkEventId) {
-        trackMetaEvent('InitiateCheckout', checkoutPayload, chkEventId);
-        mirrorMetaEventToServer({
-            checkoutSessionToken,
-            eventName: 'InitiateCheckout',
-            eventId: chkEventId,
-            ...attribution,
-            value: checkoutPayload.value,
-            currency: checkoutPayload.currency,
-            contentIds: checkoutPayload.content_ids,
-            contentName: contentName || contentKey || undefined,
-        });
-    }
+        if (pvEventId) {
+            mirrorMetaEventToServer({
+                checkoutSessionToken: token,
+                eventName: 'PageView',
+                eventId: pvEventId,
+                ...attribution,
+                value: checkoutPayload.value,
+                currency: checkoutPayload.currency,
+                contentIds: checkoutPayload.content_ids,
+                contentName: contentName || contentKey || undefined,
+            });
+        }
 
-    return { ok: true };
+        if (chkEventId) {
+            mirrorMetaEventToServer({
+                checkoutSessionToken: token,
+                eventName: 'InitiateCheckout',
+                eventId: chkEventId,
+                ...attribution,
+                value: checkoutPayload.value,
+                currency: checkoutPayload.currency,
+                contentIds: checkoutPayload.content_ids,
+                contentName: contentName || contentKey || undefined,
+            });
+        }
+    })();
+
+    const browserPromise = (async () => {
+        const ready = await initMetaPixels(metaEntries);
+        if (!ready) {
+            return false;
+        }
+
+        if (pvEventId) {
+            trackPageView(pvEventId);
+        }
+        if (chkEventId) {
+            trackMetaEvent('InitiateCheckout', checkoutPayload, chkEventId);
+        }
+
+        return true;
+    })();
+
+    await mirrorPromise;
+
+    const browserOk = await browserPromise;
+
+    checkoutTrackingByToken.set(token, 'done');
+
+    const result = {
+        ok: true,
+        browser: browserOk,
+        reason: browserOk ? 'ok' : 'capi_only',
+    };
+
+    logMetaDebug('checkout events', { token, ...result });
+
+    return result;
 }
 
 export async function fireMetaPurchaseReliable({

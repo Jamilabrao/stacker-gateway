@@ -3,6 +3,7 @@ import { ref, computed, watch, watchEffect, onMounted } from 'vue';
 import { useForm, Link, usePage } from '@inertiajs/vue3';
 import { User, Building2, ChevronLeft } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
+import CheckoutTurnstile from '@/components/checkout/CheckoutTurnstile.vue';
 import AuthPageShell from '@/components/auth/AuthPageShell.vue';
 import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
 import { useAuthBranding } from '@/composables/useAuthBranding';
@@ -16,6 +17,7 @@ const props = defineProps({
     revenue_ranges: { type: Array, default: () => [] },
     coproducer_invite: { type: String, default: '' },
     upgrade_from_customer: { type: Boolean, default: false },
+    registration_turnstile: { type: Object, default: () => ({ enabled: false, site_key: '' }) },
 });
 
 const step = ref(1);
@@ -245,6 +247,8 @@ watch(step, () => {
     wizardStepError.value = '';
 });
 
+const turnstileToken = ref('');
+
 const form = useForm({
     person_type: 'pf',
     name: '',
@@ -265,6 +269,7 @@ const form = useForm({
     password: '',
     password_confirmation: '',
     accept_terms_privacy: false,
+    turnstile_token: '',
 });
 
 onMounted(() => {
@@ -461,9 +466,11 @@ async function onWizardKeydownEnter(e) {
 }
 
 function submitRegistration() {
+    form.turnstile_token = turnstileToken.value;
     form
         .transform((data) => ({
             ...data,
+            turnstile_token: turnstileToken.value || data.turnstile_token || '',
             coproducer_invite: data.coproducer_invite || null,
             document: String(data.document || '').replace(/\D/g, ''),
             legal_representative_cpf: data.person_type === 'pj' ? String(data.legal_representative_cpf || '').replace(/\D/g, '') : null,
@@ -711,6 +718,13 @@ function submitRegistration() {
                         <p v-if="form.errors.accept_terms_privacy" class="text-sm text-red-600">
                             {{ form.errors.accept_terms_privacy }}
                         </p>
+                        <div v-if="registration_turnstile?.enabled && registration_turnstile?.site_key" class="pt-2">
+                            <CheckoutTurnstile
+                                :site-key="registration_turnstile.site_key"
+                                v-model="turnstileToken"
+                            />
+                            <p v-if="form.errors.turnstile_token" class="mt-2 text-sm text-red-600">{{ form.errors.turnstile_token }}</p>
+                        </div>
                     </div>
 
                     <p

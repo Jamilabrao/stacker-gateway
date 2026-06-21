@@ -5,11 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\ProductCoproducer;
 use App\Models\TenantWallet;
 use App\Models\User;
+use App\Services\Checkout\TurnstileVerifier;
 use App\Services\LegalDocumentsService;
 use App\Services\PlatformEmailNotifications;
 use App\Support\BrazilianDocuments;
 use App\Support\DockerSetupState;
+use App\Support\EmailVerificationResendGuard;
 use App\Support\HtmlSanitizer;
+use App\Support\RegistrationEmailVerificationSettings;
+use App\Support\RegistrationTurnstileSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -23,7 +27,8 @@ use Inertia\Response;
 class InfoprodutorRegistrationController extends Controller
 {
     public function __construct(
-        protected PlatformEmailNotifications $platformEmailNotifications
+        protected PlatformEmailNotifications $platformEmailNotifications,
+        protected TurnstileVerifier $turnstileVerifier,
     ) {}
 
     public function create(Request $request): Response|RedirectResponse
@@ -36,11 +41,11 @@ class InfoprodutorRegistrationController extends Controller
             return redirect()->route('criar-admin');
         }
 
-        return Inertia::render('Auth/RegisterWizard', [
+        return Inertia::render('Auth/RegisterWizard', array_merge([
             'revenue_ranges' => self::revenueRangeOptions(),
             'coproducer_invite' => $request->query('coproducer_invite'),
             'upgrade_from_customer' => false,
-        ]);
+        ], self::registrationWizardProps()));
     }
 
     public function createUpgrade(Request $request): Response|RedirectResponse
@@ -56,11 +61,11 @@ class InfoprodutorRegistrationController extends Controller
             return redirect($user->defaultAuthenticatedHomeUrl());
         }
 
-        return Inertia::render('Auth/RegisterWizard', [
+        return Inertia::render('Auth/RegisterWizard', array_merge([
             'revenue_ranges' => self::revenueRangeOptions(),
             'coproducer_invite' => $request->query('coproducer_invite'),
             'upgrade_from_customer' => true,
-        ]);
+        ], self::registrationWizardProps()));
     }
 
     /**
@@ -191,6 +196,10 @@ class InfoprodutorRegistrationController extends Controller
             return $this->upgradeClienteToInfoprodutor($request);
         }
 
+        if ($turnstileError = $this->validateRegistrationTurnstile($request)) {
+            return $turnstileError;
+        }
+
         $rules = [
             'person_type' => ['required', 'string', Rule::in(['pf', 'pj'])],
             'name' => ['required', 'string', 'max:255'],
@@ -292,6 +301,7 @@ class InfoprodutorRegistrationController extends Controller
             'kyc_status' => User::KYC_NOT_SUBMITTED,
             'account_status' => 'pending',
             'seller_onboarded_at' => now(),
+            'email_verified_at' => RegistrationEmailVerificationSettings::isEnabled() ? null : now(),
         ]);
 
         $user->update(['tenant_id' => $user->id]);
@@ -317,6 +327,15 @@ class InfoprodutorRegistrationController extends Controller
 
         $this->platformEmailNotifications->welcomeInfoprodutor($user->fresh());
 
+        $verificationEmailSent = null;
+        if (RegistrationEmailVerificationSettings::isEnabled()) {
+            $freshUser = $user->fresh();
+            $verificationEmailSent = $this->platformEmailNotifications->sendEmailVerification($freshUser);
+            if ($verificationEmailSent) {
+                EmailVerificationResendGuard::markResent($freshUser);
+            }
+        }
+
         Auth::login($user);
         $request->session()->regenerate();
 
@@ -329,7 +348,7 @@ class InfoprodutorRegistrationController extends Controller
             ? 'Conta criada e co-produção ativada. Envie seus documentos de verificação (KYC) para acessar o painel.'
             : 'Conta criada. Envie seus documentos de verificação de identidade (KYC) para acessar o painel do infoprodutor.';
 
-        return redirect('/financeiro?tab=seus-dados')->with('success', $msg);
+        return $this->redirectAfterRegistration($user, $msg, $verificationEmailSent);
     }
 
     /**
@@ -340,6 +359,10 @@ class InfoprodutorRegistrationController extends Controller
         $user = Auth::user();
         if (! $user instanceof User || ! $user->isCliente()) {
             abort(403);
+        }
+
+        if ($turnstileError = $this->validateRegistrationTurnstile($request)) {
+            return $turnstileError;
         }
 
         $rules = [
@@ -419,6 +442,10 @@ class InfoprodutorRegistrationController extends Controller
             }
         }
 
+        $emailChanged = $user->email !== $validated['email'];
+        $needsEmailVerification = RegistrationEmailVerificationSettings::isEnabled()
+            && ($emailChanged || $user->email_verified_at === null);
+
         $user->update([
             'name' => (string) ($validated['name'] ?? ''),
             'email' => $validated['email'],
@@ -442,6 +469,7 @@ class InfoprodutorRegistrationController extends Controller
             'kyc_status' => User::KYC_NOT_SUBMITTED,
             'account_status' => 'pending',
             'seller_onboarded_at' => now(),
+            'email_verified_at' => $needsEmailVerification ? null : ($user->email_verified_at ?? now()),
         ]);
 
         $user->update(['tenant_id' => $user->id]);
@@ -467,6 +495,15 @@ class InfoprodutorRegistrationController extends Controller
 
         $this->platformEmailNotifications->welcomeInfoprodutor($user->fresh());
 
+        $verificationEmailSent = null;
+        if ($needsEmailVerification) {
+            $freshUser = $user->fresh();
+            $verificationEmailSent = $this->platformEmailNotifications->sendEmailVerification($freshUser);
+            if ($verificationEmailSent) {
+                EmailVerificationResendGuard::markResent($freshUser);
+            }
+        }
+
         $inviteAccepted = false;
         if (! empty($validated['coproducer_invite'])) {
             $inviteAccepted = ProductCoproducer::tryActivateAfterRegistration($user->fresh(), $validated['coproducer_invite']);
@@ -476,7 +513,51 @@ class InfoprodutorRegistrationController extends Controller
             ? 'Conta de infoprodutor ativada e co-produção vinculada. Envie seus documentos de verificação (KYC) para acessar o painel.'
             : 'Conta de infoprodutor criada. Envie seus documentos de verificação (KYC) para acessar o painel.';
 
-        return redirect('/financeiro?tab=seus-dados')->with('success', $msg);
+        return $this->redirectAfterRegistration($user, $msg, $verificationEmailSent);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function registrationWizardProps(): array
+    {
+        return [
+            'registration_turnstile' => RegistrationTurnstileSettings::publicConfig(),
+        ];
+    }
+
+    private function validateRegistrationTurnstile(Request $request): ?RedirectResponse
+    {
+        if (! RegistrationTurnstileSettings::isRequired()) {
+            return null;
+        }
+
+        $token = trim((string) $request->input('turnstile_token', ''));
+        if ($token === '' || ! $this->turnstileVerifier->verify($token, $request->ip())) {
+            return back()
+                ->withErrors(['turnstile_token' => 'Confirme que você não é um robô e tente novamente.'])
+                ->withInput();
+        }
+
+        return null;
+    }
+
+    private function redirectAfterRegistration(User $user, string $successMessage, ?bool $verificationEmailSent = null): RedirectResponse
+    {
+        if (RegistrationEmailVerificationSettings::requiresVerificationFor($user->fresh())) {
+            $redirect = redirect()->route('verification.notice');
+
+            if ($verificationEmailSent === false) {
+                return $redirect->with(
+                    'error',
+                    'Conta criada, mas não foi possível enviar o e-mail de confirmação. Em Plataforma → Configurações → E-mail, salve o SMTP e use o teste de envio antes de reenviar.'
+                );
+            }
+
+            return $redirect->with('success', 'Conta criada! Confirme seu e-mail para continuar.');
+        }
+
+        return redirect('/financeiro?tab=seus-dados')->with('success', $successMessage);
     }
 
     private function recordLegalConsent(User $user): void

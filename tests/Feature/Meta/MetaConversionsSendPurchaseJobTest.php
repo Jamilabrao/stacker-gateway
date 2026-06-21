@@ -27,7 +27,7 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
                 'meta' => [
                     'enabled' => true,
                     'entries' => [
-                        ['pixel_id' => '123', 'access_token' => 'tok'],
+                        ['pixel_id' => '123456789', 'access_token' => 'tok'],
                     ],
                 ],
             ],
@@ -61,7 +61,7 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
                 'meta' => [
                     'enabled' => true,
                     'entries' => [
-                        ['pixel_id' => '999', 'access_token' => 'secret'],
+                        ['pixel_id' => '999888777', 'access_token' => 'secret'],
                     ],
                 ],
             ],
@@ -108,7 +108,7 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
                     'enabled' => true,
                     'entries' => [
                         [
-                            'pixel_id' => '123',
+                            'pixel_id' => '123456789',
                             'access_token' => 'tok',
                             'fire_purchase_on_pix' => false,
                         ],
@@ -143,7 +143,7 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
                 'meta' => [
                     'enabled' => true,
                     'entries' => [
-                        ['pixel_id' => '123'],
+                        ['pixel_id' => '123456789'],
                     ],
                 ],
             ],
@@ -175,7 +175,7 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
                 'meta' => [
                     'enabled' => true,
                     'entries' => [
-                        ['pixel_id' => '555', 'access_token' => 'secret'],
+                        ['pixel_id' => '555666777', 'access_token' => 'secret'],
                     ],
                 ],
             ],

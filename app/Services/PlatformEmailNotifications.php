@@ -6,6 +6,7 @@ use App\Mail\KycApprovedMail;
 use App\Mail\KycRejectedMail;
 use App\Mail\KycSubmittedAdminMail;
 use App\Mail\RefundRequestAdminMail;
+use App\Mail\VerifyEmailMail;
 use App\Mail\WelcomeInfoprodutorMail;
 use App\Mail\ManualApprovalPinResetAdminMail;
 use App\Mail\WithdrawalFailedAdminMail;
@@ -153,6 +154,17 @@ class PlatformEmailNotifications
 
         $this->mail->send(
             new WelcomeInfoprodutorMail($user, $branding, $dashboardUrl, $kycUrl),
+            $user->email
+        );
+    }
+
+    public function sendEmailVerification(User $user): bool
+    {
+        $branding = BrandingEmailData::forTenant($user->tenant_id);
+        $verificationUrl = \App\Http\Controllers\EmailVerificationController::signedVerificationUrl($user);
+
+        return $this->mail->send(
+            new VerifyEmailMail($user, $branding, $verificationUrl),
             $user->email
         );
     }

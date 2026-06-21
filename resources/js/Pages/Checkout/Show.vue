@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, watch, onUnmounted, onMounted, toRef } from 'vue';
+import { ref, computed, watch, onUnmounted, toRef } from 'vue';
+import { getMetaEntries } from '@/lib/metaTracking/browserPixel.js';
 import { Head } from '@inertiajs/vue3';
 import { AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import { useCheckoutLocale } from '@/composables/useCheckoutLocale';
@@ -58,6 +59,8 @@ const props = defineProps({
     turnstile: { type: Object, default: () => ({ enabled: false, site_key: '', mode: 'pix_boleto' }) },
     /** Código de afiliado (`?ref=`) propagado ao checkout. */
     affiliate_ref: { type: String, default: '' },
+    /** Quando true, loga motivos de tracking Meta no console do browser. */
+    meta_tracking_debug: { type: Boolean, default: false },
 });
 
 const previewConfig = ref(null);
@@ -79,8 +82,13 @@ const effectiveConfig = computed(() => {
 });
 
 /** Listener no setup (não só no onMounted) para não perder postMessage se o parent disparar no @load do iframe antes do mount. */
-if (typeof window !== 'undefined' && props.checkout_builder_preview) {
-    window.addEventListener('message', onPreviewMessage);
+if (typeof window !== 'undefined') {
+    if (props.checkout_builder_preview) {
+        window.addEventListener('message', onPreviewMessage);
+    }
+    if (props.meta_tracking_debug) {
+        window.__GETFY_META_TRACKING_DEBUG__ = true;
+    }
 }
 onUnmounted(() => {
     if (typeof window !== 'undefined' && props.checkout_builder_preview) {
@@ -212,13 +220,24 @@ async function startCheckoutMetaTracking() {
     }
 }
 
-onMounted(async () => {
-    await startCheckoutMetaTracking();
-});
+function onConversionPixelsMetaReady() {
+    startCheckoutMetaTracking();
+}
+
+function onConversionPixelsReady() {
+    if (getMetaEntries(conversionPixels.value).length === 0) {
+        startCheckoutMetaTracking();
+    }
+}
 </script>
 
 <template>
-    <ConversionPixels ref="conversionPixelsRef" :pixels="conversionPixels" @meta-ready="startCheckoutMetaTracking" />
+    <ConversionPixels
+        ref="conversionPixelsRef"
+        :pixels="conversionPixels"
+        @ready="onConversionPixelsReady"
+        @meta-ready="onConversionPixelsMetaReady"
+    />
     <Head>
         <title>{{ pageTitle }}</title>
         <meta v-if="pageDescription" name="description" :content="pageDescription" />

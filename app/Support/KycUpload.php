@@ -23,27 +23,53 @@ final class KycUpload
         'application/x-pdf',
     ];
 
+    /** @var array<string, string> */
+    private const MIME_TO_EXTENSION = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'image/gif' => 'gif',
+        'image/heic' => 'heic',
+        'image/heif' => 'heif',
+        'application/pdf' => 'pdf',
+        'application/x-pdf' => 'pdf',
+    ];
+
+    /** @var list<string> */
+    private const RASTER_IMAGE_MIMES = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/gif',
+    ];
+
     public static function assertValid(UploadedFile $file, string $fieldLabel): void
     {
-        if ($file->isValid()) {
-            $mime = self::normalizeMime($file);
-            if (! in_array($mime, self::ALLOWED_MIMES, true)) {
-                throw ValidationException::withMessages([
-                    $fieldLabel => 'Formato não permitido. Use JPG, PNG, WebP, GIF, HEIC/HEIF ou PDF.',
-                ]);
-            }
-            if ($file->getSize() > self::MAX_BYTES) {
-                throw ValidationException::withMessages([
-                    $fieldLabel => 'O arquivo não pode ser maior que 20 MB.',
-                ]);
-            }
-
-            return;
+        if (! $file->isValid()) {
+            throw ValidationException::withMessages([
+                $fieldLabel => self::messageForUploadError($file->getError()),
+            ]);
         }
 
-        throw ValidationException::withMessages([
-            $fieldLabel => self::messageForUploadError($file->getError()),
-        ]);
+        $mime = self::normalizeMime($file);
+        if (! in_array($mime, self::ALLOWED_MIMES, true)) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'Formato não permitido. Use JPG, PNG, WebP, GIF, HEIC/HEIF ou PDF.',
+            ]);
+        }
+
+        if ($file->getSize() > self::MAX_BYTES) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'O arquivo não pode ser maior que 20 MB.',
+            ]);
+        }
+
+        self::assertContentMatchesMime($file, $mime, $fieldLabel);
+    }
+
+    public static function extensionForMime(string $mime): string
+    {
+        return self::MIME_TO_EXTENSION[$mime] ?? 'bin';
     }
 
     public static function messageForUploadError(int $errorCode): string
@@ -60,14 +86,14 @@ final class KycUpload
     public static function normalizeMime(UploadedFile $file): string
     {
         $mime = $file->getMimeType();
-        if ($mime === 'application/octet-stream' || $mime === '') {
-            $mime = $file->getClientMimeType() ?: $mime;
+        if (! is_string($mime) || $mime === '' || $mime === 'application/octet-stream') {
+            return '';
         }
         if ($mime === 'image/jpg') {
             $mime = 'image/jpeg';
         }
 
-        return is_string($mime) ? $mime : '';
+        return $mime;
     }
 
     public static function detectPostTooLarge(): ?string
@@ -83,6 +109,40 @@ final class KycUpload
         }
 
         return null;
+    }
+
+    private static function assertContentMatchesMime(UploadedFile $file, string $mime, string $fieldLabel): void
+    {
+        $path = $file->getRealPath();
+        if (! is_string($path) || $path === '' || ! is_readable($path)) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'Não foi possível ler o arquivo enviado.',
+            ]);
+        }
+
+        if (in_array($mime, self::RASTER_IMAGE_MIMES, true)) {
+            $size = @getimagesize($path);
+            if (! is_array($size) || ! isset($size[0], $size[1])) {
+                throw ValidationException::withMessages([
+                    $fieldLabel => 'O arquivo não é uma imagem válida. Use JPG, PNG, WebP ou GIF.',
+                ]);
+            }
+
+            return;
+        }
+
+        if (in_array($mime, ['application/pdf', 'application/x-pdf'], true)) {
+            $header = @file_get_contents($path, false, null, 0, 5);
+            if (! is_string($header) || ! str_starts_with($header, '%PDF-')) {
+                throw ValidationException::withMessages([
+                    $fieldLabel => 'O arquivo não é um PDF válido.',
+                ]);
+            }
+
+            return;
+        }
+
+        // HEIC/HEIF: MIME finfo only (no GD decode — preserves iPhone uploads).
     }
 
     private static function iniBytesToInt(string|false $value): int

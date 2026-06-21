@@ -75,6 +75,16 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinutes(30, 3)->by('platform-pin-reset:'.($userId ?? $request->ip()));
         });
 
+        RateLimiter::for('email-verification-resend', function (Request $request) {
+            $userId = $request->user()?->id;
+            $identity = $userId !== null ? 'user:'.$userId : 'ip:'.$request->ip();
+
+            return [
+                Limit::perMinute(3)->by('email-verify-resend:ip:'.$request->ip()),
+                Limit::perHour(5)->by('email-verify-resend:'.$identity),
+            ];
+        });
+
         RateLimiter::for('api', function (Request $request) {
             $apiKey = $request->attributes->get('api_key');
             $app = $request->attributes->get('api_application');

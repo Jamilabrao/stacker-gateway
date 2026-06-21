@@ -18,26 +18,42 @@ class PlatformTransactionalMailService
     /**
      * @param  string|list<string>  $to
      */
-    public function send(Mailable $mailable, string|array $to): void
+    public function send(Mailable $mailable, string|array $to): bool
     {
         $recipients = is_array($to) ? array_values(array_filter($to)) : [trim($to)];
         if ($recipients === []) {
-            return;
+            return false;
         }
 
-        $this->mailConfig->applyMailerConfigForTenant(null);
+        if (! $this->mailConfig->isEmailConfigured(null)) {
+            Log::warning('PlatformTransactionalMailService: SMTP da plataforma não configurado.', [
+                'to' => $recipients,
+                'mailable' => $mailable::class,
+            ]);
+
+            return false;
+        }
+
+        $this->mailConfig->applyPlatformGlobalMailerConfig();
         config(['mail.default' => 'smtp']);
         Mail::purge('smtp');
 
         try {
+            $this->mailConfig->assertSmtpHostIsConfigured();
             Mail::mailer('smtp')->to($recipients)->send($mailable);
+
+            return true;
         } catch (\Throwable $e) {
             Log::warning('PlatformTransactionalMailService: falha ao enviar e-mail.', [
                 'to' => $recipients,
                 'mailable' => $mailable::class,
+                'host' => config('mail.mailers.smtp.host'),
+                'provider' => $this->mailConfig->getProviderForTenant(null),
                 'message' => $e->getMessage(),
             ]);
             report($e);
+
+            return false;
         }
     }
 }

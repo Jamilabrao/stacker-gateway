@@ -413,9 +413,11 @@ class User extends Authenticatable
         return in_array($status, ['suspended', 'blocked', 'rejected'], true);
     }
 
-    /**
-     * Envia o link de redefinição pelo mailer SMTP (configurado em TenantMailConfigService antes do envio).
-     */
+    public function getEmailForVerification(): string
+    {
+        return (string) $this->email;
+    }
+
     public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
     {
         $params = [

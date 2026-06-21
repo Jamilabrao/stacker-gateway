@@ -10,6 +10,7 @@ use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformEmailNotifications;
 use App\Support\KycRequiredDocuments;
+use App\Support\KycUpload;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -169,8 +170,16 @@ class KycVerificationsController extends Controller
         $disk = Storage::disk('local');
         abort_unless($disk->exists($document->disk_path), 404);
 
-        return $disk->response($document->disk_path, 'document', [
-            'Content-Type' => $document->original_mime ?? 'application/octet-stream',
+        $mime = $document->original_mime ?? 'application/octet-stream';
+        $ext = KycUpload::extensionForMime($mime);
+        if ($ext === 'bin') {
+            $ext = pathinfo($document->disk_path, PATHINFO_EXTENSION) ?: 'bin';
+        }
+
+        return $disk->response($document->disk_path, 'kyc-document.'.$ext, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'attachment; filename="kyc-document.'.$ext.'"',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 }

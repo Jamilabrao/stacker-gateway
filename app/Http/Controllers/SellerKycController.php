@@ -175,6 +175,7 @@ class SellerKycController extends Controller
                     $field => KycUpload::messageForUploadError(UPLOAD_ERR_NO_FILE),
                 ]);
             }
+            KycUpload::assertValid($request->file($field), $field);
         }
 
         $request->validate($rules, $messages);
@@ -248,18 +249,10 @@ class SellerKycController extends Controller
 
     private function storeFile(User $subject, \Illuminate\Http\UploadedFile $file, string $kind, \Illuminate\Contracts\Filesystem\Filesystem $disk, string $baseDir): void
     {
-        $mime = KycUpload::normalizeMime($file);
-        if (! in_array($mime, KycUpload::ALLOWED_MIMES, true)) {
-            throw new \InvalidArgumentException('MIME não permitido.');
-        }
-        if ($file->getSize() > KycUpload::MAX_BYTES) {
-            throw new \InvalidArgumentException('Arquivo muito grande.');
-        }
+        KycUpload::assertValid($file, $kind);
 
-        $ext = strtolower($file->getClientOriginalExtension() ?: 'bin');
-        if ($ext === 'jpeg') {
-            $ext = 'jpg';
-        }
+        $mime = KycUpload::normalizeMime($file);
+        $ext = KycUpload::extensionForMime($mime);
         $name = Str::uuid()->toString().'.'.$ext;
         $storedPath = $disk->putFileAs($baseDir, $file, $name);
         if (! is_string($storedPath) || $storedPath === '') {

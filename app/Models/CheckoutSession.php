@@ -35,7 +35,7 @@ class CheckoutSession extends Model
         'checkout_slug', 'session_token', 'step', 'form_started_at', 'form_filled_at',
         'email', 'name', 'cpf', 'phone',
         'customer_ip', 'order_id',
-        'meta_fbp', 'meta_fbc', 'meta_user_agent', 'meta_page_url', 'affiliate_ref',
+        'meta_fbp', 'meta_fbc', 'meta_fbclid', 'meta_user_agent', 'meta_page_url', 'affiliate_ref',
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'sck', 'src',
         'abandoned_webhook_fired_at',
     ];
@@ -184,6 +184,32 @@ class CheckoutSession extends Model
         }
 
         return $out;
+    }
+
+    /**
+     * Meta click id from ad landing URL (`?fbclid=`).
+     *
+     * @return array{meta_fbclid?: string, meta_fbc?: string}
+     */
+    public static function metaAttributionFromQuery(Request $request): array
+    {
+        $fbclid = $request->query('fbclid');
+        if (! is_string($fbclid) || trim($fbclid) === '') {
+            return [];
+        }
+
+        $fbclid = trim($fbclid);
+        $fbc = 'fb.1.'.(int) (microtime(true) * 1000).'.'.$fbclid;
+
+        return [
+            'meta_fbclid' => $fbclid,
+            'meta_fbc' => $fbc,
+        ];
+    }
+
+    public static function buildFbcFromFbclid(string $fbclid): string
+    {
+        return 'fb.1.'.(int) (microtime(true) * 1000).'.'.trim($fbclid);
     }
 
     /** Colunas para `with(['checkoutSession:…'])` em pedidos. */

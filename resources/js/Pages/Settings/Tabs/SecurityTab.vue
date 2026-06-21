@@ -83,6 +83,55 @@ const props = defineProps({
             </div>
         </div>
 
+        <div class="flex items-start gap-3 pt-4">
+            <div>
+                <h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Segurança do cadastro</h2>
+                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    Proteção opcional em <code class="text-xs">/cadastro</code> de infoprodutores. Desligado por padrão.
+                </p>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+            <label class="flex cursor-pointer items-center gap-3">
+                <input
+                    v-model="form.registration_turnstile_enabled"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    true-value="1"
+                    false-value="0"
+                    :disabled="!form.registration_turnstile_available"
+                />
+                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Ativar Cloudflare Turnstile no cadastro</span>
+            </label>
+            <p v-if="!form.registration_turnstile_available" class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                Configure as chaves do Turnstile do checkout acima para habilitar no cadastro.
+            </p>
+            <p v-else class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                Reutiliza as mesmas chaves do checkout configuradas acima.
+            </p>
+        </div>
+
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+            <label class="flex cursor-pointer items-center gap-3">
+                <input
+                    v-model="form.registration_email_verification_enabled"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    true-value="1"
+                    false-value="0"
+                />
+                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Exigir verificação de e-mail no cadastro de infoprodutores</span>
+            </label>
+            <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                Quando ativado, novos cadastros recebem um e-mail de confirmação com a identidade visual da plataforma.
+                Contas já existentes são preservadas automaticamente.
+            </p>
+            <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                Requer provedor de e-mail configurado na aba E-mail.
+            </p>
+        </div>
+
         <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
             <p class="font-medium">Rate limit (automático)</p>
             <ul class="mt-2 list-inside list-disc space-y-1 text-xs">

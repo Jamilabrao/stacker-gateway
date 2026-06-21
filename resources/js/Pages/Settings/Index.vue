@@ -159,6 +159,9 @@ const form = useForm({
     checkout_turnstile_secret_key: '',
     checkout_turnstile_mode: props.settings.checkout_turnstile_mode ?? 'pix_boleto',
     checkout_turnstile_secret_configured: Boolean(props.settings.checkout_turnstile_secret_configured),
+    registration_turnstile_enabled: props.settings.registration_turnstile_enabled ?? '0',
+    registration_turnstile_available: Boolean(props.settings.registration_turnstile_available),
+    registration_email_verification_enabled: props.settings.registration_email_verification_enabled ?? '0',
     legal_privacy_policy_html: props.settings.legal_privacy_policy_html ?? '',
     legal_terms_of_use_html: props.settings.legal_terms_of_use_html ?? '',
     legal_privacy_contact_email: props.settings.legal_privacy_contact_email ?? '',
@@ -564,6 +567,9 @@ function applySecuritySettingsFromSettings(s) {
     form.checkout_turnstile_site_key = s.checkout_turnstile_site_key ?? '';
     form.checkout_turnstile_mode = s.checkout_turnstile_mode ?? 'pix_boleto';
     form.checkout_turnstile_secret_configured = Boolean(s.checkout_turnstile_secret_configured);
+    form.registration_turnstile_enabled = s.registration_turnstile_enabled ?? '0';
+    form.registration_turnstile_available = Boolean(s.registration_turnstile_available);
+    form.registration_email_verification_enabled = s.registration_email_verification_enabled ?? '0';
 }
 
 function syncSecuritySettingsFromProps() {
@@ -586,6 +592,8 @@ function buildSettingsPayload() {
             checkout_turnstile_site_key: data.checkout_turnstile_site_key,
             checkout_turnstile_secret_key: data.checkout_turnstile_secret_key,
             checkout_turnstile_mode: data.checkout_turnstile_mode,
+            registration_turnstile_enabled: data.registration_turnstile_enabled,
+            registration_email_verification_enabled: data.registration_email_verification_enabled,
         };
     }
     return {

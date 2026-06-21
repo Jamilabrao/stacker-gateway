@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\RegistrationEmailVerificationSettings;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -39,12 +40,32 @@ class EnsureSellerPanel
                 ->withErrors(['email' => 'Conta suspensa ou bloqueada. Contate o suporte.']);
         }
 
+        if (RegistrationEmailVerificationSettings::requiresVerificationFor($user)
+            && ! $this->isEmailVerificationRoute($request)) {
+            return redirect()
+                ->route('verification.notice')
+                ->with('info', 'Confirme seu e-mail para continuar.');
+        }
+
         if ($user->mustStayOnKycOnboardingRoutes() && ! $this->isKycOnboardingRoute($request)) {
             return redirect('/financeiro?tab=seus-dados')
                 ->with('info', $user->sellerPanelRestrictedMessage());
         }
 
         return $next($request);
+    }
+
+    private function isEmailVerificationRoute(Request $request): bool
+    {
+        return $request->routeIs(
+            'verification.notice',
+            'verification.resend',
+            'logout',
+            'profile.index',
+            'profile.update',
+            'profile.update-username',
+            'profile.update-password',
+        );
     }
 
     private function isKycOnboardingRoute(Request $request): bool
@@ -61,6 +82,8 @@ class EnsureSellerPanel
             'profile.update',
             'profile.update-username',
             'profile.update-password',
+            'verification.notice',
+            'verification.resend',
         );
     }
 }

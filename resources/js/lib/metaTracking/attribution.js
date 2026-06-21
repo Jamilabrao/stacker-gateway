@@ -32,36 +32,69 @@ export function getFbclidFromUrl() {
     return fbclid && String(fbclid).trim() !== '' ? String(fbclid).trim() : null;
 }
 
+function fbclidFromFbc(fbc) {
+    if (!fbc || typeof fbc !== 'string') return null;
+    const parts = fbc.split('.');
+    const last = parts[parts.length - 1];
+    return last && last.trim() !== '' ? last.trim() : null;
+}
+
+function buildFbcFromFbclid(fbclid) {
+    return `fb.1.${Date.now()}.${fbclid}`;
+}
+
 /**
- * Meta standard: create _fbc from fbclid when landing from ads.
+ * Meta standard: create or refresh _fbc from fbclid when landing from ads.
  */
 export function ensureFbcFromFbclid() {
-    const existing = getFbc();
-    if (existing) return existing;
-
     const fbclid = getFbclidFromUrl();
-    if (!fbclid) {
-        try {
-            const stored = sessionStorage.getItem(FBC_STORAGE_KEY);
-            if (stored) {
-                setCookie('_fbc', stored);
-                return stored;
+    const existing = getFbc();
+
+    if (fbclid) {
+        const existingClick = fbclidFromFbc(existing);
+        if (!existing || existingClick !== fbclid) {
+            const fbc = buildFbcFromFbclid(fbclid);
+            setCookie('_fbc', fbc);
+            try {
+                sessionStorage.setItem(FBC_STORAGE_KEY, fbc);
+            } catch {
+                /* ignore */
             }
-        } catch {
-            /* ignore */
+            return fbc;
         }
-        return null;
+        return existing;
     }
 
-    const fbc = `fb.1.${Date.now()}.${fbclid}`;
-    setCookie('_fbc', fbc);
+    if (existing) return existing;
+
     try {
-        sessionStorage.setItem(FBC_STORAGE_KEY, fbc);
+        const stored = sessionStorage.getItem(FBC_STORAGE_KEY);
+        if (stored) {
+            setCookie('_fbc', stored);
+            return stored;
+        }
     } catch {
         /* ignore */
     }
 
-    return fbc;
+    return null;
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Brief poll for _fbp after pixel init attempt (improves CAPI match rate).
+ */
+export async function waitForFbp(maxMs = 1500) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < maxMs) {
+        const fbp = getFbp();
+        if (fbp) return fbp;
+        await sleep(80);
+    }
+    return getFbp();
 }
 
 export function getAttributionPayload() {

@@ -197,13 +197,7 @@ function injectCustomScripts() {
 }
 
 async function initMetaAndEmitReady() {
-    const metaEntries = getMetaEntries(props.pixels || {});
-    if (metaEntries.length) {
-        const ready = await initMetaPixels(metaEntries);
-        if (ready) {
-            emit('meta-ready');
-        }
-    }
+    emit('meta-ready');
 }
 
 async function init() {

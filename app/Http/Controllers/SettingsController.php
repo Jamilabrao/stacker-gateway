@@ -12,6 +12,8 @@ use App\Support\HtmlSanitizer;
 use App\Support\CheckoutTranslations;
 use App\Support\CheckoutTurnstileSettings;
 use App\Support\PlatformConfigContext;
+use App\Support\RegistrationEmailVerificationSettings;
+use App\Support\RegistrationTurnstileSettings;
 use App\Support\DockerSetupState;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -123,6 +125,8 @@ class SettingsController extends Controller
                 'storage_cloud_r2_managed' => $cloudR2Managed,
                 'physical_products_enabled' => PhysicalProductAccess::globalEnabled(),
                 ...($tenantId === null ? CheckoutTurnstileSettings::forSettingsForm() : []),
+                ...($tenantId === null ? RegistrationTurnstileSettings::forSettingsForm() : []),
+                ...($tenantId === null ? RegistrationEmailVerificationSettings::forSettingsForm() : []),
                 ...($tenantId === null ? [
                     'legal_privacy_policy_html' => $legalForm['legal_privacy_policy_html'],
                     'legal_terms_of_use_html' => $legalForm['legal_terms_of_use_html'],
@@ -181,6 +185,8 @@ class SettingsController extends Controller
             'checkout_turnstile_site_key' => ['nullable', 'string', 'max:255'],
             'checkout_turnstile_secret_key' => ['nullable', 'string', 'max:512'],
             'checkout_turnstile_mode' => ['nullable', 'string', 'in:disabled,pix_boleto,all_payments'],
+            'registration_turnstile_enabled' => ['nullable', 'boolean'],
+            'registration_email_verification_enabled' => ['nullable', 'boolean'],
             'legal_privacy_policy_html' => ['nullable', 'string', 'max:200000'],
             'legal_terms_of_use_html' => ['nullable', 'string', 'max:200000'],
             'legal_privacy_contact_email' => ['nullable', 'email', 'max:255'],
@@ -206,6 +212,29 @@ class SettingsController extends Controller
                 Setting::set('checkout_turnstile_mode', (string) $validated['checkout_turnstile_mode'], null);
             }
             CheckoutTurnstileSettings::storeSecret($validated['checkout_turnstile_secret_key'] ?? null);
+
+            if (array_key_exists('registration_turnstile_enabled', $validated)) {
+                Setting::set(
+                    'registration_turnstile_enabled',
+                    ($validated['registration_turnstile_enabled'] ?? false) ? '1' : '0',
+                    null
+                );
+            }
+
+            if (array_key_exists('registration_email_verification_enabled', $validated)) {
+                $enabling = ($validated['registration_email_verification_enabled'] ?? false) === true
+                    || $validated['registration_email_verification_enabled'] === '1'
+                    || $validated['registration_email_verification_enabled'] === 1;
+                $wasEnabled = RegistrationEmailVerificationSettings::isEnabled();
+                Setting::set(
+                    'registration_email_verification_enabled',
+                    $enabling ? '1' : '0',
+                    null
+                );
+                if ($enabling && ! $wasEnabled) {
+                    RegistrationEmailVerificationSettings::grandfatherExistingInfoprodutors();
+                }
+            }
         }
 
         if ($tenantId === null && array_key_exists('physical_products_enabled', $validated)) {

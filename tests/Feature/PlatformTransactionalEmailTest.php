@@ -48,7 +48,7 @@ class PlatformTransactionalEmailTest extends TestCase
             'accept_terms_privacy' => '1',
         ];
 
-        $this->post('/cadastro', $payload)->assertRedirect('/dashboard');
+        $this->post('/cadastro', $payload)->assertRedirect('/financeiro?tab=seus-dados');
 
         Mail::assertSent(WelcomeInfoprodutorMail::class, function (WelcomeInfoprodutorMail $mail) {
             return $mail->user->email === 'vendedor-mail@example.com';
@@ -80,8 +80,8 @@ class PlatformTransactionalEmailTest extends TestCase
         ]);
         $seller->update(['tenant_id' => $seller->id]);
 
-        $front = UploadedFile::fake()->create('rg-f.jpg', 50, 'image/jpeg');
-        $back = UploadedFile::fake()->create('rg-v.jpg', 50, 'image/jpeg');
+        $front = UploadedFile::fake()->image('rg-f.jpg', 100, 100);
+        $back = UploadedFile::fake()->image('rg-v.jpg', 100, 100);
 
         $this->actingAs($seller)->post('/kyc', [
             'rg_front' => $front,
