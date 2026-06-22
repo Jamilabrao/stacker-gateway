@@ -11,42 +11,9 @@ function truncateEventSourceUrl(url) {
         : trimmed.slice(0, MAX_EVENT_SOURCE_URL_LENGTH);
 }
 
-/**
- * Mirror browser Meta events to server-side CAPI queue.
- */
-export function mirrorMetaEventToServer({
-    checkoutSessionToken,
-    eventName,
-    eventId,
-    fbp,
-    fbc,
-    userAgent,
-    eventSourceUrl,
-    value,
-    currency,
-    contentIds,
-    contentName,
-}) {
-    if (!checkoutSessionToken || !eventName || !eventId) return;
-
+function postMirrorPayload(payload) {
     const url = '/checkout/pixel/events';
     const csrf = getCsrfToken();
-    const normalizedEventSourceUrl = truncateEventSourceUrl(eventSourceUrl);
-
-    const payload = {
-        checkout_session_token: checkoutSessionToken,
-        event_name: eventName,
-        event_id: eventId,
-    };
-
-    if (fbp) payload.fbp = fbp;
-    if (fbc) payload.fbc = fbc;
-    if (userAgent) payload.user_agent = userAgent;
-    if (normalizedEventSourceUrl) payload.event_source_url = normalizedEventSourceUrl;
-    if (value != null && !Number.isNaN(Number(value))) payload.value = Number(value);
-    if (currency) payload.currency = currency;
-    if (Array.isArray(contentIds) && contentIds.length) payload.content_ids = contentIds;
-    if (contentName) payload.content_name = contentName;
 
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
         const fd = new FormData();
@@ -89,4 +56,84 @@ export function mirrorMetaEventToServer({
     } catch {
         /* ignore */
     }
+}
+
+/**
+ * Mirror browser Meta events to server-side CAPI queue.
+ */
+export function mirrorMetaEventToServer({
+    checkoutSessionToken,
+    eventName,
+    eventId,
+    fbp,
+    fbc,
+    userAgent,
+    eventSourceUrl,
+    value,
+    currency,
+    contentIds,
+    contentName,
+}) {
+    if (!checkoutSessionToken || !eventName || !eventId) return;
+
+    const normalizedEventSourceUrl = truncateEventSourceUrl(eventSourceUrl);
+
+    const payload = {
+        checkout_session_token: checkoutSessionToken,
+        event_name: eventName,
+        event_id: eventId,
+    };
+
+    if (fbp) payload.fbp = fbp;
+    if (fbc) payload.fbc = fbc;
+    if (userAgent) payload.user_agent = userAgent;
+    if (normalizedEventSourceUrl) payload.event_source_url = normalizedEventSourceUrl;
+    if (value != null && !Number.isNaN(Number(value))) payload.value = Number(value);
+    if (currency) payload.currency = currency;
+    if (Array.isArray(contentIds) && contentIds.length) payload.content_ids = contentIds;
+    if (contentName) payload.content_name = contentName;
+
+    postMirrorPayload(payload);
+}
+
+/**
+ * Mirror Purchase to server CAPI (same event_id as browser for deduplication).
+ */
+export function mirrorMetaPurchaseToServer({
+    checkoutSessionToken,
+    orderId,
+    eventId,
+    fbp,
+    fbc,
+    userAgent,
+    eventSourceUrl,
+    value,
+    currency,
+    contentIds,
+    contentName,
+}) {
+    const token = String(checkoutSessionToken || '').trim();
+    const oid = orderId ? String(orderId) : '';
+    if (!token || !oid) return;
+
+    const normalizedEventSourceUrl = truncateEventSourceUrl(eventSourceUrl);
+    const resolvedEventId = eventId || `order:${oid}`;
+
+    const payload = {
+        checkout_session_token: token,
+        event_name: 'Purchase',
+        event_id: resolvedEventId,
+        order_id: oid,
+    };
+
+    if (fbp) payload.fbp = fbp;
+    if (fbc) payload.fbc = fbc;
+    if (userAgent) payload.user_agent = userAgent;
+    if (normalizedEventSourceUrl) payload.event_source_url = normalizedEventSourceUrl;
+    if (value != null && !Number.isNaN(Number(value))) payload.value = Number(value);
+    if (currency) payload.currency = currency;
+    if (Array.isArray(contentIds) && contentIds.length) payload.content_ids = contentIds;
+    if (contentName) payload.content_name = contentName;
+
+    postMirrorPayload(payload);
 }

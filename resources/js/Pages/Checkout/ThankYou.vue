@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import { CheckCircle2 } from 'lucide-vue-next';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
-import { sendPurchasePixelAck } from '@/composables/usePurchasePixelAck';
+import { trackCheckoutPurchase } from '@/composables/useCheckoutPurchaseTracking';
 
 defineOptions({ layout: null });
 
@@ -21,36 +21,26 @@ const props = defineProps({
     checkout_session_token: { type: String, default: '' },
 });
 
-/**
- * Meta Pixel só expõe fbq após init em ConversionPixels (@ready).
- * onMounted no pai perdia o evento; alinhado ao fluxo PIX/Boleto e referência opensource.
- */
-async function onConversionPixelsReady() {
+async function onConversionPixelsMetaReady() {
     if (purchaseFiredForLoad) return;
     if (!props.order_id || !(Number(props.order_amount) > 0)) return;
-    const api = conversionPixelsRef.value;
-    if (!api?.firePurchaseReliable) return;
     purchaseFiredForLoad = true;
 
-    sendPurchasePixelAck({
+    await trackCheckoutPurchase({
         orderId: props.order_id,
         checkoutSessionToken: props.checkout_session_token || '',
+        value: props.order_amount,
+        currency: 'BRL',
         triggerType: 'approved',
+        pixels: props.conversion_pixels || {},
+        conversionPixelsApi: conversionPixelsRef.value,
+        settleDelayMs: 350,
     });
-
-    await api.firePurchaseReliable(
-        props.order_amount,
-        'BRL',
-        String(props.order_id),
-        false,
-        'approved',
-        350
-    );
 }
 </script>
 
 <template>
-    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" @ready="onConversionPixelsReady" />
+    <ConversionPixels ref="conversionPixelsRef" :pixels="props.conversion_pixels" @meta-ready="onConversionPixelsMetaReady" />
     <Head>
         <title>Obrigado pela compra</title>
     </Head>

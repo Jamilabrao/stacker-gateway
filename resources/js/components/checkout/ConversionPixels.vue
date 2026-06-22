@@ -345,19 +345,25 @@ defineExpose({
         const dedupeKey = oid ? `px:purchase_sent:${oid}` : '';
         if (dedupeKey && safeStorageGet(dedupeKey) === '1') return;
 
-        await fireMetaPurchaseReliable({
-            pixels: props.pixels,
-            value,
-            currency,
-            orderId: oid,
-            isOrderBump,
-            triggerType,
-            settleDelayMs: 0,
-        });
+        const metaEntries = getMetaEntries(props.pixels || {});
+        let metaFired = false;
+
+        if (metaEntries.length) {
+            await fireMetaPurchaseReliable({
+                pixels: props.pixels,
+                value,
+                currency,
+                orderId: oid,
+                isOrderBump,
+                triggerType,
+                settleDelayMs: 0,
+            });
+            metaFired = true;
+        }
 
         await waitForTrackers(2200);
         const fired = firePurchase(value, currency, orderId, isOrderBump, triggerType);
-        if (dedupeKey && fired) safeStorageSet(dedupeKey, '1');
+        if (dedupeKey && (fired || metaFired)) safeStorageSet(dedupeKey, '1');
         if (settleDelayMs > 0) await sleep(settleDelayMs);
     },
 });

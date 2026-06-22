@@ -6,7 +6,8 @@ import QrcodeVue from 'qrcode.vue';
 import { Clock, Copy, Check, Building2, QrCode, CircleDollarSign } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
-import { sendPurchasePixelAck } from '@/composables/usePurchasePixelAck';
+import { trackCheckoutPurchase, trackCheckoutPurchaseBeacon } from '@/composables/useCheckoutPurchaseTracking';
+import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
 
 const POLL_INTERVAL_MS = 2500;
 
@@ -53,6 +54,7 @@ const confirmFeedback = ref('');
 const confirmChecking = ref(false);
 let pollInterval = null;
 let timerInterval = null;
+let purchaseTracked = false;
 
 const endTime = computed(() => (props.created_at + props.expiry_seconds) * 1000);
 const timeLeft = ref(props.expiry_seconds);
@@ -80,28 +82,35 @@ const hasCustomerInfo = computed(
 );
 
 async function onPaymentCompleted(redirectUrl) {
-    sendPurchasePixelAck({
+    if (!purchaseTracked) {
+        purchaseTracked = true;
+        await trackCheckoutPurchase({
+            orderId: props.order_id,
+            checkoutSessionToken: props.checkout_session_token || '',
+            token: props.token,
+            triggerType: 'pix',
+            value: props.amount,
+            currency: 'BRL',
+            pixels: props.conversion_pixels || {},
+            conversionPixelsApi: conversionPixelsRef.value,
+            settleDelayMs: 500,
+        });
+    }
+    const url = redirectUrl || props.redirect_after_purchase || '/area-membros';
+    navigateAfterCheckout(url);
+}
+
+function onPageHideBeacon() {
+    if (status.value !== 'completed' || purchaseTracked) return;
+    purchaseTracked = true;
+    trackCheckoutPurchaseBeacon({
         orderId: props.order_id,
         checkoutSessionToken: props.checkout_session_token || '',
         token: props.token,
         triggerType: 'pix',
+        value: props.amount,
+        currency: 'BRL',
     });
-    if (conversionPixelsRef.value?.firePurchaseReliable) {
-        await conversionPixelsRef.value.firePurchaseReliable(
-            props.amount,
-            'BRL',
-            String(props.order_id),
-            false,
-            'pix',
-            500
-        );
-    }
-    const url = redirectUrl || props.redirect_after_purchase || '/area-membros';
-    if (url.startsWith('http') || url.startsWith('//')) {
-        window.location.href = url;
-    } else {
-        router.visit(url);
-    }
 }
 
 async function checkOrderStatus() {
@@ -161,11 +170,17 @@ onMounted(() => {
         if (status.value === 'completed') return;
         checkOrderStatus();
     }, POLL_INTERVAL_MS);
+    if (typeof window !== 'undefined') {
+        window.addEventListener('pagehide', onPageHideBeacon);
+    }
 });
 
 onUnmounted(() => {
     if (timerInterval) clearInterval(timerInterval);
     if (pollInterval) clearInterval(pollInterval);
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', onPageHideBeacon);
+    }
 });
 </script>
 

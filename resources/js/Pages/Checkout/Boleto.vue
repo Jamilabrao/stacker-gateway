@@ -5,7 +5,8 @@ import axios from 'axios';
 import { Copy, FileText, Check } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
-import { sendPurchasePixelAck } from '@/composables/usePurchasePixelAck';
+import { trackCheckoutPurchase, trackCheckoutPurchaseBeacon } from '@/composables/useCheckoutPurchaseTracking';
+import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
 
 const POLL_INTERVAL_MS = 2500;
 
@@ -34,6 +35,7 @@ const props = defineProps({
 const copyButtonText = ref('Copiar código');
 const status = ref('pending');
 let pollInterval = null;
+let purchaseTracked = false;
 
 const expireAtFormatted = computed(() => {
     const raw = props.expire_at;
@@ -59,28 +61,35 @@ const boletoAmount = computed(() => {
 });
 
 async function onPaymentCompleted(redirectUrl) {
-    sendPurchasePixelAck({
+    if (!purchaseTracked) {
+        purchaseTracked = true;
+        await trackCheckoutPurchase({
+            orderId: props.order_id,
+            checkoutSessionToken: props.checkout_session_token || '',
+            token: props.token,
+            triggerType: 'boleto',
+            value: boletoAmount.value,
+            currency: 'BRL',
+            pixels: props.conversion_pixels || {},
+            conversionPixelsApi: conversionPixelsRef.value,
+            settleDelayMs: 500,
+        });
+    }
+    const url = redirectUrl || props.redirect_after_purchase || '/area-membros';
+    navigateAfterCheckout(url);
+}
+
+function onPageHideBeacon() {
+    if (status.value !== 'completed' || purchaseTracked) return;
+    purchaseTracked = true;
+    trackCheckoutPurchaseBeacon({
         orderId: props.order_id,
         checkoutSessionToken: props.checkout_session_token || '',
         token: props.token,
         triggerType: 'boleto',
+        value: boletoAmount.value,
+        currency: 'BRL',
     });
-    if (conversionPixelsRef.value?.firePurchaseReliable) {
-        await conversionPixelsRef.value.firePurchaseReliable(
-            boletoAmount.value,
-            'BRL',
-            String(props.order_id),
-            false,
-            'boleto',
-            500
-        );
-    }
-    const url = redirectUrl || props.redirect_after_purchase || '/area-membros';
-    if (url.startsWith('http') || url.startsWith('//')) {
-        window.location.href = url;
-    } else {
-        router.visit(url);
-    }
 }
 
 async function checkOrderStatus() {
@@ -133,10 +142,16 @@ onMounted(() => {
         if (status.value === 'completed') return;
         checkOrderStatus();
     }, POLL_INTERVAL_MS);
+    if (typeof window !== 'undefined') {
+        window.addEventListener('pagehide', onPageHideBeacon);
+    }
 });
 
 onUnmounted(() => {
     if (pollInterval) clearInterval(pollInterval);
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', onPageHideBeacon);
+    }
 });
 </script>
 

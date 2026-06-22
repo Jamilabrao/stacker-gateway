@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\CheckoutSession;
+use App\Models\Order;
 use App\Services\Meta\MetaTrackingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,8 +14,9 @@ class CheckoutMetaTrackingController extends Controller
     {
         $validated = $request->validate([
             'checkout_session_token' => ['required', 'string', 'max:64'],
-            'event_name' => ['required', 'string', 'in:PageView,InitiateCheckout'],
+            'event_name' => ['required', 'string', 'in:PageView,InitiateCheckout,Purchase'],
             'event_id' => ['required', 'string', 'max:128'],
+            'order_id' => ['nullable', 'integer', 'min:1'],
             'fbp' => ['nullable', 'string', 'max:512'],
             'fbc' => ['nullable', 'string', 'max:512'],
             'user_agent' => ['nullable', 'string', 'max:1024'],
@@ -35,6 +37,10 @@ class CheckoutMetaTrackingController extends Controller
 
         $session->refresh();
 
+        if ($validated['event_name'] === 'Purchase') {
+            return $this->storePurchaseMirror($validated, $session, $trackingService);
+        }
+
         $overrides = array_filter([
             'fbp' => $validated['fbp'] ?? null,
             'fbc' => $validated['fbc'] ?? null,
@@ -52,6 +58,50 @@ class CheckoutMetaTrackingController extends Controller
             $validated['event_id'],
             $overrides,
         );
+
+        return response()->json([
+            'ok' => true,
+            'queued' => count($queued),
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function storePurchaseMirror(array $validated, CheckoutSession $session, MetaTrackingService $trackingService): JsonResponse
+    {
+        $orderId = (int) ($validated['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            return response()->json(['ok' => false, 'message' => 'order_id é obrigatório para Purchase.'], 422);
+        }
+
+        $expectedEventId = 'order:'.$orderId;
+        if (($validated['event_id'] ?? '') !== $expectedEventId) {
+            return response()->json(['ok' => false, 'message' => 'event_id inválido para Purchase.'], 422);
+        }
+
+        $order = Order::query()->find($orderId);
+        if (! $order) {
+            return response()->json(['ok' => false, 'message' => 'Pedido não encontrado.'], 404);
+        }
+
+        if ($order->status !== 'completed') {
+            return response()->json(['ok' => false, 'message' => 'Pedido ainda não está concluído.'], 422);
+        }
+
+        if ((string) $order->product_id !== (string) $session->product_id) {
+            return response()->json(['ok' => false, 'message' => 'Pedido não pertence à sessão.'], 403);
+        }
+
+        if ($session->order_id !== null && (int) $session->order_id !== $orderId) {
+            return response()->json(['ok' => false, 'message' => 'Pedido não pertence à sessão.'], 403);
+        }
+
+        if ($session->order_id === null) {
+            $session->update(['order_id' => $orderId]);
+        }
+
+        $queued = $trackingService->queuePurchaseForOrder($order);
 
         return response()->json([
             'ok' => true,

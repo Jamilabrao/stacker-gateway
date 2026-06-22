@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import { User, UserRound, Mail, ShoppingBag, Loader2, CreditCard, Tag, Check, Pencil, ScanQrCode, Shield, X, AlertCircle, FileText, MapPin } from 'lucide-vue-next';
@@ -20,6 +20,7 @@ import {
 import { loadCajuPaySdk } from '@/composables/useCajuPaySdk';
 import { isValidCpf } from '@/utils/brazilianDocuments.js';
 import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
+import { trackCheckoutPurchase } from '@/composables/useCheckoutPurchaseTracking.js';
 
 const STORAGE_KEY = 'checkout_draft';
 
@@ -167,6 +168,7 @@ const props = defineProps({
     cardInstallmentsEnabled: { type: Boolean, default: false },
     cardMaxInstallments: { type: Number, default: 1 },
     checkoutTotalBrl: { type: Number, default: 0 },
+    conversionPixels: { type: Object, default: () => ({}) },
     requiresShipping: { type: Boolean, default: false },
     productSubtotalBrl: { type: Number, default: 0 },
     /** Public Key Mercado Pago para Payment Brick (cartão). */
@@ -281,6 +283,31 @@ function emitPurchaseConfirmed(orderId, triggerType = 'approved') {
         currency: 'BRL',
         triggerType,
     });
+}
+
+const checkoutConversionPixelsRef = inject('checkoutConversionPixelsRef', null);
+
+async function completeApprovedPurchase(orderId, redirectUrl, triggerType = 'approved') {
+    const url = redirectUrl;
+    if (!url) return;
+
+    cardApproved.value = true;
+    cardApprovedRedirectUrl.value = url;
+
+    const api = checkoutConversionPixelsRef?.value ?? null;
+    await trackCheckoutPurchase({
+        orderId,
+        checkoutSessionToken: props.checkoutSessionToken || '',
+        value: Math.max(0, Number(props.checkoutTotalBrl) || 0),
+        currency: 'BRL',
+        triggerType,
+        pixels: props.conversionPixels || {},
+        conversionPixelsApi: api,
+        settleDelayMs: 350,
+    });
+
+    emitPurchaseConfirmed(orderId, triggerType);
+    navigateAfterCheckout(url);
 }
 
 const customerFields = computed(() => props.config?.customer_fields ?? { name: true, cpf: true, phone: true, coupon: false });
@@ -1221,9 +1248,8 @@ async function pollCajuPayOrderStatus() {
             cardApprovedRedirectUrl.value = data.redirect_url;
             const oid = data.order_id;
             if (oid) {
-                emitPurchaseConfirmed(oid, 'approved');
+                await completeApprovedPurchase(oid, data.redirect_url, 'approved');
             }
-            setTimeout(() => navigateAfterCheckout(data.redirect_url), 1200);
             return;
         }
         if (['rejected', 'cancelled', 'failed'].includes(data.status)) {
@@ -1550,9 +1576,7 @@ async function initMercadopagoBrick() {
                             if (isJson && data.success) {
                                 const url = data.redirect_url;
                                 if (url) {
-                                    cardApproved.value = true;
-                                    emitPurchaseConfirmed(data.order_id, 'approved');
-                                    setTimeout(() => navigateAfterCheckout(url), 800);
+                                    await completeApprovedPurchase(data.order_id, url, 'approved');
                                 }
                                 resolve();
                             } else {
@@ -1888,10 +1912,7 @@ function submit() {
                     if (isJson && data.success) {
                         const url = data.redirect_url;
                         if (url) {
-                            cardApproved.value = true;
-                            cardApprovedRedirectUrl.value = url;
-                            emitPurchaseConfirmed(data.order_id, 'approved');
-                            setTimeout(() => navigateAfterCheckout(url), 1800);
+                            await completeApprovedPurchase(data.order_id, url, 'approved');
                         }
                     }
                 })
@@ -2015,10 +2036,7 @@ function submit() {
                     }
                     const url = data.redirect_url || (data.order_id ? `/checkout/obrigado?order_id=${data.order_id}` : null);
                     if (url && !url.replace(/\/$/, '').endsWith(window.location.origin + '/checkout')) {
-                        cardApproved.value = true;
-                        cardApprovedRedirectUrl.value = url;
-                        emitPurchaseConfirmed(data.order_id, 'approved');
-                        setTimeout(() => navigateAfterCheckout(url), 800);
+                        await completeApprovedPurchase(data.order_id, url, 'approved');
                         return;
                     }
                 }
@@ -2026,10 +2044,7 @@ function submit() {
                     const url = data.redirect_url;
                     const isPostUrl = (u) => !u || u.replace(/\/$/, '') === window.location.origin + '/checkout';
                     if (url && !isPostUrl(url)) {
-                        cardApproved.value = true;
-                        cardApprovedRedirectUrl.value = url;
-                        emitPurchaseConfirmed(data.order_id, 'approved');
-                        setTimeout(() => navigateAfterCheckout(url), 1800);
+                        await completeApprovedPurchase(data.order_id, url, 'approved');
                         return;
                     }
                     if (url && isPostUrl(url)) {
@@ -2038,10 +2053,7 @@ function submit() {
                     }
                     if (data.order_id) {
                         const fallback = `/checkout/obrigado?order_id=${encodeURIComponent(String(data.order_id))}&next=login`;
-                        cardApproved.value = true;
-                        cardApprovedRedirectUrl.value = fallback;
-                        emitPurchaseConfirmed(data.order_id, 'approved');
-                        setTimeout(() => navigateAfterCheckout(fallback), 800);
+                        await completeApprovedPurchase(data.order_id, fallback, 'approved');
                         return;
                     }
                     const pendingMsg = typeof data.message === 'string' && data.message.trim() !== ''

@@ -173,6 +173,104 @@ class MetaCheckoutAdTrafficTest extends TestCase
         Queue::assertPushed(SendMetaTrackingEventJob::class);
     }
 
+    public function test_checkout_pixel_events_purchase_mirror_queues_capi_for_completed_order(): void
+    {
+        Queue::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'checkout_slug' => 'metapurchase1',
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '777888999', 'access_token' => 'capitok'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $order = \App\Models\Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 79.9,
+            'email' => 'buyer@test.com',
+            'payment_method' => 'pix',
+        ]);
+
+        $session = CheckoutSession::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'checkout_slug' => 'metapurchase1',
+            'session_token' => 'sess-purchase-mirror',
+            'step' => CheckoutSession::STEP_CONVERTED,
+            'order_id' => $order->id,
+            'customer_ip' => '127.0.0.1',
+        ]);
+
+        $response = $this->post('/checkout/pixel/events', [
+            'checkout_session_token' => $session->session_token,
+            'event_name' => 'Purchase',
+            'event_id' => 'order:'.$order->id,
+            'order_id' => $order->id,
+            'fbp' => 'fb.1.123.456',
+            'fbc' => 'fb.1.123.click',
+            'user_agent' => 'PHPUnit',
+            'value' => 79.9,
+            'currency' => 'BRL',
+        ]);
+
+        $response->assertOk()->assertJson(['ok' => true, 'queued' => 1]);
+
+        $this->assertDatabaseHas('meta_tracking_events', [
+            'event_name' => 'Purchase',
+            'event_id' => 'order:'.$order->id,
+            'pixel_id' => '777888999',
+            'context_type' => MetaTrackingEvent::CONTEXT_ORDER,
+            'context_id' => $order->id,
+        ]);
+
+        Queue::assertPushed(SendMetaTrackingEventJob::class);
+    }
+
+    public function test_checkout_pixel_events_purchase_rejects_pending_order(): void
+    {
+        Queue::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct(['checkout_slug' => 'metapurchase2']);
+
+        $order = \App\Models\Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'pending',
+            'amount' => 50,
+            'email' => 'buyer@test.com',
+            'payment_method' => 'pix',
+        ]);
+
+        $session = CheckoutSession::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'checkout_slug' => 'metapurchase2',
+            'session_token' => 'sess-purchase-pending',
+            'step' => CheckoutSession::STEP_FORM_FILLED,
+            'order_id' => $order->id,
+        ]);
+
+        $response = $this->post('/checkout/pixel/events', [
+            'checkout_session_token' => $session->session_token,
+            'event_name' => 'Purchase',
+            'event_id' => 'order:'.$order->id,
+            'order_id' => $order->id,
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertSame(0, MetaTrackingEvent::query()->count());
+        Queue::assertNothingPushed();
+    }
+
     public function test_checkout_get_with_realistic_long_ad_url(): void
     {
         Queue::fake();

@@ -5,6 +5,7 @@ namespace Tests\Feature\Meta;
 use App\Events\OrderCompleted;
 use App\Jobs\Meta\SendMetaTrackingEventJob;
 use App\Jobs\MetaConversionsSendPurchaseJob;
+use App\Listeners\MetaConversionsEventSubscriber;
 use App\Models\MetaTrackingEvent;
 use App\Models\Order;
 use App\Models\Product;
@@ -45,6 +46,70 @@ class MetaConversionsSendPurchaseJobTest extends TestCase
         ]);
 
         event(new OrderCompleted($order));
+
+        Queue::assertPushed(MetaConversionsSendPurchaseJob::class, fn ($job) => $job->orderId === $order->id);
+    }
+
+    public function test_order_completed_subscriber_dispatches_sync_when_queue_is_sync(): void
+    {
+        Queue::fake();
+        config(['queue.default' => 'sync']);
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '123456789', 'access_token' => 'tok'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 50,
+            'email' => 'buyer@test.com',
+            'payment_method' => 'card',
+        ]);
+
+        (new MetaConversionsEventSubscriber())->handleOrderCompleted(new OrderCompleted($order));
+
+        Queue::assertPushed(MetaConversionsSendPurchaseJob::class, fn ($job) => $job->orderId === $order->id);
+    }
+
+    public function test_order_completed_subscriber_schedules_job_when_queue_not_sync(): void
+    {
+        Queue::fake();
+        config(['queue.default' => 'redis']);
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct([
+            'conversion_pixels' => [
+                'meta' => [
+                    'enabled' => true,
+                    'entries' => [
+                        ['pixel_id' => '123456789', 'access_token' => 'tok'],
+                    ],
+                ],
+            ],
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 50,
+            'email' => 'buyer@test.com',
+            'payment_method' => 'pix',
+        ]);
+
+        (new MetaConversionsEventSubscriber())->handleOrderCompleted(new OrderCompleted($order));
+
+        $this->app->terminate();
 
         Queue::assertPushed(MetaConversionsSendPurchaseJob::class, fn ($job) => $job->orderId === $order->id);
     }
