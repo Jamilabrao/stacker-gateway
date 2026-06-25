@@ -97,24 +97,19 @@ mv "$TMP_PROD" "$ENV_FILE"
 
 # stacker-agent e outros serviços usam env_file: .env na raiz do projeto
 if [ ! -f .env ] || [ ! -s .env ]; then
-  if [ -f .env.example ]; then
-    cp .env.example .env
-  else
-    : > .env
-  fi
   APP_URL_VAL="$(grep -E '^GETFY_APP_URL=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")"
-  if [ -n "$APP_URL_VAL" ]; then
-    if grep -Eq '^\s*APP_URL\s*=' .env; then
-      sed -i "s|^\s*APP_URL\s*=.*|APP_URL=$APP_URL_VAL|" .env
-    else
-      echo "APP_URL=$APP_URL_VAL" >> .env
-    fi
-    if grep -Eq '^\s*GETFY_APP_URL\s*=' .env; then
-      sed -i "s|^\s*GETFY_APP_URL\s*=.*|GETFY_APP_URL=$APP_URL_VAL|" .env
-    else
-      echo "GETFY_APP_URL=$APP_URL_VAL" >> .env
-    fi
+  if [ -z "$APP_URL_VAL" ]; then
+    APP_URL_VAL="http://localhost"
   fi
+  cat > .env <<EOF
+# Host: Stacker agent + compose. O Laravel usa .env dentro do container app.
+APP_URL=${APP_URL_VAL}
+GETFY_APP_URL=${APP_URL_VAL}
+STACKER_API_URL=https://api.stacker.builders
+STACKER_AGENT_TOKEN=
+STACKER_RELEASE_SIGNING_KEY=
+STACKER_SUPPORT_WHATSAPP=
+EOF
 fi
 
 COMPOSE_FILES="${GETFY_COMPOSE_FILES:-docker-compose.yml}"

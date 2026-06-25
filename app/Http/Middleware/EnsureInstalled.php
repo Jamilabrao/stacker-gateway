@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\DockerSetupState;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -16,7 +17,12 @@ class EnsureInstalled
     {
         if ($request->is('up') || $request->is('up/*') || $request->is('install') || $request->is('install/*')
             || $request->is('docker-setup') || $request->is('docker-setup/*')
+            || $request->is('criar-admin') || $request->is('criar-admin/*')
             || $request->is('manifest.json') || $request->is('painel-sw.js') || $request->is('firebase-messaging-sw.js')) {
+            return $next($request);
+        }
+
+        if (DockerSetupState::isDocker() && DockerSetupState::isSetupDone()) {
             return $next($request);
         }
 

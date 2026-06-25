@@ -152,6 +152,20 @@ foreach ($vars as $key => $value) {
 file_put_contents($envFile, $content);
 '
 
+if ! grep -qE '^APP_KEY=base64:' .env 2>/dev/null; then
+  if [ ! -f .docker/app.key ]; then
+    php -r 'echo "base64:".base64_encode(random_bytes(32));' > .docker/app.key
+  fi
+  KEY="$(tr -d '\n\r' < .docker/app.key)"
+  if [ -n "$KEY" ]; then
+    if grep -qE '^APP_KEY=' .env 2>/dev/null; then
+      sed -i "s|^APP_KEY=.*|APP_KEY=$KEY|" .env
+    else
+      echo "APP_KEY=$KEY" >> .env
+    fi
+  fi
+fi
+
 DB_CONNECTION="${DB_CONNECTION:-pgsql}"
 DB_DATABASE="${DB_DATABASE:-getfy}"
 DB_USERNAME="${DB_USERNAME:-getfy}"

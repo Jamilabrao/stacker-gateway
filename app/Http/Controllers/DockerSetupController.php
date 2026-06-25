@@ -3,8 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Support\DockerSetupState;
+use App\Support\DockerEnvBootstrap;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\View\View;
 
 class DockerSetupController extends Controller
@@ -139,6 +142,13 @@ class DockerSetupController extends Controller
             'CRON_SECRET' => $cronSecret,
         ]);
 
+        DockerEnvBootstrap::ensureAppKey();
+        try {
+            Artisan::call('migrate', ['--force' => true]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         $dockerDir = base_path('.docker');
         if (! is_dir($dockerDir)) {
             mkdir($dockerDir, 0777, true);
@@ -147,7 +157,8 @@ class DockerSetupController extends Controller
         file_put_contents($dockerDir.DIRECTORY_SEPARATOR.'setup.done', 'true');
         $this->writeCaddyDomainBlock($host, $dockerDir);
 
-        return redirect('/login')->with('success', 'Configuração inicial salva.');
+        return redirect(User::count() > 0 ? '/login' : '/criar-admin')
+            ->with('success', 'Configuração inicial salva.');
     }
 
     /**
