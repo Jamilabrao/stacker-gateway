@@ -37,6 +37,9 @@ Route::any('/install/{path}', [\App\Http\Controllers\InstallServeController::cla
 Route::get('/docker-setup', [\App\Http\Controllers\DockerSetupController::class, 'show'])->name('docker-setup');
 Route::post('/docker-setup', [\App\Http\Controllers\DockerSetupController::class, 'store'])->middleware('throttle:10,1');
 
+Route::get('/stacker/licenca', [\App\Http\Controllers\StackerLicenseController::class, 'support'])
+    ->name('stacker.license.support');
+
 // Favicon: evita 404 no console quando o navegador solicita /favicon.ico
 Route::get('/favicon.ico', function () {
     return redirect('https://cdn.getfy.cloud/collapsed-logo.png', 302);
@@ -494,7 +497,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
 });
 
 // Equipe: cargos e membros (infoprodutor; equipe apenas se tiver permissão)
-Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|team|admin', 'team.permission:equipe.manage'])
+Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'role:infoprodutor|team|admin', 'team.permission:equipe.manage'])
     ->prefix('usuarios/equipe')
     ->group(function () {
         Route::get('/', [\App\Http\Controllers\EquipeController::class, 'index'])->name('usuarios.equipe');
@@ -510,7 +513,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|te
         Route::post('/logs/clear', [\App\Http\Controllers\EquipeController::class, 'clearLogs'])->name('usuarios.equipe.logs.clear');
     });
 
-Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'role:infoprodutor|team|admin', 'audit.log'])->group(function () {
+Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'role:infoprodutor|team|admin', 'audit.log'])->group(function () {
     Route::post('/coproducao/convite/{token}/aceitar', [\App\Http\Controllers\CoproductionInviteController::class, 'accept'])
         ->name('coproduction.invite.accept')
         ->middleware('throttle:20,1')

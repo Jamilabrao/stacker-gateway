@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${GETFY_REPO_URL:-https://github.com/LeonardoIsrael0516/getfy-gateway.git}"
+REPO_URL="${GETFY_REPO_URL:-https://github.com/stacker-builders/stacker-gateway.git}"
 BRANCH="${GETFY_BRANCH:-main}"
 INSTALL_DIR="${GETFY_DIR:-/opt/getfy}"
 HTTP_PORT="${GETFY_HTTP_PORT:-80}"
 SWAP_MODE="${GETFY_SWAP_MODE:-auto}"
+LEGACY_GIT="${GETFY_LEGACY_GIT_UPDATE:-0}"
 
 if [ "$(uname -s)" != "Linux" ]; then
   echo "Este instalador é para Linux." >&2
@@ -110,34 +111,43 @@ if [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; then
   exit 1
 fi
 
-if [ -d "$INSTALL_DIR/.git" ]; then
-  GIT_BASE=(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR")
-  $SUDO "${GIT_BASE[@]}" remote set-url origin "$REPO_URL" >/dev/null 2>&1 || true
-  HAS_LOCAL_CHANGES=0
-  STATUS_OUT="$($SUDO "${GIT_BASE[@]}" status --porcelain 2>/dev/null || true)"
-  if [ -n "$STATUS_OUT" ]; then
-    HAS_LOCAL_CHANGES=1
-    if ! $SUDO "${GIT_BASE[@]}" stash push -u -m "getfy-install" >/dev/null 2>&1; then
-      echo "Falha ao aplicar stash automaticamente. Resolva manualmente em: $INSTALL_DIR" >&2
+if [ "$LEGACY_GIT" = "1" ]; then
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    GIT_BASE=(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR")
+    $SUDO "${GIT_BASE[@]}" remote set-url origin "$REPO_URL" >/dev/null 2>&1 || true
+    HAS_LOCAL_CHANGES=0
+    STATUS_OUT="$($SUDO "${GIT_BASE[@]}" status --porcelain 2>/dev/null || true)"
+    if [ -n "$STATUS_OUT" ]; then
+      HAS_LOCAL_CHANGES=1
+      if ! $SUDO "${GIT_BASE[@]}" stash push -u -m "getfy-install" >/dev/null 2>&1; then
+        echo "Falha ao aplicar stash automaticamente. Resolva manualmente em: $INSTALL_DIR" >&2
+        exit 1
+      fi
+    fi
+    $SUDO "${GIT_BASE[@]}" fetch --all --prune
+    if ! $SUDO "${GIT_BASE[@]}" checkout -B "$BRANCH" "origin/$BRANCH"; then
+      echo "Falha ao atualizar código (checkout). Se você tem alterações locais, rode:" >&2
+      echo "  cd \"$INSTALL_DIR\" && git stash push -u -m getfy-install" >&2
       exit 1
     fi
-  fi
-  $SUDO "${GIT_BASE[@]}" fetch --all --prune
-  if ! $SUDO "${GIT_BASE[@]}" checkout -B "$BRANCH" "origin/$BRANCH"; then
-    echo "Falha ao atualizar código (checkout). Se você tem alterações locais, rode:" >&2
-    echo "  cd \"$INSTALL_DIR\" && git stash push -u -m getfy-install" >&2
-    exit 1
-  fi
-  $SUDO "${GIT_BASE[@]}" reset --hard "origin/$BRANCH"
-  if [ "$HAS_LOCAL_CHANGES" -eq 1 ]; then
-    if ! $SUDO "${GIT_BASE[@]}" stash pop >/dev/null 2>&1; then
-      echo "Aviso: havia alterações locais. O instalador fez stash, mas não conseguiu reaplicar automaticamente." >&2
-      echo "Para ver e resolver manualmente: cd \"$INSTALL_DIR\" && git stash list && git stash show -p" >&2
+    $SUDO "${GIT_BASE[@]}" reset --hard "origin/$BRANCH"
+    if [ "$HAS_LOCAL_CHANGES" -eq 1 ]; then
+      if ! $SUDO "${GIT_BASE[@]}" stash pop >/dev/null 2>&1; then
+        echo "Aviso: havia alterações locais. O instalador fez stash, mas não conseguiu reaplicar automaticamente." >&2
+        echo "Para ver e resolver manualmente: cd \"$INSTALL_DIR\" && git stash list && git stash show -p" >&2
+      fi
     fi
+  else
+    $SUDO mkdir -p "$(dirname "$INSTALL_DIR")"
+    $SUDO git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
   fi
 else
-  $SUDO mkdir -p "$(dirname "$INSTALL_DIR")"
-  $SUDO git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+  if [ ! -d "$INSTALL_DIR" ] || [ -z "$(ls -A "$INSTALL_DIR" 2>/dev/null || true)" ]; then
+    echo "GETFY_LEGACY_GIT_UPDATE não está ativo e o diretório está vazio." >&2
+    echo "Copie o artefato de release ou defina GETFY_LEGACY_GIT_UPDATE=1 para bootstrap via Git público." >&2
+    exit 1
+  fi
+  echo "Modo Stacker: pulando clone Git público (use artefato ou GETFY_LEGACY_GIT_UPDATE=1)."
 fi
 
 cd "$INSTALL_DIR"
@@ -192,6 +202,11 @@ echo ""
 echo "=== Verificação de workers (API) ==="
 $SUDO chmod +x docker/verify-workers.sh 2>/dev/null || true
 $SUDO sh docker/verify-workers.sh || true
+
+if [ -f docker/ensure-stacker-agent.sh ]; then
+  $SUDO chmod +x docker/ensure-stacker-agent.sh 2>/dev/null || true
+  $SUDO sh docker/ensure-stacker-agent.sh
+fi
 
 IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"
 if [ -z "$IP" ]; then

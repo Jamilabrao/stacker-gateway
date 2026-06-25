@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${GETFY_REPO_URL:-https://github.com/LeonardoIsrael0516/getfy-gateway.git}"
+REPO_URL="${GETFY_REPO_URL:-https://github.com/stacker-builders/stacker-gateway.git}"
 BRANCH="${GETFY_BRANCH:-main}"
 INSTALL_DIR="${GETFY_DIR:-/opt/getfy}"
 

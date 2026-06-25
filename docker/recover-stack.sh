@@ -127,4 +127,4 @@ fi
 
 echo ""
 echo "=== Recuperação concluída ==="
-echo "Se precisar atualizar código: bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/LeonardoIsrael0516/getfy-gateway/main/update.sh)\""
+echo "Se precisar atualizar código: bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker-gateway/main/update.sh)\""

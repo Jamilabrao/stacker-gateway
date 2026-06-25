@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${GETFY_REPO_URL:-https://github.com/LeonardoIsrael0516/getfy-gateway.git}"
+REPO_URL="${GETFY_REPO_URL:-https://github.com/stacker-builders/stacker-gateway.git}"
 BRANCH="${GETFY_BRANCH:-main}"
+LEGACY_GIT="${GETFY_LEGACY_GIT_UPDATE:-0}"
 INSTALL_DIR="${GETFY_DIR:-/opt/getfy}"
 
 if [ "$(uname -s)" != "Linux" ]; then
@@ -35,6 +36,15 @@ if [ ! -d "$INSTALL_DIR" ]; then
   exit 1
 fi
 
+ENV_FILE="$INSTALL_DIR/.env"
+STACKER_MANAGED=0
+if [ -f "$ENV_FILE" ] && grep -Eq '^\s*STACKER_AGENT_TOKEN\s*=' "$ENV_FILE" && [ "$LEGACY_GIT" != "1" ]; then
+  STACKER_MANAGED=1
+  echo "Updates via agente Stacker (pulando sync Git público)."
+  echo "Para forçar update legado: GETFY_LEGACY_GIT_UPDATE=1 bash update.sh"
+fi
+
+if [ "$STACKER_MANAGED" = "0" ]; then
 if [ ! -d "$INSTALL_DIR/.git" ]; then
   echo "Atualização manual indisponível: diretório não é um repositório Git (.git ausente)." >&2
   exit 1
@@ -58,6 +68,21 @@ else
 fi
 
 cd "$INSTALL_DIR"
+fi
+
+cd "$INSTALL_DIR"
+
+if [ "$STACKER_MANAGED" = "1" ]; then
+  $SUDO chmod +x docker/ensure-stacker-agent.sh 2>/dev/null || true
+  [ -f docker/ensure-stacker-agent.sh ] && $SUDO sh docker/ensure-stacker-agent.sh || true
+  echo ""
+  echo "=== Reiniciando stack Docker (agente aplicará updates remotos) ==="
+  $SUDO chmod +x docker/detect-compose-files.sh 2>/dev/null || true
+  COMPOSE_FILES="$($SUDO sh docker/detect-compose-files.sh)"
+  $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+  echo "Atualização local concluída. Releases remotas: portal Stacker ou admin."
+  exit 0
+fi
 
 $SUDO chmod +x docker/ensure-upload-limits.sh docker/detect-compose-files.sh docker/verify-workers.sh 2>/dev/null || true
 echo ""

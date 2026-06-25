@@ -30,3 +30,8 @@ Thumbs.db
 Docs Gateways
 /plugins
 /public/build
+/.docker/app.key
+/.docker/pwa_vapid.env
+/storage/stacker/
+/agent/node_modules
+/dist-releases

@@ -82,6 +82,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'physical.products' => \App\Http\Middleware\EnsurePhysicalProductsEnabled::class,
             'installer.access' => \App\Http\Middleware\EnsureInstallerAccess::class,
             'mp.balance.tool' => \App\Http\Middleware\EnsureMercadoPagoBalanceToolEnabled::class,
+            'stacker.license' => \App\Http\Middleware\EnsureStackerLicense::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

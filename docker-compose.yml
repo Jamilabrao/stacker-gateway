@@ -248,6 +248,28 @@ services:
       redis:
         condition: service_healthy
 
+  stacker-agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    image: stacker_agent:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      STACKER_API_URL: ${STACKER_API_URL:-https://api.stacker.builders}
+      STACKER_AGENT_TOKEN: ${STACKER_AGENT_TOKEN:-}
+      STACKER_GATEWAY_ROOT: /gateway
+      APP_URL: ${GETFY_APP_URL:-http://localhost}
+      STACKER_RELEASE_SIGNING_KEY: ${STACKER_RELEASE_SIGNING_KEY:-}
+    volumes:
+      - .:/gateway:ro
+      - getfy_storage:/gateway/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      app:
+        condition: service_started
+
 volumes:
   postgres_data:
     driver: local

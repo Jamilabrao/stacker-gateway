@@ -11,7 +11,7 @@ SUDO="${3:-}"
 GIT_BASE="git -c safe.directory=$INSTALL_DIR -C $INSTALL_DIR"
 
 # shellcheck disable=SC2086
-$SUDO $GIT_BASE remote set-url origin "${GETFY_REPO_URL:-https://github.com/LeonardoIsrael0516/getfy-gateway.git}" >/dev/null 2>&1 || true
+$SUDO $GIT_BASE remote set-url origin "${GETFY_REPO_URL:-https://github.com/stacker-builders/stacker-gateway.git}" >/dev/null 2>&1 || true
 
 # Merge/rebase interrompido
 if [ -f "$INSTALL_DIR/.git/MERGE_HEAD" ] || [ -f "$INSTALL_DIR/.git/REBASE_HEAD" ]; then

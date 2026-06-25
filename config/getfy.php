@@ -145,4 +145,11 @@ return [
             'shipping_quote_per_minute' => max(1, (int) env('CHECKOUT_RATE_SHIPPING_QUOTE_PER_MINUTE', 30)),
         ],
     ],
+
+    'stacker' => [
+        'api_url' => rtrim((string) env('STACKER_API_URL', 'https://api.stacker.builders'), '/'),
+        'agent_token' => env('STACKER_AGENT_TOKEN'),
+        'license_disabled' => filter_var(env('STACKER_LICENSE_DISABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'support_whatsapp' => env('STACKER_SUPPORT_WHATSAPP'),
+    ],
 ];
