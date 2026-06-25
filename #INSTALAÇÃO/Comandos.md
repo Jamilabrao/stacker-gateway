@@ -234,3 +234,36 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker
 ```bash
 cd /opt/getfy && sh docker/diagnose-stack.sh
 ```
+
+### Stacker Agent (métricas + licença no painel)
+
+Se `getfy-stacker-agent-1` estiver em **Restarting** ou o painel mostrar "Aguardando agente":
+
+```bash
+cd /opt/getfy
+grep -E '^STACKER_|^APP_URL=' .env
+COMPOSE=$(sh docker/detect-compose-files.sh)
+docker compose -f "$COMPOSE" --env-file .docker/stack.env logs stacker-agent --tail 50
+```
+
+**Token:** use o valor gerado no painel Stacker (Gateway → Instalações → Nova instalação). Não use token aleatório local.
+
+No `/opt/getfy/.env`:
+
+```env
+STACKER_API_URL=https://api.stacker.builders
+STACKER_AGENT_TOKEN=<token do painel Stacker>
+APP_URL=https://app.kursa.com.br
+```
+
+Após `git pull` (fix compose que sobrescrevia o token), recrie o agente:
+
+```bash
+cd /opt/getfy
+git pull
+COMPOSE=$(sh docker/detect-compose-files.sh)
+docker compose -f "$COMPOSE" --env-file .docker/stack.env up -d --force-recreate stacker-agent
+docker compose -f "$COMPOSE" --env-file .docker/stack.env logs stacker-agent --tail 20
+```
+
+Deve aparecer heartbeat a cada ~30s; o painel atualiza CPU/RAM em até 1 minuto.

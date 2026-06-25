@@ -128,11 +128,8 @@ services:
     env_file:
       - .env
     environment:
-      STACKER_API_URL: ${STACKER_API_URL:-https://api.stacker.builders}
-      STACKER_AGENT_TOKEN: ${STACKER_AGENT_TOKEN:-}
       STACKER_GATEWAY_ROOT: /gateway
       APP_URL: ${GETFY_APP_URL:-http://localhost}
-      STACKER_RELEASE_SIGNING_KEY: ${STACKER_RELEASE_SIGNING_KEY:-}
     volumes:
       - .:/gateway:ro
       - getfy_storage:/gateway/storage

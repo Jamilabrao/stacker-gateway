@@ -112,6 +112,25 @@ STACKER_SUPPORT_WHATSAPP=
 EOF
 fi
 
+# Compose interpola ${STACKER_AGENT_TOKEN} a partir de stack.env — sincroniza do .env raiz.
+if [ -f .env ]; then
+  for var in STACKER_AGENT_TOKEN STACKER_API_URL STACKER_RELEASE_SIGNING_KEY; do
+    val="$(grep -E "^[[:space:]]*${var}[[:space:]]*=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '[:space:]' || true)"
+    if [ -n "$val" ]; then
+      if grep -Eq "^[[:space:]]*${var}[[:space:]]*=" "$ENV_FILE" 2>/dev/null; then
+        TMP_SYNC="$(mktemp)"
+        awk -v k="$var" -v v="$val" '
+          $0 ~ "^[[:space:]]*" k "[[:space:]]*=" { print k "=" v; next }
+          { print }
+        ' "$ENV_FILE" > "$TMP_SYNC"
+        mv "$TMP_SYNC" "$ENV_FILE"
+      else
+        echo "${var}=${val}" >> "$ENV_FILE"
+      fi
+    fi
+  done
+fi
+
 COMPOSE_FILES="${GETFY_COMPOSE_FILES:-docker-compose.yml}"
 COMPOSE_ARGS=""
 OLD_IFS="$IFS"
