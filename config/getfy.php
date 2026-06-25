@@ -149,7 +149,8 @@ return [
     'stacker' => [
         'api_url' => rtrim((string) env('STACKER_API_URL', 'https://api.stacker.builders'), '/'),
         'agent_token' => env('STACKER_AGENT_TOKEN'),
-        'license_disabled' => filter_var(env('STACKER_LICENSE_DISABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'license_disabled' => app()->environment('local')
+            && filter_var(env('STACKER_LICENSE_DISABLED', false), FILTER_VALIDATE_BOOLEAN),
         'support_whatsapp' => env('STACKER_SUPPORT_WHATSAPP'),
     ],
 ];
