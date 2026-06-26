@@ -37,7 +37,7 @@ run_docker_prune() {
     echo "=== Limpeza de imagens Docker (órfãs) ==="
     $SUDO chmod +x docker/prune-docker-images.sh 2>/dev/null || true
     $SUDO env GETFY_DOCKER_PRUNE_UNUSED="${GETFY_DOCKER_PRUNE_UNUSED:-0}" \
-      sh docker/prune-docker-images.sh || true
+      bash docker/prune-docker-images.sh || true
   fi
 }
 
