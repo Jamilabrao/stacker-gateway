@@ -20,6 +20,7 @@ on:
       - composer.lock
       - Dockerfile
       - docker-compose*.yml
+      - .github/workflows/gateway-release.yml
   workflow_dispatch:
 
 jobs:
@@ -30,9 +31,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, zip, intl, bcmath, pcntl, exif
+          tools: composer:v2
+          coverage: none
+
+      - name: Build frontend
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: Install PHP dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+
       - name: Build production zip
+        env:
+          GETFY_SKIP_FRONTEND_BUILD: '1'
+          GETFY_SKIP_COMPOSER_INSTALL: '1'
         run: |
-          chmod +x scripts/build-release.sh docker/*.sh
+          chmod +x scripts/build-release.sh
           bash scripts/build-release.sh
 
       - name: Upload release to Stacker API
@@ -52,9 +74,15 @@ jobs:
             exit 1
           fi
           API="${STACKER_API_URL%/}/api/gateway/releases"
-          curl -fsS -X POST "$API" \
+          HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
             -H "Authorization: Bearer ${STACKER_ADMIN_TOKEN}" \
             -F "artifact=@${ZIP}" \
             -F "version=${VERSION}" \
             -F "title=Release ${VERSION}" \
-            -F "isActive=true"
+            -F "isActive=true")"
+          echo "HTTP ${HTTP_CODE}"
+          cat /tmp/stacker-upload.json
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "Upload falhou (HTTP ${HTTP_CODE}). Verifique STACKER_ADMIN_TOKEN e se a versão ${VERSION} já existe." >&2
+            exit 1
+          fi
