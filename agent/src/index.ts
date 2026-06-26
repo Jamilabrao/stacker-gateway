@@ -56,7 +56,13 @@ async function main() {
         hostname: os.hostname(),
         ip,
       });
+      const prev = client.readLicenseCache();
       client.writeLicenseCache(result.license);
+      if (!prev || prev.blocked !== result.license.blocked || prev.valid !== result.license.valid) {
+        console.log(
+          `Licença atualizada: blocked=${result.license.blocked} valid=${result.license.valid}`,
+        );
+      }
 
       for (const cmd of result.commands) {
         if (cmd.type === 'apply_update' && !updateInProgress) {
