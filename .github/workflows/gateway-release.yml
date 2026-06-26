@@ -47,7 +47,7 @@ jobs:
         run: npm ci --no-audit --no-fund && npm run build
 
       - name: Install PHP dependencies
-        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts --ignore-platform-reqs
 
       - name: Build production zip
         env:
@@ -56,33 +56,54 @@ jobs:
         run: |
           chmod +x scripts/build-release.sh
           bash scripts/build-release.sh
+          ls -lh dist-releases/
 
       - name: Upload release to Stacker API
         env:
           STACKER_API_URL: ${{ secrets.STACKER_API_URL }}
+          STACKER_RELEASE_UPLOAD_TOKEN: ${{ secrets.STACKER_RELEASE_UPLOAD_TOKEN }}
           STACKER_ADMIN_TOKEN: ${{ secrets.STACKER_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="$(tr -d ' \r\n' < VERSION)"
           ZIP="dist-releases/stacker-gateway-${VERSION}.zip"
+          echo "Versão: ${VERSION}"
+          echo "Artefato: ${ZIP} ($(wc -c < "$ZIP") bytes)"
           if [ ! -f "$ZIP" ]; then
             echo "Artefato não encontrado: $ZIP" >&2
             exit 1
           fi
-          if [ -z "${STACKER_API_URL:-}" ] || [ -z "${STACKER_ADMIN_TOKEN:-}" ]; then
-            echo "STACKER_API_URL e STACKER_ADMIN_TOKEN são obrigatórios nos secrets do repo." >&2
+          if [ -z "${STACKER_API_URL:-}" ]; then
+            echo "Secret STACKER_API_URL obrigatório." >&2
             exit 1
           fi
-          API="${STACKER_API_URL%/}/api/gateway/releases"
-          HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
-            -H "Authorization: Bearer ${STACKER_ADMIN_TOKEN}" \
-            -F "artifact=@${ZIP}" \
-            -F "version=${VERSION}" \
-            -F "title=Release ${VERSION}" \
-            -F "isActive=true")"
+          API="${STACKER_API_URL%/}/api/gateway/releases/ci-upload"
+          if [ -n "${STACKER_RELEASE_UPLOAD_TOKEN:-}" ]; then
+            echo "Upload via STACKER_RELEASE_UPLOAD_TOKEN"
+            HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
+              -H "X-Stacker-Release-Token: ${STACKER_RELEASE_UPLOAD_TOKEN}" \
+              -F "artifact=@${ZIP}" \
+              -F "version=${VERSION}" \
+              -F "title=Release ${VERSION}")"
+          elif [ -n "${STACKER_ADMIN_TOKEN:-}" ]; then
+            echo "Upload via STACKER_ADMIN_TOKEN (JWT — expira; prefira STACKER_RELEASE_UPLOAD_TOKEN)"
+            API="${STACKER_API_URL%/}/api/gateway/releases"
+            HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
+              -H "Authorization: Bearer ${STACKER_ADMIN_TOKEN}" \
+              -F "artifact=@${ZIP}" \
+              -F "version=${VERSION}" \
+              -F "title=Release ${VERSION}")"
+          else
+            echo "Configure STACKER_RELEASE_UPLOAD_TOKEN ou STACKER_ADMIN_TOKEN nos secrets." >&2
+            exit 1
+          fi
           echo "HTTP ${HTTP_CODE}"
           cat /tmp/stacker-upload.json
+          if [ "$HTTP_CODE" = "409" ]; then
+            echo "Versão ${VERSION} já existe — incremente VERSION e rode de novo." >&2
+            exit 1
+          fi
           if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "Upload falhou (HTTP ${HTTP_CODE}). Verifique STACKER_ADMIN_TOKEN e se a versão ${VERSION} já existe." >&2
+            echo "Upload falhou (HTTP ${HTTP_CODE})." >&2
             exit 1
           fi
