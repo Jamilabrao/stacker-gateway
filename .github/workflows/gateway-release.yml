@@ -1,0 +1,60 @@
+name: Gateway release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - VERSION
+      - app/**
+      - bootstrap/**
+      - config/**
+      - database/**
+      - public/**
+      - routes/**
+      - resources/**
+      - docker/**
+      - agent/**
+      - scripts/**
+      - composer.json
+      - composer.lock
+      - Dockerfile
+      - docker-compose*.yml
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production zip
+        run: |
+          chmod +x scripts/build-release.sh docker/*.sh
+          bash scripts/build-release.sh
+
+      - name: Upload release to Stacker API
+        env:
+          STACKER_API_URL: ${{ secrets.STACKER_API_URL }}
+          STACKER_ADMIN_TOKEN: ${{ secrets.STACKER_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d ' \r\n' < VERSION)"
+          ZIP="dist-releases/stacker-gateway-${VERSION}.zip"
+          if [ ! -f "$ZIP" ]; then
+            echo "Artefato não encontrado: $ZIP" >&2
+            exit 1
+          fi
+          if [ -z "${STACKER_API_URL:-}" ] || [ -z "${STACKER_ADMIN_TOKEN:-}" ]; then
+            echo "STACKER_API_URL e STACKER_ADMIN_TOKEN são obrigatórios nos secrets do repo." >&2
+            exit 1
+          fi
+          API="${STACKER_API_URL%/}/api/gateway/releases"
+          curl -fsS -X POST "$API" \
+            -H "Authorization: Bearer ${STACKER_ADMIN_TOKEN}" \
+            -F "artifact=@${ZIP}" \
+            -F "version=${VERSION}" \
+            -F "title=Release ${VERSION}" \
+            -F "isActive=true"

@@ -94,7 +94,7 @@ services:
       STACKER_GATEWAY_ROOT: /gateway
       APP_URL: ${GETFY_APP_URL:-http://localhost}
     volumes:
-      - .:/gateway:ro
+      - .:/gateway
       - getfy_storage:/gateway/storage
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

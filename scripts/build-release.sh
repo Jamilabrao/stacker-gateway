@@ -6,11 +6,24 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 VERSION="$(tr -d ' \r\n' < VERSION 2>/dev/null || echo "0.0.0")"
-OUT_DIR="${1:-$ROOT_DIR/dist-releases}"
+if [ -n "${1:-}" ] && [ "${1#-}" = "$1" ]; then
+  VERSION="$1"
+fi
+OUT_DIR="${2:-$ROOT_DIR/dist-releases}"
 ZIP_PATH="$OUT_DIR/stacker-gateway-${VERSION}.zip"
 
 if [ "${GETFY_SKIP_FRONTEND_BUILD:-}" != "1" ] && [ -f docker/build-frontend.sh ]; then
   sh docker/build-frontend.sh
+fi
+
+if [ ! -f vendor/autoload.php ] && [ "${GETFY_SKIP_COMPOSER_INSTALL:-}" != "1" ]; then
+  if [ -f docker/install-composer-deps.sh ]; then
+    echo "=== Composer install (vendor ausente) ==="
+    sh docker/install-composer-deps.sh
+  else
+    echo "vendor/ ausente — rode docker/install-composer-deps.sh antes." >&2
+    exit 1
+  fi
 fi
 
 mkdir -p "$OUT_DIR"

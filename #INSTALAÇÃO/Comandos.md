@@ -1,17 +1,31 @@
 Comando para instalação.
 Execute no Terminal da sua VPS:
 
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/seu-usuario/seu-repositorio/main/install.sh)"
-
-Exemplo:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker-gateway/main/install.sh)"
 
-Importante: você precisa fazer upload dos arquivos para um novo repositorio no GitHub.
-(Quando for fazer a instalação ou atualização, deixe o repositório público temporariamente)
+Importante: o repositório pode permanecer **privado** quando o update remoto via Stacker estiver configurado (`STACKER_AGENT_TOKEN` + releases na API).
 
 -------------
 
-Comando para Atualização:
+## Updates — remoto (padrão) vs legado SSH
+
+| Modo | Quando usar | O que faz |
+|------|-------------|-----------|
+| **Remoto Stacker** | Produção com `STACKER_AGENT_TOKEN` | Admin ou portal → **Atualizar** → agente baixa zip, rebuilda `app`, migrate |
+| **Legado Git** | Emergência / hotfix manual | `GETFY_LEGACY_GIT_UPDATE=1 bash update.sh` — git pull + rebuild completo |
+
+**Fluxo remoto (sem SSH):**
+
+1. Push no GitHub (`stacker-builders/stacker-gateway`) ou botão **Gerar release** no admin Stacker.
+2. CI publica zip em **Gateway → Releases** (ou upload manual).
+3. **Gateway → Instalações → Atualizar** (admin) ou **Portal → Updates** (cliente).
+4. Em ~30s o agente aplica: extrai zip, `docker compose build app`, migrate.
+
+O `bash update.sh` **com token** (sem `GETFY_LEGACY_GIT_UPDATE=1`) **não** substitui código PHP — só reinicia containers e garante o agente.
+
+-------------
+
+Comando para Atualização local (reinício / agente):
 
 ```bash
 cd /opt/getfy

@@ -155,15 +155,46 @@ export async function applyUpdate(
   const backupDir = path.join(stagingDir, `backup-${Date.now()}`);
   fs.mkdirSync(backupDir, { recursive: true });
 
-  const copyDirs = ['app', 'bootstrap', 'config', 'database', 'public', 'routes', 'vendor'];
+  const preserveOnHost = new Set(['.env', '.docker', 'storage', '.git', '.stacker-update-staging']);
+  const copyDirs = [
+    'app',
+    'bootstrap',
+    'config',
+    'database',
+    'public',
+    'routes',
+    'vendor',
+    'docker',
+    'agent',
+  ];
+  const copyFiles = [
+    'artisan',
+    'VERSION',
+    'composer.json',
+    'composer.lock',
+    'Dockerfile',
+    'docker-compose.yml',
+    'docker-compose.caddy.yml',
+    'docker-compose.no-redis.yml',
+    'install.sh',
+    'update.sh',
+  ];
+
   for (const dir of copyDirs) {
     const src = path.join(gatewayRoot, dir);
     if (fs.existsSync(src)) {
       fs.cpSync(src, path.join(backupDir, dir), { recursive: true });
     }
   }
+  for (const file of copyFiles) {
+    const src = path.join(gatewayRoot, file);
+    if (fs.existsSync(src)) {
+      fs.cpSync(src, path.join(backupDir, file));
+    }
+  }
 
   for (const entry of fs.readdirSync(extractDir)) {
+    if (preserveOnHost.has(entry)) continue;
     const src = path.join(extractDir, entry);
     const dest = path.join(gatewayRoot, entry);
     if (fs.existsSync(dest)) {
@@ -172,19 +203,36 @@ export async function applyUpdate(
     fs.cpSync(src, dest, { recursive: true });
   }
 
+  const applyScript = path.join(gatewayRoot, 'docker', 'stacker-apply-update.sh');
+  if (!fs.existsSync(applyScript)) {
+    throw new Error('docker/stacker-apply-update.sh ausente no release');
+  }
+  fs.chmodSync(applyScript, 0o755);
+
+  let applyLogs = '';
   try {
-    execSync('docker compose restart app scheduler', {
+    applyLogs = execSync(`bash "${applyScript}"`, {
       cwd: gatewayRoot,
-      stdio: 'inherit',
+      encoding: 'utf8',
+      stdio: ['inherit', 'pipe', 'pipe'],
+      env: { ...process.env, DOCKER_HOST: process.env.DOCKER_HOST || 'unix:///var/run/docker.sock' },
     });
-  } catch {
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    const logs = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
+    await client.reportUpdateStatus({
+      jobId: cmd.jobId,
+      status: 'failed',
+      logs: logs || 'Falha ao aplicar update',
+    });
+    throw err;
   }
 
   await client.reportUpdateStatus({
     jobId: cmd.jobId,
     status: 'success',
     installedVersion: cmd.version,
-    logs: `Update ${cmd.version} aplicado`,
+    logs: applyLogs.trim() || `Update ${cmd.version} aplicado`,
   });
 
   fs.rmSync(stagingDir, { recursive: true, force: true });
