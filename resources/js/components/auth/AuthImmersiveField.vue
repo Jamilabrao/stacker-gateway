@@ -55,6 +55,6 @@ defineEmits(['update:modelValue']);
 
 <style scoped>
 .wl-immersive-input:focus {
-    border-color: var(--wl-primary, #c8fa64);
+    border-color: var(--wl-primary, #0050fc);
 }
 </style>

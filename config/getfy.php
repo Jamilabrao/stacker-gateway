@@ -35,7 +35,7 @@ return [
         'firebase_service_account' => null,
     ],
     'app_name' => 'Getfy',
-    'theme_primary' => '#00cc00',
+    'theme_primary' => '#0050fc',
     'app_logo' => 'https://cdn.getfy.cloud/logo-white.png',
     'app_logo_dark' => 'https://cdn.getfy.cloud/logo-dark.png',
     'app_logo_icon' => 'https://cdn.getfy.cloud/collapsed-logo.png',

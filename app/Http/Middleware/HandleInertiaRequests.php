@@ -349,9 +349,9 @@ class HandleInertiaRequests extends Middleware
      */
     private function buildPublicBranding(): array
     {
-        $themePrimary = (string) config('getfy.theme_primary', '#00cc00');
+        $themePrimary = (string) config('getfy.theme_primary', '#0050fc');
         if ($themePrimary === '') {
-            $themePrimary = '#00cc00';
+            $themePrimary = '#0050fc';
         }
         $pwaTheme = config('getfy.pwa_theme_color');
         $pwaTheme = ($pwaTheme !== null && $pwaTheme !== '') ? (string) $pwaTheme : $themePrimary;

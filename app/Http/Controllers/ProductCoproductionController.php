@@ -92,7 +92,7 @@ class ProductCoproductionController extends Controller
 
         $branding = [
             'app_name' => config('getfy.app_name', 'Getfy'),
-            'theme_primary' => config('getfy.theme_primary', '#00cc00'),
+            'theme_primary' => config('getfy.theme_primary', '#0050fc'),
         ];
 
         $acceptUrl = url('/coproducao/convite/'.$token);

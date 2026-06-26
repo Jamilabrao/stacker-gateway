@@ -10,7 +10,7 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#c8fa64',
+                        primary: '#0050fc',
                     }
                 }
             }

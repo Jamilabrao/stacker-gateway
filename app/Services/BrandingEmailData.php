@@ -51,7 +51,7 @@ class BrandingEmailData
 
         $primary = $merged['theme_primary'] ?? null;
         if (! is_string($primary) || ! preg_match('/^#[0-9A-Fa-f]{6}$/', $primary)) {
-            $primary = '#4f46e5';
+            $primary = (string) config('getfy.theme_primary', '#0050fc');
         }
 
         $logo = $merged['app_logo'] ?? '';
@@ -73,7 +73,7 @@ class BrandingEmailData
     {
         return [
             'app_name' => (string) config('app.name', 'Getfy'),
-            'theme_primary' => '#4f46e5',
+            'theme_primary' => (string) config('getfy.theme_primary', '#0050fc'),
             'logo_url' => null,
         ];
     }

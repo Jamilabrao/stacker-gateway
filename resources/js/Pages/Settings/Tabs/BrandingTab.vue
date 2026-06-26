@@ -188,7 +188,7 @@ const pwaNavHint = 'Recomendado: PNG ou SVG quadrado (ex.: 96×96 px). Se vazio,
                                 v-model="form.theme_primary"
                                 type="text"
                                 class="block min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-4 py-2.5 font-mono text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
-                                placeholder="#00cc00"
+                                placeholder="#0050fc"
                             />
                             <input v-model="form.theme_primary" type="color" class="h-11 w-14 cursor-pointer rounded-lg border border-zinc-300 dark:border-zinc-600" />
                         </div>

@@ -2,7 +2,7 @@ import { computed } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 import { normalizeThemePrimary } from '@/lib/emailCampaignBody';
 
-const PLATFORM_FALLBACK = '#0ea5e9';
+const PLATFORM_FALLBACK = '#0050fc';
 
 /**
  * Cor primária da marca para pré-visualizações (e-mail marketing, etc.).

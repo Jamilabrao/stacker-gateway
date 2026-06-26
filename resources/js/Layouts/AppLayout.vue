@@ -76,7 +76,7 @@ function onNotificationsUnreadCountUpdate(count) {
 }
 
 watchEffect(() => {
-    const primary = page.props.appSettings?.theme_primary || '#0ea5e9';
+    const primary = page.props.appSettings?.theme_primary || '#0050fc';
     document.documentElement.style.setProperty('--color-primary', primary);
 });
 
