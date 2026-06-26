@@ -53,6 +53,13 @@ done
 
 # Garante build de produção sem resources/js
 rm -rf "$TMP/resources" "$TMP/node_modules" "$TMP/tests" "$TMP/.git" 2>/dev/null || true
+rm -rf "$TMP/agent/node_modules" 2>/dev/null || true
+
+# Reduz vendor/ (tests, docs) para caber no limite de upload (~100MB via Cloudflare)
+if [ -d "$TMP/vendor" ]; then
+  find "$TMP/vendor" -type d \( -name tests -o -name Tests -o -name test -o -name docs -o -name .github \) -prune -exec rm -rf {} + 2>/dev/null || true
+  find "$TMP/vendor" -type f \( -name '*.md' -o -name '*.markdown' -o -name 'CHANGELOG*' -o -name 'UPGRADE*' \) -delete 2>/dev/null || true
+fi
 
 (
   cd "$TMP"
