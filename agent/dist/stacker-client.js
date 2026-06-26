@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 export class StackerClient {
     apiUrl;
     token;
@@ -184,6 +184,7 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
         logs: applyLogs.trim() || `Update ${cmd.version} aplicado`,
     });
     fs.rmSync(stagingDir, { recursive: true, force: true });
+    scheduleStackerAgentRestart(gatewayRoot);
 }
 const UPLOADS_INI = `upload_max_filesize = 512M
 post_max_size = 512M
@@ -206,4 +207,18 @@ function ensureComposeProjectName(gatewayRoot) {
     if (/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=/m.test(content))
         return;
     fs.appendFileSync(envPath, '\nGETFY_COMPOSE_PROJECT_NAME=getfy\n', 'utf8');
+}
+/** Reinicia o stacker-agent em background após reportar sucesso (evita matar o apply). */
+function scheduleStackerAgentRestart(gatewayRoot) {
+    const cmd = [
+        `cd "${gatewayRoot}"`,
+        'set -a && . .docker/stack.env && set +a',
+        'PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"',
+        'FILES="$(sh docker/detect-compose-files.sh)"',
+        'ARGS=""',
+        'for f in $FILES; do ARGS="$ARGS -f $f"; done',
+        'docker compose -p "$PROJECT" $ARGS --env-file .docker/stack.env build stacker-agent',
+        'docker compose -p "$PROJECT" $ARGS --env-file .docker/stack.env up -d stacker-agent',
+    ].join(' && ');
+    spawn('bash', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
 }

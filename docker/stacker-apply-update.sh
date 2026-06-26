@@ -130,15 +130,22 @@ COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" $COMPOSE_ARGS --env-file "$EN
 echo "=== Rebuild imagem app ==="
 "${COMPOSE[@]}" build app
 
-if "${COMPOSE[@]}" config --services 2>/dev/null | grep -qx 'stacker-agent'; then
-  echo "=== Rebuild stacker-agent ==="
-  "${COMPOSE[@]}" build stacker-agent
-fi
-
 ensure_php_uploads_ini
 
-echo "=== Subindo stack (projeto existente) ==="
-"${COMPOSE[@]}" up -d --remove-orphans
+echo "=== Subindo stack (sem recriar stacker-agent — apply roda dentro dele) ==="
+COMPOSE_UP_SERVICES=()
+while IFS= read -r svc; do
+  [ -z "$svc" ] && continue
+  [ "$svc" = "stacker-agent" ] && continue
+  COMPOSE_UP_SERVICES+=("$svc")
+done < <("${COMPOSE[@]}" config --services)
+
+if [ "${#COMPOSE_UP_SERVICES[@]}" -eq 0 ]; then
+  echo "Nenhum serviço para subir." >&2
+  exit 1
+fi
+
+"${COMPOSE[@]}" up -d --remove-orphans "${COMPOSE_UP_SERVICES[@]}"
 
 echo "=== Migrate + config clear ==="
 if "${COMPOSE[@]}" exec -T app php artisan migrate --force; then
