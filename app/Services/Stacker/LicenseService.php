@@ -29,6 +29,50 @@ class LicenseService
         return is_array($data) ? $data : null;
     }
 
+    public function verifyLicenseSignature(?array $cache): bool
+    {
+        if (! is_array($cache) || empty($cache['signature'])) {
+            return false;
+        }
+
+        $key = (string) config('getfy.stacker.signing_key', '');
+        if ($key === '') {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $this->canonicalLicenseJson($cache), $key);
+
+        return hash_equals($expected, (string) $cache['signature']);
+    }
+
+    private function canonicalLicenseJson(array $data): string
+    {
+        $payload = [
+            'valid' => (bool) ($data['valid'] ?? false),
+            'blocked' => (bool) ($data['blocked'] ?? false),
+            'bound' => (bool) ($data['bound'] ?? false),
+            'domain' => $data['domain'] ?? null,
+            'expiresAt' => $data['expiresAt'] ?? null,
+            'supportWhatsapp' => $data['supportWhatsapp'] ?? null,
+        ];
+
+        return json_encode($payload, JSON_UNESCAPED_SLASHES) ?: '';
+    }
+
+    public function isBlocked(): bool
+    {
+        if ($this->isDisabled()) {
+            return false;
+        }
+
+        $cache = $this->readCache();
+        if (! $cache || ! $this->verifyLicenseSignature($cache)) {
+            return false;
+        }
+
+        return ! empty($cache['blocked']);
+    }
+
     public function isLicenseValid(): bool
     {
         if ($this->isDisabled()) {
@@ -40,16 +84,15 @@ class LicenseService
             return $this->legacyGraceActive();
         }
 
+        if (! $this->verifyLicenseSignature($cache)) {
+            return false;
+        }
+
         if (! empty($cache['blocked'])) {
             return false;
         }
 
         if (! empty($cache['valid'])) {
-            return true;
-        }
-
-        $expiresAt = isset($cache['expiresAt']) ? strtotime((string) $cache['expiresAt']) : false;
-        if ($expiresAt !== false && $expiresAt > time()) {
             return true;
         }
 

@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Gateways\GatewayRegistry;
 use App\Jobs\ProcessPaymentWebhook;
-use App\Models\GatewayCredential;
+use App\Support\GatewayPaymentCredentials;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\MerchantOperationalGuard;
@@ -167,16 +167,15 @@ class PixGoController extends Controller
         }
 
         try {
-            $credential = GatewayCredential::resolveForPayment($order->tenant_id, $gatewaySlug);
-            if (! $credential) {
+            $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, $gatewaySlug, $order);
+            if ($credentials === null) {
                 return;
             }
 
-            $credentials = $credential->getDecryptedCredentials();
             $driver = GatewayRegistry::driver($gatewaySlug);
             $efiNeedsCert = $gatewaySlug === 'efi' && empty($credentials['certificate_path'] ?? '');
 
-            if (! $driver || $credentials === [] || $efiNeedsCert) {
+            if (! $driver || $efiNeedsCert) {
                 return;
             }
 

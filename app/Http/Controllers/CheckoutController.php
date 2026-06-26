@@ -12,6 +12,7 @@ use App\Jobs\ProcessPaymentWebhook;
 use App\Models\CheckoutSession;
 use App\Models\Coupon;
 use App\Models\GatewayCredential;
+use App\Support\GatewayPaymentCredentials;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
@@ -2280,12 +2281,11 @@ class CheckoutController extends Controller
                 }
             } elseif (! empty($order->gateway) && ! empty($order->gateway_id)) {
                 try {
-                    $credential = GatewayCredential::resolveForPayment($order->tenant_id, $gatewaySlug);
-                    if ($credential) {
-                        $credentials = $credential->getDecryptedCredentials();
+                    $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, $gatewaySlug, $order);
+                    if ($credentials !== null) {
                         $driver = GatewayRegistry::driver($gatewaySlug);
                         $efiNeedsCert = $gatewaySlug === 'efi' && empty($credentials['certificate_path'] ?? '');
-                        if ($driver && $credentials !== [] && ! $efiNeedsCert) {
+                        if ($driver && ! $efiNeedsCert) {
                             $statusLookupId = (string) $order->gateway_id;
                             if ($gatewaySlug === 'cajupay' && $cajupaySessionToken !== '') {
                                 $statusLookupId = $cajupaySessionToken;

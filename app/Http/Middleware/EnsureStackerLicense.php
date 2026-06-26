@@ -21,16 +21,9 @@ class EnsureStackerLicense
         Log::warning('stacker.license.blocked', [
             'path' => $request->path(),
             'ip' => $request->ip(),
+            'blocked' => $this->license->isBlocked(),
         ]);
 
-        if ($request->expectsJson() || $request->header('X-Inertia')) {
-            if ($request->header('X-Inertia')) {
-                return redirect()->route('stacker.license.support');
-            }
-
-            return response()->json(['message' => 'Licença Stacker inválida.'], 403);
-        }
-
-        return redirect()->route('stacker.license.support');
+        abort(404);
     }
 }

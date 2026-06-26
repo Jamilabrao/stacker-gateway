@@ -179,6 +179,7 @@ class TransactionsController extends Controller
                 'orderItems.productOffer:id,name',
                 'orderItems.subscriptionPlan:id,name',
                 'apiApplication:id,name',
+                'cajupayAccount:id,name,is_default',
             ])
             ->orderByDesc('created_at');
     }
@@ -213,8 +214,33 @@ class TransactionsController extends Controller
         $arr['api_application_name'] = $o->apiApplication?->name;
         $arr['is_pixgo'] = $o->isPixGoSale();
         $arr['pixgo_label'] = \App\Services\PixGoAccess::sidebarLabel();
+        $cajupayBadge = $this->cajupayAccountBadge($o);
+        $arr['cajupay_account_id'] = $o->cajupay_account_id;
+        $arr['cajupay_account_badge'] = $cajupayBadge;
 
         return $arr;
+    }
+
+    private function cajupayAccountBadge(Order $order): ?string
+    {
+        if ($order->gateway !== 'cajupay') {
+            return null;
+        }
+
+        $account = $order->cajupayAccount;
+        if ($account !== null) {
+            $label = trim((string) $account->name);
+            if ($label === '') {
+                $label = 'Conta #'.$account->id;
+            }
+            if ($account->is_default) {
+                $label .= ' (padrão)';
+            }
+
+            return $label;
+        }
+
+        return 'Conta padrão';
     }
 
     private function orderActionRedirectParams(Request $request): array

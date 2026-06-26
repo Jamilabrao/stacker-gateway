@@ -353,6 +353,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             <th class="px-4 py-3">Cliente</th>
                             <th class="px-4 py-3">Infoprodutor</th>
                             <th class="px-4 py-3">Integração API</th>
+                            <th class="px-4 py-3">Conta CajuPay</th>
                             <th class="px-4 py-3">Link checkout parceiro</th>
                             <th class="px-4 py-3">Status</th>
                             <th class="px-4 py-3 text-right">Valor (bruto)</th>
@@ -384,6 +385,16 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             </td>
                             <td class="max-w-[160px] px-4 py-3 text-xs text-zinc-600 dark:text-zinc-300">
                                 {{ o.api_application_name ?? '—' }}
+                            </td>
+                            <td class="whitespace-nowrap px-4 py-3">
+                                <span
+                                    v-if="o.cajupay_account_badge"
+                                    class="inline-flex max-w-[180px] truncate rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-900 dark:bg-sky-900/40 dark:text-sky-100"
+                                    :title="o.cajupay_account_badge"
+                                >
+                                    {{ o.cajupay_account_badge }}
+                                </span>
+                                <span v-else class="text-xs text-zinc-400">—</span>
                             </td>
                             <td class="max-w-[220px] px-4 py-3" @click.stop>
                                 <a
@@ -433,7 +444,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             </td>
                         </tr>
                         <tr v-if="!rows().length">
-                            <td colspan="9" class="px-4 py-12 text-center text-zinc-500">Nenhuma transação API encontrada.</td>
+                            <td colspan="10" class="px-4 py-12 text-center text-zinc-500">Nenhuma transação API encontrada.</td>
                         </tr>
                     </tbody>
                 </table>

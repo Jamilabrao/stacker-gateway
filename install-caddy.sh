@@ -126,6 +126,11 @@ cd "$INSTALL_DIR"
 # shellcheck source=docker/prompt-public-url.sh
 . docker/prompt-public-url.sh
 
+$SUDO chmod +x docker/prompt-stacker-agent-token.sh docker/ensure-stacker-agent.sh 2>/dev/null || true
+echo ""
+echo "=== Agente Stacker (licença + métricas) ==="
+$SUDO bash docker/prompt-stacker-agent-token.sh || true
+
 $SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh docker/verify-workers.sh >/dev/null 2>&1 || true
 
 echo ""

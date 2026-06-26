@@ -59,6 +59,13 @@ fi
 
 cd "$INSTALL_DIR"
 
+if [ -f docker/prompt-stacker-agent-token.sh ]; then
+  $SUDO chmod +x docker/prompt-stacker-agent-token.sh docker/ensure-stacker-agent.sh 2>/dev/null || true
+  echo ""
+  echo "=== Agente Stacker (licença + métricas) ==="
+  $SUDO bash docker/prompt-stacker-agent-token.sh || true
+fi
+
 $SUDO chmod +x docker/ensure-upload-limits.sh docker/detect-compose-files.sh docker/verify-workers.sh 2>/dev/null || true
 echo ""
 echo "=== Limites de upload (PHP / Member Builder) ==="

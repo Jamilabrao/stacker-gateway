@@ -66,7 +66,21 @@ class CajuPayWebhookBootstrapService
             $credentials['checkout_webhook_signing_secret'] = $reg['signing_secret'];
             $credentials['webhook_signing_secret'] = $reg['signing_secret'];
         } elseif (! $hasSecret && ($reg['already_exists'] ?? false)) {
-            $warning = 'Endpoint já registrado na CajuPay, mas o signing secret não foi retornado. Use "Rotacionar secret" se necessário.';
+            try {
+                $reg = $this->driver->registerWebhookEndpointIdempotent($credentials, $url, true);
+                $credentials['webhook_endpoint_id'] = $reg['endpoint_id'];
+                if (! empty($reg['signing_secret'])) {
+                    $credentials['checkout_webhook_signing_secret'] = $reg['signing_secret'];
+                    $credentials['webhook_signing_secret'] = $reg['signing_secret'];
+                } else {
+                    $warning = 'Endpoint já registrado na CajuPay, mas o signing secret não foi retornado. Use "Rotacionar secret" se necessário.';
+                }
+            } catch (\Throwable $e) {
+                $warning = 'Endpoint já registrado na CajuPay, mas o signing secret não foi retornado. Use "Rotacionar secret" se necessário.';
+                Log::warning('CajuPayWebhookBootstrapService: rotate após already_exists falhou', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         $setupStatus = $this->driver->getWebhookSetupStatus($credentials);

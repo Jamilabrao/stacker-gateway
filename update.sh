@@ -31,14 +31,45 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+run_docker_prune() {
+  if [ "${GETFY_SKIP_DOCKER_PRUNE:-0}" != "1" ] && [ -f docker/prune-docker-images.sh ]; then
+    echo ""
+    echo "=== Limpeza de imagens Docker (órfãs) ==="
+    $SUDO chmod +x docker/prune-docker-images.sh 2>/dev/null || true
+    $SUDO env GETFY_DOCKER_PRUNE_UNUSED="${GETFY_DOCKER_PRUNE_UNUSED:-0}" \
+      sh docker/prune-docker-images.sh || true
+  fi
+}
+
 if [ ! -d "$INSTALL_DIR" ]; then
   echo "Diretório não encontrado: $INSTALL_DIR" >&2
   exit 1
 fi
 
 ENV_FILE="$INSTALL_DIR/.env"
+
+read_nonempty_stacker_token() {
+  local f="${1:-$ENV_FILE}"
+  local t=""
+  if [ ! -f "$f" ]; then
+    return 1
+  fi
+  t="$(grep -E '^\s*STACKER_AGENT_TOKEN\s*=' "$f" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '[:space:]' || true)"
+  [ -n "$t" ]
+}
+
+prompt_stacker_agent_if_needed() {
+  if [ ! -f docker/prompt-stacker-agent-token.sh ]; then
+    return 0
+  fi
+  $SUDO chmod +x docker/prompt-stacker-agent-token.sh docker/ensure-stacker-agent.sh 2>/dev/null || true
+  echo ""
+  echo "=== Agente Stacker (licença + métricas) ==="
+  $SUDO bash docker/prompt-stacker-agent-token.sh || true
+}
+
 STACKER_MANAGED=0
-if [ -f "$ENV_FILE" ] && grep -Eq '^\s*STACKER_AGENT_TOKEN\s*=' "$ENV_FILE" && [ "$LEGACY_GIT" != "1" ]; then
+if read_nonempty_stacker_token "$ENV_FILE" && [ "$LEGACY_GIT" != "1" ]; then
   STACKER_MANAGED=1
   echo "Updates via agente Stacker (pulando sync Git público)."
   echo "Para forçar update legado: GETFY_LEGACY_GIT_UPDATE=1 bash update.sh"
@@ -72,14 +103,16 @@ fi
 
 cd "$INSTALL_DIR"
 
+prompt_stacker_agent_if_needed
+
 if [ "$STACKER_MANAGED" = "1" ]; then
-  $SUDO chmod +x docker/ensure-stacker-agent.sh 2>/dev/null || true
-  [ -f docker/ensure-stacker-agent.sh ] && $SUDO sh docker/ensure-stacker-agent.sh || true
+  $SUDO bash docker/ensure-stacker-agent.sh || true
   echo ""
   echo "=== Reiniciando stack Docker (agente aplicará updates remotos) ==="
   $SUDO chmod +x docker/detect-compose-files.sh 2>/dev/null || true
   COMPOSE_FILES="$($SUDO sh docker/detect-compose-files.sh)"
   $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+  run_docker_prune
   echo "Atualização local concluída. Releases remotas: portal Stacker ou admin."
   exit 0
 fi
@@ -135,6 +168,10 @@ echo ""
 echo "=== Verificação de workers (API) ==="
 $SUDO chmod +x docker/verify-workers.sh 2>/dev/null || true
 $SUDO sh docker/verify-workers.sh || true
+
+$SUDO bash docker/ensure-stacker-agent.sh 2>/dev/null || true
+
+run_docker_prune
 
 echo ""
 echo "Atualização concluída (git + build frontend + stack reiniciado)."

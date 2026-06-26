@@ -4,9 +4,9 @@ namespace App\Services;
 
 use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\GatewayRegistry;
-use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Support\CajuPayPaymentId;
+use App\Support\GatewayPaymentCredentials;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -25,12 +25,11 @@ class OrderRefundGatewayBridge
         }
 
         $tenantId = (int) $order->tenant_id;
-        $credential = GatewayCredential::resolveForPayment($tenantId, $gatewaySlug);
-        if (! $credential) {
+        $credentials = GatewayPaymentCredentials::resolve($tenantId, $gatewaySlug, $order);
+        if ($credentials === null) {
             return ['status' => 'skipped', 'note' => 'Credencial do gateway não encontrada.'];
         }
 
-        $credentials = $credential->getDecryptedCredentials();
         $driver = GatewayRegistry::driver($gatewaySlug);
         if (! $driver || ! is_callable([$driver, 'refundTransaction'])) {
             return ['status' => 'skipped', 'note' => 'Estorno automático não implementado para este gateway; conclua no adquirente se necessário.'];

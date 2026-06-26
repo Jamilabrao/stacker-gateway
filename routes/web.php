@@ -282,7 +282,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/login/2fa', [TwoFactorLoginController::class, 'verifyPlatform'])->name('login.two-factor.verify')->middleware('throttle:login');
         Route::post('/login/2fa/cancelar', [TwoFactorLoginController::class, 'cancelPlatform'])->name('login.two-factor.cancel');
     });
-    Route::middleware(['auth', 'platform.admin'])->group(function () {
+    Route::middleware(['auth', 'platform.admin', 'stacker.license'])->group(function () {
         Route::post('/logout', [\App\Http\Controllers\Platform\LoginController::class, 'logout'])->name('logout');
         Route::get('/dashboard', [\App\Http\Controllers\Platform\DashboardController::class, '__invoke'])->name('dashboard');
         Route::get('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'index'])->name('profile.index');

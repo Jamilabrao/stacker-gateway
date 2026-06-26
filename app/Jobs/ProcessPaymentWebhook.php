@@ -14,6 +14,7 @@ use App\Models\Subscription;
 use App\Services\CajuPay\CajuPaySdkCheckoutService;
 use App\Services\PlatformOrderAdminService;
 use App\Support\CajuPayCheckoutMetadata;
+use App\Support\GatewayPaymentCredentials;
 use App\Services\EfiPixRecorrenteService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -87,6 +88,7 @@ class ProcessPaymentWebhook implements ShouldQueue
                 && in_array($this->event, [
                     'checkout.payment.paid',
                     'payment.paid',
+                    'pix.payment.paid',
                     'card.payment.succeeded',
                 ], true);
             if ($apiStatus !== 'paid' && $trustedCajuCheckoutWebhook) {
@@ -249,6 +251,7 @@ class ProcessPaymentWebhook implements ShouldQueue
         if ($this->gatewaySlug === 'cajupay' && in_array($this->event, [
             'checkout.payment.paid',
             'payment.paid',
+            'pix.payment.paid',
             'card.payment.succeeded',
         ], true)) {
             return true;
@@ -259,14 +262,9 @@ class ProcessPaymentWebhook implements ShouldQueue
 
     private function fetchGatewayTransactionStatus(Order $order): ?string
     {
-        $credential = GatewayCredential::resolveForPayment($order->tenant_id, $this->gatewaySlug);
+        $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, $this->gatewaySlug, $order);
 
-        if (! $credential) {
-            return null;
-        }
-
-        $credentials = $credential->getDecryptedCredentials();
-        if (empty($credentials)) {
+        if ($credentials === null) {
             return null;
         }
 

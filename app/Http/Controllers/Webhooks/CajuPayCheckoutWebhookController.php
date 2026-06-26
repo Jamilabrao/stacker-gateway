@@ -197,6 +197,7 @@ class CajuPayCheckoutWebhookController extends Controller
             'checkout.payment.paid',
             'card.payment.succeeded',
             'payment.paid',
+            'pix.payment.paid',
         ], true);
     }
 

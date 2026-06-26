@@ -155,6 +155,11 @@ cd "$INSTALL_DIR"
 # shellcheck source=docker/prompt-public-url.sh
 . docker/prompt-public-url.sh
 
+$SUDO chmod +x docker/prompt-stacker-agent-token.sh docker/ensure-stacker-agent.sh 2>/dev/null || true
+echo ""
+echo "=== Agente Stacker (licença + métricas) ==="
+$SUDO bash docker/prompt-stacker-agent-token.sh || true
+
 if [ -f ".docker/stack.env" ]; then
   if grep -Eq '^\s*GETFY_HTTP_PORT\s*=' ".docker/stack.env"; then
     $SUDO awk -v port="$HTTP_PORT" '
@@ -166,7 +171,7 @@ if [ -f ".docker/stack.env" ]; then
   fi
 fi
 
-$SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh docker/verify-workers.sh >/dev/null 2>&1 || true
+$SUDO chmod +x docker/up.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh docker/verify-workers.sh docker/prompt-stacker-agent-token.sh docker/ensure-stacker-agent.sh >/dev/null 2>&1 || true
 
 echo ""
 echo "=== Limites de upload (PHP / Member Builder) ==="
@@ -205,7 +210,7 @@ $SUDO sh docker/verify-workers.sh || true
 
 if [ -f docker/ensure-stacker-agent.sh ]; then
   $SUDO chmod +x docker/ensure-stacker-agent.sh 2>/dev/null || true
-  $SUDO sh docker/ensure-stacker-agent.sh
+  $SUDO bash docker/ensure-stacker-agent.sh
 fi
 
 IP="$(curl -fsSL https://api.ipify.org 2>/dev/null || true)"

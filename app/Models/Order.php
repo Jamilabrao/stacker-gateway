@@ -85,6 +85,11 @@ class Order extends Model
         return $this->belongsTo(ApiApplication::class);
     }
 
+    public function cajupayAccount(): BelongsTo
+    {
+        return $this->belongsTo(CajuPayAccount::class, 'cajupay_account_id');
+    }
+
     public function orderItems(): HasMany
     {
         return $this->hasMany(OrderItem::class)->orderBy('position');

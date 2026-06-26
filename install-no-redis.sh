@@ -152,7 +152,10 @@ echo ""
 # shellcheck source=docker/prompt-public-url.sh
 . docker/prompt-public-url.sh
 
-$SUDO chmod +x docker/up.sh docker/verify-workers.sh >/dev/null 2>&1 || true
+$SUDO chmod +x docker/prompt-stacker-agent-token.sh docker/ensure-stacker-agent.sh docker/up.sh docker/verify-workers.sh >/dev/null 2>&1 || true
+echo ""
+echo "=== Agente Stacker (licença + métricas) ==="
+$SUDO bash docker/prompt-stacker-agent-token.sh || true
 
 export GETFY_QUEUE_CONNECTION="${GETFY_QUEUE_CONNECTION:-database}"
 export GETFY_CACHE_STORE="${GETFY_CACHE_STORE:-file}"

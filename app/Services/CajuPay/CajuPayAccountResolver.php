@@ -92,6 +92,21 @@ class CajuPayAccountResolver
         return $account !== null ? $account->getDecryptedCredentials() : [];
     }
 
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function credentialsForOrder(Order $order): ?array
+    {
+        $account = $this->resolveForOrder($order);
+        if ($account === null) {
+            return null;
+        }
+
+        $credentials = $account->getDecryptedCredentials();
+
+        return $credentials === [] ? null : $credentials;
+    }
+
     public function accountIdForTenant(?int $tenantId): ?int
     {
         return $this->resolveForTenant($tenantId)?->id;

@@ -229,6 +229,28 @@ set -a && . .docker/stack.env && set +a
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker-gateway/main/update.sh)"
 ```
 
+### Limpeza de imagens Docker (espaço em disco)
+
+Cada `update.sh` com rebuild deixa imagens antigas sem tag (`<none>`). O script remove automaticamente **só órfãs** — volumes e dados do Postgres/storage **não são tocados**.
+
+| O quê | Comando / comportamento |
+|-------|-------------------------|
+| Automático no update | `bash update.sh` (final do script) |
+| Manual | `cd /opt/getfy && sh docker/prune-docker-images.sh` |
+| Desativar no update | `GETFY_SKIP_DOCKER_PRUNE=1 bash update.sh` |
+| Mais agressivo (imagens não usadas) | `GETFY_DOCKER_PRUNE_UNUSED=1 bash update.sh` |
+
+O padrão roda `docker image prune -f` (dangling) + cache de build com mais de 14 dias.
+
+**Nunca em produção:** `docker volume prune`, `docker system prune --volumes` ou `docker compose down -v` — apagam `postgres_data`, `getfy_env`, `getfy_storage`.
+
+Conferir espaço sem update:
+
+```bash
+docker system df
+docker image prune -f
+```
+
 ### Só diagnóstico (sem reiniciar)
 
 ```bash
@@ -236,6 +258,12 @@ cd /opt/getfy && sh docker/diagnose-stack.sh
 ```
 
 ### Stacker Agent (métricas + licença no painel)
+
+No **install** e no **update**, se `STACKER_AGENT_TOKEN` estiver vazio, o script pede o token (painel Stacker → Gateway → Instalações). Enter pula — configure depois em `.env`.
+
+Sem TTY (`curl | bash`): exporte antes `STACKER_AGENT_TOKEN=...` ou edite `.env` manualmente.
+
+Desativar prompt: `GETFY_SKIP_STACKER_TOKEN_PROMPT=1`
 
 Se `getfy-stacker-agent-1` estiver em **Restarting** ou o painel mostrar "Aguardando agente":
 

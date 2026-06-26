@@ -4,8 +4,8 @@ namespace App\Console\Commands;
 
 use App\Gateways\GatewayRegistry;
 use App\Jobs\ProcessPaymentWebhook;
-use App\Models\GatewayCredential;
 use App\Models\Order;
+use App\Support\GatewayPaymentCredentials;
 use Illuminate\Console\Command;
 
 class ReconcilePendingPaymentsCommand extends Command
@@ -66,9 +66,9 @@ class ReconcilePendingPaymentsCommand extends Command
                 continue;
             }
 
-            $credential = GatewayCredential::resolveForPayment($order->tenant_id, $gatewaySlug);
+            $credential = GatewayPaymentCredentials::resolve($order->tenant_id, $gatewaySlug, $order);
 
-            if (! $credential) {
+            if ($credential === null) {
                 continue;
             }
 
@@ -77,10 +77,7 @@ class ReconcilePendingPaymentsCommand extends Command
                 continue;
             }
 
-            $credentials = $credential->getDecryptedCredentials();
-            if ($credentials === []) {
-                continue;
-            }
+            $credentials = $credential;
 
             try {
                 $apiStatus = $driver->getTransactionStatus($transactionId, $credentials);

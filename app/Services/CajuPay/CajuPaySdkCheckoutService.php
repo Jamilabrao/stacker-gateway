@@ -162,12 +162,6 @@ class CajuPaySdkCheckoutService
 
     public static function resolveCredentialsForOrder(Order $order): ?array
     {
-        $account = app(\App\Services\CajuPay\CajuPayAccountResolver::class)->resolveForOrder($order);
-        if (! $account) {
-            return null;
-        }
-        $credentials = $account->getDecryptedCredentials();
-
-        return $credentials === [] ? null : $credentials;
+        return app(CajuPayAccountResolver::class)->credentialsForOrder($order);
     }
 }

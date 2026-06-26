@@ -10,6 +10,7 @@ export interface LicenseCache {
   domain: string | null;
   expiresAt: string;
   supportWhatsapp: string | null;
+  signature?: string;
   cachedAt: string;
 }
 
