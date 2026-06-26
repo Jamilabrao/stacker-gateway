@@ -37,6 +37,7 @@ GETFY_CADDY_HOST=${GETFY_CADDY_HOST:-:80}
 API_INBOUND_WEBHOOKS_ASYNC=${API_INBOUND_WEBHOOKS_ASYNC:-true}
 GETFY_APP_ENV=production
 GETFY_APP_DEBUG=false
+GETFY_COMPOSE_PROJECT_NAME=$(basename "$ROOT_DIR")
 EOF
 else
   if grep -Eq '^\s*GETFY_DB_USERNAME\s*=\s*$' "$ENV_FILE" || grep -Eq '^\s*GETFY_DB_PASSWORD\s*=\s*$' "$ENV_FILE" \
@@ -56,6 +57,10 @@ else
     ' "$ENV_FILE" > "$TMP"
     mv "$TMP" "$ENV_FILE"
   fi
+fi
+
+if [ -f "$ENV_FILE" ] && ! grep -Eq '^\s*GETFY_COMPOSE_PROJECT_NAME\s*=' "$ENV_FILE" 2>/dev/null; then
+  echo "GETFY_COMPOSE_PROJECT_NAME=$(basename "$ROOT_DIR")" >> "$ENV_FILE"
 fi
 
 if [ -f "$ENV_FILE" ] && ! grep -Eq '^\s*GETFY_WEBHOOK_PUBLIC_URL\s*=' "$ENV_FILE"; then
