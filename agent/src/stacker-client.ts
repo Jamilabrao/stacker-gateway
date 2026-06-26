@@ -203,6 +203,9 @@ export async function applyUpdate(
     fs.cpSync(src, dest, { recursive: true });
   }
 
+  ensurePhpUploadsIni(gatewayRoot);
+  ensureComposeProjectName(gatewayRoot);
+
   const applyScript = path.join(gatewayRoot, 'docker', 'stacker-apply-update.sh');
   if (!fs.existsSync(applyScript)) {
     throw new Error('docker/stacker-apply-update.sh ausente no release');
@@ -236,4 +239,27 @@ export async function applyUpdate(
   });
 
   fs.rmSync(stagingDir, { recursive: true, force: true });
+}
+
+const UPLOADS_INI = `upload_max_filesize = 512M
+post_max_size = 512M
+memory_limit = 512M
+max_execution_time = 300
+`;
+
+function ensurePhpUploadsIni(gatewayRoot: string): void {
+  const iniPath = path.join(gatewayRoot, 'docker', 'php', 'uploads.ini');
+  if (fs.existsSync(iniPath) && fs.statSync(iniPath).isDirectory()) {
+    fs.rmSync(iniPath, { recursive: true, force: true });
+  }
+  fs.mkdirSync(path.dirname(iniPath), { recursive: true });
+  fs.writeFileSync(iniPath, UPLOADS_INI, { encoding: 'utf8', mode: 0o644 });
+}
+
+function ensureComposeProjectName(gatewayRoot: string): void {
+  const envPath = path.join(gatewayRoot, '.docker', 'stack.env');
+  if (!fs.existsSync(envPath)) return;
+  const content = fs.readFileSync(envPath, 'utf8');
+  if (/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=/m.test(content)) return;
+  fs.appendFileSync(envPath, '\nGETFY_COMPOSE_PROJECT_NAME=getfy\n', 'utf8');
 }

@@ -9,6 +9,29 @@ cd "$ROOT_DIR"
 echo "=== Stacker apply update ==="
 echo "Diretório: $ROOT_DIR"
 
+ensure_php_uploads_ini() {
+  local ini="$ROOT_DIR/docker/php/uploads.ini"
+  if [ -d "$ini" ]; then
+    echo "Corrigindo docker/php/uploads.ini (era diretório — mount Docker anterior)." >&2
+    rm -rf "$ini"
+  fi
+  mkdir -p "$(dirname "$ini")"
+  if [ ! -f "$ini" ]; then
+    cat > "$ini" <<'EOF'
+upload_max_filesize = 512M
+post_max_size = 512M
+memory_limit = 512M
+max_execution_time = 300
+EOF
+  fi
+  if [ -f docker/ensure-upload-limits.sh ]; then
+    sh docker/ensure-upload-limits.sh || true
+  fi
+}
+
+# Primeiro: uploads.ini como arquivo (Docker cria pasta se faltar no compose up).
+ensure_php_uploads_ini
+
 if [ ! -f docker/detect-compose-files.sh ]; then
   echo "docker/detect-compose-files.sh ausente." >&2
   exit 1
@@ -22,7 +45,6 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# Carrega variáveis do deploy existente (incl. GETFY_COMPOSE_FILES se definido).
 set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
@@ -41,43 +63,54 @@ resolve_compose_project_name() {
     printf '%s' "$GETFY_COMPOSE_PROJECT_NAME"
     return
   fi
+
+  # Instalação real em /opt/getfy — agente monta como /gateway (basename engana).
+  if docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx 'getfy_postgres_data'; then
+    printf 'getfy'
+    return
+  fi
+
+  local running
+  running="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'app-1$' | grep -v '^gateway-' | head -1 | sed 's/-app-1$//' || true)"
+  if [ -n "$running" ]; then
+    printf '%s' "$running"
+    return
+  fi
+
   local detected
-  detected="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '_postgres_data$' | head -1 | sed 's/_postgres_data$//' || true)"
+  detected="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '_postgres_data$' | grep -v '^gateway_' | head -1 | sed 's/_postgres_data$//' || true)"
   if [ -n "$detected" ]; then
     printf '%s' "$detected"
     return
   fi
-  basename "$ROOT_DIR"
+
+  local base
+  base="$(basename "$ROOT_DIR")"
+  if [ "$base" != "gateway" ]; then
+    printf '%s' "$base"
+    return
+  fi
+
+  echo "GETFY_COMPOSE_PROJECT_NAME não definido em .docker/stack.env (ex.: getfy)." >&2
+  exit 1
 }
 
 PROJECT_NAME="$(resolve_compose_project_name)"
+
+if [ "$PROJECT_NAME" = "gateway" ] && docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx 'getfy_postgres_data'; then
+  echo "Aviso: compose project 'gateway' ignorado — usando getfy (stack de produção)." >&2
+  PROJECT_NAME=getfy
+fi
+
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
+
+if ! grep -Eq '^\s*GETFY_COMPOSE_PROJECT_NAME\s*=' "$ENV_FILE" 2>/dev/null; then
+  echo "GETFY_COMPOSE_PROJECT_NAME=$PROJECT_NAME" >> "$ENV_FILE"
+fi
+
 echo "Compose project: $COMPOSE_PROJECT_NAME"
 echo "Compose files: $COMPOSE_FILES"
 
-ensure_php_uploads_ini() {
-  local ini="$ROOT_DIR/docker/php/uploads.ini"
-  if [ -d "$ini" ]; then
-    echo "Corrigindo docker/php/uploads.ini (era diretório — provável mount Docker anterior)." >&2
-    rm -rf "$ini"
-  fi
-  if [ ! -f "$ini" ]; then
-    mkdir -p "$(dirname "$ini")"
-    cat > "$ini" <<'EOF'
-upload_max_filesize = 512M
-post_max_size = 512M
-memory_limit = 512M
-max_execution_time = 300
-EOF
-  fi
-  if [ -f docker/ensure-upload-limits.sh ]; then
-    sh docker/ensure-upload-limits.sh || true
-  fi
-}
-
-ensure_php_uploads_ini
-
-# Frontend e vendor podem vir no zip; só rebuild se faltar ou forçado.
 if [ ! -f public/build/manifest.json ]; then
   echo "=== Build frontend (manifest ausente) ==="
   sh docker/build-frontend.sh
@@ -96,6 +129,13 @@ COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" $COMPOSE_ARGS --env-file "$EN
 
 echo "=== Rebuild imagem app ==="
 "${COMPOSE[@]}" build app
+
+if "${COMPOSE[@]}" config --services 2>/dev/null | grep -qx 'stacker-agent'; then
+  echo "=== Rebuild stacker-agent ==="
+  "${COMPOSE[@]}" build stacker-agent
+fi
+
+ensure_php_uploads_ini
 
 echo "=== Subindo stack (projeto existente) ==="
 "${COMPOSE[@]}" up -d --remove-orphans
