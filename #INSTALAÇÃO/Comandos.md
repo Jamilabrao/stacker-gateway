@@ -13,7 +13,21 @@ Importante: você precisa fazer upload dos arquivos para um novo repositorio no 
 
 Comando para Atualização:
 
+```bash
+cd /opt/getfy
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker-gateway/main/update.sh)"
+```
+
+**Com `STACKER_AGENT_TOKEN` configurado** (modo Stacker): só reinicia containers e rebuilda o **agente** — não faz `git pull` nem rebuild do `app`. Updates de código PHP vêm pelo portal Stacker (release remota).
+
+**Para puxar código do GitHub** (scripts, middleware de licença, etc.):
+
+```bash
+cd /opt/getfy
+GETFY_LEGACY_GIT_UPDATE=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker-gateway/main/update.sh)"
+```
+
+Se aparecer `vendor/ ausente` no build: rode o update legado acima (ele executa `install-composer-deps.sh` antes do rebuild).
 
 Se aparecer `public/build/manifest.json: needs merge` ou `resolve your current index first` (servidor preso antes do fix no GitHub), rode uma vez:
 

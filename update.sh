@@ -108,12 +108,27 @@ prompt_stacker_agent_if_needed
 if [ "$STACKER_MANAGED" = "1" ]; then
   $SUDO bash docker/ensure-stacker-agent.sh || true
   echo ""
-  echo "=== Reiniciando stack Docker (agente aplicará updates remotos) ==="
+  echo "=== Reiniciando stack Docker (sem rebuild do app — updates de código via agente Stacker) ==="
   $SUDO chmod +x docker/detect-compose-files.sh 2>/dev/null || true
   COMPOSE_FILES="$($SUDO sh docker/detect-compose-files.sh)"
-  $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+  COMPOSE_EXEC_ARGS=""
+  for f in $COMPOSE_FILES; do
+    if [ -n "$f" ]; then
+      COMPOSE_EXEC_ARGS="$COMPOSE_EXEC_ARGS -f $f"
+    fi
+  done
+  STACK_ENV="$INSTALL_DIR/.docker/stack.env"
+  $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_SKIP_DOCKER_BUILD=1 GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+  if [ -f "$INSTALL_DIR/agent/Dockerfile" ]; then
+    echo ""
+    echo "=== Rebuild do stacker-agent (se houver mudanças no agente) ==="
+    $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$STACK_ENV" build stacker-agent
+    $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$STACK_ENV" up -d stacker-agent
+  fi
   run_docker_prune
+  echo ""
   echo "Atualização local concluída. Releases remotas: portal Stacker ou admin."
+  echo "Para atualizar scripts/PHP via Git: GETFY_LEGACY_GIT_UPDATE=1 bash update.sh"
   exit 0
 fi
 

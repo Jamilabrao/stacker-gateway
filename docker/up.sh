@@ -142,4 +142,9 @@ for f in $COMPOSE_FILES; do
 done
 IFS="$OLD_IFS"
 
-docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up --build -d --remove-orphans
+UP_ARGS="-d --remove-orphans"
+if [ "${GETFY_SKIP_DOCKER_BUILD:-0}" != "1" ]; then
+  UP_ARGS="--build ${UP_ARGS}"
+fi
+
+docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up $UP_ARGS
