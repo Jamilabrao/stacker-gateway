@@ -147,9 +147,9 @@ export async function applyUpdate(
   fs.mkdirSync(extractDir, { recursive: true });
 
   if (process.platform === 'win32') {
-    execSync(`tar -xf "${zipPath}" -C "${extractDir}"`, { stdio: 'inherit' });
+    await runShell(`tar -xf "${zipPath}" -C "${extractDir}"`, gatewayRoot);
   } else {
-    execSync(`unzip -oq "${zipPath}" -d "${extractDir}"`, { stdio: 'inherit' });
+    await runShell(`unzip -oq "${zipPath}" -d "${extractDir}"`, gatewayRoot);
   }
 
   const backupDir = path.join(stagingDir, `backup-${Date.now()}`);
@@ -213,15 +213,40 @@ export async function applyUpdate(
   }
   fs.chmodSync(applyScript, 0o755);
 
+  await client.reportUpdateStatus({
+    jobId: cmd.jobId,
+    status: 'applying',
+    logs: 'Executando docker/stacker-apply-update.sh (build pode levar 10–30 min)...',
+  });
+
   let applyLogs = '';
+  const keepalive = setInterval(() => {
+    void client
+      .reportUpdateStatus({
+        jobId: cmd.jobId,
+        status: 'applying',
+        logs: applyLogs.trim().slice(-2000) || 'Apply em andamento (docker build)...',
+      })
+      .catch(() => undefined);
+  }, 60_000);
+
   try {
-    applyLogs = execSync(`bash "${applyScript}"`, {
-      cwd: gatewayRoot,
-      encoding: 'utf8',
-      stdio: ['inherit', 'pipe', 'pipe'],
-      env: { ...process.env, DOCKER_HOST: process.env.DOCKER_HOST || 'unix:///var/run/docker.sock' },
-    });
+    const result = await runShell(
+      `bash "${applyScript}"`,
+      gatewayRoot,
+      {
+        DOCKER_HOST: process.env.DOCKER_HOST || 'unix:///var/run/docker.sock',
+      },
+      (chunk) => {
+        applyLogs += chunk;
+        if (applyLogs.length > 8000) {
+          applyLogs = applyLogs.slice(-6000);
+        }
+      },
+    );
+    applyLogs = [result.stdout, result.stderr].filter(Boolean).join('\n');
   } catch (err) {
+    clearInterval(keepalive);
     const e = err as { stdout?: string; stderr?: string; message?: string };
     const logs = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
     await client.reportUpdateStatus({
@@ -230,6 +255,8 @@ export async function applyUpdate(
       logs: logs || 'Falha ao aplicar update',
     });
     throw err;
+  } finally {
+    clearInterval(keepalive);
   }
 
   await client.reportUpdateStatus({
@@ -328,19 +355,60 @@ function ensureHostDotEnv(gatewayRoot: string): void {
   fs.writeFileSync(dotenvPath, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
 }
 
+function runShell(
+  command: string,
+  cwd: string,
+  extraEnv?: Record<string, string>,
+  onChunk?: (text: string) => void,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, {
+      cwd,
+      shell: true,
+      env: { ...process.env, ...extraEnv },
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      onChunk?.(text);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      stderr += text;
+      onChunk?.(text);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const err = new Error(`Command failed: ${command}`) as Error & {
+        stdout?: string;
+        stderr?: string;
+      };
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+    });
+  });
+}
+
 /** Reinicia o stacker-agent em background após reportar sucesso (evita matar o apply). */
 function scheduleStackerAgentRestart(gatewayRoot: string): void {
   const cmd = [
     `cd "${gatewayRoot}"`,
-    'HOST="$(grep -E "^GETFY_HOST_DIR=" .docker/stack.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\\"\'" || echo "$(pwd)")"',
     'sh docker/ensure-host-dotenv.sh 2>/dev/null || true',
     'set -a && . .docker/stack.env && set +a',
     'PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"',
     'FILES="$(sh docker/detect-compose-files.sh)"',
     'ARGS=""',
     'for f in $FILES; do ARGS="$ARGS -f $f"; done',
-    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" --env-file .env build stacker-agent',
-    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" --env-file .env up -d stacker-agent',
+    'docker compose -p "$PROJECT" --project-directory /gateway $ARGS --env-file /gateway/.docker/stack.env --env-file /gateway/.env build stacker-agent',
+    'docker compose -p "$PROJECT" --project-directory /gateway $ARGS --env-file /gateway/.docker/stack.env --env-file /gateway/.env up -d stacker-agent',
   ].join(' && ');
   spawn('bash', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
 }

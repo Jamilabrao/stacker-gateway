@@ -67,19 +67,19 @@ async function main() {
       for (const cmd of result.commands) {
         if (cmd.type === 'apply_update' && !updateInProgress) {
           updateInProgress = true;
-          try {
-            await applyUpdate(client, cmd, gatewayRoot, signingKey);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            await client.reportUpdateStatus({
-              jobId: cmd.jobId,
-              status: 'failed',
-              logs: message,
+          void applyUpdate(client, cmd, gatewayRoot, signingKey)
+            .catch(async (err) => {
+              const message = err instanceof Error ? err.message : String(err);
+              await client.reportUpdateStatus({
+                jobId: cmd.jobId,
+                status: 'failed',
+                logs: message,
+              });
+              console.error('Falha no update:', message);
+            })
+            .finally(() => {
+              updateInProgress = false;
             });
-            console.error('Falha no update:', message);
-          } finally {
-            updateInProgress = false;
-          }
         }
       }
     } catch (err) {
