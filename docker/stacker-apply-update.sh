@@ -143,15 +143,20 @@ if ! grep -Eq '^\s*GETFY_HOST_DIR\s*=' "$ENV_FILE" 2>/dev/null; then
   echo "GETFY_HOST_DIR=$HOST_DIR" >> "$ENV_FILE"
 fi
 
-ENV_FILE_ABS="$HOST_DIR/.docker/stack.env"
-if [ ! -f "$ENV_FILE_ABS" ]; then
-  ENV_FILE_ABS="$ROOT_DIR/.docker/stack.env"
+ENV_FILE_ABS="$ROOT_DIR/.docker/stack.env"
+
+# Apply dentro do stacker-agent: /opt/getfy não existe no container — só /gateway (bind mount).
+if [ "$ROOT_DIR" = "/gateway" ] || [ ! -d "$HOST_DIR" ]; then
+  COMPOSE_WORK_DIR="$ROOT_DIR"
+else
+  COMPOSE_WORK_DIR="$HOST_DIR"
 fi
 
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 
 echo "Compose project: $COMPOSE_PROJECT_NAME"
 echo "Compose host dir: $HOST_DIR"
+echo "Compose work dir: $COMPOSE_WORK_DIR"
 echo "Compose files: $COMPOSE_FILES"
 
 if [ -f docker/ensure-host-dotenv.sh ]; then
@@ -179,13 +184,14 @@ else
   echo "vendor/autoload.php presente — pulando composer install."
 fi
 
-COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" --project-directory "$HOST_DIR" $COMPOSE_ARGS --env-file "$ENV_FILE_ABS")
+COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" --project-directory "$COMPOSE_WORK_DIR" $COMPOSE_ARGS --env-file "$ENV_FILE_ABS")
 if [ -f "$ROOT_DIR/.env" ]; then
   COMPOSE+=(--env-file "$ROOT_DIR/.env")
 fi
 
 echo "=== Rebuild imagem app ==="
-"${COMPOSE[@]}" build app
+echo "Build context: $COMPOSE_WORK_DIR"
+docker build -t getfy_app:latest -f "$COMPOSE_WORK_DIR/Dockerfile" "$COMPOSE_WORK_DIR"
 
 ensure_php_uploads_ini
 
