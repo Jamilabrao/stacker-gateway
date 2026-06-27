@@ -339,8 +339,8 @@ function scheduleStackerAgentRestart(gatewayRoot: string): void {
     'FILES="$(sh docker/detect-compose-files.sh)"',
     'ARGS=""',
     'for f in $FILES; do ARGS="$ARGS -f $f"; done',
-    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" build stacker-agent',
-    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" up -d stacker-agent',
+    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" --env-file .env build stacker-agent',
+    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" --env-file .env up -d stacker-agent',
   ].join(' && ');
   spawn('bash', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
 }

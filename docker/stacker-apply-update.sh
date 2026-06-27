@@ -156,6 +156,13 @@ echo "Compose files: $COMPOSE_FILES"
 
 if [ -f docker/ensure-host-dotenv.sh ]; then
   sh docker/ensure-host-dotenv.sh
+elif [ ! -f "$ROOT_DIR/.env" ]; then
+  echo "Aviso: .env ausente — stacker-agent precisa de STACKER_AGENT_TOKEN em $ROOT_DIR/.env" >&2
+fi
+
+if [ ! -f "$ROOT_DIR/.env" ]; then
+  echo "FATAL: $ROOT_DIR/.env ausente (STACKER_AGENT_TOKEN). Corrija antes do apply." >&2
+  exit 1
 fi
 
 if [ ! -f public/build/manifest.json ]; then
@@ -173,6 +180,9 @@ else
 fi
 
 COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" --project-directory "$HOST_DIR" $COMPOSE_ARGS --env-file "$ENV_FILE_ABS")
+if [ -f "$ROOT_DIR/.env" ]; then
+  COMPOSE+=(--env-file "$ROOT_DIR/.env")
+fi
 
 echo "=== Rebuild imagem app ==="
 "${COMPOSE[@]}" build app

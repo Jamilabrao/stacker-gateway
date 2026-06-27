@@ -22,28 +22,22 @@ PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"
 COMPOSE_FILE="$(sh docker/detect-compose-files.sh 2>/dev/null || echo 'docker-compose.yml')"
 
 if [ -f docker/ensure-host-dotenv.sh ]; then
-  sh docker/ensure-host-dotenv.sh "$HOST_DIR"
-elif [ ! -f "$HOST_DIR/.env" ] || [ ! -s "$HOST_DIR/.env" ]; then
-  echo "Erro: .env ausente. Rode: sh docker/ensure-host-dotenv.sh $HOST_DIR" >&2
-  exit 1
-fi
-
-if ! grep -Eq '^\s*STACKER_AGENT_TOKEN\s*=' "$HOST_DIR/.env" 2>/dev/null; then
-  echo "Erro: STACKER_AGENT_TOKEN não está em $HOST_DIR/.env" >&2
+  sh docker/ensure-host-dotenv.sh
+elif [ ! -f "$ROOT_DIR/.env" ] || ! grep -Eq '^[[:space:]]*STACKER_AGENT_TOKEN=[^[:space:]]' "$ROOT_DIR/.env" 2>/dev/null; then
+  echo "Erro: .env ausente ou sem STACKER_AGENT_TOKEN." >&2
   exit 1
 fi
 
 echo "=== Subindo stacker-agent (project=$PROJECT, host=$HOST_DIR) ==="
-docker compose -p "$PROJECT" --project-directory "$HOST_DIR" \
-  -f "$COMPOSE_FILE" --env-file "$HOST_DIR/.docker/stack.env" \
-  up -d --no-deps --force-recreate stacker-agent
+COMPOSE=(docker compose -p "$PROJECT" --project-directory "$HOST_DIR" \
+  -f "$COMPOSE_FILE" --env-file "$ROOT_DIR/.docker/stack.env" --env-file "$ROOT_DIR/.env")
+
+"${COMPOSE[@]}" up -d --no-deps --force-recreate stacker-agent
 
 echo ""
 echo "Logs (últimas 20 linhas):"
 sleep 3
-docker compose -p "$PROJECT" --project-directory "$HOST_DIR" \
-  -f "$COMPOSE_FILE" --env-file "$HOST_DIR/.docker/stack.env" \
-  logs stacker-agent --tail 20 2>/dev/null \
+"${COMPOSE[@]}" logs stacker-agent --tail 20 2>/dev/null \
   || docker logs "${PROJECT}-stacker-agent-1" --tail 20 2>/dev/null \
   || true
 

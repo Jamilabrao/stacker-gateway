@@ -45,6 +45,9 @@ set +a
 COMPOSE_FILE="$(sh docker/detect-compose-files.sh 2>/dev/null || echo 'docker-compose.yml')"
 PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"
 COMPOSE=(docker compose -p "$PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
+if [ -f .env ]; then
+  COMPOSE+=(--env-file .env)
+fi
 echo "Compose detectado: $COMPOSE_FILE (project: $PROJECT)"
 echo "GETFY_DB_USERNAME=${GETFY_DB_USERNAME:-?}"
 echo "GETFY_DB_DATABASE=${GETFY_DB_DATABASE:-getfy}"
@@ -112,7 +115,7 @@ echo ""
 
 echo "=== 5) Sincronizar .env do host (Compose lê .env na raiz) ==="
 if [ -f docker/ensure-host-dotenv.sh ]; then
-  sh docker/ensure-host-dotenv.sh "$ROOT_DIR"
+  sh docker/ensure-host-dotenv.sh
 else
   if [ ! -f .env ] || [ ! -s .env ]; then
     {
