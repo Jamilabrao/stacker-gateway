@@ -250,11 +250,15 @@ max_execution_time = 300
 
 function ensurePhpUploadsIni(gatewayRoot: string): void {
   const iniPath = path.join(gatewayRoot, 'docker', 'php', 'uploads.ini');
-  if (fs.existsSync(iniPath) && fs.statSync(iniPath).isDirectory()) {
+  if (fs.existsSync(iniPath)) {
     fs.rmSync(iniPath, { recursive: true, force: true });
   }
   fs.mkdirSync(path.dirname(iniPath), { recursive: true });
   fs.writeFileSync(iniPath, UPLOADS_INI, { encoding: 'utf8', mode: 0o644 });
+  const stat = fs.statSync(iniPath);
+  if (!stat.isFile()) {
+    throw new Error('docker/php/uploads.ini não pôde ser criado como arquivo');
+  }
 }
 
 function ensureComposeProjectName(gatewayRoot: string): void {

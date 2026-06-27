@@ -61,6 +61,21 @@ if [ -d "$TMP/vendor" ]; then
   find "$TMP/vendor" -type f \( -name '*.md' -o -name '*.markdown' -o -name 'CHANGELOG*' -o -name 'UPGRADE*' \) -delete 2>/dev/null || true
 fi
 
+# uploads.ini deve ser arquivo (Docker cria diretório se faltar no bind mount).
+UPLOADS_INI="$TMP/docker/php/uploads.ini"
+if [ -d "$UPLOADS_INI" ]; then
+  rm -rf "$UPLOADS_INI"
+fi
+mkdir -p "$(dirname "$UPLOADS_INI")"
+if [ ! -f "$UPLOADS_INI" ]; then
+  cat > "$UPLOADS_INI" <<'EOF'
+upload_max_filesize = 512M
+post_max_size = 512M
+memory_limit = 512M
+max_execution_time = 300
+EOF
+fi
+
 (
   cd "$TMP"
   if command -v zip >/dev/null 2>&1; then

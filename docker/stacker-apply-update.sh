@@ -11,18 +11,20 @@ echo "Diretório: $ROOT_DIR"
 
 ensure_php_uploads_ini() {
   local ini="$ROOT_DIR/docker/php/uploads.ini"
-  if [ -d "$ini" ]; then
-    echo "Corrigindo docker/php/uploads.ini (era diretório — mount Docker anterior)." >&2
+  if [ -e "$ini" ] && { [ -d "$ini" ] || [ ! -f "$ini" ]; }; then
+    echo "Corrigindo docker/php/uploads.ini (não era arquivo regular)." >&2
     rm -rf "$ini"
   fi
   mkdir -p "$(dirname "$ini")"
-  if [ ! -f "$ini" ]; then
-    cat > "$ini" <<'EOF'
+  cat > "$ini" <<'EOF'
 upload_max_filesize = 512M
 post_max_size = 512M
 memory_limit = 512M
 max_execution_time = 300
 EOF
+  if [ ! -f "$ini" ] || [ -d "$ini" ]; then
+    echo "FATAL: não foi possível criar $ini como arquivo." >&2
+    exit 1
   fi
   if [ -f docker/ensure-upload-limits.sh ]; then
     sh docker/ensure-upload-limits.sh || true

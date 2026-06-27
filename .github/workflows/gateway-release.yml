@@ -6,6 +6,7 @@ on:
     tags: ['v*']
     paths:
       - VERSION
+      - docs/releases/**
       - app/**
       - bootstrap/**
       - config/**
@@ -121,26 +122,43 @@ jobs:
             echo "Solução: Cloudflare → DNS → api.stacker.builders → desligar proxy (nuvem CINZA)." >&2
             exit 1
           fi
+          chmod +x scripts/read-release-changelog.sh scripts/read-release-title.sh
+          RELEASE_TITLE="$(bash scripts/read-release-title.sh "$VERSION")"
+          CHANGELOG_FILE="$(mktemp)"
+          bash scripts/read-release-changelog.sh "$VERSION" > "$CHANGELOG_FILE"
+          if [ -s "$CHANGELOG_FILE" ]; then
+            echo "Changelog: docs/releases/${VERSION}.md ($(wc -c < "$CHANGELOG_FILE") bytes)"
+          else
+            echo "Aviso: docs/releases/${VERSION}.md ausente — release sem changelog." >&2
+          fi
           API="${STACKER_API_URL%/}/api/gateway/releases/ci-upload"
+          UPLOAD_AUTH=()
           if [ -n "${STACKER_RELEASE_UPLOAD_TOKEN:-}" ]; then
             echo "Upload via STACKER_RELEASE_UPLOAD_TOKEN"
-            HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
-              -H "X-Stacker-Release-Token: ${STACKER_RELEASE_UPLOAD_TOKEN}" \
-              -F "artifact=@${ZIP}" \
-              -F "version=${VERSION}" \
-              -F "title=Release ${VERSION}")"
+            UPLOAD_AUTH=(-H "X-Stacker-Release-Token: ${STACKER_RELEASE_UPLOAD_TOKEN}")
           elif [ -n "${STACKER_ADMIN_TOKEN:-}" ]; then
             echo "Upload via STACKER_ADMIN_TOKEN"
             API="${STACKER_API_URL%/}/api/gateway/releases"
-            HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
-              -H "Authorization: Bearer ${STACKER_ADMIN_TOKEN}" \
-              -F "artifact=@${ZIP}" \
-              -F "version=${VERSION}" \
-              -F "title=Release ${VERSION}")"
+            UPLOAD_AUTH=(-H "Authorization: Bearer ${STACKER_ADMIN_TOKEN}")
           else
             echo "Configure STACKER_RELEASE_UPLOAD_TOKEN ou STACKER_ADMIN_TOKEN nos secrets." >&2
             exit 1
           fi
+          if [ -s "$CHANGELOG_FILE" ]; then
+            HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
+              "${UPLOAD_AUTH[@]}" \
+              -F "artifact=@${ZIP}" \
+              -F "version=${VERSION}" \
+              -F "title=${RELEASE_TITLE}" \
+              -F "changelog=@${CHANGELOG_FILE};type=text/plain")"
+          else
+            HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
+              "${UPLOAD_AUTH[@]}" \
+              -F "artifact=@${ZIP}" \
+              -F "version=${VERSION}" \
+              -F "title=${RELEASE_TITLE}")"
+          fi
+          rm -f "$CHANGELOG_FILE"
           echo "HTTP ${HTTP_CODE}"
           cat /tmp/stacker-upload.json
           if [ "$HTTP_CODE" = "409" ]; then
