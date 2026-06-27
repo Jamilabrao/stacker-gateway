@@ -170,13 +170,14 @@ jobs:
             exit 1
           fi
           if [ -s "$CHANGELOG_FILE" ]; then
+            # Multer aceita só o campo "artifact" como arquivo; changelog vai como texto.
             HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
               "${UPLOAD_AUTH[@]}" \
               "${REPLACE_FIELD[@]}" \
               -F "artifact=@${ZIP}" \
               -F "version=${VERSION}" \
               -F "title=${RELEASE_TITLE}" \
-              -F "changelog=@${CHANGELOG_FILE};type=text/plain")"
+              -F "changelog=<${CHANGELOG_FILE}")"
           else
             HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
               "${UPLOAD_AUTH[@]}" \
