@@ -24,6 +24,9 @@ on:
       - .github/workflows/gateway-release.yml
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
@@ -43,27 +46,48 @@ jobs:
             echo "Secret STACKER_API_URL obrigatório." >&2
             exit 1
           fi
-          echo "API: ${STACKER_API_URL%/}"
-          curl -sf "${STACKER_API_URL%/}/api/health" | head -c 200
+          API_BASE="${STACKER_API_URL%/}"
+          echo "API: ${API_BASE}"
+
+          HEALTH_CODE="$(curl -sS -o /tmp/api-health.json -w '%{http_code}' "${API_BASE}/api/health" || true)"
+          echo "GET /api/health → HTTP ${HEALTH_CODE}"
+          cat /tmp/api-health.json || true
           echo ""
-          HEALTH="$(curl -sS "${STACKER_API_URL%/}/api/gateway/releases/ci-upload/health" || true)"
-          echo "CI upload health: ${HEALTH}"
+          if [ "$HEALTH_CODE" -lt 200 ] || [ "$HEALTH_CODE" -ge 300 ]; then
+            echo "API inacessível (HTTP ${HEALTH_CODE}). Verifique STACKER_API_URL e se a API está no ar." >&2
+            exit 1
+          fi
+
+          CI_HEALTH="$(curl -sS "${API_BASE}/api/gateway/releases/ci-upload/health" || true)"
+          echo "CI upload health: ${CI_HEALTH}"
+
           if [ -n "${STACKER_RELEASE_UPLOAD_TOKEN:-}" ]; then
-            CODE="$(curl -sS -w '%{http_code}' -o /tmp/token-ping.json -X POST "${STACKER_API_URL%/}/api/gateway/releases/ci-upload" \
+            VERIFY_CODE="$(curl -sS -w '%{http_code}' -o /tmp/token-verify.json \
               -H "X-Stacker-Release-Token: ${STACKER_RELEASE_UPLOAD_TOKEN}" \
-              -F "version=0.0.0-ci-ping" -F "title=ping")"
-            echo "Token probe HTTP ${CODE}"
-            cat /tmp/token-ping.json || true
-            if [ "$CODE" = "400" ]; then
-              echo "Token OK (400 = zip ausente, esperado)."
-            elif [ "$CODE" = "401" ]; then
-              echo "Token inválido — o valor em backend/.env deve ser idêntico ao secret STACKER_RELEASE_UPLOAD_TOKEN." >&2
+              "${API_BASE}/api/gateway/releases/ci-upload/verify-token" || true)"
+            echo "Token verify → HTTP ${VERIFY_CODE}"
+            cat /tmp/token-verify.json || true
+            echo ""
+            if [ "$VERIFY_CODE" = "200" ]; then
+              echo "Token OK."
+            elif [ "$VERIFY_CODE" = "401" ]; then
+              echo "Token inválido — STACKER_RELEASE_UPLOAD_TOKEN deve ser idêntico a backend/.env na VPS." >&2
               exit 1
-            elif [ "$CODE" = "404" ]; then
-              echo "Endpoint ci-upload não encontrado — faça deploy da API (update.sh na VPS)." >&2
-              exit 1
+            elif [ "$VERIFY_CODE" = "404" ]; then
+              echo "Endpoint verify-token não encontrado — faça deploy da API Stacker (stacker-hub) e tente de novo." >&2
+              echo "Fallback: probe POST (release antiga da API)..." >&2
+              CODE="$(curl -sS -w '%{http_code}' -o /tmp/token-ping.json -X POST "${API_BASE}/api/gateway/releases/ci-upload" \
+                -H "X-Stacker-Release-Token: ${STACKER_RELEASE_UPLOAD_TOKEN}" \
+                -F "version=0.0.0-ci-ping" -F "title=ping" || true)"
+              echo "Token probe HTTP ${CODE}"
+              cat /tmp/token-ping.json || true
+              if [ "$CODE" != "400" ] && [ "$CODE" != "401" ]; then
+                echo "Probe falhou (HTTP ${CODE})." >&2
+                exit 1
+              fi
+              if [ "$CODE" = "401" ]; then exit 1; fi
             else
-              echo "Res['${CODE}'] inesperado no probe de token." >&2
+              echo "Verificação de token falhou (HTTP ${VERIFY_CODE})." >&2
               exit 1
             fi
           elif [ -n "${STACKER_ADMIN_TOKEN:-}" ]; then
@@ -96,7 +120,7 @@ jobs:
           GETFY_SKIP_FRONTEND_BUILD: '1'
           GETFY_SKIP_COMPOSER_INSTALL: '1'
         run: |
-          chmod +x scripts/build-release.sh
+          chmod +x scripts/build-release.sh scripts/read-release-changelog.sh scripts/read-release-title.sh
           bash scripts/build-release.sh
           ls -lh dist-releases/
 
@@ -122,20 +146,21 @@ jobs:
             echo "Solução: Cloudflare → DNS → api.stacker.builders → desligar proxy (nuvem CINZA)." >&2
             exit 1
           fi
-          chmod +x scripts/read-release-changelog.sh scripts/read-release-title.sh
           RELEASE_TITLE="$(bash scripts/read-release-title.sh "$VERSION")"
           CHANGELOG_FILE="$(mktemp)"
           bash scripts/read-release-changelog.sh "$VERSION" > "$CHANGELOG_FILE"
           if [ -s "$CHANGELOG_FILE" ]; then
             echo "Changelog: docs/releases/${VERSION}.md ($(wc -c < "$CHANGELOG_FILE") bytes)"
           else
-            echo "Aviso: docs/releases/${VERSION}.md ausente — release sem changelog." >&2
+            echo "Aviso: docs/releases/${VERSION}.md ausente no repo — release sem changelog." >&2
           fi
           API="${STACKER_API_URL%/}/api/gateway/releases/ci-upload"
           UPLOAD_AUTH=()
+          REPLACE_FIELD=()
           if [ -n "${STACKER_RELEASE_UPLOAD_TOKEN:-}" ]; then
-            echo "Upload via STACKER_RELEASE_UPLOAD_TOKEN"
+            echo "Upload via STACKER_RELEASE_UPLOAD_TOKEN (replace=true)"
             UPLOAD_AUTH=(-H "X-Stacker-Release-Token: ${STACKER_RELEASE_UPLOAD_TOKEN}")
+            REPLACE_FIELD=(-F "replace=true")
           elif [ -n "${STACKER_ADMIN_TOKEN:-}" ]; then
             echo "Upload via STACKER_ADMIN_TOKEN"
             API="${STACKER_API_URL%/}/api/gateway/releases"
@@ -147,6 +172,7 @@ jobs:
           if [ -s "$CHANGELOG_FILE" ]; then
             HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
               "${UPLOAD_AUTH[@]}" \
+              "${REPLACE_FIELD[@]}" \
               -F "artifact=@${ZIP}" \
               -F "version=${VERSION}" \
               -F "title=${RELEASE_TITLE}" \
@@ -154,6 +180,7 @@ jobs:
           else
             HTTP_CODE="$(curl -sS -w '%{http_code}' -o /tmp/stacker-upload.json -X POST "$API" \
               "${UPLOAD_AUTH[@]}" \
+              "${REPLACE_FIELD[@]}" \
               -F "artifact=@${ZIP}" \
               -F "version=${VERSION}" \
               -F "title=${RELEASE_TITLE}")"
@@ -162,7 +189,7 @@ jobs:
           echo "HTTP ${HTTP_CODE}"
           cat /tmp/stacker-upload.json
           if [ "$HTTP_CODE" = "409" ]; then
-            echo "Versão ${VERSION} já existe — incremente VERSION e rode de novo." >&2
+            echo "Versão ${VERSION} já existe e replace não foi aceito — faça deploy da API Stacker ou apague a release no admin." >&2
             exit 1
           fi
           if [ "$HTTP_CODE" = "413" ]; then
@@ -173,3 +200,4 @@ jobs:
             echo "Upload falhou (HTTP ${HTTP_CODE})." >&2
             exit 1
           fi
+          echo "Release v${VERSION} publicada com sucesso."
