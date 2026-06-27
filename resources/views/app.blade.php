@@ -15,7 +15,7 @@
     @unless($skipPanelPwa)
     @php
         $wlFavicon = config('getfy.favicon_url');
-        $wlFavicon = ($wlFavicon !== null && $wlFavicon !== '') ? $wlFavicon : 'https://cdn.getfy.cloud/collapsed-logo.png';
+        $wlFavicon = ($wlFavicon !== null && $wlFavicon !== '') ? $wlFavicon : '/images/favicon.png';
         $wlThemeColor = config('getfy.pwa_theme_color');
         $wlThemeColor = ($wlThemeColor !== null && $wlThemeColor !== '') ? $wlThemeColor : config('getfy.theme_primary', '#0ea5e9');
         $wlAppleIcon = config('getfy.pwa_icon_192');

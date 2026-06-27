@@ -6,8 +6,8 @@ export function useAuthBranding() {
     const branding = computed(() => page.props.public_branding ?? {});
     const primary = computed(() => branding.value.theme_primary || '#0050fc');
     const appName = computed(() => branding.value.app_name || 'Getfy');
-    const logoLight = computed(() => branding.value.app_logo_icon || 'https://cdn.getfy.cloud/collapsed-logo.png');
-    const logoDark = computed(() => branding.value.app_logo_icon_dark || logoLight.value);
+    const logoLight = computed(() => branding.value.app_logo || branding.value.app_logo_icon || '/images/logo.png');
+    const logoDark = computed(() => branding.value.app_logo_dark || branding.value.app_logo_icon_dark || logoLight.value || '/images/logo-dark.png');
     const heroImage = computed(() => branding.value.login_hero_image || 'https://cdn.getfy.cloud/login.webp');
     const heroTagline = computed(() => branding.value.login_hero_tagline || 'Sua plataforma para vender mais.');
     const heroSubtagline = computed(() => branding.value.login_hero_subtagline || 'Feita para quem escala de verdade.');

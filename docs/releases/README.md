@@ -1,6 +1,6 @@
 # Changelog das releases (Gateway)
 
-Versão atual: **2.x** (a partir de `2.0.0`). Releases anteriores à 2.0.0 não têm changelog neste diretório.
+Versão atual: **2.x** (a partir de `2.0.0`). Releases anteriores à 2.0.0 foram removidas — use **Admin → Gateway → Limpar releases < v2.0.0** se ainda aparecerem no portal.
 
 Cada versão publicada deve ter um arquivo markdown aqui antes do bump em `VERSION`.
 

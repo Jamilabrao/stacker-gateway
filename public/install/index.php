@@ -26,7 +26,7 @@ if ($isAppInstalled($basePath)) {
 }
 
 $step = max(1, min(4, (int) ($_GET['step'] ?? $_POST['step'] ?? 1)));
-$logoUrl = 'https://cdn.getfy.cloud/collapsed-logo.png';
+$logoUrl = '/images/logo.png';
 
 ?>
 <!DOCTYPE html>

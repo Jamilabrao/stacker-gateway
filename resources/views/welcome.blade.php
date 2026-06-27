@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         @include('partials.panel-theme-init')
         <title>{{ config('app.name', 'Getfy') }}</title>
-        <link rel="icon" href="https://cdn.getfy.cloud/collapsed-logo.png" type="image/png">
+        <link rel="icon" href="/images/favicon.png" type="image/png">
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">

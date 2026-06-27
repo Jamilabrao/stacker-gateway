@@ -5,7 +5,7 @@ import { LayoutDashboard, CircleDollarSign, Package, Cable } from 'lucide-vue-ne
 import { usePwaInstall } from '@/composables/usePwaInstall';
 import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
 
-const DEFAULT_LOGO = 'https://cdn.getfy.cloud/collapsed-logo.png';
+const DEFAULT_LOGO = '/images/favicon.png';
 
 const page = usePage();
 const { isStandalone } = usePwaInstall('painel');

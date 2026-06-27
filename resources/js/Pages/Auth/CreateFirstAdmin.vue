@@ -26,7 +26,7 @@ function submit() {
         <div class="flex w-full flex-col justify-center px-8 py-12 lg:w-[30%] lg:min-w-[360px]">
             <div class="text-center">
                 <img
-                    src="https://cdn.getfy.cloud/collapsed-logo.png"
+                    src="/images/logo.png"
                     alt="Getfy"
                     class="mx-auto mb-10 h-12 w-auto object-contain"
                 />

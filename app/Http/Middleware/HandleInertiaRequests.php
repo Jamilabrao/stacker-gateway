@@ -356,7 +356,7 @@ class HandleInertiaRequests extends Middleware
         $pwaTheme = config('getfy.pwa_theme_color');
         $pwaTheme = ($pwaTheme !== null && $pwaTheme !== '') ? (string) $pwaTheme : $themePrimary;
         $favicon = config('getfy.favicon_url');
-        $favicon = ($favicon !== null && $favicon !== '') ? (string) $favicon : 'https://cdn.getfy.cloud/collapsed-logo.png';
+        $favicon = ($favicon !== null && $favicon !== '') ? (string) $favicon : '/images/favicon.png';
         $loginHero = config('getfy.login_hero_image');
         $loginHero = ($loginHero !== null && $loginHero !== '') ? (string) $loginHero : 'https://cdn.getfy.cloud/login.webp';
         $loginHeroTagline = (string) config('getfy.login_hero_tagline', 'Sua plataforma para vender mais.');

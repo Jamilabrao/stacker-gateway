@@ -42,7 +42,7 @@ Route::get('/stacker/licenca', [\App\Http\Controllers\StackerLicenseController::
 
 // Favicon: evita 404 no console quando o navegador solicita /favicon.ico
 Route::get('/favicon.ico', function () {
-    return redirect('https://cdn.getfy.cloud/collapsed-logo.png', 302);
+    return redirect('/images/favicon.png', 302);
 });
 
 // PWA Painel: manifest e service worker

@@ -49,7 +49,7 @@ final class PanelPwaIconUrls
             $specs[] = ['src' => $icon512Url, 'sizes' => '512x512'];
         }
         if ($specs === []) {
-            $fallbackIcon = self::toAbsoluteUrl((string) config('getfy.app_logo_icon', 'https://cdn.getfy.cloud/collapsed-logo.png'));
+            $fallbackIcon = self::toAbsoluteUrl((string) config('getfy.app_logo_icon', '/images/favicon.png'));
             $specs[] = ['src' => $fallbackIcon, 'sizes' => '192x192'];
             $specs[] = ['src' => $fallbackIcon, 'sizes' => '512x512'];
 
