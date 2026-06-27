@@ -303,8 +303,7 @@ function detectHostGatewayDir(gatewayRoot: string): string | null {
 function ensureHostDotEnv(gatewayRoot: string): void {
   const script = path.join(gatewayRoot, 'docker', 'ensure-host-dotenv.sh');
   if (fs.existsSync(script)) {
-    const hostDir = detectHostGatewayDir(gatewayRoot) ?? gatewayRoot;
-    execSync(`sh "${script}" "${hostDir}"`, { stdio: 'inherit' });
+    execSync(`sh "${script}"`, { cwd: gatewayRoot, stdio: 'inherit' });
     return;
   }
   const stackEnvPath = path.join(gatewayRoot, '.docker', 'stack.env');
@@ -334,7 +333,7 @@ function scheduleStackerAgentRestart(gatewayRoot: string): void {
   const cmd = [
     `cd "${gatewayRoot}"`,
     'HOST="$(grep -E "^GETFY_HOST_DIR=" .docker/stack.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\\"\'" || echo "$(pwd)")"',
-    'sh docker/ensure-host-dotenv.sh "$HOST" 2>/dev/null || true',
+    'sh docker/ensure-host-dotenv.sh 2>/dev/null || true',
     'set -a && . .docker/stack.env && set +a',
     'PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"',
     'FILES="$(sh docker/detect-compose-files.sh)"',

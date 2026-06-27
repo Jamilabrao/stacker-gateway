@@ -155,7 +155,7 @@ echo "Compose host dir: $HOST_DIR"
 echo "Compose files: $COMPOSE_FILES"
 
 if [ -f docker/ensure-host-dotenv.sh ]; then
-  sh docker/ensure-host-dotenv.sh "$HOST_DIR"
+  sh docker/ensure-host-dotenv.sh
 fi
 
 if [ ! -f public/build/manifest.json ]; then
