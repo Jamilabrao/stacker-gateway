@@ -110,7 +110,48 @@ if ! grep -Eq '^\s*GETFY_COMPOSE_PROJECT_NAME\s*=' "$ENV_FILE" 2>/dev/null; then
   echo "GETFY_COMPOSE_PROJECT_NAME=$PROJECT_NAME" >> "$ENV_FILE"
 fi
 
+resolve_compose_host_dir() {
+  if [ -n "${GETFY_HOST_DIR:-}" ]; then
+    printf '%s' "$GETFY_HOST_DIR"
+    return
+  fi
+  if grep -Eq '^\s*GETFY_HOST_DIR\s*=' "$ENV_FILE" 2>/dev/null; then
+    grep -E '^\s*GETFY_HOST_DIR\s*=' "$ENV_FILE" | tail -1 | sed 's/^[^=]*=\s*//' | tr -d ' "'\'''
+    return
+  fi
+  # Apply roda dentro do stacker-agent (cwd /gateway); volumes relativos viram /gateway/... no host.
+  if [ "$ROOT_DIR" = "/gateway" ] || [ "$(basename "$ROOT_DIR")" = "gateway" ]; then
+    local cid src
+    for cid in $(docker ps -q --filter 'name=stacker-agent' 2>/dev/null); do
+      src="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/gateway"}}{{.Source}}{{end}}{{end}}' "$cid" 2>/dev/null || true)"
+      if [ -n "$src" ]; then
+        printf '%s' "$src"
+        return
+      fi
+    done
+  fi
+  printf '%s' "$ROOT_DIR"
+}
+
+HOST_DIR="$(resolve_compose_host_dir)"
+if [ -z "$HOST_DIR" ]; then
+  echo "GETFY_HOST_DIR não detectado." >&2
+  exit 1
+fi
+
+if ! grep -Eq '^\s*GETFY_HOST_DIR\s*=' "$ENV_FILE" 2>/dev/null; then
+  echo "GETFY_HOST_DIR=$HOST_DIR" >> "$ENV_FILE"
+fi
+
+ENV_FILE_ABS="$HOST_DIR/.docker/stack.env"
+if [ ! -f "$ENV_FILE_ABS" ]; then
+  ENV_FILE_ABS="$ROOT_DIR/.docker/stack.env"
+fi
+
+export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
+
 echo "Compose project: $COMPOSE_PROJECT_NAME"
+echo "Compose host dir: $HOST_DIR"
 echo "Compose files: $COMPOSE_FILES"
 
 if [ ! -f public/build/manifest.json ]; then
@@ -127,7 +168,7 @@ else
   echo "vendor/autoload.php presente — pulando composer install."
 fi
 
-COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" $COMPOSE_ARGS --env-file "$ENV_FILE")
+COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" --project-directory "$HOST_DIR" $COMPOSE_ARGS --env-file "$ENV_FILE_ABS")
 
 echo "=== Rebuild imagem app ==="
 "${COMPOSE[@]}" build app

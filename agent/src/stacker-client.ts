@@ -264,9 +264,39 @@ function ensurePhpUploadsIni(gatewayRoot: string): void {
 function ensureComposeProjectName(gatewayRoot: string): void {
   const envPath = path.join(gatewayRoot, '.docker', 'stack.env');
   if (!fs.existsSync(envPath)) return;
-  const content = fs.readFileSync(envPath, 'utf8');
-  if (/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=/m.test(content)) return;
-  fs.appendFileSync(envPath, '\nGETFY_COMPOSE_PROJECT_NAME=getfy\n', 'utf8');
+  let content = fs.readFileSync(envPath, 'utf8');
+  let changed = false;
+  if (!/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=/m.test(content)) {
+    content += '\nGETFY_COMPOSE_PROJECT_NAME=getfy\n';
+    changed = true;
+  }
+  if (!/^\s*GETFY_HOST_DIR\s*=/m.test(content)) {
+    try {
+      const hostDir = detectHostGatewayDir(gatewayRoot);
+      if (hostDir) {
+        content += `GETFY_HOST_DIR=${hostDir}\n`;
+        changed = true;
+      }
+    } catch {
+      // optional — stacker-apply-update.sh detecta via docker inspect
+    }
+  }
+  if (changed) fs.writeFileSync(envPath, content, 'utf8');
+}
+
+function detectHostGatewayDir(gatewayRoot: string): string | null {
+  if (gatewayRoot !== '/gateway' && path.basename(gatewayRoot) !== 'gateway') {
+    return gatewayRoot;
+  }
+  try {
+    const out = execSync(
+      `docker ps -q --filter 'name=stacker-agent' | head -1 | xargs -r docker inspect -f '{{range .Mounts}}{{if eq .Destination "/gateway"}}{{.Source}}{{end}}{{end}}'`,
+      { encoding: 'utf8' },
+    ).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Reinicia o stacker-agent em background após reportar sucesso (evita matar o apply). */

@@ -22,7 +22,6 @@ services:
     volumes:
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
-      - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/99-uploads.ini:ro
     environment:
       APP_ENV: ${GETFY_APP_ENV:-production}
       APP_DEBUG: ${GETFY_APP_DEBUG:-false}
@@ -91,7 +90,6 @@ services:
     volumes:
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
-      - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/99-uploads.ini:ro
     environment:
       APP_ENV: ${GETFY_APP_ENV:-production}
       APP_DEBUG: ${GETFY_APP_DEBUG:-false}

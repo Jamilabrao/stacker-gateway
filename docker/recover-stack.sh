@@ -16,6 +16,25 @@ echo "=== Getfy: recuperação do stack ==="
 echo "Diretório: $ROOT_DIR"
 echo ""
 
+# uploads.ini como diretório quebra app/scheduler; /gateway no host é lixo de compose dentro do agente.
+if [ -e docker/php/uploads.ini ] && { [ -d docker/php/uploads.ini ] || [ ! -f docker/php/uploads.ini ]; }; then
+  echo "Corrigindo docker/php/uploads.ini (não era arquivo)..."
+  rm -rf docker/php/uploads.ini
+fi
+mkdir -p docker/php
+if [ ! -f docker/php/uploads.ini ]; then
+  cat > docker/php/uploads.ini <<'EOF'
+upload_max_filesize = 512M
+post_max_size = 512M
+memory_limit = 512M
+max_execution_time = 300
+EOF
+fi
+if [ -d /gateway/docker ] && [ "$ROOT_DIR" != "/gateway" ]; then
+  echo "Aviso: /gateway no host (paths errados do agente) — remova manualmente se não for symlink: rm -rf /gateway" >&2
+fi
+echo ""
+
 # Exports antigos na shell root sobrescrevem o --env-file e quebram o Postgres.
 unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
 set -a
@@ -24,22 +43,24 @@ set -a
 set +a
 
 COMPOSE_FILE="$(sh docker/detect-compose-files.sh 2>/dev/null || echo 'docker-compose.yml')"
-echo "Compose detectado: $COMPOSE_FILE"
+PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"
+COMPOSE=(docker compose -p "$PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
+echo "Compose detectado: $COMPOSE_FILE (project: $PROJECT)"
 echo "GETFY_DB_USERNAME=${GETFY_DB_USERNAME:-?}"
 echo "GETFY_DB_DATABASE=${GETFY_DB_DATABASE:-getfy}"
 echo ""
 
 echo "=== 1) Estado dos containers ==="
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps -a 2>/dev/null || true
+"${COMPOSE[@]}" ps -a 2>/dev/null || true
 echo ""
 
 echo "=== 2) Últimas linhas do app (procure 'Banco indisponível' ou 'role does not exist') ==="
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs app --tail 40 2>/dev/null || docker logs getfy-app-1 --tail 40 2>/dev/null || true
+"${COMPOSE[@]}" logs app --tail 40 2>/dev/null || docker logs getfy-app-1 --tail 40 2>/dev/null || true
 echo ""
 
 if [ "$COMPOSE_FILE" = "docker-compose.caddy.yml" ]; then
   echo "=== 3) Logs Caddy ==="
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs caddy --tail 25 2>/dev/null || true
+  "${COMPOSE[@]}" logs caddy --tail 25 2>/dev/null || true
   echo ""
 fi
 
@@ -106,8 +127,9 @@ else
 fi
 echo ""
 
-echo "=== 6) Subir stack completo (app + postgres + redis + workers/queue + scheduler) ==="
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
+echo "=== 6) Rebuild app (limites PHP na imagem) + subir stack ==="
+"${COMPOSE[@]}" build app
+"${COMPOSE[@]}" up -d --remove-orphans
 echo ""
 
 echo "Aguardando app (15s)..."
