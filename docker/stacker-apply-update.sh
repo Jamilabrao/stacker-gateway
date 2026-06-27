@@ -39,7 +39,7 @@ if [ ! -f docker/detect-compose-files.sh ]; then
   exit 1
 fi
 
-chmod +x docker/detect-compose-files.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh 2>/dev/null || true
+chmod +x docker/detect-compose-files.sh docker/build-frontend.sh docker/install-composer-deps.sh docker/ensure-upload-limits.sh docker/ensure-host-dotenv.sh 2>/dev/null || true
 
 ENV_FILE=".docker/stack.env"
 if [ ! -f "$ENV_FILE" ]; then
@@ -153,6 +153,10 @@ export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 echo "Compose project: $COMPOSE_PROJECT_NAME"
 echo "Compose host dir: $HOST_DIR"
 echo "Compose files: $COMPOSE_FILES"
+
+if [ -f docker/ensure-host-dotenv.sh ]; then
+  sh docker/ensure-host-dotenv.sh "$HOST_DIR"
+fi
 
 if [ ! -f public/build/manifest.json ]; then
   echo "=== Build frontend (manifest ausente) ==="

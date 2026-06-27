@@ -205,6 +205,7 @@ export async function applyUpdate(
 
   ensurePhpUploadsIni(gatewayRoot);
   ensureComposeProjectName(gatewayRoot);
+  ensureHostDotEnv(gatewayRoot);
 
   const applyScript = path.join(gatewayRoot, 'docker', 'stacker-apply-update.sh');
   if (!fs.existsSync(applyScript)) {
@@ -299,17 +300,48 @@ function detectHostGatewayDir(gatewayRoot: string): string | null {
   }
 }
 
+function ensureHostDotEnv(gatewayRoot: string): void {
+  const script = path.join(gatewayRoot, 'docker', 'ensure-host-dotenv.sh');
+  if (fs.existsSync(script)) {
+    const hostDir = detectHostGatewayDir(gatewayRoot) ?? gatewayRoot;
+    execSync(`sh "${script}" "${hostDir}"`, { stdio: 'inherit' });
+    return;
+  }
+  const stackEnvPath = path.join(gatewayRoot, '.docker', 'stack.env');
+  const dotenvPath = path.join(gatewayRoot, '.env');
+  if (!fs.existsSync(stackEnvPath) || (fs.existsSync(dotenvPath) && fs.statSync(dotenvPath).size > 0)) {
+    return;
+  }
+  const stack = fs.readFileSync(stackEnvPath, 'utf8');
+  const pick = (key: string, fallback = '') => {
+    const m = stack.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm'));
+    return m ? m[1].trim().replace(/^["']|["']$/g, '') : fallback;
+  };
+  const lines = [
+    `GETFY_DB_CONNECTION=${pick('GETFY_DB_CONNECTION', 'pgsql')}`,
+    `GETFY_DB_HOST=${pick('GETFY_DB_HOST', 'postgres')}`,
+    `GETFY_DB_PORT=${pick('GETFY_DB_PORT', '5432')}`,
+    `GETFY_DB_DATABASE=${pick('GETFY_DB_DATABASE', 'getfy')}`,
+    `GETFY_DB_USERNAME=${pick('GETFY_DB_USERNAME', 'getfy')}`,
+    `GETFY_DB_PASSWORD=${pick('GETFY_DB_PASSWORD', 'getfy')}`,
+    `GETFY_APP_URL=${pick('GETFY_APP_URL', 'http://localhost')}`,
+  ];
+  fs.writeFileSync(dotenvPath, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
 /** Reinicia o stacker-agent em background após reportar sucesso (evita matar o apply). */
 function scheduleStackerAgentRestart(gatewayRoot: string): void {
   const cmd = [
     `cd "${gatewayRoot}"`,
+    'HOST="$(grep -E "^GETFY_HOST_DIR=" .docker/stack.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\\"\'" || echo "$(pwd)")"',
+    'sh docker/ensure-host-dotenv.sh "$HOST" 2>/dev/null || true',
     'set -a && . .docker/stack.env && set +a',
     'PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"',
     'FILES="$(sh docker/detect-compose-files.sh)"',
     'ARGS=""',
     'for f in $FILES; do ARGS="$ARGS -f $f"; done',
-    'docker compose -p "$PROJECT" $ARGS --env-file .docker/stack.env build stacker-agent',
-    'docker compose -p "$PROJECT" $ARGS --env-file .docker/stack.env up -d stacker-agent',
+    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" build stacker-agent',
+    'docker compose -p "$PROJECT" --project-directory "$HOST" $ARGS --env-file "$HOST/.docker/stack.env" up -d stacker-agent',
   ].join(' && ');
   spawn('bash', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
 }

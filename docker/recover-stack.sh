@@ -111,19 +111,23 @@ fi
 echo ""
 
 echo "=== 5) Sincronizar .env do host (Compose lê .env na raiz) ==="
-if [ ! -f .env ] || [ ! -s .env ]; then
-  {
-    echo "GETFY_DB_CONNECTION=${GETFY_DB_CONNECTION:-pgsql}"
-    echo "GETFY_DB_HOST=${GETFY_DB_HOST:-postgres}"
-    echo "GETFY_DB_PORT=${GETFY_DB_PORT:-5432}"
-    echo "GETFY_DB_DATABASE=${GETFY_DB_DATABASE:-getfy}"
-    echo "GETFY_DB_USERNAME=${GETFY_DB_USERNAME}"
-    echo "GETFY_DB_PASSWORD=${GETFY_DB_PASSWORD}"
-    echo "GETFY_APP_URL=${GETFY_APP_URL:-http://localhost}"
-  } > .env
-  echo "Criado .env a partir de $ENV_FILE"
+if [ -f docker/ensure-host-dotenv.sh ]; then
+  sh docker/ensure-host-dotenv.sh "$ROOT_DIR"
 else
-  echo ".env já existe ($(wc -c < .env | tr -d ' ') bytes)"
+  if [ ! -f .env ] || [ ! -s .env ]; then
+    {
+      echo "GETFY_DB_CONNECTION=${GETFY_DB_CONNECTION:-pgsql}"
+      echo "GETFY_DB_HOST=${GETFY_DB_HOST:-postgres}"
+      echo "GETFY_DB_PORT=${GETFY_DB_PORT:-5432}"
+      echo "GETFY_DB_DATABASE=${GETFY_DB_DATABASE:-getfy}"
+      echo "GETFY_DB_USERNAME=${GETFY_DB_USERNAME}"
+      echo "GETFY_DB_PASSWORD=${GETFY_DB_PASSWORD}"
+      echo "GETFY_APP_URL=${GETFY_APP_URL:-http://localhost}"
+    } > .env
+    echo "Criado .env a partir de $ENV_FILE"
+  else
+    echo ".env já existe ($(wc -c < .env | tr -d ' ') bytes)"
+  fi
 fi
 echo ""
 
