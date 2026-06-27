@@ -88,8 +88,8 @@ done
 
 chmod 600 "$DOTENV" 2>/dev/null || true
 
-if ! grep -Eq '^\s*STACKER_AGENT_TOKEN\s*=' "$DOTENV" 2>/dev/null; then
-  echo "ensure-host-dotenv: aviso — STACKER_AGENT_TOKEN ainda ausente em $DOTENV" >&2
+if ! grep -Eq '^[[:space:]]*STACKER_AGENT_TOKEN=[^[:space:]]' "$DOTENV" 2>/dev/null; then
+  echo "ensure-host-dotenv: aviso — STACKER_AGENT_TOKEN vazio ou ausente em $DOTENV" >&2
   exit 1
 fi
 
