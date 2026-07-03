@@ -34,7 +34,7 @@ return [
         'firebase_web_vapid_key' => env('FIREBASE_WEB_VAPID_KEY'),
         'firebase_service_account' => null,
     ],
-    'app_name' => 'Getfy',
+    'app_name' => 'Stacker',
     'theme_primary' => '#0050fc',
     'app_logo' => '/images/logo.png',
     'app_logo_dark' => '/images/logo-dark.png',

@@ -51,14 +51,24 @@ class UtmifySaleDispatchTest extends TestCase
             }
 
             $body = $request->data();
+            $tracking = $body['trackingParameters'] ?? [];
+
+            foreach (\App\Models\CheckoutSession::TRACKING_FIELD_KEYS as $key) {
+                if (! array_key_exists($key, $tracking)) {
+                    return false;
+                }
+            }
 
             return $request->hasHeader('x-api-token', 'e2e-api-key')
                 && ($body['status'] ?? '') === 'paid'
                 && ($body['orderId'] ?? '') === (string) $order->id
-                && ($body['trackingParameters']['utm_source'] ?? '') === 'facebook'
-                && ($body['trackingParameters']['utm_campaign'] ?? '') === 'black-friday'
-                && array_key_exists('utm_content', $body['trackingParameters'] ?? [])
-                && array_key_exists('utm_term', $body['trackingParameters'] ?? []);
+                && ($tracking['utm_source'] ?? '') === 'facebook'
+                && ($tracking['utm_campaign'] ?? '') === 'black-friday'
+                && $tracking['utm_medium'] === null
+                && $tracking['utm_content'] === null
+                && $tracking['utm_term'] === null
+                && $tracking['sck'] === null
+                && $tracking['src'] === null;
         });
 
         $order->refresh();

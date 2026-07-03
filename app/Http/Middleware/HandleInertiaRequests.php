@@ -363,7 +363,7 @@ class HandleInertiaRequests extends Middleware
         $loginHeroSubtagline = (string) config('getfy.login_hero_subtagline', 'Feita para quem escala de verdade.');
 
         return [
-            'app_name' => (string) config('getfy.app_name', 'Getfy'),
+            'app_name' => (string) config('getfy.app_name', 'Stacker'),
             'theme_primary' => $themePrimary,
             'pwa_theme_color' => $pwaTheme,
             'app_logo' => (string) config('getfy.app_logo'),

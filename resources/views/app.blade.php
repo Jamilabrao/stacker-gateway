@@ -11,7 +11,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     @include('partials.panel-theme-init')
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ config('getfy.app_name', config('app.name', 'Getfy')) }}</title>
+    <title>{{ config('getfy.app_name', config('app.name', 'Stacker')) }}</title>
     @unless($skipPanelPwa)
     @php
         $wlFavicon = config('getfy.favicon_url');

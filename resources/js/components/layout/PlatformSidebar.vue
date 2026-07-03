@@ -31,7 +31,7 @@ const { isExpanded, isMobileOpen, toggleSidebar, isMobile } = useSidebar();
 const showText = () => isExpanded.value || isMobileOpen.value;
 
 const appSettings = () => page.props.appSettings ?? {};
-const appName = () => appSettings().app_name || 'Getfy';
+const appName = () => appSettings().app_name || 'Stacker';
 const hasLogoFull = () => !!(appSettings().app_logo || appSettings().app_logo_dark);
 const hasLogoIcon = () => !!(appSettings().app_logo_icon || appSettings().app_logo_icon_dark);
 

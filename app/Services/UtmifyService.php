@@ -214,7 +214,7 @@ class UtmifyService
     }
 
     /**
-     * UTMIFY exige utm_content e utm_term sempre presentes (string ou null).
+     * UTMify exige todas as 7 chaves de tracking sempre presentes (string ou null).
      * Prioridade: order.metadata > CheckoutSession.
      *
      * @param  array<string, mixed>  $meta
@@ -224,22 +224,10 @@ class UtmifyService
     {
         $trackingParameters = [];
 
-        foreach (['src', 'sck', 'utm_source', 'utm_medium', 'utm_campaign'] as $key) {
-            $raw = $meta[$key] ?? $session?->{$key} ?? null;
-            if (! is_string($raw)) {
-                continue;
-            }
-            $trimmed = trim($raw);
-            if ($trimmed !== '') {
-                $trackingParameters[$key] = $trimmed;
-            }
-        }
-
-        foreach (['utm_content', 'utm_term'] as $key) {
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $key) {
             $raw = $meta[$key] ?? $session?->{$key} ?? null;
             if (is_string($raw)) {
                 $trimmed = trim($raw);
-
                 $trackingParameters[$key] = $trimmed !== '' ? $trimmed : null;
             } else {
                 $trackingParameters[$key] = null;

@@ -1,7 +1,7 @@
 Comando para instalação.
 Execute no Terminal da sua VPS:
 
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker-gateway/main/install.sh)"
+GETFY_LEGACY_GIT_UPDATE=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/stacker-builders/stacker-gateway/main/install.sh)"
 
 Importante: o repositório pode permanecer **privado** quando o update remoto via Stacker estiver configurado (`STACKER_AGENT_TOKEN` + releases na API).
 

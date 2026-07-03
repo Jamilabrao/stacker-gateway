@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         @include('partials.panel-theme-init')
-        <title>{{ config('app.name', 'Getfy') }}</title>
+        <title>{{ config('getfy.app_name', config('app.name', 'Stacker')) }}</title>
         <link rel="icon" href="/images/favicon.png" type="image/png">
 
         <!-- Fonts -->

@@ -70,7 +70,7 @@ class UtmifyPayloadAndTestTest extends TestCase
         $this->assertSame('credit_card', $payload['paymentMethod']);
     }
 
-    public function test_build_payload_includes_nullable_utm_content_and_term(): void
+    public function test_build_payload_always_includes_all_seven_tracking_keys(): void
     {
         $order = new Order([
             'tenant_id' => 1,
@@ -88,12 +88,19 @@ class UtmifyPayloadAndTestTest extends TestCase
         $order->updated_at = now();
 
         $payload = (new UtmifyService)->buildPayload($order, 'paid', []);
+        $tracking = $payload['trackingParameters'];
 
-        $this->assertArrayHasKey('utm_content', $payload['trackingParameters']);
-        $this->assertArrayHasKey('utm_term', $payload['trackingParameters']);
-        $this->assertNull($payload['trackingParameters']['utm_content']);
-        $this->assertNull($payload['trackingParameters']['utm_term']);
-        $this->assertSame('facebook', $payload['trackingParameters']['utm_source']);
+        foreach (\App\Models\CheckoutSession::TRACKING_FIELD_KEYS as $key) {
+            $this->assertArrayHasKey($key, $tracking, "Missing tracking key: {$key}");
+        }
+
+        $this->assertSame('facebook', $tracking['utm_source']);
+        $this->assertSame('promo', $tracking['utm_campaign']);
+        $this->assertNull($tracking['utm_medium']);
+        $this->assertNull($tracking['utm_content']);
+        $this->assertNull($tracking['utm_term']);
+        $this->assertNull($tracking['sck']);
+        $this->assertNull($tracking['src']);
     }
 
     public function test_test_endpoint_sends_is_test_payload(): void
@@ -120,11 +127,15 @@ class UtmifyPayloadAndTestTest extends TestCase
             $body = $request->data();
             $tracking = $body['trackingParameters'] ?? [];
 
+            foreach (\App\Models\CheckoutSession::TRACKING_FIELD_KEYS as $key) {
+                if (! array_key_exists($key, $tracking)) {
+                    return false;
+                }
+            }
+
             return $request->url() === 'https://api.utmify.com.br/api-credentials/orders'
                 && ($body['isTest'] ?? false) === true
-                && ($body['platform'] ?? '') === config('getfy.app_name', 'Getfy')
-                && array_key_exists('utm_content', $tracking)
-                && array_key_exists('utm_term', $tracking);
+                && ($body['platform'] ?? '') === config('getfy.app_name', 'Getfy');
         });
     }
 

@@ -17,7 +17,7 @@ export function usePlatformBranding() {
         return page.props.public_branding ?? {};
     });
 
-    const appName = computed(() => branding.value.app_name || 'Getfy');
+    const appName = computed(() => branding.value.app_name || 'Stacker');
 
     const hasLogoFull = computed(
         () => !!(branding.value.app_logo || branding.value.app_logo_dark)

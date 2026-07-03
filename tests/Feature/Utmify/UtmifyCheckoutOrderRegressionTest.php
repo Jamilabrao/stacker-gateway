@@ -70,10 +70,18 @@ class UtmifyCheckoutOrderRegressionTest extends TestCase
             $body = $request->data();
             $tp = $body['trackingParameters'] ?? [];
 
+            foreach (\App\Models\CheckoutSession::TRACKING_FIELD_KEYS as $key) {
+                if (! array_key_exists($key, $tp)) {
+                    return false;
+                }
+            }
+
             return ($body['status'] ?? '') === 'waiting_payment'
                 && ($tp['utm_source'] ?? '') === 'facebook'
                 && ($tp['utm_campaign'] ?? '') === 'launch'
-                && ($tp['utm_content'] ?? '') === 'ad-1';
+                && ($tp['utm_content'] ?? '') === 'ad-1'
+                && $tp['sck'] === null
+                && $tp['src'] === null;
         });
 
         $order->refresh();
