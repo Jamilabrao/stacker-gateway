@@ -49,13 +49,13 @@ function goBack() {
 <template>
     <Head :title="sidebar_label" />
 
-    <div class="flex min-h-[calc(100dvh-0px)] flex-col text-zinc-100 lg:min-h-[calc(100dvh-1rem)]">
+    <div class="flex min-h-[calc(100dvh-0px)] flex-col text-zinc-900 dark:text-zinc-100 lg:min-h-[calc(100dvh-1rem)]">
         <!-- Mobile header (sem AppHeader no PixGO) -->
-        <header class="border-b border-zinc-800/80 px-4 py-4 lg:hidden">
+        <header class="border-b border-zinc-200 px-4 py-4 dark:border-zinc-800/80 lg:hidden">
             <div class="mx-auto flex max-w-md items-center gap-3">
                 <button
                     type="button"
-                    class="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-900 hover:text-white"
+                    class="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
                     aria-label="Voltar"
                     @click="goBack"
                 >
@@ -66,7 +66,7 @@ function goBack() {
                         <Zap class="h-4 w-4" />
                     </span>
                     <div>
-                        <p class="text-base font-bold text-white">{{ sidebar_label }}</p>
+                        <p class="text-base font-bold text-zinc-900 dark:text-white">{{ sidebar_label }}</p>
                         <p class="text-xs text-zinc-500">Digite o valor e cobre</p>
                     </div>
                 </div>
@@ -88,13 +88,13 @@ function goBack() {
             >
                 {{ form.processing ? 'Gerando PIX…' : 'Cobrar' }}
             </button>
-            <p v-if="chargeHint" class="mt-2 text-center text-xs text-amber-400/90">{{ chargeHint }}</p>
-            <p v-if="form.errors.amount" class="mt-2 text-center text-xs text-red-400">{{ form.errors.amount }}</p>
+            <p v-if="chargeHint" class="mt-2 text-center text-xs text-amber-600 dark:text-amber-400/90">{{ chargeHint }}</p>
+            <p v-if="form.errors.amount" class="mt-2 text-center text-xs text-red-500 dark:text-red-400">{{ form.errors.amount }}</p>
 
             <div class="mt-6 w-full max-w-md">
                 <button
                     type="button"
-                    class="flex w-full items-center justify-between border-b border-zinc-800 py-3 text-sm text-zinc-400 transition hover:text-zinc-200"
+                    class="flex w-full items-center justify-between border-b border-zinc-200 py-3 text-sm text-zinc-500 transition hover:text-zinc-800 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
                     @click="buyerOpen = !buyerOpen"
                 >
                     <span class="flex items-center gap-2">
@@ -109,19 +109,19 @@ function goBack() {
                         v-model="form.buyer.name"
                         type="text"
                         placeholder="Nome"
-                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30"
+                        class="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30 dark:border-zinc-800 dark:bg-zinc-950 dark:text-white dark:placeholder:text-zinc-600"
                     />
                     <input
                         v-model="form.buyer.email"
                         type="email"
                         placeholder="E-mail"
-                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30"
+                        class="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30 dark:border-zinc-800 dark:bg-zinc-950 dark:text-white dark:placeholder:text-zinc-600"
                     />
                     <input
                         v-model="form.buyer.cpf"
                         type="text"
                         placeholder="CPF"
-                        class="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30"
+                        class="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]/30 dark:border-zinc-800 dark:bg-zinc-950 dark:text-white dark:placeholder:text-zinc-600"
                     />
                 </div>
             </div>

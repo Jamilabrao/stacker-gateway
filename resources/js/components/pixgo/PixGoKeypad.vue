@@ -39,7 +39,7 @@ function backspace() {
 <template>
     <div class="w-full max-w-md">
         <div
-            class="rounded-2xl border border-[var(--color-primary)]/40 bg-zinc-950 px-6 py-8 text-center"
+            class="rounded-2xl border border-[var(--color-primary)]/40 bg-zinc-50 px-6 py-8 text-center dark:bg-zinc-950"
             :style="amountCardStyle"
         >
             <p class="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--color-primary)]/80">{{ label }}</p>
@@ -51,14 +51,14 @@ function backspace() {
                 v-for="n in 9"
                 :key="n"
                 type="button"
-                class="flex h-16 items-center justify-center rounded-xl bg-zinc-900 text-2xl font-medium text-zinc-100 transition hover:bg-zinc-800 active:scale-95"
+                class="flex h-16 items-center justify-center rounded-xl bg-zinc-100 text-2xl font-medium text-zinc-900 transition hover:bg-zinc-200 active:scale-95 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                 @click="pushDigit(n)"
             >
                 {{ n }}
             </button>
             <button
                 type="button"
-                class="flex h-16 flex-col items-center justify-center gap-0.5 rounded-xl bg-zinc-900 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
+                class="flex h-16 flex-col items-center justify-center gap-0.5 rounded-xl bg-zinc-100 text-xs font-medium text-zinc-600 transition hover:bg-zinc-200 active:scale-95 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 @click="clearAll"
             >
                 <Trash2 class="h-4 w-4" />
@@ -66,14 +66,14 @@ function backspace() {
             </button>
             <button
                 type="button"
-                class="flex h-16 items-center justify-center rounded-xl bg-zinc-900 text-2xl font-medium text-zinc-100 transition hover:bg-zinc-800 active:scale-95"
+                class="flex h-16 items-center justify-center rounded-xl bg-zinc-100 text-2xl font-medium text-zinc-900 transition hover:bg-zinc-200 active:scale-95 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                 @click="pushDigit(0)"
             >
                 0
             </button>
             <button
                 type="button"
-                class="flex h-16 items-center justify-center rounded-xl bg-zinc-900 text-zinc-300 transition hover:bg-zinc-800 active:scale-95"
+                class="flex h-16 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 transition hover:bg-zinc-200 active:scale-95 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 aria-label="Apagar"
                 @click="backspace"
             >

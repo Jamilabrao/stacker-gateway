@@ -149,12 +149,12 @@ onUnmounted(() => {
 <template>
     <Head :title="`${sidebar_label} — Cobrança`" />
 
-    <div class="flex min-h-[calc(100dvh-0px)] flex-col text-zinc-100 lg:min-h-[calc(100dvh-1rem)]">
-        <header class="border-b border-zinc-800/80 px-4 py-4">
+    <div class="flex min-h-[calc(100dvh-0px)] flex-col text-zinc-900 dark:text-zinc-100 lg:min-h-[calc(100dvh-1rem)]">
+        <header class="border-b border-zinc-200 px-4 py-4 dark:border-zinc-800/80">
             <div class="mx-auto flex max-w-md items-center gap-3">
                 <button
                     type="button"
-                    class="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-900 hover:text-white"
+                    class="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
                     aria-label="Voltar"
                     @click="goBack"
                 >
@@ -165,7 +165,7 @@ onUnmounted(() => {
                         <Zap class="h-4 w-4" />
                     </span>
                     <div>
-                        <p class="text-base font-bold text-white">{{ sidebar_label }}</p>
+                        <p class="text-base font-bold text-zinc-900 dark:text-white">{{ sidebar_label }}</p>
                         <p class="text-xs text-zinc-500">Aguardando pagamento</p>
                     </div>
                 </div>
@@ -177,7 +177,7 @@ onUnmounted(() => {
                 <span class="flex h-20 w-20 items-center justify-center rounded-full bg-[var(--color-primary)]/20 text-[var(--color-primary)]">
                     <Check class="h-10 w-10" />
                 </span>
-                <h1 class="mt-6 text-2xl font-bold text-white">Pagamento recebido!</h1>
+                <h1 class="mt-6 text-2xl font-bold text-zinc-900 dark:text-white">Pagamento recebido!</h1>
                 <p class="mt-2 text-lg text-[var(--color-primary)]">{{ amount_formatted }}</p>
                 <button
                     type="button"
@@ -189,7 +189,7 @@ onUnmounted(() => {
             </div>
 
             <div v-else-if="status === 'expired'" class="flex w-full flex-col items-center py-12 text-center">
-                <p class="text-lg text-zinc-400">Cobrança expirada</p>
+                <p class="text-lg text-zinc-500 dark:text-zinc-400">Cobrança expirada</p>
                 <button
                     type="button"
                     class="mt-8 w-full rounded-xl bg-[var(--color-primary)] py-4 font-bold text-white transition hover:opacity-90"
@@ -200,7 +200,7 @@ onUnmounted(() => {
             </div>
 
             <template v-else>
-                <div class="w-full rounded-2xl border border-[var(--color-primary)]/30 bg-zinc-950 p-6 text-center">
+                <div class="w-full rounded-2xl border border-[var(--color-primary)]/30 bg-zinc-50 p-6 text-center dark:bg-zinc-950">
                     <p class="text-xs font-semibold uppercase tracking-widest text-[var(--color-primary)]/80">Valor</p>
                     <p class="mt-2 text-3xl font-bold text-[var(--color-primary)]">{{ amount_formatted }}</p>
                     <p class="mt-2 text-xs text-zinc-500">Expira em {{ timerDisplay }}</p>
@@ -219,13 +219,13 @@ onUnmounted(() => {
                 <div v-if="copy_paste" class="mt-6 w-full">
                     <p class="mb-2 text-center text-xs text-zinc-500">Pix copia e cola</p>
                     <div
-                        class="cursor-pointer rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+                        class="cursor-pointer rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950"
                         role="button"
                         tabindex="0"
                         @click="selectPixCode"
                         @keydown.enter.prevent="copyPixCode"
                     >
-                        <p ref="pixCodeEl" class="break-all text-center text-xs leading-relaxed text-zinc-300 select-all">{{ copy_paste }}</p>
+                        <p ref="pixCodeEl" class="break-all text-center text-xs leading-relaxed text-zinc-600 select-all dark:text-zinc-300">{{ copy_paste }}</p>
                     </div>
                     <button
                         type="button"

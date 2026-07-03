@@ -115,7 +115,7 @@ const mainOffsetClass = computed(() => {
 
 const contentShellClass = computed(() => {
     if (isPixGoRoute.value) {
-        return 'flex min-h-[calc(100dvh-0px)] flex-1 flex-col overflow-hidden rounded-none bg-[#0a0a0a] shadow-none lg:min-h-[calc(100dvh-1rem)]';
+        return 'flex min-h-[calc(100dvh-0px)] flex-1 flex-col overflow-hidden rounded-none bg-white shadow-none dark:bg-[#0a0a0a] lg:min-h-[calc(100dvh-1rem)]';
     }
     if (isThemedShell.value && !customerPanel.value) {
         const prefix = isKawaii.value ? 'kawaii-content-shell' : 'aurora-content-shell';
