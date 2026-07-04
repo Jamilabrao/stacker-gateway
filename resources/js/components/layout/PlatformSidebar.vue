@@ -10,6 +10,7 @@ import {
     X,
     Settings,
     Mail,
+    MessageSquare,
     Smartphone,
     Wallet,
     ArrowLeftRight,
@@ -81,6 +82,7 @@ const navItemsCore = [
     { name: 'App', href: '/plataforma/app', icon: Smartphone },
     { name: 'Conquistas', href: '/plataforma/conquistas', icon: Trophy },
     { name: 'E-mail Marketing', href: '/plataforma/email-marketing', icon: Mail },
+    { name: 'IntegraX SMS', href: '/plataforma/integrax', icon: MessageSquare },
 ];
 
 const pluginNavItems = computed(() => {

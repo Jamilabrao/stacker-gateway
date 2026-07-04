@@ -79,7 +79,9 @@ class LoginController extends Controller
                 $request->session()->regenerateToken();
 
                 return back()->withErrors([
-                    'email' => 'Credenciais inválidas.',
+                    'email' => app()->environment('local')
+                        ? 'Esta conta é do painel operador. Acesse /plataforma/login.'
+                        : 'Credenciais inválidas.',
                 ])->onlyInput('email');
             }
             if ($user && $user->canAccessSellerPanel() && $user->sellerAccountAccessBlocked()) {

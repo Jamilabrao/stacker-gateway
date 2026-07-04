@@ -63,6 +63,12 @@ fi
 # Se houver cache de config, pode "prender" env antigo. Limpa de forma segura (sem falhar o boot).
 rm -f bootstrap/cache/config.php 2>/dev/null || true
 
+# Worker/scheduler compartilham o volume .env com o app. Regravar .env aqui reinicia
+# "php artisan serve" (watch do .env) e derruba a resposta HTTP (ERR_EMPTY_RESPONSE).
+if [ "${GETFY_RUN_SETUP:-true}" != "true" ]; then
+  exec "$@"
+fi
+
 php -r '
 $envFile = ".env";
 $content = file_exists($envFile) ? (string) file_get_contents($envFile) : "";

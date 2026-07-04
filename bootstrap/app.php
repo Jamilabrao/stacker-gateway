@@ -198,6 +198,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->job(new \App\Jobs\ChargeDueSubscriptionsWithSavedCardJob)->dailyAt('07:00');
         $schedule->command('subscriptions:expire-due')->dailyAt('00:10');
         $schedule->command('checkout:fire-abandoned-cart-webhooks --minutes=10')->everyMinute();
+        $schedule->command('integrax:process-cart-recovery')->everyMinute();
         $schedule->command('email-campaign:process')->everyMinute();
         $schedule->command('payments:reconcile-pending --limit=200 --days=45 --min-age-minutes=0')->everyTwoMinutes();
         $schedule->command('payments:reconcile-pending --source=pixgo --limit=100 --days=1 --min-age-minutes=1')->everyMinute();

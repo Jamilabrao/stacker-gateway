@@ -77,8 +77,14 @@ class DockerSetupState
             return false;
         }
 
-        if ($host === '' || $host === 'localhost' || $host === '127.0.0.1') {
+        if ($host === '') {
             return false;
+        }
+
+        if (in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+            $port = isset($parts['port']) ? (int) $parts['port'] : 0;
+
+            return $port > 0 && ! in_array($port, [80, 443], true);
         }
 
         return true;

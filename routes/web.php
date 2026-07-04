@@ -493,6 +493,10 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/email-marketing/{campaign}', [\App\Http\Controllers\EmailMarketingController::class, 'update'])->name('email-marketing.update');
         Route::post('/email-marketing/{campaign}/preview-recipients', [\App\Http\Controllers\EmailMarketingController::class, 'previewRecipients'])->name('email-marketing.preview-recipients');
         Route::post('/email-marketing/{campaign}/send', [\App\Http\Controllers\EmailMarketingController::class, 'send'])->name('email-marketing.send');
+
+        Route::get('/integrax', [\App\Http\Controllers\Platform\IntegraxController::class, 'index'])->name('integrax.index');
+        Route::put('/integrax', [\App\Http\Controllers\Platform\IntegraxController::class, 'update'])->name('integrax.update');
+        Route::post('/integrax/test', [\App\Http\Controllers\Platform\IntegraxController::class, 'test'])->name('integrax.test');
     });
 });
 

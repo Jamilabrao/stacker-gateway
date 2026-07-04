@@ -55,7 +55,8 @@ class CreateFirstAdminController extends Controller
 
         try {
             $user = DB::transaction(function () use ($validated) {
-                if (User::query()->lockForUpdate()->count() > 0) {
+                // PostgreSQL não permite SELECT count(*) ... FOR UPDATE.
+                if (User::query()->lockForUpdate()->first() !== null) {
                     abort(403, 'O primeiro administrador já foi criado.');
                 }
 

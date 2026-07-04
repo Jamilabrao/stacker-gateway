@@ -61,8 +61,15 @@ class DockerSetupController extends Controller
         // Não forçar https:// só por ser um hostname: no compose padrão só existe HTTP (ex.: :80).
         // Se gravarmos https sem TLS na frente, o login quebra (cookies Secure + redirects) e https://domínio recusa conexão (nada na 443).
         $scheme = $this->resolveRequestScheme($request);
+        $url = $scheme.'://'.$host;
+        $port = (int) $request->getPort();
+        $defaultPort = $scheme === 'https' ? 443 : 80;
 
-        return $scheme.'://'.$host;
+        if ($port > 0 && $port !== $defaultPort) {
+            $url .= ':'.$port;
+        }
+
+        return $url;
     }
 
     private function resolveRequestScheme(Request $request): string

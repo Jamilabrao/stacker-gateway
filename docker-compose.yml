@@ -246,6 +246,31 @@ services:
       redis:
         condition: service_healthy
 
+  worker-integrax-sms:
+    image: getfy_app:latest
+    restart: unless-stopped
+    command:
+      - "php"
+      - "artisan"
+      - "queue:work"
+      - "--queue=integrax-sms"
+      - "--sleep=1"
+      - "--tries=5"
+      - "--timeout=60"
+    volumes:
+      - getfy_storage:/var/www/html/storage
+      - getfy_env:/var/www/html/.docker
+    environment:
+      QUEUE_CONNECTION: ${GETFY_QUEUE_CONNECTION:-redis}
+      REDIS_HOST: ${GETFY_REDIS_HOST:-redis}
+      DB_CONNECTION: ${GETFY_DB_CONNECTION:-pgsql}
+      DB_HOST: ${GETFY_DB_HOST:-postgres}
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   stacker-agent:
     build:
       context: ./agent

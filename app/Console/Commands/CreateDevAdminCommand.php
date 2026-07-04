@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Models\User;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Hash;
 
 class CreateDevAdminCommand extends Command
 {
@@ -32,7 +31,7 @@ class CreateDevAdminCommand extends Command
         $payload = [
             'name' => $name,
             'email' => $email,
-            'password' => Hash::make($password),
+            'password' => $password,
             'role' => User::ROLE_PLATFORM_ADMIN,
             'tenant_id' => null,
         ];

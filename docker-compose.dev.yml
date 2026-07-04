@@ -60,3 +60,62 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  worker:
+    image: getfy_app:dev
+    restart: unless-stopped
+    command:
+      - "php"
+      - "artisan"
+      - "queue:work"
+      - "--queue=integrax-sms,utmify-tracking,webhooks-outbound,webhooks-inbound,payments,default"
+      - "--sleep=2"
+      - "--tries=3"
+      - "--timeout=120"
+    volumes:
+      - .:/var/www/html
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      APP_ENV: local
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+      DB_CONNECTION: pgsql
+      DB_HOST: host.docker.internal
+      DB_PORT: ${LOCALDB_PG_PORT:-5433}
+      DB_DATABASE: ${LOCALDB_POSTGRES_DB:-getfy}
+      DB_USERNAME: ${LOCALDB_POSTGRES_USER:-getfy}
+      DB_PASSWORD: ${LOCALDB_POSTGRES_PASSWORD:-getfy}
+      REDIS_HOST: host.docker.internal
+      REDIS_PORT: ${LOCALDB_REDIS_PORT:-6379}
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+    depends_on:
+      app:
+        condition: service_started
+
+  scheduler:
+    image: getfy_app:dev
+    restart: unless-stopped
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - .:/var/www/html
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      APP_ENV: local
+      GETFY_DOCKER: "true"
+      GETFY_RUN_SETUP: "false"
+      DB_CONNECTION: pgsql
+      DB_HOST: host.docker.internal
+      DB_PORT: ${LOCALDB_PG_PORT:-5433}
+      DB_DATABASE: ${LOCALDB_POSTGRES_DB:-getfy}
+      DB_USERNAME: ${LOCALDB_POSTGRES_USER:-getfy}
+      DB_PASSWORD: ${LOCALDB_POSTGRES_PASSWORD:-getfy}
+      REDIS_HOST: host.docker.internal
+      REDIS_PORT: ${LOCALDB_REDIS_PORT:-6379}
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+    depends_on:
+      app:
+        condition: service_started

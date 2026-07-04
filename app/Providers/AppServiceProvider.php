@@ -208,6 +208,7 @@ class AppServiceProvider extends ServiceProvider
         Event::subscribe(MetaConversionsEventSubscriber::class);
         Event::subscribe(SpedyEventSubscriber::class);
         Event::subscribe(CademiEventSubscriber::class);
+        Event::subscribe(\App\Listeners\IntegraxEventSubscriber::class);
 
     }
 

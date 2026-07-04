@@ -34,4 +34,4 @@ RUN if [ ! -f vendor/autoload.php ]; then \
 EXPOSE 80
 
 ENTRYPOINT ["/usr/local/bin/getfy-entrypoint"]
-CMD ["sh", "-lc", "php artisan serve --host=0.0.0.0 --port=${PORT:-80}"]
+CMD ["sh", "-lc", "php artisan serve --host=0.0.0.0 --port=${PORT:-80} --no-reload"]
