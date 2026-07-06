@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Withdrawal;
 use App\Services\WithdrawalPixReceiptService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class WithdrawalReceiptController extends Controller
@@ -30,7 +31,16 @@ class WithdrawalReceiptController extends Controller
 
     private function render(Withdrawal $withdrawal, bool $includePayerSection): View
     {
-        $data = $this->receiptService->viewData($withdrawal, $includePayerSection);
+        try {
+            $data = $this->receiptService->viewData($withdrawal, $includePayerSection);
+        } catch (\Throwable $e) {
+            Log::error('WithdrawalReceiptController: failed to render receipt', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
 
         return view('withdrawals.pix-receipt', $data);
     }

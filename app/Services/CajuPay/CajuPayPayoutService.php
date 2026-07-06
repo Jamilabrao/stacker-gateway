@@ -404,16 +404,34 @@ class CajuPayPayoutService
                 return null;
             }
 
-            if (isset($data['id']) || isset($data['status']) || isset($data['payout_id'])) {
-                return $data;
+            if (! $this->isPayoutRecordPayload($data)) {
+                $nested = $data['payout'] ?? $data['data'] ?? null;
+                if (is_array($nested) && $this->isPayoutRecordPayload($nested)) {
+                    return $nested;
+                }
+
+                return null;
             }
 
-            $nested = $data['payout'] ?? $data['data'] ?? null;
-
-            return is_array($nested) ? $nested : null;
+            return $data;
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function isPayoutRecordPayload(array $data): bool
+    {
+        foreach (['id', 'payout_id', 'uuid'] as $key) {
+            $value = $data[$key] ?? null;
+            if (is_string($value) && trim($value) !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

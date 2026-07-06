@@ -8,8 +8,10 @@ use App\Models\WalletTransaction;
 use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Services\CajuPay\CajuPayPayoutService;
+use App\Services\Payout\PayoutUserSettings;
 use App\Support\BrazilianDocumentDigits;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class WithdrawalPixReceiptService
@@ -70,9 +72,16 @@ class WithdrawalPixReceiptService
             return;
         }
 
-        $record = app(CajuPayPayoutService::class)->fetchPayoutRecord($externalId, (int) $withdrawal->tenant_id);
-        if ($record !== null) {
-            $this->persistReceiptFromPayload($withdrawal, $record);
+        try {
+            $record = app(CajuPayPayoutService::class)->fetchPayoutRecord($externalId, (int) $withdrawal->tenant_id);
+            if ($record !== null) {
+                $this->persistReceiptFromPayload($withdrawal, $record);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('WithdrawalPixReceiptService: enrichFromCajuPay failed', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -98,7 +107,14 @@ class WithdrawalPixReceiptService
         $existing = is_array($meta['cajupay_receipt'] ?? null) ? $meta['cajupay_receipt'] : [];
         $meta['cajupay_receipt'] = array_merge($existing, $receipt);
 
-        $withdrawal->update(['payout_meta' => $meta]);
+        try {
+            $withdrawal->update(['payout_meta' => $meta]);
+        } catch (\Throwable $e) {
+            Log::warning('WithdrawalPixReceiptService: persistReceiptFromPayload failed', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -110,22 +126,24 @@ class WithdrawalPixReceiptService
             abort(404);
         }
 
-        if ($withdrawal->payout_provider === 'cajupay') {
-            $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
-            if (! is_array($meta['cajupay_receipt'] ?? null) || $meta['cajupay_receipt'] === []) {
-                $this->enrichFromCajuPay($withdrawal);
-                $withdrawal->refresh();
-            }
-        }
-
         $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
         $snapshot = is_array($meta['destination_snapshot'] ?? null) ? $meta['destination_snapshot'] : [];
         $receipt = is_array($meta['cajupay_receipt'] ?? null) ? $meta['cajupay_receipt'] : [];
 
         $owner = $this->resolveTenantOwner((int) $withdrawal->tenant_id);
-        $account = app(CajuPayAccountResolver::class)->resolveForTenant((int) $withdrawal->tenant_id);
-        if ($account === null) {
-            $account = app(CajuPayAccountResolver::class)->defaultOrFirstConnected();
+        $ownerSettings = $this->ownerPayoutSettings($owner);
+
+        $account = null;
+        try {
+            $account = app(CajuPayAccountResolver::class)->resolveForTenant((int) $withdrawal->tenant_id);
+            if ($account === null) {
+                $account = app(CajuPayAccountResolver::class)->defaultOrFirstConnected();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('WithdrawalPixReceiptService: account resolve failed', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
         }
 
         $paidAt = $this->resolvePaidAt($withdrawal, $receipt, $meta);
@@ -155,10 +173,17 @@ class WithdrawalPixReceiptService
             $owner?->name
         );
         $receiverDocument = $this->formatDocument(
-            $receipt['receiver_document'] ?? $snapshot['receiver_document'] ?? $owner?->document
+            $receipt['receiver_document']
+                ?? $snapshot['receiver_document']
+                ?? PayoutUserSettings::cajuPixOwnerDocument($ownerSettings)
+                ?: $owner?->document
         );
         $receiverInstitution = $this->firstNonEmpty($receipt['receiver_institution'] ?? null);
-        $pixKey = $this->firstNonEmpty($snapshot['pix_key'] ?? null);
+        $pixKey = $this->firstNonEmpty(
+            $snapshot['pix_key'] ?? null,
+            PayoutUserSettings::cajuPixKey($ownerSettings),
+            PayoutUserSettings::pixKey($ownerSettings)
+        );
 
         $authCode = $this->firstNonEmpty(
             $receipt['psp_reference'] ?? null,
@@ -168,8 +193,18 @@ class WithdrawalPixReceiptService
             ? $this->firstNonEmpty($withdrawal->payout_external_id, (string) $withdrawal->id)
             : (string) $withdrawal->id;
 
-        $branding = BrandingSetting::query()->whereNull('tenant_id')->first();
-        $brandingData = is_array($branding?->data) ? $branding->data : [];
+        $brandingData = [];
+        try {
+            if (Schema::hasTable('branding_settings')) {
+                $branding = BrandingSetting::query()->whereNull('tenant_id')->first();
+                $brandingData = is_array($branding?->data) ? $branding->data : [];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('WithdrawalPixReceiptService: branding load failed', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
 
         return [
             'app_name' => (string) ($brandingData['app_name'] ?? config('app.name', 'Getfy')),
@@ -351,15 +386,18 @@ class WithdrawalPixReceiptService
             }
         }
 
-        if (Schema::hasTable('wallet_transactions')) {
-            $wt = WalletTransaction::query()
-                ->where('withdrawal_id', $withdrawal->id)
-                ->where('type', WalletTransaction::TYPE_WITHDRAWAL_COMPLETE)
-                ->orderByDesc('id')
-                ->first();
-            if ($wt?->created_at) {
-                return $wt->created_at;
+        try {
+            if (Schema::hasTable('wallet_transactions') && Schema::hasColumn('wallet_transactions', 'withdrawal_id')) {
+                $wt = WalletTransaction::query()
+                    ->where('withdrawal_id', $withdrawal->id)
+                    ->where('type', WalletTransaction::TYPE_WITHDRAWAL_COMPLETE)
+                    ->orderByDesc('id')
+                    ->first();
+                if ($wt?->created_at) {
+                    return $wt->created_at;
+                }
             }
+        } catch (\Throwable) {
         }
 
         return $withdrawal->updated_at;
@@ -406,5 +444,17 @@ class WithdrawalPixReceiptService
         }
 
         return '—';
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function ownerPayoutSettings(?User $owner): array
+    {
+        if ($owner === null) {
+            return [];
+        }
+
+        return is_array($owner->payout_settings) ? $owner->payout_settings : [];
     }
 }

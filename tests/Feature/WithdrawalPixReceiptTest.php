@@ -172,4 +172,42 @@ class WithdrawalPixReceiptTest extends TestCase
         $this->assertSame('BSPAY SOLUCOES DE PAGAMENTOS LTDA', $data['payer_name']);
         $this->assertSame('46.872.831/0001-54', $data['payer_document']);
     }
+
+    public function test_seller_can_view_receipt_without_payout_meta(): void
+    {
+        $merchant = $this->createMerchant();
+        $withdrawal = $this->createPaidWithdrawal($merchant, [
+            'payout_provider' => null,
+            'payout_external_id' => null,
+            'payout_meta' => null,
+        ]);
+
+        $response = $this->actingAs($merchant)->get(route('financeiro.seller.receipt', $withdrawal));
+
+        $response->assertOk();
+        $response->assertSee('Comprovante Pix', false);
+        $response->assertSee('R$ 95,00', false);
+        $response->assertSee('seller@example.com', false);
+        $response->assertSee($merchant->name, false);
+    }
+
+    public function test_view_data_does_not_write_to_database(): void
+    {
+        $merchant = $this->createMerchant();
+        $withdrawal = $this->createPaidWithdrawal($merchant, [
+            'payout_meta' => [
+                'destination_snapshot' => [
+                    'receiver_name' => $merchant->name,
+                    'pix_key' => 'seller@example.com',
+                ],
+            ],
+        ]);
+
+        $before = $withdrawal->updated_at?->toIso8601String();
+
+        app(WithdrawalPixReceiptService::class)->viewData($withdrawal, includePayerSection: false);
+
+        $withdrawal->refresh();
+        $this->assertSame($before, $withdrawal->updated_at?->toIso8601String());
+    }
 }
