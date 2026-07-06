@@ -41,6 +41,11 @@ const menuAnchorEl = ref(null);
 const menuEl = ref(null);
 const menuPos = ref({ top: 0, left: 0 });
 
+const refundModalOpen = ref(false);
+const refundTargetId = ref(null);
+const refundReason = ref('');
+const refundSubmitting = ref(false);
+
 watch(
     () => props.filters,
     (f) => {
@@ -132,14 +137,42 @@ function confirmCancel(id) {
     router.post(orderActionUrl('cancelar', id), {}, { preserveScroll: true });
 }
 
-function confirmRefund(id) {
-    if (
-        !confirm(
-            'Marcar como reembolsado? Se existir crédito de venda na carteira do infoprodutor, o valor líquido será debitado.'
-        )
-    )
+function openRefundModal(id) {
+    refundTargetId.value = id;
+    refundReason.value = '';
+    refundModalOpen.value = true;
+}
+
+function closeRefundModal() {
+    refundModalOpen.value = false;
+    refundTargetId.value = null;
+    refundReason.value = '';
+}
+
+function submitRefund() {
+    const id = refundTargetId.value;
+    const reason = refundReason.value?.trim() ?? '';
+    if (!id) return;
+    if (reason.length < 3) {
+        window.alert('Informe o motivo do reembolso (mínimo 3 caracteres).');
         return;
-    router.post(orderActionUrl('reembolsar', id), {}, { preserveScroll: true });
+    }
+    refundSubmitting.value = true;
+    router.post(
+        orderActionUrl('reembolsar', id),
+        { reason },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                refundSubmitting.value = false;
+                closeRefundModal();
+            },
+        }
+    );
+}
+
+function confirmRefund(id) {
+    openRefundModal(id);
 }
 
 function confirmMed(id, wasPaid) {
@@ -549,5 +582,52 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                 </button>
             </div>
         </Teleport>
+
+        <div
+            v-if="refundModalOpen"
+            class="fixed inset-0 z-[100002] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="platform-refund-modal-title"
+        >
+            <div class="absolute inset-0 bg-zinc-900/50 dark:bg-zinc-950/60" @click="closeRefundModal" />
+            <div class="relative w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                <h3 id="platform-refund-modal-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
+                    Reembolsar pedido
+                </h3>
+                <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    O pedido será marcado como <strong>Reembolsado</strong>. O saldo do infoprodutor será debitado se houver crédito na carteira. O motivo ficará visível para o infoprodutor.
+                </p>
+                <label class="mt-4 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Motivo do reembolso
+                    <textarea
+                        v-model="refundReason"
+                        rows="4"
+                        maxlength="500"
+                        required
+                        class="mt-1.5 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                        placeholder="Descreva o motivo (visível ao infoprodutor)"
+                    />
+                </label>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        class="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        :disabled="refundSubmitting"
+                        @click="closeRefundModal"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        :disabled="refundSubmitting"
+                        @click="submitRefund"
+                    >
+                        {{ refundSubmitting ? 'Processando...' : 'Confirmar reembolso' }}
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>

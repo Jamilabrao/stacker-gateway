@@ -1027,67 +1027,123 @@ const typeIcons = {
     produto_fisico: Truck,
 };
 
+function sendsCheckoutConfigFields() {
+    return currentTab.value === 'configuracoes';
+}
+
+function sendsEmailTemplateFields() {
+    return currentTab.value === 'email';
+}
+
+function syncFormFromProduto() {
+    form.price = formatPriceForInput(props.produto.price_brl ?? props.produto.price);
+    form.image = null;
+}
+
+const submitOptions = {
+    preserveScroll: true,
+    onSuccess: () => syncFormFromProduto(),
+};
+
+function appendCoreProductFields(fd) {
+    fd.append('name', form.name);
+    fd.append('description', form.description ?? '');
+    fd.append('type', form.type);
+    fd.append('billing_type', form.billing_type);
+    fd.append('price', String(normalizeMoneyInput(form.price)));
+    if (form.billing_type === 'subscription') {
+        fd.append('base_interval', form.base_interval || 'monthly');
+    }
+    fd.append('currency', form.currency);
+    fd.append('is_active', form.is_active ? '1' : '0');
+    if (form.type === 'produto_fisico') {
+        if (form.shipping_store_id) fd.append('shipping_store_id', String(form.shipping_store_id));
+        fd.append('physical_free_shipping', form.physical_free_shipping ? '1' : '0');
+    }
+    if (form.refund_enabled) {
+        fd.append('refund_policy_days', String(form.refund_policy_days ?? 7));
+    } else {
+        fd.append('refund_policy_days', '');
+    }
+}
+
+function appendCheckoutConfigFields(fd) {
+    if (!sendsCheckoutConfigFields()) return;
+    fd.append('conversion_pixels', JSON.stringify(form.conversion_pixels));
+    if (form.card_installments) {
+        fd.append('card_installments[enabled]', form.card_installments.enabled ? '1' : '0');
+        fd.append('card_installments[max]', String(Math.min(12, Math.max(1, form.card_installments.max || 1))));
+    }
+    fd.append('payment_methods_enabled[pix]', form.payment_methods_enabled.pix ? '1' : '0');
+    fd.append('payment_methods_enabled[card]', form.payment_methods_enabled.card ? '1' : '0');
+    fd.append('payment_methods_enabled[boleto]', form.payment_methods_enabled.boleto ? '1' : '0');
+    fd.append('payment_methods_enabled[pix_auto]', form.payment_methods_enabled.pix_auto ? '1' : '0');
+    fd.append('payment_methods_enabled[apple_pay]', form.payment_methods_enabled.apple_pay ? '1' : '0');
+    fd.append('payment_methods_enabled[google_pay]', form.payment_methods_enabled.google_pay ? '1' : '0');
+    fd.append('deliverable_link', form.deliverable_link || '');
+}
+
+function appendEmailTemplateFields(fd) {
+    if (!sendsEmailTemplateFields() || !form.email_template) return;
+    fd.append('email_template[logo_url]', form.email_template.logo_url || '');
+    fd.append('email_template[from_name]', form.email_template.from_name || '');
+    fd.append('email_template[subject]', form.email_template.subject || '');
+    fd.append('email_template[body_html]', form.email_template.body_html || '');
+}
+
+function prunePayloadForTab(data) {
+    const payload = { ...data };
+    if (payload.billing_type === 'subscription') {
+        payload.base_interval = payload.base_interval || 'monthly';
+    }
+    payload.price = normalizeMoneyInput(payload.price);
+    payload.refund_policy_days = payload.refund_enabled ? Number(payload.refund_policy_days || 7) : null;
+    if (payload.type === 'produto_fisico') {
+        payload.physical_free_shipping = !!payload.physical_free_shipping;
+    } else {
+        payload.shipping_store_id = null;
+        payload.physical_free_shipping = false;
+    }
+    if (!sendsCheckoutConfigFields()) {
+        delete payload.conversion_pixels;
+        delete payload.card_installments;
+        delete payload.payment_methods_enabled;
+        delete payload.deliverable_link;
+    }
+    if (!sendsEmailTemplateFields()) {
+        delete payload.email_template;
+    }
+    delete payload.image;
+    delete payload.refund_enabled;
+    return payload;
+}
+
+const submitErrorMessage = computed(() => {
+    if (!form.hasErrors) return '';
+    return (
+        form.errors.image
+        || form.errors.price
+        || form.errors.payment_methods_enabled
+        || form.errors.name
+        || Object.values(form.errors)[0]
+        || ''
+    );
+});
+
 function submit() {
     const baseUrl = `/produtos/${props.produto.id}`;
     const tab = currentTab.value && currentTab.value !== 'geral' ? `?tab=${currentTab.value}` : '';
     const url = baseUrl + tab;
     if (form.image) {
         const fd = new FormData();
-        fd.append('name', form.name);
-        fd.append('description', form.description);
-        fd.append('type', form.type);
-        fd.append('billing_type', form.billing_type);
-        fd.append('price', String(normalizeMoneyInput(form.price)));
-        if (form.billing_type === 'subscription') {
-            fd.append('base_interval', form.base_interval || 'monthly');
-        }
-        fd.append('currency', form.currency);
-        fd.append('is_active', form.is_active ? '1' : '0');
-        fd.append('conversion_pixels', JSON.stringify(form.conversion_pixels));
-        if (form.card_installments) {
-            fd.append('card_installments[enabled]', form.card_installments.enabled ? '1' : '0');
-            fd.append('card_installments[max]', String(Math.min(12, Math.max(1, form.card_installments.max || 1))));
-        }
-        fd.append('payment_methods_enabled[pix]', form.payment_methods_enabled.pix ? '1' : '0');
-        fd.append('payment_methods_enabled[card]', form.payment_methods_enabled.card ? '1' : '0');
-        fd.append('payment_methods_enabled[boleto]', form.payment_methods_enabled.boleto ? '1' : '0');
-        fd.append('payment_methods_enabled[pix_auto]', form.payment_methods_enabled.pix_auto ? '1' : '0');
-        fd.append('payment_methods_enabled[apple_pay]', form.payment_methods_enabled.apple_pay ? '1' : '0');
-        fd.append('payment_methods_enabled[google_pay]', form.payment_methods_enabled.google_pay ? '1' : '0');
-        if (form.email_template) {
-            fd.append('email_template[logo_url]', form.email_template.logo_url || '');
-            fd.append('email_template[from_name]', form.email_template.from_name || '');
-            fd.append('email_template[subject]', form.email_template.subject || '');
-            fd.append('email_template[body_html]', form.email_template.body_html || '');
-        }
-        fd.append('deliverable_link', form.deliverable_link || '');
-        if (form.type === 'produto_fisico') {
-            if (form.shipping_store_id) fd.append('shipping_store_id', String(form.shipping_store_id));
-            fd.append('physical_free_shipping', form.physical_free_shipping ? '1' : '0');
-        }
-        if (form.refund_enabled) {
-            fd.append('refund_policy_days', String(form.refund_policy_days ?? 7));
-        } else {
-            fd.append('refund_policy_days', '');
-        }
+        appendCoreProductFields(fd);
+        appendCheckoutConfigFields(fd);
+        appendEmailTemplateFields(fd);
         fd.append('_method', 'PUT');
         fd.append('image', form.image);
-        form.transform(() => fd).post(url, { forceFormData: true });
+        form.transform(() => fd).post(url, { forceFormData: true, ...submitOptions });
     } else {
-        form.transform((data) => {
-            if (data.billing_type === 'subscription') {
-                data.base_interval = data.base_interval || 'monthly';
-            }
-            data.price = normalizeMoneyInput(data.price);
-            data.refund_policy_days = data.refund_enabled ? Number(data.refund_policy_days || 7) : null;
-            if (data.type === 'produto_fisico') {
-                data.physical_free_shipping = !!data.physical_free_shipping;
-            } else {
-                data.shipping_store_id = null;
-                data.physical_free_shipping = false;
-            }
-            return data;
-        }).put(url);
+        form.transform((data) => prunePayloadForTab(data)).put(url, submitOptions);
     }
 }
 </script>
@@ -1174,6 +1230,12 @@ function submit() {
         <!-- Aba Geral -->
         <template v-if="currentTab === 'geral'">
             <form class="mx-auto w-full max-w-3xl space-y-8 xl:max-w-6xl" @submit.prevent="submit">
+                <p
+                    v-if="submitErrorMessage"
+                    class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+                >
+                    {{ submitErrorMessage }}
+                </p>
                 <div class="grid grid-cols-1 gap-8 xl:grid-cols-2">
                 <!-- Informações básicas (nome, slug, descrição, imagem, status) -->
                 <section class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95">
@@ -1226,6 +1288,7 @@ function submit() {
                                     </template>
                                     <input type="file" accept="image/*" class="hidden" @change="onFileChange" />
                                 </label>
+                                <p v-if="form.errors.image" class="mt-1.5 max-w-[7rem] text-xs text-red-600 dark:text-red-400">{{ form.errors.image }}</p>
                             </div>
                         </div>
                     </div>

@@ -25,11 +25,17 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    api_cashouts: {
+        type: Object,
+        default: () => ({ data: [], links: [] }),
+    },
     filters: {
         type: Object,
         default: () => ({ status: 'all', q: '' }),
     },
 });
+
+const activeMainTab = ref('charges');
 
 const filterStatus = ref(props.filters?.status ?? 'all');
 const filterQ = ref(props.filters?.q ?? '');
@@ -41,6 +47,11 @@ const openMenuId = ref(null);
 const menuAnchorEl = ref(null);
 const menuEl = ref(null);
 const menuPos = ref({ top: 0, left: 0 });
+
+const refundModalOpen = ref(false);
+const refundTargetId = ref(null);
+const refundReason = ref('');
+const refundSubmitting = ref(false);
 
 watch(
     () => props.filters,
@@ -133,14 +144,42 @@ function confirmCancel(id) {
     router.post(orderActionUrl('cancelar', id), {}, { preserveScroll: true });
 }
 
-function confirmRefund(id) {
-    if (
-        !confirm(
-            'Marcar como reembolsado? Se existir crédito de venda na carteira do infoprodutor, o valor líquido será debitado.'
-        )
-    )
+function openRefundModal(id) {
+    refundTargetId.value = id;
+    refundReason.value = '';
+    refundModalOpen.value = true;
+}
+
+function closeRefundModal() {
+    refundModalOpen.value = false;
+    refundTargetId.value = null;
+    refundReason.value = '';
+}
+
+function submitRefund() {
+    const id = refundTargetId.value;
+    const reason = refundReason.value?.trim() ?? '';
+    if (!id) return;
+    if (reason.length < 3) {
+        window.alert('Informe o motivo do reembolso (mínimo 3 caracteres).');
         return;
-    router.post(orderActionUrl('reembolsar', id), {}, { preserveScroll: true });
+    }
+    refundSubmitting.value = true;
+    router.post(
+        orderActionUrl('reembolsar', id),
+        { reason },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                refundSubmitting.value = false;
+                closeRefundModal();
+            },
+        }
+    );
+}
+
+function confirmRefund(id) {
+    openRefundModal(id);
 }
 
 function confirmMed(id, wasPaid) {
@@ -173,6 +212,12 @@ function closeSidebar() {
 }
 
 const rows = () => props.orders?.data ?? [];
+const cashoutRows = () => props.api_cashouts?.data ?? [];
+
+const mainTabs = [
+    { id: 'charges', label: 'Cobranças' },
+    { id: 'cashouts', label: 'Cashouts (saques API)' },
+];
 
 const menuOrder = computed(() => {
     if (openMenuId.value == null) return null;
@@ -267,6 +312,26 @@ onUnmounted(() => {
 });
 
 const paginationLinks = computed(() => props.orders?.links ?? []);
+const cashoutPaginationLinks = computed(() => props.api_cashouts?.links ?? []);
+
+function withdrawalStatusLabel(status) {
+    const map = {
+        pending: 'Pendente',
+        processing: 'Processando',
+        paid: 'Aprovado',
+        rejected: 'Rejeitado',
+        failed: 'Falhou (estornado)',
+    };
+    return map[status] ?? status ?? '—';
+}
+
+function withdrawalStatusBadgeClass(status) {
+    if (status === 'paid') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200';
+    if (status === 'pending' || status === 'processing') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
+    if (status === 'failed') return 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200';
+    if (status === 'rejected') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200';
+    return 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
+}
 </script>
 
 <template>
@@ -274,9 +339,24 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
         <div>
             <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">Transações API</h1>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Cobranças PIX criadas via API de parceiros (não inclui checkout interno da plataforma).
-                O link de checkout do parceiro aparece quando informado em <code class="text-xs">partner_checkout_url</code>.
+                Cobranças PIX criadas via API de parceiros e cashouts (saques) solicitados pela mesma integração.
             </p>
+            <div class="mt-4 inline-flex rounded-lg border border-zinc-200 p-1 dark:border-zinc-600">
+                <button
+                    v-for="tab in mainTabs"
+                    :key="tab.id"
+                    type="button"
+                    :class="[
+                        'rounded-md px-4 py-2 text-sm font-medium transition',
+                        activeMainTab === tab.id
+                            ? 'bg-[var(--color-primary)] text-white'
+                            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white',
+                    ]"
+                    @click="activeMainTab = tab.id"
+                >
+                    {{ tab.label }}
+                </button>
+            </div>
         </div>
 
         <p
@@ -293,6 +373,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
         </p>
 
         <div
+            v-show="activeMainTab === 'charges'"
             class="space-y-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
         >
             <div class="w-full overflow-x-auto [-webkit-overflow-scrolling:touch]">
@@ -342,6 +423,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
         </div>
 
         <div
+            v-show="activeMainTab === 'charges'"
             class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
         >
             <div class="overflow-x-auto">
@@ -451,14 +533,99 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
             </div>
         </div>
 
+        <section
+            v-show="activeMainTab === 'cashouts'"
+            class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
+        >
+            <div class="overflow-x-auto">
+                <table class="w-full min-w-[960px] text-left text-sm">
+                    <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900/50">
+                        <tr>
+                            <th class="px-4 py-3">Data</th>
+                            <th class="px-4 py-3">Saque</th>
+                            <th class="px-4 py-3">Integração API</th>
+                            <th class="px-4 py-3">Infoprodutor</th>
+                            <th class="px-4 py-3 text-right">Líquido</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3 text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-100 dark:divide-zinc-700">
+                        <tr v-for="w in cashoutRows()" :key="w.id">
+                            <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                                {{ w.created_at ? new Date(w.created_at).toLocaleString('pt-BR') : '—' }}
+                            </td>
+                            <td class="px-4 py-3 font-mono text-xs">#{{ w.id }}</td>
+                            <td class="px-4 py-3">{{ w.api_application_name ?? '—' }}</td>
+                            <td class="px-4 py-3">
+                                <div class="font-medium text-zinc-900 dark:text-white">{{ w.infoprodutor_name }}</div>
+                                <div class="text-xs text-zinc-500">{{ w.infoprodutor_email }}</div>
+                            </td>
+                            <td class="px-4 py-3 text-right tabular-nums font-medium">{{ formatBRL(w.net_amount) }}</td>
+                            <td class="px-4 py-3">
+                                <span
+                                    :class="[
+                                        'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
+                                        withdrawalStatusBadgeClass(w.status),
+                                    ]"
+                                >
+                                    {{ withdrawalStatusLabel(w.status) }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <a
+                                    v-if="w.can_download_receipt"
+                                    :href="`/plataforma/saques/${w.id}/comprovante`"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline"
+                                >
+                                    <FileText class="h-3.5 w-3.5" />
+                                    Comprovante
+                                </a>
+                                <span v-else class="text-xs text-zinc-400">—</span>
+                            </td>
+                        </tr>
+                        <tr v-if="!cashoutRows().length">
+                            <td colspan="7" class="px-4 py-12 text-center text-zinc-500">Nenhum cashout API encontrado.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <nav
-            v-if="paginationLinks.length > 3"
+            v-if="activeMainTab === 'charges' && paginationLinks.length > 3"
             class="flex flex-wrap items-center justify-center gap-2"
             aria-label="Paginação"
         >
             <a
                 v-for="link in paginationLinks"
                 :key="link.label + String(link.url)"
+                :href="link.url || undefined"
+                :aria-current="link.active ? 'page' : undefined"
+                :aria-disabled="!link.url"
+                :class="[
+                    'relative inline-flex min-h-[2.25rem] items-center rounded-lg px-3 py-2 text-sm font-medium transition',
+                    link.active
+                        ? 'z-10 bg-[var(--color-primary)] text-white'
+                        : link.url
+                          ? 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700'
+                          : 'cursor-not-allowed text-zinc-400 dark:text-zinc-500',
+                ]"
+                v-text="htmlToText(link.label)"
+                @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
+            />
+        </nav>
+
+        <nav
+            v-if="activeMainTab === 'cashouts' && cashoutPaginationLinks.length > 3"
+            class="flex flex-wrap items-center justify-center gap-2"
+            aria-label="Paginação cashouts"
+        >
+            <a
+                v-for="link in cashoutPaginationLinks"
+                :key="'cashout-' + link.label + String(link.url)"
                 :href="link.url || undefined"
                 :aria-current="link.active ? 'page' : undefined"
                 :aria-disabled="!link.url"
@@ -564,5 +731,52 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                 </button>
             </div>
         </Teleport>
+
+        <div
+            v-if="refundModalOpen"
+            class="fixed inset-0 z-[100002] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="api-refund-modal-title"
+        >
+            <div class="absolute inset-0 bg-zinc-900/50 dark:bg-zinc-950/60" @click="closeRefundModal" />
+            <div class="relative w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                <h3 id="api-refund-modal-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
+                    Reembolsar pedido
+                </h3>
+                <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    O pedido será marcado como <strong>Reembolsado</strong>. O saldo do infoprodutor será debitado se houver crédito na carteira. O motivo ficará visível para o infoprodutor.
+                </p>
+                <label class="mt-4 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Motivo do reembolso
+                    <textarea
+                        v-model="refundReason"
+                        rows="4"
+                        maxlength="500"
+                        required
+                        class="mt-1.5 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                        placeholder="Descreva o motivo (visível ao infoprodutor)"
+                    />
+                </label>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        class="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        :disabled="refundSubmitting"
+                        @click="closeRefundModal"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        :disabled="refundSubmitting"
+                        @click="submitRefund"
+                    >
+                        {{ refundSubmitting ? 'Processando...' : 'Confirmar reembolso' }}
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>

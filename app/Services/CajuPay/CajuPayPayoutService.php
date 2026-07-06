@@ -4,6 +4,7 @@ namespace App\Services\CajuPay;
 
 use App\Models\GatewayCredential;
 use App\Models\Withdrawal;
+use App\Services\WithdrawalPixReceiptService;
 use App\Support\BrazilianDocumentDigits;
 use App\Services\EffectiveMerchantFees;
 use App\Services\Payout\GatewayPayoutEconomics;
@@ -125,6 +126,12 @@ class CajuPayPayoutService
                 'withdrawal_id' => $withdrawal->id,
                 'http_status' => $response->status(),
                 'external_ref' => $ext,
+            ]);
+
+            app(WithdrawalPixReceiptService::class)->snapshotDestination($withdrawal->fresh(), null, [
+                'pix_key' => $pixKey,
+                'pix_key_type' => $pixKeyType,
+                'key_owner_document' => $keyOwnerDocument,
             ]);
 
             return ['ok' => true, 'external_id' => Str::limit($ext, 80, ''), 'status' => $response->status()];
@@ -333,6 +340,34 @@ class CajuPayPayoutService
             return null;
         }
 
+        $record = $this->fetchPayoutRecord($externalId, $tenantId);
+
+        if ($record === null) {
+            return null;
+        }
+
+        $raw = $this->extractStatusFromPayoutRecord($record);
+
+        return CajuPayPayoutStatuses::settlementStatusFromRaw($raw);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function fetchPayoutRecord(string $externalId, ?int $tenantId = null): ?array
+    {
+        $externalId = trim($externalId);
+        if ($externalId === '') {
+            return null;
+        }
+
+        $account = $tenantId !== null
+            ? app(CajuPayAccountResolver::class)->resolveForTenant($tenantId)
+            : app(CajuPayAccountResolver::class)->defaultOrFirstConnected();
+        if ($account === null) {
+            return null;
+        }
+
         $credentials = $account->getDecryptedCredentials();
         if (empty($credentials['public_key'] ?? null) || empty($credentials['secret_key'] ?? null)) {
             return null;
@@ -343,13 +378,7 @@ class CajuPayPayoutService
             $record = $this->fetchPayoutFromList($externalId, $credentials);
         }
 
-        if ($record === null) {
-            return null;
-        }
-
-        $raw = $this->extractStatusFromPayoutRecord($record);
-
-        return CajuPayPayoutStatuses::settlementStatusFromRaw($raw);
+        return $record;
     }
 
     /**

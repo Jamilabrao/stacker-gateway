@@ -233,6 +233,21 @@ class MerchantWithdrawalService
         }
 
         try {
+            $freshForReceipt = $withdrawal->fresh();
+            if ($freshForReceipt !== null && $freshForReceipt->payout_provider === 'cajupay') {
+                $meta = is_array($freshForReceipt->payout_meta) ? $freshForReceipt->payout_meta : [];
+                if (! is_array($meta['cajupay_receipt'] ?? null) || $meta['cajupay_receipt'] === []) {
+                    app(WithdrawalPixReceiptService::class)->enrichFromCajuPay($freshForReceipt);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('MerchantWithdrawalService: falha ao enriquecer comprovante PIX', [
+                'withdrawal_id' => $withdrawal->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        try {
             $fresh = $withdrawal->fresh();
             if ($fresh === null) {
                 return;

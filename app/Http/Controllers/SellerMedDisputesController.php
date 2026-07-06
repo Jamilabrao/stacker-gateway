@@ -100,7 +100,7 @@ class SellerMedDisputesController extends Controller
             abort(403);
         }
 
-        if ($dispute->defense_dossier_path === null) {
+        if (! $this->dossierService->isAvailable($dispute)) {
             try {
                 $this->dossierService->generate($dispute);
                 $dispute->refresh();
@@ -142,7 +142,7 @@ class SellerMedDisputesController extends Controller
             'resolved_at' => $dispute->resolved_at?->toIso8601String(),
             'is_open' => $dispute->isOpen(),
             'reason' => $dispute->reason,
-            'has_dossier' => $dispute->defense_dossier_path !== null,
+            'has_dossier' => $this->dossierService->isAvailable($dispute),
             'order' => $order ? [
                 'id' => $order->id,
                 'public_reference' => $order->public_reference,

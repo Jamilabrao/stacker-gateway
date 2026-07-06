@@ -28,11 +28,9 @@ class MedDefenseDossierService
         }
 
         $relativePath = 'med-dossiers/'.$dispute->id.'.pdf';
-        $absolutePath = storage_path('app/'.$relativePath);
-        $dir = dirname($absolutePath);
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
+        $disk = Storage::disk('local');
+        $disk->makeDirectory('med-dossiers');
+        $absolutePath = $disk->path($relativePath);
 
         $pdf = new FPDF;
         $pdf->AddPage();
@@ -127,6 +125,11 @@ class MedDefenseDossierService
         return $relativePath;
     }
 
+    public function isAvailable(MedDispute $dispute): bool
+    {
+        return $this->downloadPath($dispute) !== null;
+    }
+
     public function downloadPath(MedDispute $dispute): ?string
     {
         $path = $dispute->defense_dossier_path;
@@ -134,11 +137,17 @@ class MedDefenseDossierService
             return null;
         }
 
-        if (! Storage::disk('local')->exists($path)) {
-            return null;
+        if (Storage::disk('local')->exists($path)) {
+            return Storage::disk('local')->path($path);
         }
 
-        return Storage::disk('local')->path($path);
+        // Compat: dossiês gerados antes do disco local apontar para storage/app/private
+        $legacyPath = storage_path('app/'.$path);
+        if (is_file($legacyPath)) {
+            return $legacyPath;
+        }
+
+        return null;
     }
 
     private function sectionTitle(FPDF $pdf, string $title): void

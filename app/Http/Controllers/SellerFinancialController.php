@@ -13,6 +13,7 @@ use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\WithdrawalAutoPayoutService;
+use App\Services\WithdrawalPixReceiptService;
 use App\Support\BrazilianDocumentDigits;
 use App\Support\MerchantProfileSnapshot;
 use App\Support\HtmlSanitizer;
@@ -26,6 +27,10 @@ use Inertia\Response;
 
 class SellerFinancialController extends Controller
 {
+    public function __construct(
+        protected WithdrawalPixReceiptService $receiptService,
+    ) {}
+
     private static function parseBrlAmountToFloat(mixed $raw): float
     {
         $s = trim((string) ($raw ?? ''));
@@ -125,6 +130,7 @@ class SellerFinancialController extends Controller
                     'status' => $w->status,
                     'notes' => $w->notes,
                     'created_at' => $w->created_at?->toIso8601String(),
+                    'can_download_receipt' => $this->receiptService->isAvailable($w),
                 ])
                 ->all();
         }

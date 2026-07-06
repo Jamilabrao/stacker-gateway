@@ -7,14 +7,18 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductOffer;
 use App\Services\AccessEmailService;
+use App\Services\ManualOrderRefundService;
 use App\Services\Med\MedPolicyService;
 use App\Services\PixGoAccess;
 use App\Services\OrderFeeBreakdownService;
 use App\Services\TeamAccessService;
+use App\Support\OrderManualRefund;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -317,6 +321,8 @@ class VendasController extends Controller
         $arr['sale_channel_label'] = $o->isPixGoSale()
             ? PixGoAccess::sidebarLabel()
             : ($policy->isApiPixRestOrder($o) ? 'API PIX' : null);
+        $arr['can_manual_refund'] = OrderManualRefund::canManualRefund($o);
+        $arr['manual_refund'] = OrderManualRefund::snapshot($o);
 
         return $arr;
     }
@@ -586,6 +592,49 @@ class VendasController extends Controller
             'success' => false,
             'message' => $result->message,
         ], 422);
+    }
+
+    public function refundManually(Request $request, Order $order, ManualOrderRefundService $refundService): JsonResponse
+    {
+        $tenantId = auth()->user()->tenant_id;
+        if ((int) $order->tenant_id !== (int) $tenantId) {
+            return response()->json(['success' => false, 'message' => 'Pedido não encontrado.'], 404);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'min:3', 'max:500'],
+        ]);
+
+        try {
+            $result = $refundService->refund(
+                $order,
+                $request->user(),
+                'seller',
+                $validated['reason'] ?? null
+            );
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Não foi possível reembolsar: '.$e->getMessage(),
+            ], 500);
+        }
+
+        if (! $result['success']) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'],
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['message'],
+            'gateway_status' => $result['gateway_status'],
+        ]);
     }
 
     public function approveManually(Order $order): JsonResponse

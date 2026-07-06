@@ -576,6 +576,7 @@ const inputClass =
                                             <th class="px-4 py-3 text-right">Taxa</th>
                                             <th class="px-4 py-3 text-right">Líquido</th>
                                             <th class="px-4 py-3">Status</th>
+                                            <th class="px-4 py-3 text-right">Ações</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-zinc-100 dark:divide-zinc-700">
@@ -600,6 +601,19 @@ const inputClass =
                                                 >
                                                     {{ statusLabel(w.status) }}
                                                 </span>
+                                            </td>
+                                            <td class="px-4 py-2.5 text-right">
+                                                <a
+                                                    v-if="w.can_download_receipt"
+                                                    :href="`/financeiro/saques/${w.id}/comprovante`"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    class="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline"
+                                                >
+                                                    <FileText class="h-3.5 w-3.5" />
+                                                    Comprovante
+                                                </a>
+                                                <span v-else class="text-xs text-zinc-400">—</span>
                                             </td>
                                         </tr>
                                     </tbody>

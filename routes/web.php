@@ -431,6 +431,8 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             ->middleware('throttle:30,1');
 
         Route::get('/saques', [\App\Http\Controllers\Platform\WithdrawalsController::class, 'index'])->name('saques.index');
+        Route::get('/saques/{withdrawal}/comprovante', [\App\Http\Controllers\WithdrawalReceiptController::class, 'platform'])
+            ->name('saques.receipt');
         Route::get('/transacoes', [\App\Http\Controllers\Platform\TransactionsController::class, 'index'])->name('transacoes.index');
         Route::get('/transacoes-api', [\App\Http\Controllers\Platform\TransactionsController::class, 'apiIndex'])->name('transacoes-api.index');
         Route::get('/clientes', [\App\Http\Controllers\Platform\CustomersController::class, 'index'])->name('clientes.index');
@@ -618,6 +620,8 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         Route::post('/financeiro/pix-saque', [\App\Http\Controllers\SellerFinancialController::class, 'storePayoutPixKey'])
             ->middleware('throttle:15,1')
             ->name('financeiro.seller.pix-saque');
+        Route::get('/financeiro/saques/{withdrawal}/comprovante', [\App\Http\Controllers\WithdrawalReceiptController::class, 'seller'])
+            ->name('financeiro.seller.receipt');
     });
 
     Route::middleware('team.permission:pixgo.view')->group(function () {
@@ -633,6 +637,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         Route::get('/vendas', [\App\Http\Controllers\VendasController::class, 'index'])->name('vendas.index');
         Route::get('/vendas/export', [\App\Http\Controllers\VendasController::class, 'export'])->name('vendas.export');
         Route::post('/vendas/{order}/resend-access-email', [\App\Http\Controllers\VendasController::class, 'resendAccessEmail'])->name('vendas.resend-access-email');
+        Route::post('/vendas/{order}/reembolsar', [\App\Http\Controllers\VendasController::class, 'refundManually'])->name('vendas.refund-manually');
         Route::post('/vendas/{order}/approve-manually', [\App\Http\Controllers\VendasController::class, 'approveManually'])->name('vendas.approve-manually');
         Route::get('/vendas/disputas', [\App\Http\Controllers\SellerMedDisputesController::class, 'index'])->name('disputas.index');
         Route::get('/vendas/disputas/{dispute}', [\App\Http\Controllers\SellerMedDisputesController::class, 'show'])->name('disputas.show');

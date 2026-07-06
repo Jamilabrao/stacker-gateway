@@ -11,7 +11,6 @@ use App\Services\Med\MedPolicyService;
 use App\Services\Med\MedResolutionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -89,7 +88,7 @@ class MedDisputesController extends Controller
 
     public function downloadDossier(MedDispute $dispute): BinaryFileResponse|RedirectResponse
     {
-        if ($dispute->defense_dossier_path === null || ! Storage::disk('local')->exists($dispute->defense_dossier_path)) {
+        if (! $this->dossierService->isAvailable($dispute)) {
             try {
                 $this->dossierService->generate($dispute);
                 $dispute->refresh();
@@ -180,7 +179,7 @@ class MedDisputesController extends Controller
             'opened_at' => $dispute->opened_at?->toIso8601String(),
             'resolved_at' => $dispute->resolved_at?->toIso8601String(),
             'resolution_note' => $dispute->resolution_note,
-            'has_dossier' => $dispute->defense_dossier_path !== null,
+            'has_dossier' => $this->dossierService->isAvailable($dispute),
             'is_open' => $dispute->isOpen(),
             'order_origin' => $order ? $this->policy->orderOriginLabel($order) : null,
             'tenant' => $owner ? [

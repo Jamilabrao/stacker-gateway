@@ -6,15 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\CheckoutSession;
 use App\Models\MedDispute;
 use App\Models\Order;
+use App\Models\Withdrawal;
+use App\Services\ManualOrderRefundService;
 use App\Services\OrderFeeBreakdownService;
 use App\Services\OrderManualApprovalService;
 use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
-use App\Jobs\PollCajuPayPixRefundJob;
-use App\Services\OrderRefundGatewayBridge;
 use App\Services\PlatformOrderAdminService;
+use App\Services\WithdrawalPixReceiptService;
 use App\Support\DemoMode;
 use App\Support\Demo\DemoPlatformData;
+use App\Support\OrderManualRefund;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -25,6 +27,10 @@ use InvalidArgumentException;
 
 class TransactionsController extends Controller
 {
+    public function __construct(
+        protected WithdrawalPixReceiptService $receiptService,
+    ) {}
+
     private const STATUS_OPTIONS = ['all', 'pending', 'completed', 'disputed', 'cancelled', 'refunded'];
 
     private function productDisplayName(Order $order): string
@@ -152,8 +158,26 @@ class TransactionsController extends Controller
             $ordersPaginator = $paginated->through(fn (Order $o) => $this->mapOrderForAdmin($o, $openMedOrderIds));
         }
 
+        $apiCashoutsPaginator = new LengthAwarePaginator([], 0, 40, 1, [
+            'path' => $request->url(),
+            'query' => $request->query(),
+        ]);
+
+        if (Schema::hasTable('withdrawals')) {
+            $cashoutQuery = Withdrawal::query()
+                ->with(['tenantOwner:id,name,email', 'apiApplication:id,name'])
+                ->whereNotNull('api_application_id')
+                ->orderByDesc('created_at');
+
+            $apiCashoutsPaginator = $cashoutQuery
+                ->paginate(40, ['*'], 'cashout_page')
+                ->withQueryString()
+                ->through(fn (Withdrawal $w) => $this->receiptService->mapWithdrawalListItem($w));
+        }
+
         return Inertia::render('Platform/ApiTransactions/Index', [
             'orders' => $ordersPaginator,
+            'api_cashouts' => $apiCashoutsPaginator,
             'filters' => [
                 'status' => $status,
                 'q' => $q,
@@ -217,6 +241,8 @@ class TransactionsController extends Controller
         $cajupayBadge = $this->cajupayAccountBadge($o);
         $arr['cajupay_account_id'] = $o->cajupay_account_id;
         $arr['cajupay_account_badge'] = $cajupayBadge;
+        $arr['can_manual_refund'] = OrderManualRefund::canManualRefund($o);
+        $arr['manual_refund'] = OrderManualRefund::snapshot($o);
 
         return $arr;
     }
@@ -296,34 +322,24 @@ class TransactionsController extends Controller
             ->with('success', 'Pedido #'.$order->id.' cancelado.');
     }
 
-    public function refundOrder(Request $request, Order $order): RedirectResponse
+    public function refundOrder(Request $request, Order $order, ManualOrderRefundService $refundService): RedirectResponse
     {
         $redirectParams = $this->orderActionRedirectParams($request);
 
-        $gw = app(OrderRefundGatewayBridge::class)->tryRefund($order);
-        if ($gw['status'] === 'blocked_med') {
-            return redirect()->route('plataforma.transacoes.index', $redirectParams)
-                ->with('error', $gw['note'] ?? 'Reembolso bloqueado por disputa MED aberta.');
-        }
-        if ($gw['status'] === 'failed') {
-            return redirect()->route('plataforma.transacoes.index', $redirectParams)
-                ->with('error', $gw['note'] ?? 'Falha ao solicitar reembolso no gateway.');
-        }
-
-        if ($gw['status'] === 'gateway_pending') {
-            PollCajuPayPixRefundJob::dispatch($order->id)->delay(now()->addSeconds(5));
-            PlatformAuditService::log('platform.order.refund_pending', [
-                'order_id' => $order->id,
-                'tenant_id' => $order->tenant_id,
-                'gateway_refund' => $gw,
-            ], $request);
-
-            return redirect()->route('plataforma.transacoes.index', $redirectParams)
-                ->with('success', $gw['note'] ?? 'Reembolso PIX enviado à CajuPay. A carteira será ajustada quando a devolução for confirmada.');
-        }
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ], [
+            'reason.required' => 'Informe o motivo do reembolso para o infoprodutor.',
+            'reason.min' => 'O motivo deve ter pelo menos 3 caracteres.',
+        ]);
 
         try {
-            PlatformOrderAdminService::refundPaidOrDisputed($order);
+            $result = $refundService->refund(
+                $order,
+                $request->user(),
+                'platform',
+                $validated['reason']
+            );
         } catch (InvalidArgumentException $e) {
             return redirect()->route('plataforma.transacoes.index', $redirectParams)->with('error', $e->getMessage());
         } catch (\Throwable $e) {
@@ -331,14 +347,30 @@ class TransactionsController extends Controller
                 ->with('error', 'Não foi possível reembolsar: '.$e->getMessage());
         }
 
+        if (! $result['success']) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', $result['message']);
+        }
+
+        if ($result['gateway_status'] === 'gateway_pending') {
+            PlatformAuditService::log('platform.order.refund_pending', [
+                'order_id' => $order->id,
+                'tenant_id' => $order->tenant_id,
+                'reason' => $validated['reason'],
+            ], $request);
+
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('success', $result['message']);
+        }
+
         PlatformAuditService::log('platform.order.refunded', [
             'order_id' => $order->id,
             'tenant_id' => $order->tenant_id,
-            'gateway_refund' => $gw,
+            'reason' => $validated['reason'],
         ], $request);
 
         return redirect()->route('plataforma.transacoes.index', $redirectParams)
-            ->with('success', 'Pedido #'.$order->id.' reembolsado.');
+            ->with('success', $result['message']);
     }
 
     public function markDisputedOrder(Request $request, Order $order): RedirectResponse

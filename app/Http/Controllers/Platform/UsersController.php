@@ -18,6 +18,7 @@ use App\Services\MerchantWalletAdminBlockService;
 use App\Services\MinimumChargeService;
 use App\Services\ApiPixAccess;
 use App\Services\Med\MedPolicyService;
+use App\Services\Platform\MerchantRevenueBreakdownService;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\SalesAchievementsService;
@@ -43,6 +44,7 @@ class UsersController extends Controller
     public function __construct(
         protected SalesAchievementsService $salesAchievements,
         protected MinimumChargeService $minimumChargeService,
+        protected MerchantRevenueBreakdownService $merchantRevenueBreakdown,
     ) {}
 
     public function index(Request $request): Response
@@ -190,6 +192,8 @@ class UsersController extends Controller
                 ->all();
         }
 
+        $revenueBreakdown = $this->merchantRevenueBreakdown->forTenant($tenantId);
+
         return Inertia::render('Platform/Users/Show', [
             'merchant' => [
                 'id' => $user->id,
@@ -201,9 +205,10 @@ class UsersController extends Controller
                 'kyc_status' => Schema::hasColumn('users', 'kyc_status') ? ($user->kyc_status ?? User::KYC_NOT_SUBMITTED) : null,
                 'created_at' => $user->created_at?->toIso8601String(),
                 'tenant_id' => $tenantId,
-                'vendas_totais' => round($this->salesAchievements->getValidSalesTotal($tenantId), 2),
+                'vendas_totais' => $revenueBreakdown['total']['gross'],
                 'totp_enabled' => PlatformTotpService::isEnabledFor($user),
             ],
+            'revenue_breakdown' => $revenueBreakdown,
             'profile' => MerchantProfileSnapshot::forUser($user, maskDocuments: false),
             'wallet' => $this->walletPayloadForTenant($tenantId),
             'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),

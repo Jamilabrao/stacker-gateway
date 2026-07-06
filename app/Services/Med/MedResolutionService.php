@@ -49,26 +49,24 @@ class MedResolutionService
 
     public function applyWalletOutcome(MedDispute $dispute, string $outcome): void
     {
-        if (! $this->policy->shouldHoldTenantBalance($dispute)) {
-            return;
-        }
-
         $order = $dispute->order;
         if ($order === null) {
             return;
         }
 
         $freshOrder = $order->fresh();
+        $outcome = strtolower(trim($outcome));
 
         if ($outcome === 'lost') {
-            if (in_array($freshOrder->status, ['completed', 'disputed'], true)) {
+            if ($this->policy->shouldHoldTenantBalance($dispute)
+                && in_array($freshOrder->status, ['completed', 'disputed'], true)) {
                 PlatformOrderAdminService::refundPaidOrDisputed($freshOrder);
             }
 
             return;
         }
 
-        if (in_array($outcome, ['won', 'cancelled'], true) && $freshOrder->status === 'disputed') {
+        if (in_array($outcome, ['won', 'cancelled'], true)) {
             PlatformOrderAdminService::releaseMedHoldAndComplete($freshOrder);
         }
     }

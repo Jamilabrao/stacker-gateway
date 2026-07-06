@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayPayoutService;
 use App\Services\MerchantWithdrawalService;
+use App\Services\WithdrawalPixReceiptService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -62,7 +63,9 @@ class ReconcileCajuPayWithdrawalJob implements ShouldQueue
         $this->recordReconcileAttempt($withdrawal, $apiStatus);
 
         if ($apiStatus === 'paid') {
-            MerchantWithdrawalService::markPaid($withdrawal->fresh());
+            $fresh = $withdrawal->fresh();
+            app(WithdrawalPixReceiptService::class)->enrichFromCajuPay($fresh);
+            MerchantWithdrawalService::markPaid($fresh);
 
             return;
         }

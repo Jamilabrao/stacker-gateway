@@ -7,6 +7,7 @@ use App\Models\GatewayCredential;
 use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayPayoutStatuses;
 use App\Services\MerchantWithdrawalService;
+use App\Services\WithdrawalPixReceiptService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -52,14 +53,18 @@ class CajuPayPayoutWebhookController extends Controller
             return response('invalid_signature', 401);
         }
 
-        $eventType = strtolower(trim((string) ($request->header('X-CajuPay-Event') ?? ($payload['type'] ?? $payload['event'] ?? ''))));
-        $status = strtolower(trim((string) ($payload['status'] ?? data_get($payload, 'data.status', ''))));
-        $externalId = $this->extractExternalId($payload);
+        $eventType = CajuPayPayoutStatuses::eventTypeFromWebhookPayload($payload);
+        if ($eventType === '' && is_string($request->header('X-CajuPay-Event'))) {
+            $eventType = strtolower(trim($request->header('X-CajuPay-Event')));
+        }
+        $status = CajuPayPayoutStatuses::statusFromWebhookPayload($payload);
+        $externalId = CajuPayPayoutStatuses::externalIdFromWebhookPayload($payload);
 
         if ($externalId === '') {
             Log::info('CajuPayPayoutWebhook: payout sem external id.', [
                 'event' => $eventType,
                 'status' => $status,
+                'payload_keys' => array_keys($payload),
             ]);
 
             return response('ok', 200);
@@ -89,9 +94,13 @@ class CajuPayPayoutWebhookController extends Controller
         ]);
 
         if (CajuPayPayoutStatuses::isFailedConfirmation($eventType, $status)) {
+            $object = data_get($payload, 'data.object');
+            $cancelMessage = is_array($object)
+                ? trim((string) ($object['cancel_message'] ?? $object['last_error'] ?? ''))
+                : '';
             $reason = CajuPayPayoutStatuses::isFailedEvent($eventType) && $status === ''
                 ? 'Payout CajuPay falhou (webhook): '.$eventType
-                : 'Payout CajuPay falhou (webhook): '.($status !== '' ? $status : $eventType);
+                : 'Payout CajuPay falhou (webhook): '.($cancelMessage !== '' ? $cancelMessage : ($status !== '' ? $status : $eventType));
 
             MerchantWithdrawalService::markFailed(
                 $withdrawal->fresh(),
@@ -105,37 +114,17 @@ class CajuPayPayoutWebhookController extends Controller
             return response('ok', 200);
         }
 
+        $receiptPayload = data_get($payload, 'data.object');
+        if (! is_array($receiptPayload)) {
+            $receiptPayload = $payload['data'] ?? $payload;
+        }
+        if (is_array($receiptPayload)) {
+            app(WithdrawalPixReceiptService::class)->persistReceiptFromPayload($withdrawal->fresh(), $receiptPayload);
+        }
+
         MerchantWithdrawalService::markPaid($withdrawal->fresh());
 
         return response('ok', 200);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function extractExternalId(array $payload): string
-    {
-        $candidates = [
-            $payload['id'] ?? null,
-            $payload['payout_id'] ?? null,
-            $payload['withdrawal_id'] ?? null,
-            data_get($payload, 'data.id'),
-            data_get($payload, 'data.payout_id'),
-            data_get($payload, 'data.object.id'),
-            data_get($payload, 'data.object.payout_id'),
-            data_get($payload, 'payout.id'),
-        ];
-
-        foreach ($candidates as $candidate) {
-            if (is_scalar($candidate)) {
-                $value = trim((string) $candidate);
-                if ($value !== '') {
-                    return $value;
-                }
-            }
-        }
-
-        return '';
     }
 
     /**

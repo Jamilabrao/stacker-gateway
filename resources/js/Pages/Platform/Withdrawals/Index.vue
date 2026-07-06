@@ -34,6 +34,11 @@ const withdrawalFilterChips = [
     { withdrawal_status: 'rejected', label: 'Rejeitado' },
 ];
 
+const originFilterChips = [
+    { origin: 'all', label: 'Todas origens' },
+    { origin: 'api', label: 'Origem API' },
+];
+
 const stepUpOpen = ref(false);
 const stepUpLoading = ref(false);
 const stepUpAction = ref(null);
@@ -45,9 +50,27 @@ const stepUpHasExternalPayout = ref(false);
 function selectWithdrawalFilter(withdrawalStatus) {
     router.get(
         '/plataforma/saques',
-        { withdrawal_status: withdrawalStatus },
+        {
+            withdrawal_status: withdrawalStatus,
+            origin: props.filters?.origin && props.filters.origin !== 'all' ? props.filters.origin : undefined,
+        },
         { preserveState: true, preserveScroll: true, replace: true }
     );
+}
+
+function selectOriginFilter(origin) {
+    router.get(
+        '/plataforma/saques',
+        {
+            withdrawal_status: props.filters?.withdrawal_status ?? 'all',
+            origin: origin === 'all' ? undefined : origin,
+        },
+        { preserveState: true, preserveScroll: true, replace: true }
+    );
+}
+
+function originChipIsActive(origin) {
+    return (props.filters?.origin ?? 'all') === origin;
 }
 
 function withdrawalChipIsActive(ws) {
@@ -216,6 +239,26 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                     </button>
                 </div>
             </div>
+            <div class="w-full overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                <div class="inline-flex min-w-full flex-wrap gap-2" role="tablist" aria-label="Filtro de origem">
+                    <button
+                        v-for="chip in originFilterChips"
+                        :key="chip.origin"
+                        type="button"
+                        role="tab"
+                        :aria-selected="originChipIsActive(chip.origin)"
+                        :class="[
+                            'inline-flex items-center gap-2 whitespace-nowrap rounded-lg border px-3 py-2 text-sm font-medium transition',
+                            originChipIsActive(chip.origin)
+                                ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)] dark:bg-[var(--color-primary)]/20'
+                                : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-zinc-300 dark:border-zinc-600 dark:bg-zinc-900/50 dark:text-zinc-200',
+                        ]"
+                        @click="selectOriginFilter(chip.origin)"
+                    >
+                        {{ chip.label }}
+                    </button>
+                </div>
+            </div>
         </div>
 
         <section
@@ -253,7 +296,15 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                 <td class="whitespace-nowrap py-3 text-zinc-600 dark:text-zinc-300">
                                     {{ w.created_at ? new Date(w.created_at).toLocaleString('pt-BR') : '—' }}
                                 </td>
-                                <td class="py-3 font-mono text-xs text-zinc-600 dark:text-zinc-300">#{{ w.id }}</td>
+                                <td class="py-3 font-mono text-xs text-zinc-600 dark:text-zinc-300">
+                                    #{{ w.id }}
+                                    <span
+                                        v-if="w.api_application_id"
+                                        class="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                                    >
+                                        API
+                                    </span>
+                                </td>
                                 <td class="py-3">
                                     <div class="font-medium text-zinc-900 dark:text-white">{{ w.infoprodutor_name }}</div>
                                     <div class="text-xs text-zinc-500">{{ w.infoprodutor_email }}</div>
@@ -338,6 +389,16 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                         >
                                             Cancelar e estornar
                                         </Button>
+                                    </div>
+                                    <div v-else-if="w.can_download_receipt" class="flex justify-end">
+                                        <a
+                                            :href="`/plataforma/saques/${w.id}/comprovante`"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                        >
+                                            Comprovante
+                                        </a>
                                     </div>
                                     <span v-else class="text-xs text-zinc-400">—</span>
                                 </td>

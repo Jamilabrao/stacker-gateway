@@ -45,7 +45,13 @@ class ApiDocsController extends Controller
     public function llmBundle(ApiPagamentosLlmBundle $bundle): HttpResponse
     {
         $baseUrl = rtrim(url('/'), '/');
-        $content = $bundle->build($baseUrl);
+
+        try {
+            $content = $bundle->build($baseUrl);
+        } catch (\RuntimeException $e) {
+            abort(404, 'Pacote de documentação indisponível. '.$e->getMessage());
+        }
+
         $filename = $bundle->downloadFilename();
 
         return response($content, 200, [

@@ -277,6 +277,75 @@ class CajuPayWithdrawalWebhookFlowTest extends TestCase
         $this->assertEqualsWithDelta(45.0, (float) TenantWallet::query()->where('tenant_id', $seller->id)->value('available_pix'), 0.01);
     }
 
+    public function test_cajupay_webhook_payout_failed_with_cajupay_payout_id_refunds_wallet(): void
+    {
+        if (! Schema::hasTable('withdrawals') || ! Schema::hasTable('tenant_wallets')) {
+            $this->markTestSkipped('withdrawals/tenant_wallets tables');
+        }
+
+        $signingSecret = 'caju_payout_whsec_official_fmt';
+        $cred = GatewayCredential::query()->firstOrNew([
+            'tenant_id' => null,
+            'gateway_slug' => 'cajupay',
+        ]);
+        $cred->is_connected = true;
+        $cred->setEncryptedCredentials([
+            'public_key' => 'pk_test',
+            'secret_key' => 'sk_test',
+            'webhook_signing_secret' => $signingSecret,
+        ]);
+        $cred->save();
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        TenantWallet::query()->updateOrCreate(
+            ['tenant_id' => $seller->id],
+            ['available_pix' => 0.0]
+        );
+
+        $payoutId = 'uuid-cajupay-payout-cancel-1';
+        $withdrawal = Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 55,
+            'fee_amount' => 0,
+            'net_amount' => 55,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+            'payout_provider' => 'cajupay',
+            'payout_external_id' => $payoutId,
+        ]);
+
+        $raw = json_encode([
+            'type' => 'payout.failed',
+            'data' => [
+                'object' => [
+                    'gateway' => 'cajupay',
+                    'cajupay_payout_id' => $payoutId,
+                    'status' => 'cancelled',
+                    'cancel_message' => 'Chave PIX inválida',
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        $ts = time();
+        $sig = hash_hmac('sha256', $ts.'.'.$raw, $signingSecret);
+
+        $response = $this->call('POST', route('webhooks.cajupay.payout'), [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_CAJUPAY_SIGNATURE' => 't='.$ts.',v1='.$sig,
+            'HTTP_X_CAJUPAY_EVENT' => 'payout.failed',
+        ], $raw);
+        $response->assertOk();
+
+        $withdrawal->refresh();
+        $this->assertSame('failed', $withdrawal->status);
+        $this->assertStringContainsString('Chave PIX inválida', (string) $withdrawal->failed_reason);
+        $this->assertEqualsWithDelta(55.0, (float) TenantWallet::query()->where('tenant_id', $seller->id)->value('available_pix'), 0.01);
+    }
+
     public function test_paid_webhook_after_admin_reject_does_not_change_status(): void
     {
         if (! Schema::hasTable('withdrawals') || ! Schema::hasTable('wallet_transactions')) {

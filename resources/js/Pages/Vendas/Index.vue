@@ -25,6 +25,7 @@ import {
     X,
     Package,
     ChevronDown,
+    RotateCcw,
 } from 'lucide-vue-next';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import { htmlToText } from '@/lib/sanitizeHtml';
@@ -62,6 +63,10 @@ const menuAnchorEl = ref(null);
 const menuEl = ref(null);
 const menuPos = ref({ top: 0, left: 0 });
 const resendingId = ref(null);
+const refundingId = ref(null);
+const refundModalOpen = ref(false);
+const refundTarget = ref(null);
+const refundReason = ref('');
 const toast = ref({ message: null, type: null });
 let toastTimer = null;
 
@@ -363,6 +368,55 @@ async function resendEmail(v) {
     } finally {
         resendingId.value = null;
     }
+}
+
+function openRefundModal(v) {
+    closeMenu();
+    refundTarget.value = v;
+    refundReason.value = '';
+    refundModalOpen.value = true;
+}
+
+function closeRefundModal() {
+    refundModalOpen.value = false;
+    refundTarget.value = null;
+    refundReason.value = '';
+}
+
+async function submitRefund() {
+    const v = refundTarget.value;
+    if (!v || refundingId.value) return;
+
+    const reason = refundReason.value?.trim() ?? '';
+    if (reason !== '' && reason.length < 3) {
+        showToast(t('sales.refund.reason_min', 'O motivo deve ter pelo menos 3 caracteres.'), 'error');
+        return;
+    }
+
+    refundingId.value = v.id;
+    try {
+        const { data } = await axios.post(`/vendas/${v.id}/reembolsar`, {
+            reason: reason !== '' ? reason : null,
+        });
+        if (data.success) {
+            closeRefundModal();
+            showToast(data.message ?? t('sales.refund.success', 'Pedido reembolsado.'), 'success');
+            router.reload({ preserveScroll: true });
+        } else {
+            showToast(data.message ?? t('sales.refund.fail', 'Não foi possível reembolsar.'), 'error');
+        }
+    } catch (err) {
+        showToast(
+            err.response?.data?.message ?? t('sales.refund.error', 'Erro ao reembolsar. Tente novamente.'),
+            'error'
+        );
+    } finally {
+        refundingId.value = null;
+    }
+}
+
+function canShowRefundAction(venda) {
+    return venda && ['completed', 'disputed'].includes(venda.status);
 }
 
 function whatsappCustomerUrl(venda) {
@@ -1073,6 +1127,61 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                     <Mail class="h-4 w-4 shrink-0" />
                     {{ resendingId === openMenuId ? t('common.sending', 'Enviando...') : t('sales.resend_purchase_email', 'Reenviar e-mail de compra') }}
                 </button>
+                <button
+                    v-if="canShowRefundAction(menuVenda)"
+                    type="button"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    :disabled="refundingId === openMenuId"
+                    @click="openRefundModal(menuVenda)"
+                >
+                    <RotateCcw class="h-4 w-4 shrink-0" />
+                    {{ t('sales.refund_manual', 'Reembolsar') }}
+                </button>
+            </div>
+            <div
+                v-if="refundModalOpen"
+                class="fixed inset-0 z-[100002] flex items-center justify-center p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="refund-modal-title"
+            >
+                <div class="absolute inset-0 bg-zinc-900/50 dark:bg-zinc-950/60" @click="closeRefundModal" />
+                <div class="relative w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                    <h3 id="refund-modal-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
+                        {{ t('sales.refund_manual', 'Reembolsar') }}
+                    </h3>
+                    <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        O pedido será marcado como <strong>Reembolsado</strong>. Se houver saldo creditado na sua carteira, o valor líquido será debitado.
+                    </p>
+                    <label class="mt-4 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                        {{ t('sales.refund.reason_optional', 'Motivo (opcional)') }}
+                        <textarea
+                            v-model="refundReason"
+                            rows="3"
+                            maxlength="500"
+                            class="mt-1.5 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            :placeholder="t('sales.refund.reason_placeholder', 'Ex.: cliente solicitou por WhatsApp')"
+                        />
+                    </label>
+                    <div class="mt-5 flex justify-end gap-2">
+                        <button
+                            type="button"
+                            class="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            :disabled="refundingId != null"
+                            @click="closeRefundModal"
+                        >
+                            {{ t('common.cancel', 'Cancelar') }}
+                        </button>
+                        <button
+                            type="button"
+                            class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                            :disabled="refundingId != null"
+                            @click="submitRefund"
+                        >
+                            {{ refundingId ? t('common.processing', 'Processando...') : t('sales.refund.confirm', 'Confirmar reembolso') }}
+                        </button>
+                    </div>
+                </div>
             </div>
             <Transition
                 enter-active-class="transition duration-200 ease-out"

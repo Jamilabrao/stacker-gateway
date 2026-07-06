@@ -91,6 +91,68 @@ final class CajuPayPayoutStatuses
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     */
+    public static function eventTypeFromWebhookPayload(array $payload): string
+    {
+        return strtolower(trim((string) ($payload['type'] ?? $payload['event'] ?? '')));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public static function statusFromWebhookPayload(array $payload): string
+    {
+        $candidates = [
+            $payload['status'] ?? null,
+            data_get($payload, 'data.status'),
+            data_get($payload, 'data.object.status'),
+            data_get($payload, 'object.status'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_scalar($candidate) && trim((string) $candidate) !== '') {
+                return strtolower(trim((string) $candidate));
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * ID do payout na CajuPay (campo oficial: cajupay_payout_id em data.object).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public static function externalIdFromWebhookPayload(array $payload): string
+    {
+        $candidates = [
+            data_get($payload, 'data.object.cajupay_payout_id'),
+            data_get($payload, 'data.cajupay_payout_id'),
+            data_get($payload, 'cajupay_payout_id'),
+            $payload['id'] ?? null,
+            $payload['payout_id'] ?? null,
+            $payload['withdrawal_id'] ?? null,
+            data_get($payload, 'data.id'),
+            data_get($payload, 'data.payout_id'),
+            data_get($payload, 'data.object.id'),
+            data_get($payload, 'data.object.payout_id'),
+            data_get($payload, 'payout.id'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_scalar($candidate)) {
+                $value = trim((string) $candidate);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * @return 'paid'|'pending'|'failed'|null null = erro de consulta ou status desconhecido
      */
     public static function settlementStatusFromRaw(?string $rawStatus): ?string

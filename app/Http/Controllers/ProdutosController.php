@@ -698,140 +698,122 @@ class ProdutosController extends Controller
             $validated['physical_config'] = null;
         }
 
-        $produto->update($validated);
-
-        if ($produto->billing_type === Product::BILLING_SUBSCRIPTION && $baseInterval !== null) {
-            $basePlan = $produto->subscriptionPlans()->orderBy('position')->first();
-            $labels = SubscriptionPlan::intervalLabels();
-            $planName = $labels[$baseInterval] ?? ucfirst($baseInterval);
-            if ($basePlan) {
-                $basePlan->update([
-                    'name' => $planName,
-                    'price' => $produto->price,
-                    'currency' => $produto->currency ?? 'BRL',
-                    'interval' => $baseInterval,
-                ]);
-            } else {
-                SubscriptionPlan::create([
-                    'product_id' => $produto->id,
-                    'name' => $planName,
-                    'price' => $produto->price,
-                    'currency' => $produto->currency ?? 'BRL',
-                    'interval' => $baseInterval,
-                    'checkout_slug' => SubscriptionPlan::generateUniqueCheckoutSlug(),
-                    'position' => 0,
-                ]);
-            }
-        }
-
-        if ($request->has('conversion_pixels')) {
-            $merged = [];
-            foreach (['meta', 'tiktok', 'google_ads', 'google_analytics'] as $key) {
-                $raw = is_array($conversionPixels[$key] ?? null) ? $conversionPixels[$key] : [];
-                $merged[$key] = Product::normalizeConversionPixelBlock($raw, $key);
-            }
-            $merged['custom_script'] = [];
-            foreach ($conversionPixels['custom_script'] ?? [] as $item) {
-                if (! empty($item['script'] ?? '')) {
-                    $merged['custom_script'][] = [
-                        'id' => $item['id'] ?? Str::uuid()->toString(),
-                        'name' => $item['name'] ?? '',
-                        'script' => $item['script'],
-                    ];
-                }
-            }
-            $produto->update(['conversion_pixels' => $merged]);
-        }
-
-        $config = $produto->checkout_config ?? [];
-        $configUpdated = false;
-        if (array_key_exists('payment_gateways', $config)) {
-            unset($config['payment_gateways']);
-            $configUpdated = true;
-        }
-        if ($request->has('deliverable_link')) {
-            $config['deliverable_link'] = $deliverableLink ?? '';
-            $configUpdated = true;
-        }
-        if (is_array($cardInstallments)) {
-            $config['card_installments'] = [
-                'enabled' => ! empty($cardInstallments['enabled']),
-                'max' => min(12, max(1, (int) ($cardInstallments['max'] ?? 1))),
-            ];
-            $configUpdated = true;
-        }
+        $paymentMethodsPm = null;
         if (is_array($paymentMethodsEnabledInput)) {
-            $paymentService = app(PaymentService::class);
-            $produto->refresh();
-            $basePlan = $produto->billing_type === Product::BILLING_SUBSCRIPTION
-                ? $produto->subscriptionPlans()->orderBy('position')->first()
-                : null;
-            $global = $paymentService->globallyAvailablePaymentMethodKeys($produto, $basePlan);
-            $pm = [
-                'pix' => $request->boolean('payment_methods_enabled.pix', true),
-                'card' => $request->boolean('payment_methods_enabled.card', true),
-                'boleto' => $request->boolean('payment_methods_enabled.boleto', true),
-                'pix_auto' => $produto->billing_type === Product::BILLING_SUBSCRIPTION
-                    ? $request->boolean('payment_methods_enabled.pix_auto', true)
-                    : false,
-                'apple_pay' => $request->boolean('payment_methods_enabled.apple_pay', true),
-                'google_pay' => $request->boolean('payment_methods_enabled.google_pay', true),
-            ];
-            $keysToCheck = ['pix', 'card', 'boleto'];
-            if ($produto->billing_type === Product::BILLING_SUBSCRIPTION && $basePlan) {
-                $keysToCheck[] = 'pix_auto';
+            $paymentMethodsPm = $this->resolveProductPaymentMethods(
+                $request,
+                $produto,
+                $validated
+            );
+            if ($paymentMethodsPm['error'] !== null) {
+                return back()->withErrors(['payment_methods_enabled' => $paymentMethodsPm['error']])->withInput();
             }
-            if (! empty($global['apple_pay'])) {
-                $keysToCheck[] = 'apple_pay';
-            }
-            if (! empty($global['google_pay'])) {
-                $keysToCheck[] = 'google_pay';
-            }
-            foreach (array_keys($pm) as $k) {
-                if (empty($global[$k])) {
-                    $pm[$k] = false;
-                }
-            }
-            $anyGlobal = false;
-            foreach ($keysToCheck as $k) {
-                if (! empty($global[$k])) {
-                    $anyGlobal = true;
-                    break;
-                }
-            }
-            if ($anyGlobal) {
-                $atLeastOne = false;
-                foreach ($keysToCheck as $k) {
-                    if (! empty($global[$k]) && ($pm[$k] ?? false)) {
-                        $atLeastOne = true;
-                        break;
+        }
+
+        try {
+            DB::transaction(function () use (
+                $request,
+                $produto,
+                $validated,
+                $baseInterval,
+                $conversionPixels,
+                $cardInstallments,
+                $deliverableLink,
+                $emailTemplate,
+                $paymentMethodsPm,
+                $oldImage
+            ) {
+                $produto->update($validated);
+
+                if ($produto->billing_type === Product::BILLING_SUBSCRIPTION && $baseInterval !== null) {
+                    $basePlan = $produto->subscriptionPlans()->orderBy('position')->first();
+                    $labels = SubscriptionPlan::intervalLabels();
+                    $planName = $labels[$baseInterval] ?? ucfirst($baseInterval);
+                    if ($basePlan) {
+                        $basePlan->update([
+                            'name' => $planName,
+                            'price' => $produto->price,
+                            'currency' => $produto->currency ?? 'BRL',
+                            'interval' => $baseInterval,
+                        ]);
+                    } else {
+                        SubscriptionPlan::create([
+                            'product_id' => $produto->id,
+                            'name' => $planName,
+                            'price' => $produto->price,
+                            'currency' => $produto->currency ?? 'BRL',
+                            'interval' => $baseInterval,
+                            'checkout_slug' => SubscriptionPlan::generateUniqueCheckoutSlug(),
+                            'position' => 0,
+                        ]);
                     }
                 }
-                if (! $atLeastOne) {
-                    return back()->withErrors(['payment_methods_enabled' => 'Ative pelo menos um método de pagamento disponível na plataforma.'])->withInput();
-                }
-            }
-            $config['payment_methods_enabled'] = $pm;
-            $configUpdated = true;
-        }
-        if (is_array($emailTemplate)) {
-            $config['email_template'] = array_merge(
-                Product::defaultEmailTemplate(),
-                $emailTemplate
-            );
-            $configUpdated = true;
-        }
-        if ($configUpdated) {
-            $produto->update(['checkout_config' => $config]);
-        }
 
-        if ($request->hasFile('image')) {
-            $storage = app(StorageService::class);
-            if ($oldImage && $storage->exists($oldImage)) {
-                $storage->delete($oldImage);
-            }
-            $path = $storage->putFile('products', $request->file('image'));
-            $produto->update(['image' => $path]);
+                if ($request->has('conversion_pixels')) {
+                    $merged = [];
+                    foreach (['meta', 'tiktok', 'google_ads', 'google_analytics'] as $key) {
+                        $raw = is_array($conversionPixels[$key] ?? null) ? $conversionPixels[$key] : [];
+                        $merged[$key] = Product::normalizeConversionPixelBlock($raw, $key);
+                    }
+                    $merged['custom_script'] = [];
+                    foreach ($conversionPixels['custom_script'] ?? [] as $item) {
+                        if (! empty($item['script'] ?? '')) {
+                            $merged['custom_script'][] = [
+                                'id' => $item['id'] ?? Str::uuid()->toString(),
+                                'name' => $item['name'] ?? '',
+                                'script' => $item['script'],
+                            ];
+                        }
+                    }
+                    $produto->update(['conversion_pixels' => $merged]);
+                }
+
+                $config = $produto->checkout_config ?? [];
+                $configUpdated = false;
+                if (array_key_exists('payment_gateways', $config)) {
+                    unset($config['payment_gateways']);
+                    $configUpdated = true;
+                }
+                if ($request->has('deliverable_link')) {
+                    $config['deliverable_link'] = $deliverableLink ?? '';
+                    $configUpdated = true;
+                }
+                if (is_array($cardInstallments)) {
+                    $config['card_installments'] = [
+                        'enabled' => ! empty($cardInstallments['enabled']),
+                        'max' => min(12, max(1, (int) ($cardInstallments['max'] ?? 1))),
+                    ];
+                    $configUpdated = true;
+                }
+                if (is_array($paymentMethodsPm) && $paymentMethodsPm['pm'] !== null) {
+                    $config['payment_methods_enabled'] = $paymentMethodsPm['pm'];
+                    $configUpdated = true;
+                }
+                if (is_array($emailTemplate)) {
+                    $config['email_template'] = array_merge(
+                        Product::defaultEmailTemplate(),
+                        $emailTemplate
+                    );
+                    $configUpdated = true;
+                }
+                if ($configUpdated) {
+                    $produto->update(['checkout_config' => $config]);
+                }
+
+                if ($request->hasFile('image')) {
+                    $storage = app(StorageService::class);
+                    if ($oldImage && $storage->exists($oldImage)) {
+                        $storage->delete($oldImage);
+                    }
+                    $path = $storage->putFile('products', $request->file('image'));
+                    $produto->update(['image' => $path]);
+                }
+            });
+        } catch (\RuntimeException $e) {
+            return back()
+                ->withErrors(['image' => $e->getMessage()])
+                ->with('error', $e->getMessage())
+                ->withInput();
         }
 
         event(new ProductUpdated($produto));
@@ -1244,6 +1226,72 @@ class ProdutosController extends Controller
         $min = app(MinimumChargeService::class)->platformMinimumBrlForTenant($tenantId > 0 ? $tenantId : null);
 
         return ['required', 'numeric', 'min:'.$min];
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{pm: ?array<string, bool>, error: ?string}
+     */
+    private function resolveProductPaymentMethods(
+        Request $request,
+        Product $produto,
+        array $validated
+    ): array {
+        $paymentService = app(PaymentService::class);
+        $billingType = (string) ($validated['billing_type'] ?? $produto->billing_type ?? Product::BILLING_ONE_TIME);
+        $basePlan = $billingType === Product::BILLING_SUBSCRIPTION
+            ? $produto->subscriptionPlans()->orderBy('position')->first()
+            : null;
+        $global = $paymentService->globallyAvailablePaymentMethodKeys($produto, $basePlan);
+        $pm = [
+            'pix' => $request->boolean('payment_methods_enabled.pix', true),
+            'card' => $request->boolean('payment_methods_enabled.card', true),
+            'boleto' => $request->boolean('payment_methods_enabled.boleto', true),
+            'pix_auto' => $billingType === Product::BILLING_SUBSCRIPTION
+                ? $request->boolean('payment_methods_enabled.pix_auto', true)
+                : false,
+            'apple_pay' => $request->boolean('payment_methods_enabled.apple_pay', true),
+            'google_pay' => $request->boolean('payment_methods_enabled.google_pay', true),
+        ];
+        $keysToCheck = ['pix', 'card', 'boleto'];
+        if ($billingType === Product::BILLING_SUBSCRIPTION && $basePlan) {
+            $keysToCheck[] = 'pix_auto';
+        }
+        if (! empty($global['apple_pay'])) {
+            $keysToCheck[] = 'apple_pay';
+        }
+        if (! empty($global['google_pay'])) {
+            $keysToCheck[] = 'google_pay';
+        }
+        foreach (array_keys($pm) as $k) {
+            if (empty($global[$k])) {
+                $pm[$k] = false;
+            }
+        }
+        $anyGlobal = false;
+        foreach ($keysToCheck as $k) {
+            if (! empty($global[$k])) {
+                $anyGlobal = true;
+                break;
+            }
+        }
+        if ($anyGlobal) {
+            $atLeastOne = false;
+            foreach ($keysToCheck as $k) {
+                if (! empty($global[$k]) && ($pm[$k] ?? false)) {
+                    $atLeastOne = true;
+                    break;
+                }
+            }
+            if (! $atLeastOne) {
+                return [
+                    'pm' => null,
+                    'error' => 'Ative pelo menos um método de pagamento disponível na plataforma.',
+                ];
+            }
+        }
+
+        return ['pm' => $pm, 'error' => null];
     }
 
     private function assertPhysicalProductRules(string $type, string $billingType): void

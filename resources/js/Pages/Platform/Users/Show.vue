@@ -17,6 +17,14 @@ const props = defineProps({
     wallet_transactions: { type: Array, default: () => [] },
     effective_merchant_fees: { type: Array, default: () => [] },
     admin_notes: { type: Array, default: () => [] },
+    revenue_breakdown: {
+        type: Object,
+        default: () => ({
+            checkout: { gross: 0, count: 0, fees: 0 },
+            api_pix: { gross: 0, count: 0, fees: 0 },
+            total: { gross: 0, count: 0, fees: 0 },
+        }),
+    },
 });
 
 function formatBRL(value) {
@@ -300,15 +308,64 @@ function formatFeePreview(percent, fixed) {
             </div>
         </section>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800">
-                <p class="text-xs uppercase text-zinc-500" title="Pedidos concluídos via gateway (exclui aprovação manual)">
-                    Vendas totais
-                </p>
-                <p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
-                    {{ formatBRL(merchant.vendas_totais) }}
-                </p>
+        <section class="space-y-3">
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Faturamento por canal</h2>
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                    <p
+                        class="text-xs uppercase text-zinc-500"
+                        title="Soma de checkout e API PIX (pedidos concluídos via gateway)"
+                    >
+                        Vendas totais
+                    </p>
+                    <p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
+                        {{ formatBRL(revenue_breakdown.total.gross) }}
+                    </p>
+                    <p class="mt-2 text-[11px] text-zinc-500">
+                        {{ revenue_breakdown.total.count }} pedido{{ revenue_breakdown.total.count === 1 ? '' : 's' }}
+                    </p>
+                    <p class="mt-1 text-[11px] text-zinc-500" title="Taxas cobradas pela plataforma neste canal">
+                        Taxas: {{ formatBRL(revenue_breakdown.total.fees) }}
+                    </p>
+                </div>
+                <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800">
+                    <p
+                        class="text-xs uppercase text-zinc-500"
+                        title="Vendas via links de checkout da plataforma"
+                    >
+                        Checkout (infoprodutos)
+                    </p>
+                    <p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
+                        {{ formatBRL(revenue_breakdown.checkout.gross) }}
+                    </p>
+                    <p class="mt-2 text-[11px] text-zinc-500">
+                        {{ revenue_breakdown.checkout.count }} pedido{{ revenue_breakdown.checkout.count === 1 ? '' : 's' }}
+                    </p>
+                    <p class="mt-1 text-[11px] text-zinc-500" title="Taxas cobradas pela plataforma neste canal">
+                        Taxas: {{ formatBRL(revenue_breakdown.checkout.fees) }}
+                    </p>
+                </div>
+                <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800 sm:col-span-2 lg:col-span-1">
+                    <p
+                        class="text-xs uppercase text-zinc-500"
+                        title="Cobranças criadas via API PIX (integração)"
+                    >
+                        API PIX
+                    </p>
+                    <p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
+                        {{ formatBRL(revenue_breakdown.api_pix.gross) }}
+                    </p>
+                    <p class="mt-2 text-[11px] text-zinc-500">
+                        {{ revenue_breakdown.api_pix.count }} pedido{{ revenue_breakdown.api_pix.count === 1 ? '' : 's' }}
+                    </p>
+                    <p class="mt-1 text-[11px] text-zinc-500" title="Taxas cobradas pela plataforma neste canal">
+                        Taxas: {{ formatBRL(revenue_breakdown.api_pix.fees) }}
+                    </p>
+                </div>
             </div>
+        </section>
+
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800">
                 <p class="text-xs uppercase text-zinc-500">Disponível</p>
                 <p

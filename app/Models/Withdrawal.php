@@ -37,6 +37,11 @@ class Withdrawal extends Model
         ];
     }
 
+    public function apiApplication(): BelongsTo
+    {
+        return $this->belongsTo(ApiApplication::class, 'api_application_id');
+    }
+
     public function tenantOwner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'tenant_id', 'id');

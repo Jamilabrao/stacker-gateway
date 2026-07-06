@@ -304,7 +304,11 @@ class ProductCoproducer extends Model
         }
 
         $sellerTenantId = (int) $order->tenant_id;
-        if ((int) $enrollment->affiliate_user_id === $sellerTenantId) {
+        $affiliateUser = $enrollment->relationLoaded('affiliate')
+            ? $enrollment->affiliate
+            : $enrollment->affiliate()->first();
+        $affiliateTenantId = (int) ($affiliateUser?->tenant_id ?? $enrollment->affiliate_user_id);
+        if ($affiliateTenantId === $sellerTenantId) {
             return null;
         }
 
@@ -314,7 +318,7 @@ class ProductCoproducer extends Model
         }
 
         return [
-            'tenant_id' => (int) $enrollment->affiliate_user_id,
+            'tenant_id' => $affiliateTenantId,
             'gross' => $gross,
             'product_coproducer_id' => null,
             'role' => 'affiliate',

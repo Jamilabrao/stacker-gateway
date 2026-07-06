@@ -67,6 +67,17 @@ function statusLabel(status) {
     return map[status] ?? status ?? '–';
 }
 
+function refundAuthorLabel(manualRefund) {
+    if (!manualRefund) return '—';
+    if (manualRefund.initiated_by === 'platform') {
+        return 'Plataforma';
+    }
+    if (manualRefund.initiated_by === 'seller') {
+        return 'Você';
+    }
+    return manualRefund.initiated_by_label ?? manualRefund.initiated_by_name ?? '—';
+}
+
 function itemLabel(item) {
     const isBump = Number(item?.position ?? 0) > 0;
     const baseName =
@@ -196,6 +207,24 @@ const shippingDeliveryLabel = computed(() => {
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Status</p>
                                 <p class="text-sm text-zinc-900 dark:text-white">{{ statusLabel(venda.status) }}</p>
+                            </div>
+                            <div
+                                v-if="venda.status === 'refunded' && venda.manual_refund"
+                                class="space-y-2 rounded-xl border border-red-200 bg-red-50/80 px-3 py-3 dark:border-red-900/50 dark:bg-red-950/30"
+                            >
+                                <p class="text-xs font-medium uppercase tracking-wide text-red-800 dark:text-red-200">Reembolso</p>
+                                <p class="text-sm text-red-900 dark:text-red-100">
+                                    Por: <strong>{{ refundAuthorLabel(venda.manual_refund) }}</strong>
+                                    <span v-if="venda.manual_refund.initiated_by_name">
+                                        ({{ venda.manual_refund.initiated_by_name }})
+                                    </span>
+                                </p>
+                                <p v-if="venda.manual_refund.refunded_at" class="text-xs text-red-800 dark:text-red-200">
+                                    Em {{ formatDate(venda.manual_refund.refunded_at) }}
+                                </p>
+                                <p v-if="venda.manual_refund.reason" class="text-sm text-red-900 dark:text-red-100">
+                                    <span class="font-medium">Motivo:</span> {{ venda.manual_refund.reason }}
+                                </p>
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tipo</p>

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Events\OrderCompleted;
+use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
@@ -10,6 +11,7 @@ use App\Models\ProductCoproducer;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\AffiliateConversionPixels;
+use App\Support\AffiliateOrderMetadata;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -123,6 +125,50 @@ class ProductAffiliateTest extends TestCase
         $this->assertEquals(100.0, $sellerGross + $affiliateGross);
         $this->assertEqualsWithDelta(25.0, $affiliateGross, 0.02);
         $this->assertEqualsWithDelta(75.0, $sellerGross, 0.02);
+    }
+
+    public function test_affiliate_metadata_merged_from_checkout_session_without_request_ref(): void
+    {
+        if (! Schema::hasTable('checkout_sessions') || ! Schema::hasTable('product_affiliate_enrollments')) {
+            $this->markTestSkipped('checkout sessions or affiliate enrollments');
+        }
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $affiliate = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $affiliate->forceFill(['tenant_id' => $affiliate->id])->save();
+
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'affiliate_enabled' => true,
+            'affiliate_commission_percent' => 30,
+            'affiliate_manual_approval' => false,
+            'affiliate_show_in_showcase' => false,
+        ]);
+
+        $ref = 'sessref'.substr(uniqid('', true), 0, 8);
+        $enrollment = ProductAffiliateEnrollment::query()->create([
+            'product_id' => $product->id,
+            'affiliate_user_id' => $affiliate->id,
+            'status' => ProductAffiliateEnrollment::STATUS_APPROVED,
+            'public_ref' => $ref,
+        ]);
+
+        $session = CheckoutSession::query()->create([
+            'tenant_id' => $seller->id,
+            'product_id' => $product->id,
+            'checkout_slug' => (string) ($product->checkout_slug ?? 'test-checkout'),
+            'session_token' => (string) \Illuminate\Support\Str::uuid(),
+            'step' => CheckoutSession::STEP_VISIT,
+            'affiliate_ref' => $ref,
+        ]);
+
+        $metadata = AffiliateOrderMetadata::merge([], $product, null, $session);
+
+        $this->assertSame($affiliate->id, $metadata['affiliate_user_id'] ?? null);
+        $this->assertSame($enrollment->id, $metadata['affiliate_enrollment_id'] ?? null);
+        $this->assertSame($ref, $metadata['affiliate_ref'] ?? null);
     }
 
     public function test_showcase_lists_only_marked_products(): void

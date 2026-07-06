@@ -48,16 +48,28 @@ class PlatformOrderAdminService
 
     /**
      * Reembolso manual: pedido pago ou em MED; estorno na carteira (primeiro do pendente, depois do disponível).
+     *
+     * @param  array<string, mixed>|null  $manualRefundMeta
      */
-    public static function refundPaidOrDisputed(Order $order): void
-    {
+    public static function refundPaidOrDisputed(
+        Order $order,
+        ?array $manualRefundMeta = null,
+        string $debitReason = 'platform_manual_refund',
+    ): void {
         if (! in_array($order->status, ['completed', 'disputed'], true)) {
             throw new InvalidArgumentException('Só é possível reembolsar pedidos pagos ou em MED.');
         }
 
-        DB::transaction(function () use ($order) {
-            self::reverseSaleCreditIfExists($order);
-            $order->update(['status' => 'refunded']);
+        DB::transaction(function () use ($order, $manualRefundMeta, $debitReason) {
+            self::reverseSaleCreditIfExists($order, $debitReason);
+            $meta = is_array($order->metadata) ? $order->metadata : [];
+            if ($manualRefundMeta !== null) {
+                $meta['manual_refund'] = $manualRefundMeta;
+            }
+            $order->update([
+                'status' => 'refunded',
+                'metadata' => $meta,
+            ]);
             event(new OrderRefunded($order->fresh()));
         });
     }
@@ -152,12 +164,14 @@ class PlatformOrderAdminService
             return;
         }
 
+        $heldNet = 0.0;
         if ($credit !== null) {
             $available = (float) ($wallet->{$availCol} ?? 0);
             $move = min($net, max(0, $available));
             if ($move > 0) {
                 $wallet->{$availCol} = round($available - $move, 2);
                 $wallet->{$pendCol} = round((float) ($wallet->{$pendCol} ?? 0) + $move, 2);
+                $heldNet = $move;
             }
         }
 
@@ -179,12 +193,14 @@ class PlatformOrderAdminService
             'meta' => [
                 'credit_sale_wallet_transaction_id' => $credit?->id,
                 'credit_sale_pending_ids' => $pendingCredits->pluck('id')->values()->all(),
+                'held_net' => round($heldNet, 2),
+                'hold_mode' => $credit !== null ? 'available_to_pending' : 'pending_only',
                 'reason' => 'med_dispute_hold',
             ],
         ]);
     }
 
-    private static function reverseSaleCreditIfExists(Order $order): void
+    private static function reverseSaleCreditIfExists(Order $order, string $debitReason = 'platform_manual_refund'): void
     {
         if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
             return;
@@ -212,14 +228,19 @@ class PlatformOrderAdminService
         }
 
         foreach ($lines->groupBy('tenant_id') as $tenantId => $tenantLines) {
-            self::reverseSaleCreditsForTenant($order, (int) $tenantId, $tenantLines);
+            self::reverseSaleCreditsForTenant($order, (int) $tenantId, $tenantLines, $debitReason);
         }
     }
 
     /**
      * @param  \Illuminate\Support\Collection<int, WalletTransaction>  $lines
      */
-    private static function reverseSaleCreditsForTenant(Order $order, int $tenantId, Collection $lines): void
+    private static function reverseSaleCreditsForTenant(
+        Order $order,
+        int $tenantId,
+        Collection $lines,
+        string $debitReason = 'platform_manual_refund',
+    ): void
     {
         if ($tenantId < 1 || $lines->isEmpty()) {
             return;
@@ -284,7 +305,7 @@ class PlatformOrderAdminService
             'amount_net' => round($totalNet, 2),
             'meta' => [
                 'reverses_wallet_transaction_ids' => $refIds,
-                'reason' => 'platform_manual_refund',
+                'reason' => $debitReason,
             ],
         ]);
     }
@@ -294,13 +315,11 @@ class PlatformOrderAdminService
      */
     public static function releaseMedHoldAndComplete(Order $order): void
     {
-        if ($order->status !== 'disputed') {
-            throw new InvalidArgumentException('Pedido não está em MED.');
-        }
-
         DB::transaction(function () use ($order) {
             self::releaseMedHold($order);
-            $order->update(['status' => 'completed']);
+            if ($order->fresh()->status === 'disputed') {
+                $order->update(['status' => 'completed']);
+            }
         });
     }
 
@@ -368,8 +387,14 @@ class PlatformOrderAdminService
                     $pendCol = 'pending_pix';
                 }
 
+                $holdMode = (string) ($meta['hold_mode'] ?? 'available_to_pending');
+                $heldNet = isset($meta['held_net']) ? (float) $meta['held_net'] : null;
+                $releaseNet = $holdMode === 'available_to_pending' && $heldNet !== null
+                    ? min($net, max(0, $heldNet))
+                    : $net;
+
                 $pending = (float) ($wallet->{$pendCol} ?? 0);
-                $move = min($net, max(0, $pending));
+                $move = min($releaseNet, max(0, $pending));
                 if ($move > 0) {
                     $wallet->{$pendCol} = round($pending - $move, 2);
                     $wallet->{$availCol} = round((float) ($wallet->{$availCol} ?? 0) + $move, 2);
@@ -377,6 +402,7 @@ class PlatformOrderAdminService
 
                 $hold->update(['meta' => array_merge($meta, [
                     'released_at' => now()->toIso8601String(),
+                    'released_net' => round($move, 2),
                     'reason' => 'med_dispute_released',
                 ])]);
             }

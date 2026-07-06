@@ -12,11 +12,11 @@ use App\Jobs\ProcessPaymentWebhook;
 use App\Models\CheckoutSession;
 use App\Models\Coupon;
 use App\Models\GatewayCredential;
+use App\Support\AffiliateOrderMetadata;
 use App\Support\GatewayPaymentCredentials;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
-use App\Models\ProductAffiliateEnrollment;
 use App\Models\ProductOffer;
 use App\Models\ProductOrderBump;
 use App\Models\SavedPaymentMethod;
@@ -788,17 +788,6 @@ class CheckoutController extends Controller
         );
         $user = $buyerAccount['user'];
         $orderMetadata = [];
-        $affiliateRef = trim((string) ($validated['affiliate_ref'] ?? $request->input('affiliate_ref', '')));
-        if ($affiliateRef !== '') {
-            $enrollment = ProductAffiliateEnrollment::findApprovedByRefForProduct($affiliateRef, $product);
-            if ($enrollment && $product->affiliate_enabled) {
-                if ((int) $enrollment->affiliate_user_id !== (int) $product->tenant_id) {
-                    $orderMetadata['affiliate_user_id'] = $enrollment->affiliate_user_id;
-                    $orderMetadata['affiliate_enrollment_id'] = $enrollment->id;
-                    $orderMetadata['affiliate_ref'] = $affiliateRef;
-                }
-            }
-        }
         if ($product->type === Product::TYPE_AREA_MEMBROS && $plainPassword !== null) {
             Cache::put('access_password.'.$user->id.'.'.$product->id, $plainPassword, now()->addHours(2));
             $orderMetadata['access_password_temp'] = encrypt($plainPassword);
@@ -818,7 +807,7 @@ class CheckoutController extends Controller
         }
 
         $orderMetadata = $this->mergeCheckoutSessionMetaTracking($orderMetadata, $validated['checkout_session_token'] ?? null);
-        $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated);
+        $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated, $product);
 
         $orderPayload = [
             'tenant_id' => $tenantId,
@@ -1825,6 +1814,7 @@ class CheckoutController extends Controller
         foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
             $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
         }
+        $rules['affiliate_ref'] = ['nullable', 'string', 'max:32'];
         $draftKey = 'cajupay_draft.'.$request->input('polling_token');
         $draftPreview = is_string($draftKey) ? Cache::get('cajupay_draft.'.$request->input('polling_token')) : null;
         $draftProductId = is_array($draftPreview) ? ($draftPreview['product_id'] ?? null) : null;
@@ -2141,7 +2131,7 @@ class CheckoutController extends Controller
         }
 
         $orderMetadata = $this->mergeCheckoutSessionMetaTracking($orderMetadata, $validated['checkout_session_token'] ?? null);
-        $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated);
+        $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated, $product);
 
         $cpfDigits = preg_replace('/\D/', '', (string) ($validated['cpf'] ?? '')) ?: null;
         $phone = ($validated['phone'] ?? null) ?: null;
@@ -2639,7 +2629,7 @@ class CheckoutController extends Controller
      * @param  array<string, mixed>  $validated
      * @return array<string, mixed>
      */
-    private function mergeCheckoutSessionUtmsIntoOrderMetadata(array $orderMetadata, mixed $sessionToken, array $validated = []): array
+    private function mergeCheckoutSessionUtmsIntoOrderMetadata(array $orderMetadata, mixed $sessionToken, array $validated = [], ?Product $product = null): array
     {
         $token = is_string($sessionToken) ? trim($sessionToken) : '';
         if ($token !== '') {
@@ -2648,6 +2638,7 @@ class CheckoutController extends Controller
 
         $fromRequest = $this->utmPayloadFromValidated($validated);
         $session = $token !== '' ? CheckoutSession::where('session_token', $token)->first() : null;
+        $affiliateRef = isset($validated['affiliate_ref']) ? (string) $validated['affiliate_ref'] : null;
 
         if ($session !== null) {
             $merged = $this->mergeSessionUtms($session, $fromRequest);
@@ -2657,6 +2648,13 @@ class CheckoutController extends Controller
                 }
             }
 
+            if ($product === null && ! empty($session->product_id)) {
+                $product = Product::query()->find($session->product_id);
+            }
+            if ($product instanceof Product) {
+                $orderMetadata = AffiliateOrderMetadata::merge($orderMetadata, $product, $affiliateRef, $session);
+            }
+
             return $orderMetadata;
         }
 
@@ -2664,6 +2662,10 @@ class CheckoutController extends Controller
             if (is_string($value) && trim($value) !== '') {
                 $orderMetadata[$key] = trim($value);
             }
+        }
+
+        if ($product instanceof Product) {
+            $orderMetadata = AffiliateOrderMetadata::merge($orderMetadata, $product, $affiliateRef);
         }
 
         return $orderMetadata;

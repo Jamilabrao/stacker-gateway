@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\ReconcileCajuPayWithdrawalsCommand;
 use App\Jobs\ReconcileCajuPayWithdrawalJob;
 use App\Models\GatewayCredential;
 use App\Models\Setting;
@@ -108,6 +109,61 @@ class WithdrawalFailureRefundTest extends TestCase
 
         $withdrawal->refresh();
         $this->assertSame('failed', $withdrawal->status);
+    }
+
+    public function test_reconcile_command_marks_cancelled_and_refunds_wallet(): void
+    {
+        if (! Schema::hasTable('withdrawals') || ! Schema::hasTable('tenant_wallets')) {
+            $this->markTestSkipped('withdrawals/tenant_wallets tables');
+        }
+
+        Setting::set('platform_payout_gateway', 'cajupay', null);
+        $cred = GatewayCredential::query()->firstOrNew([
+            'tenant_id' => null,
+            'gateway_slug' => 'cajupay',
+        ]);
+        $cred->is_connected = true;
+        $cred->setEncryptedCredentials([
+            'public_key' => 'pk',
+            'secret_key' => 'sk',
+            'webhook_signing_secret' => 'whsec',
+        ]);
+        $cred->save();
+
+        Http::fake([
+            'https://api.cajupay.com.br/api/payouts/payout-cancel-cron' => Http::response([
+                'id' => 'payout-cancel-cron',
+                'status' => 'cancelled',
+            ], 200),
+        ]);
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+        TenantWallet::query()->updateOrCreate(
+            ['tenant_id' => $seller->id],
+            ['available_pix' => 5.0]
+        );
+
+        $withdrawal = Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 20,
+            'fee_amount' => 0,
+            'net_amount' => 20,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+            'payout_provider' => 'cajupay',
+            'payout_external_id' => 'payout-cancel-cron',
+        ]);
+
+        $this->artisan(ReconcileCajuPayWithdrawalsCommand::class, [
+            '--withdrawal' => $withdrawal->id,
+        ])->assertSuccessful();
+
+        $withdrawal->refresh();
+        $this->assertSame('failed', $withdrawal->status);
+        $this->assertEqualsWithDelta(25.0, (float) TenantWallet::query()->where('tenant_id', $seller->id)->value('available_pix'), 0.01);
     }
 
     public function test_reject_accepts_processing_status(): void
