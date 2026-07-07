@@ -97,15 +97,7 @@ final class PanelPwaIconUrls
         if ($src === '') {
             return $src;
         }
-        if (str_starts_with($src, 'http://') || str_starts_with($src, 'https://')) {
-            return $src;
-        }
-        if (str_starts_with($src, '//')) {
-            $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?: 'https';
 
-            return $scheme.':'.$src;
-        }
-
-        return url($src);
+        return BrandingAssetUrls::resolve($src);
     }
 }

@@ -6,6 +6,7 @@ use App\Models\BrandingSetting;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use App\Support\BrandingAssetUrls;
 use Symfony\Component\HttpFoundation\Response;
 
 class ApplyBrandingConfig
@@ -47,6 +48,9 @@ class ApplyBrandingConfig
             foreach (self::CONFIG_KEYS as $jsonKey => $configKey) {
                 $v = $data[$jsonKey] ?? null;
                 if (is_string($v) && $v !== '') {
+                    if (in_array($jsonKey, BrandingAssetUrls::IMAGE_KEYS, true)) {
+                        $v = BrandingAssetUrls::resolve($v);
+                    }
                     $merge[$configKey] = $v;
                 }
             }

@@ -300,14 +300,52 @@ class StorageService
         }
 
         if (preg_match('#^https?://#i', $url)) {
-            return $url;
+            return $this->upgradeUrlForCurrentRequest($url);
         }
 
         if (str_starts_with($url, '/')) {
-            return url($url);
+            return $this->absoluteFromRequest($url);
         }
 
-        return url('/storage/'.ltrim($url, '/'));
+        return $this->absoluteFromRequest('/storage/'.ltrim($url, '/'));
+    }
+
+    private function absoluteFromRequest(string $path): string
+    {
+        $path = '/'.ltrim($path, '/');
+
+        if (! app()->runningInConsole()) {
+            $request = request();
+            if ($request) {
+                $host = $request->getHttpHost();
+                if ($host !== '') {
+                    $scheme = $request->isSecure() ? 'https' : $request->getScheme();
+
+                    return $scheme.'://'.$host.$path;
+                }
+            }
+        }
+
+        return url($path);
+    }
+
+    private function upgradeUrlForCurrentRequest(string $url): string
+    {
+        $normalizer = new StorageUrlNormalizer;
+        if ($normalizer->isLocalStorageUrl($url)) {
+            $relative = '/storage/'.ltrim($normalizer->toRelativePath($url), '/');
+
+            return $this->absoluteFromRequest($relative);
+        }
+
+        if (! app()->runningInConsole()) {
+            $request = request();
+            if ($request && $request->isSecure() && str_starts_with(strtolower($url), 'http://')) {
+                return 'https://'.substr($url, 7);
+            }
+        }
+
+        return $url;
     }
 
     private function resolvePublicUrlUnsafe(string $stored): string

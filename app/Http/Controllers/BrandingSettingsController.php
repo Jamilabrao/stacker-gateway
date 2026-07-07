@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Http\Middleware\ApplyBrandingConfig;
 use App\Models\BrandingSetting;
 use App\Models\User;
+use App\Services\StorageService;
+use App\Support\BrandingAssetUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -49,7 +51,7 @@ class BrandingSettingsController extends Controller
         $branding = ApplyBrandingConfig::mergeLayers($globalData, $tenantData);
 
         return response()->json([
-            'branding' => $branding,
+            'branding' => BrandingAssetUrls::resolveData($branding),
             'can_sync_global' => $user->isAdmin(),
         ]);
     }
@@ -79,7 +81,11 @@ class BrandingSettingsController extends Controller
             if ($v === null || trim((string) $v) === '') {
                 unset($data[$key]);
             } else {
-                $data[$key] = trim((string) $v);
+                $v = trim((string) $v);
+                if (in_array($key, self::UPLOAD_FIELDS, true)) {
+                    $v = app(StorageService::class)->toStoragePath($v) ?? $v;
+                }
+                $data[$key] = $v;
             }
         }
 
@@ -114,20 +120,18 @@ class BrandingSettingsController extends Controller
         ]);
 
         $path = $request->file('file')->store("white-label/{$user->tenant_id}", 'public');
-        $url = Storage::disk('public')->url($path);
-        if (! str_starts_with($url, 'http')) {
-            $url = rtrim((string) config('app.url'), '/').'/'.ltrim($url, '/');
-        }
+        $stored = BrandingAssetUrls::storePathFromUpload($path);
+        $publicUrl = app(StorageService::class)->resolvePublicUrl($stored);
 
         $row = BrandingSetting::query()->firstOrCreate(
             ['tenant_id' => $user->tenant_id],
             ['data' => []]
         );
         $data = is_array($row->data) ? $row->data : [];
-        $data[$validated['field']] = $url;
+        $data[$validated['field']] = $stored;
         $row->update(['data' => $data]);
 
-        return response()->json(['ok' => true, 'url' => $url, 'field' => $validated['field']]);
+        return response()->json(['ok' => true, 'url' => $publicUrl, 'field' => $validated['field']]);
     }
 
     public function clearField(Request $request): JsonResponse
