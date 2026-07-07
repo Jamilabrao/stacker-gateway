@@ -72,7 +72,12 @@ final class SellerPanelSupportSettings
 
     public static function iconImageUrl(): string
     {
-        return (string) Setting::get('seller_panel_support_icon_image', '', null);
+        $stored = (string) Setting::get('seller_panel_support_icon_image', '', null);
+        if ($stored === '') {
+            return '';
+        }
+
+        return app(\App\Services\StorageService::class)->resolvePublicUrl($stored);
     }
 
     public static function color(): string

@@ -262,6 +262,21 @@ class StorageService
     }
 
     /**
+     * Grava arquivo público e retorna path relativo (para DB) + URL absoluta (para resposta imediata).
+     *
+     * @return array{path: string, url: string}
+     */
+    public function storeUploadedPublicFile(UploadedFile $file, string $directory): array
+    {
+        $path = ltrim($this->putFile($directory, $file), '/');
+
+        return [
+            'path' => $path,
+            'url' => $this->resolvePublicUrl($path),
+        ];
+    }
+
+    /**
      * Get the public URL for a stored file (path relativo no bucket/disco).
      */
     public function url(string $path): string

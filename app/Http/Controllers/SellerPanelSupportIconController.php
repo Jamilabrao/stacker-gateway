@@ -3,12 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class SellerPanelSupportIconController extends Controller
 {
+    public function __construct(
+        protected StorageService $storage,
+    ) {}
+
     public function upload(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -20,16 +24,12 @@ class SellerPanelSupportIconController extends Controller
             'file' => ['required', 'file', 'max:2048', 'mimes:jpg,jpeg,png,webp,svg'],
         ]);
 
-        $path = $request->file('file')->store('seller-panel-support', 'public');
-        $url = Storage::disk('public')->url($path);
-        if (! str_starts_with($url, 'http')) {
-            $url = rtrim((string) config('app.url'), '/').'/'.ltrim($url, '/');
-        }
+        $uploaded = $this->storage->storeUploadedPublicFile($request->file('file'), 'seller-panel-support');
 
-        Setting::set('seller_panel_support_icon_image', $url, null);
+        Setting::set('seller_panel_support_icon_image', $uploaded['path'], null);
         Setting::set('seller_panel_support_icon', 'custom', null);
 
-        return response()->json(['ok' => true, 'url' => $url]);
+        return response()->json(['ok' => true, 'url' => $uploaded['url']]);
     }
 
     public function clearIcon(Request $request): JsonResponse

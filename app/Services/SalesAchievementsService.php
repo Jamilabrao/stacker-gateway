@@ -132,11 +132,15 @@ class SalesAchievementsService
                 ->get();
 
             if ($rows->isNotEmpty()) {
+                $storage = app(StorageService::class);
+
                 return $rows->map(fn (SalesAchievement $row) => [
                     'threshold' => (float) $row->threshold,
                     'slug' => (string) $row->slug,
                     'name' => (string) $row->name,
-                    'image' => $row->image ? (string) $row->image : null,
+                    'image' => $row->image
+                        ? $storage->resolvePublicUrl((string) $row->image) ?: null
+                        : null,
                 ])->values()->all();
             }
         }

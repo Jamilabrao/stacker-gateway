@@ -4,15 +4,19 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\SalesAchievement;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class SalesAchievementsController extends Controller
 {
+    public function __construct(
+        protected StorageService $storage,
+    ) {}
+
     public function index(): Response
     {
         return Inertia::render('Platform/Conquistas/Index', [
@@ -25,7 +29,7 @@ class SalesAchievementsController extends Controller
                     'slug' => $a->slug,
                     'name' => $a->name,
                     'threshold' => (float) $a->threshold,
-                    'image' => $a->image,
+                    'image' => $this->resolveImageUrl($a->image),
                     'sort_order' => (int) $a->sort_order,
                     'is_active' => (bool) $a->is_active,
                 ])
@@ -48,7 +52,7 @@ class SalesAchievementsController extends Controller
             'slug' => $validated['slug'],
             'name' => $validated['name'],
             'threshold' => (float) $validated['threshold'],
-            'image' => $validated['image'] ?? null,
+            'image' => $this->normalizeImageInput($validated['image'] ?? null),
             'sort_order' => (int) ($validated['sort_order'] ?? 0),
             'is_active' => (bool) ($validated['is_active'] ?? true),
         ]);
@@ -71,7 +75,7 @@ class SalesAchievementsController extends Controller
             'slug' => $validated['slug'],
             'name' => $validated['name'],
             'threshold' => (float) $validated['threshold'],
-            'image' => $validated['image'] ?? null,
+            'image' => $this->normalizeImageInput($validated['image'] ?? null),
             'sort_order' => (int) ($validated['sort_order'] ?? 0),
             'is_active' => (bool) ($validated['is_active'] ?? false),
         ]);
@@ -92,13 +96,29 @@ class SalesAchievementsController extends Controller
             'file' => ['required', 'file', 'max:4096', 'mimes:jpg,jpeg,png,webp,gif,svg'],
         ]);
 
-        $path = $request->file('file')->store('conquistas', 'public');
-        $url = Storage::disk('public')->url($path);
-        if (! str_starts_with($url, 'http')) {
-            $url = rtrim((string) config('app.url'), '/').'/'.ltrim($url, '/');
-        }
-        $salesAchievement->update(['image' => $url]);
+        $uploaded = $this->storage->storeUploadedPublicFile($request->file('file'), 'conquistas');
+        $salesAchievement->update(['image' => $uploaded['path']]);
 
-        return response()->json(['ok' => true, 'url' => $url]);
+        return response()->json(['ok' => true, 'url' => $uploaded['url']]);
+    }
+
+    private function resolveImageUrl(mixed $stored): ?string
+    {
+        if (! is_string($stored) || trim($stored) === '') {
+            return null;
+        }
+
+        $url = $this->storage->resolvePublicUrl($stored);
+
+        return $url !== '' ? $url : null;
+    }
+
+    private function normalizeImageInput(mixed $value): ?string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        return $this->storage->toStoragePath($value) ?? trim($value);
     }
 }

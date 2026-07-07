@@ -4,16 +4,20 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Services\StorageService;
 use App\Support\DashboardBannerSpecs;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class DashboardBannerController extends Controller
 {
     private const KEY = 'dashboard_banners';
+
+    public function __construct(
+        protected StorageService $storage,
+    ) {}
 
     public function data(): JsonResponse
     {
@@ -40,8 +44,8 @@ class DashboardBannerController extends Controller
                 return [
                     'id' => (string) ($item['id'] ?? ('banner-'.$idx)),
                     'title' => trim((string) ($item['title'] ?? '')),
-                    'desktop_url' => trim((string) ($item['desktop_url'] ?? '')),
-                    'mobile_url' => trim((string) ($item['mobile_url'] ?? '')),
+                    'desktop_url' => $this->normalizeStoredUrl($item['desktop_url'] ?? ''),
+                    'mobile_url' => $this->normalizeStoredUrl($item['mobile_url'] ?? ''),
                     'active' => (bool) ($item['active'] ?? true),
                     'sort_order' => (int) ($item['sort_order'] ?? ($idx + 1)),
                 ];
@@ -83,17 +87,31 @@ class DashboardBannerController extends Controller
             ]);
         }
 
-        $path = $file->store('dashboard-banners', 'public');
-        $url = Storage::disk('public')->url($path);
-        if (! str_starts_with($url, 'http')) {
-            $url = rtrim((string) config('app.url'), '/').'/'.ltrim($url, '/');
-        }
+        $uploaded = $this->storage->storeUploadedPublicFile($file, 'dashboard-banners');
 
         return response()->json([
             'ok' => true,
-            'url' => $url,
+            'url' => $uploaded['url'],
             'variant' => $validated['variant'],
         ]);
+    }
+
+    private function normalizeStoredUrl(mixed $value): string
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return '';
+        }
+
+        return $this->storage->toStoragePath($value) ?? trim($value);
+    }
+
+    private function resolvePublicUrl(string $stored): string
+    {
+        if ($stored === '') {
+            return '';
+        }
+
+        return $this->storage->resolvePublicUrl($stored);
     }
 
     /**
@@ -113,8 +131,8 @@ class DashboardBannerController extends Controller
                 return [
                     'id' => (string) ($item['id'] ?? ('banner-'.$idx)),
                     'title' => (string) ($item['title'] ?? ''),
-                    'desktop_url' => (string) ($item['desktop_url'] ?? ''),
-                    'mobile_url' => (string) ($item['mobile_url'] ?? ''),
+                    'desktop_url' => $this->resolvePublicUrl((string) ($item['desktop_url'] ?? '')),
+                    'mobile_url' => $this->resolvePublicUrl((string) ($item['mobile_url'] ?? '')),
                     'active' => (bool) ($item['active'] ?? true),
                     'sort_order' => (int) ($item['sort_order'] ?? ($idx + 1)),
                 ];

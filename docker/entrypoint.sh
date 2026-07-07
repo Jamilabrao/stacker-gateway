@@ -263,6 +263,10 @@ elif [ "$GETFY_VENDOR_JUST_INSTALLED" = "1" ]; then
   php artisan package:discover --ansi
 fi
 
+if [ ! -L public/storage ] && [ ! -d public/storage ]; then
+  php artisan storage:link 2>/dev/null || true
+fi
+
 # Persiste VAPID em arquivo compartilhado no volume .docker para que "queue" e "app" usem as mesmas chaves.
 php -r '
 $envFile = ".env";
