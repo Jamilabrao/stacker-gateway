@@ -61,7 +61,7 @@ final class BrandingAssetUrls
 
     public static function storePathFromUpload(string $path): string
     {
-        return ltrim($path, '/');
+        return RemoteStorage::normalizeObjectKey($path);
     }
 
     private static function absolutePath(string $path): string

@@ -121,7 +121,7 @@ class BrandingSettingsController extends Controller
 
         $uploaded = app(StorageService::class)->storeUploadedPublicFile(
             $request->file('file'),
-            "white-label/{$user->tenant_id}"
+            self::brandingUploadDirectory($user->tenant_id),
         );
         $stored = $uploaded['path'];
         $publicUrl = $uploaded['url'];
@@ -176,5 +176,12 @@ class BrandingSettingsController extends Controller
         );
 
         return response()->json(['ok' => true]);
+    }
+
+    private static function brandingUploadDirectory(?int $tenantId): string
+    {
+        return $tenantId !== null && $tenantId > 0
+            ? "white-label/{$tenantId}"
+            : 'white-label/global';
     }
 }

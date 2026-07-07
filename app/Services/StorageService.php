@@ -227,6 +227,8 @@ class StorageService
      */
     public function putFileAs(string $directory, UploadedFile $file, string $name): string
     {
+        $directory = RemoteStorage::normalizeObjectKey($directory);
+        $name = RemoteStorage::normalizeObjectKey($name);
         $creds = $this->resolveRemoteCredentials();
         $provider = (string) ($creds['provider'] ?? 'local');
 
@@ -258,7 +260,7 @@ class StorageService
             );
         }
 
-        return $stored;
+        return RemoteStorage::normalizeObjectKey($stored);
     }
 
     /**
@@ -268,7 +270,7 @@ class StorageService
      */
     public function storeUploadedPublicFile(UploadedFile $file, string $directory): array
     {
-        $path = ltrim($this->putFile($directory, $file), '/');
+        $path = RemoteStorage::normalizeObjectKey($this->putFile($directory, $file));
 
         return [
             'path' => $path,
@@ -365,6 +367,7 @@ class StorageService
 
     private function resolvePublicUrlUnsafe(string $stored): string
     {
+        $stored = RemoteStorage::normalizeStoredObjectReference($stored);
         $normalizer = new StorageUrlNormalizer;
         $creds = $this->resolveRemoteCredentials();
         $bucket = $creds['bucket'] ?? '';
@@ -441,26 +444,28 @@ class StorageService
 
         if (preg_match('#^https?://#i', $value)) {
             if ($normalizer->isLocalStorageUrl($value)) {
-                return $normalizer->toRelativePath($value);
+                return RemoteStorage::normalizeObjectKey($normalizer->toRelativePath($value));
             }
 
             if (RemoteStorage::isLikelyNonPublicUrl($value)) {
-                return RemoteStorage::extractObjectKeyFromUrl($value, $bucket !== '' ? $bucket : null);
+                $key = RemoteStorage::extractObjectKeyFromUrl($value, $bucket !== '' ? $bucket : null);
+
+                return $key !== null && $key !== '' ? RemoteStorage::normalizeObjectKey($key) : null;
             }
 
             $key = RemoteStorage::extractObjectKeyFromUrl($value, $bucket !== '' ? $bucket : null);
             if ($key !== null && $key !== '') {
-                return $key;
+                return RemoteStorage::normalizeObjectKey($key);
             }
 
-            return $value;
+            return RemoteStorage::normalizeStoredObjectReference($value);
         }
 
         if (str_starts_with($value, '/storage/')) {
-            return ltrim(substr($value, strlen('/storage/')), '/');
+            return RemoteStorage::normalizeObjectKey(ltrim(substr($value, strlen('/storage/')), '/'));
         }
 
-        return ltrim($value, '/');
+        return RemoteStorage::normalizeObjectKey($value);
     }
 
     /**

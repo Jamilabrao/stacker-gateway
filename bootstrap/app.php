@@ -201,6 +201,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('integrax:process-cart-recovery')->everyMinute();
         $schedule->command('email-campaign:process')->everyMinute();
         $schedule->command('payments:reconcile-pending --limit=200 --days=45 --min-age-minutes=0')->everyTwoMinutes();
+        $schedule->command('payments:reconcile-mercadopago --limit=100 --days=45 --min-age-minutes=0')->everyMinute();
         $schedule->command('payments:reconcile-pending --source=pixgo --limit=100 --days=1 --min-age-minutes=1')->everyMinute();
         $schedule->command('withdrawals:reconcile-spacepag --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-woovi --limit=80 --min-age-minutes=0')->everyMinute();

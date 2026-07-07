@@ -2269,6 +2269,16 @@ class CheckoutController extends Controller
                         'error' => $e->getMessage(),
                     ]);
                 }
+            } elseif ($gatewaySlug === 'mercadopago') {
+                try {
+                    app(\App\Services\MercadoPago\MercadoPagoCheckoutCompletionService::class)->tryCompleteFromPaymentApi($order);
+                    $order->refresh();
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::debug('CheckoutController orderStatus: falha poll Mercado Pago', [
+                        'order_id' => $order->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             } elseif (! empty($order->gateway) && ! empty($order->gateway_id)) {
                 try {
                     $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, $gatewaySlug, $order);

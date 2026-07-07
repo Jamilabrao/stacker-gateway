@@ -81,6 +81,13 @@ class PaymentService
                     'gateway_id' => $result['transaction_id'] ?? null,
                     'cajupay_account_id' => $gatewaySlug === 'cajupay' ? ($resolved['cajupay_account_id'] ?? null) : $order->cajupay_account_id,
                 ]);
+                if ($gatewaySlug === 'mercadopago' && ! empty($result['transaction_id'])) {
+                    $meta = is_array($order->metadata) ? $order->metadata : [];
+                    $meta['mercadopago_payment_id'] = (string) $result['transaction_id'];
+                    $order->update(['metadata' => $meta]);
+                    app(\App\Services\MercadoPago\MercadoPagoCheckoutCompletionService::class)
+                        ->applyPendingForOrder($order->fresh());
+                }
 
                 return [
                     'transaction_id' => $result['transaction_id'] ?? '',

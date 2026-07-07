@@ -60,102 +60,10 @@ class ProcessPaymentWebhook implements ShouldQueue
             return;
         }
 
-        if ($this->isConfirmedPaidWebhook()) {
-            $lockKey = 'webhook_processing.' . $this->gatewaySlug . '.' . $this->transactionId;
-            if (! Cache::add($lockKey, true, now()->addMinutes(5))) {
-                Log::info('ProcessPaymentWebhook: paid branch skipped (concurrent lock)', [
-                    'order_id' => $order->id,
-                    'gateway' => $this->gatewaySlug,
-                    'transaction_id' => $this->transactionId,
-                    'event' => $this->event,
-                ]);
+        $this->syncMercadoPagoGatewayId($order);
 
-                return;
-            }
-            if ($order->status === 'completed') {
-                Log::info('ProcessPaymentWebhook: paid branch skipped (order already completed)', [
-                    'order_id' => $order->id,
-                    'gateway' => $this->gatewaySlug,
-                    'transaction_id' => $this->transactionId,
-                    'event' => $this->event,
-                ]);
-
-                return;
-            }
-            $apiStatus = $this->fetchGatewayTransactionStatus($order);
-            $trustedCajuCheckoutWebhook = $this->gatewaySlug === 'cajupay'
-                && ($this->payload['webhook_source'] ?? '') !== ''
-                && in_array($this->event, [
-                    'checkout.payment.paid',
-                    'payment.paid',
-                    'pix.payment.paid',
-                    'card.payment.succeeded',
-                ], true);
-            if ($apiStatus !== 'paid' && $trustedCajuCheckoutWebhook) {
-                $apiStatus = 'paid';
-            }
-            if ($apiStatus !== 'paid') {
-                Log::warning('ProcessPaymentWebhook: paid branch aborted (gateway reconfirm not paid)', [
-                    'order_id' => $order->id,
-                    'gateway' => $this->gatewaySlug,
-                    'transaction_id' => $this->transactionId,
-                    'event' => $this->event,
-                    'api_status' => $apiStatus,
-                ]);
-
-                return;
-            }
-            $completedPatch = ['status' => 'completed'];
-            if ($order->payment_method === null || $order->payment_method === '') {
-                $completedPatch['payment_method'] = $this->inferPaymentMethodForOrder($order);
-            }
-            $order->update($completedPatch);
-            $order->grantPurchasedProductAccessToBuyer();
-            if ($order->subscription_plan_id) {
-                $plan = $order->subscriptionPlan;
-                if ($plan) {
-                    if ($order->is_renewal) {
-                        $sub = Subscription::where('user_id', $order->user_id)
-                            ->where('product_id', $order->product_id)
-                            ->where('subscription_plan_id', $plan->id)
-                            ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PAST_DUE])
-                            ->first();
-                        if ($sub && $order->period_start && $order->period_end) {
-                            $sub->update([
-                                'status' => Subscription::STATUS_ACTIVE,
-                                'current_period_start' => $order->period_start,
-                                'current_period_end' => $order->period_end,
-                            ]);
-                            event(new SubscriptionRenewed($sub->fresh()));
-                        }
-                    } elseif (! Subscription::where('user_id', $order->user_id)->where('product_id', $order->product_id)->where('subscription_plan_id', $plan->id)->where('status', Subscription::STATUS_ACTIVE)->exists()) {
-                        [$periodStart, $periodEnd] = $plan->getCurrentPeriod();
-                        $idRec = null;
-                        $metadata = $order->metadata ?? [];
-                        if (isset($metadata['efi_pix_auto_id_rec']) && $this->gatewaySlug === 'efi') {
-                            $idRec = $metadata['efi_pix_auto_id_rec'];
-                        } elseif (isset($metadata['pushinpay_subscription_id']) && $this->gatewaySlug === 'pushinpay') {
-                            $idRec = $metadata['pushinpay_subscription_id'];
-                        }
-                        $subscription = Subscription::create([
-                            'tenant_id' => $order->tenant_id,
-                            'user_id' => $order->user_id,
-                            'product_id' => $order->product_id,
-                            'subscription_plan_id' => $plan->id,
-                            'status' => Subscription::STATUS_ACTIVE,
-                            'current_period_start' => $periodStart,
-                            'current_period_end' => $periodEnd,
-                            'gateway_subscription_id' => $idRec,
-                        ]);
-                        event(new SubscriptionCreated($subscription));
-
-                        if ($idRec !== null && $this->gatewaySlug === 'efi') {
-                            $this->createEfiPixAutoCobrForNextPeriod($order, $subscription, $plan);
-                        }
-                    }
-                }
-            }
-            event(new OrderCompleted($order));
+        if ($this->shouldProcessMercadoPagoPaidBranch($order) || $this->isConfirmedPaidWebhook()) {
+            $this->processPaidBranch($order);
         }
 
         if ($this->event === 'order.cancelled' && in_array($this->status, ['cancelled', 'canceled'], true)) {
@@ -220,6 +128,28 @@ class ProcessPaymentWebhook implements ShouldQueue
         if ($order !== null) {
             return $order;
         }
+
+        if ($this->gatewaySlug === 'mercadopago') {
+            $order = Order::query()
+                ->where('gateway', 'mercadopago')
+                ->where('metadata->mercadopago_payment_id', $this->transactionId)
+                ->first();
+            if ($order !== null) {
+                return $order;
+            }
+
+            $externalReference = trim((string) ($this->payload['external_reference'] ?? ''));
+            if ($externalReference !== '' && ctype_digit($externalReference)) {
+                $order = Order::query()
+                    ->where('gateway', 'mercadopago')
+                    ->where('id', (int) $externalReference)
+                    ->first();
+                if ($order !== null) {
+                    return $order;
+                }
+            }
+        }
+
         if ($this->gatewaySlug !== 'cajupay') {
             return null;
         }
@@ -256,8 +186,171 @@ class ProcessPaymentWebhook implements ShouldQueue
         ], true)) {
             return true;
         }
+        if ($this->gatewaySlug === 'mercadopago' && $this->status === 'paid' && in_array($this->event, [
+            'order.paid',
+            'payment.updated',
+            'payment.created',
+        ], true)) {
+            return true;
+        }
 
         return false;
+    }
+
+    private function shouldProcessMercadoPagoPaidBranch(Order $order): bool
+    {
+        if ($this->gatewaySlug !== 'mercadopago' || $order->status !== 'pending') {
+            return false;
+        }
+
+        if ($this->status === 'paid' && $this->isConfirmedPaidWebhook()) {
+            return true;
+        }
+
+        return in_array($this->event, ['payment.updated', 'payment.created'], true);
+    }
+
+    private function syncMercadoPagoGatewayId(Order $order): void
+    {
+        if ($this->gatewaySlug !== 'mercadopago') {
+            return;
+        }
+
+        $paymentId = trim($this->transactionId);
+        if ($paymentId === '' || $order->gateway_id === $paymentId) {
+            return;
+        }
+
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $meta['mercadopago_payment_id'] = $paymentId;
+
+        $order->update([
+            'gateway_id' => $paymentId,
+            'metadata' => $meta,
+        ]);
+        $order->refresh();
+    }
+
+    private function processPaidBranch(Order $order): void
+    {
+        $lockKey = 'webhook_processing.'.$this->gatewaySlug.'.'.$this->transactionId;
+        if (! Cache::add($lockKey, true, now()->addMinutes(5))) {
+            Log::info('ProcessPaymentWebhook: paid branch skipped (concurrent lock)', [
+                'order_id' => $order->id,
+                'gateway' => $this->gatewaySlug,
+                'transaction_id' => $this->transactionId,
+                'event' => $this->event,
+            ]);
+
+            return;
+        }
+        if ($order->status === 'completed') {
+            Log::info('ProcessPaymentWebhook: paid branch skipped (order already completed)', [
+                'order_id' => $order->id,
+                'gateway' => $this->gatewaySlug,
+                'transaction_id' => $this->transactionId,
+                'event' => $this->event,
+            ]);
+
+            return;
+        }
+
+        $apiStatus = $this->fetchGatewayTransactionStatus($order);
+        $trustedCajuCheckoutWebhook = $this->gatewaySlug === 'cajupay'
+            && ($this->payload['webhook_source'] ?? '') !== ''
+            && in_array($this->event, [
+                'checkout.payment.paid',
+                'payment.paid',
+                'pix.payment.paid',
+                'card.payment.succeeded',
+            ], true);
+        if ($apiStatus !== 'paid' && $trustedCajuCheckoutWebhook) {
+            $apiStatus = 'paid';
+        }
+        if ($apiStatus !== 'paid' && $this->gatewaySlug === 'mercadopago' && $this->isTrustedMercadoPagoSource()) {
+            if ($apiStatus === null && ($this->status === 'paid' || in_array($this->event, ['payment.updated', 'payment.created', 'order.paid'], true))) {
+                $apiStatus = 'paid';
+            }
+        }
+        if ($apiStatus !== 'paid') {
+            Log::warning('ProcessPaymentWebhook: paid branch aborted (gateway reconfirm not paid)', [
+                'order_id' => $order->id,
+                'gateway' => $this->gatewaySlug,
+                'transaction_id' => $this->transactionId,
+                'event' => $this->event,
+                'api_status' => $apiStatus,
+            ]);
+
+            return;
+        }
+
+        if ($this->gatewaySlug === 'mercadopago') {
+            $this->syncMercadoPagoGatewayId($order);
+        }
+
+        $completedPatch = ['status' => 'completed'];
+        if ($order->payment_method === null || $order->payment_method === '') {
+            $completedPatch['payment_method'] = $this->inferPaymentMethodForOrder($order);
+        }
+        $order->update($completedPatch);
+        $order->grantPurchasedProductAccessToBuyer();
+        if ($order->subscription_plan_id) {
+            $plan = $order->subscriptionPlan;
+            if ($plan) {
+                if ($order->is_renewal) {
+                    $sub = Subscription::where('user_id', $order->user_id)
+                        ->where('product_id', $order->product_id)
+                        ->where('subscription_plan_id', $plan->id)
+                        ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PAST_DUE])
+                        ->first();
+                    if ($sub && $order->period_start && $order->period_end) {
+                        $sub->update([
+                            'status' => Subscription::STATUS_ACTIVE,
+                            'current_period_start' => $order->period_start,
+                            'current_period_end' => $order->period_end,
+                        ]);
+                        event(new SubscriptionRenewed($sub->fresh()));
+                    }
+                } elseif (! Subscription::where('user_id', $order->user_id)->where('product_id', $order->product_id)->where('subscription_plan_id', $plan->id)->where('status', Subscription::STATUS_ACTIVE)->exists()) {
+                    [$periodStart, $periodEnd] = $plan->getCurrentPeriod();
+                    $idRec = null;
+                    $metadata = $order->metadata ?? [];
+                    if (isset($metadata['efi_pix_auto_id_rec']) && $this->gatewaySlug === 'efi') {
+                        $idRec = $metadata['efi_pix_auto_id_rec'];
+                    } elseif (isset($metadata['pushinpay_subscription_id']) && $this->gatewaySlug === 'pushinpay') {
+                        $idRec = $metadata['pushinpay_subscription_id'];
+                    }
+                    $subscription = Subscription::create([
+                        'tenant_id' => $order->tenant_id,
+                        'user_id' => $order->user_id,
+                        'product_id' => $order->product_id,
+                        'subscription_plan_id' => $plan->id,
+                        'status' => Subscription::STATUS_ACTIVE,
+                        'current_period_start' => $periodStart,
+                        'current_period_end' => $periodEnd,
+                        'gateway_subscription_id' => $idRec,
+                    ]);
+                    event(new SubscriptionCreated($subscription));
+
+                    if ($idRec !== null && $this->gatewaySlug === 'efi') {
+                        $this->createEfiPixAutoCobrForNextPeriod($order, $subscription, $plan);
+                    }
+                }
+            }
+        }
+        event(new OrderCompleted($order));
+    }
+
+    private function isTrustedMercadoPagoSource(): bool
+    {
+        $source = (string) ($this->payload['webhook_source'] ?? $this->payload['source'] ?? '');
+
+        return in_array($source, [
+            'mercadopago_webhook',
+            'reconcile_pending',
+            'reconcile_mercadopago',
+            'order_status_poll',
+        ], true);
     }
 
     private function fetchGatewayTransactionStatus(Order $order): ?string

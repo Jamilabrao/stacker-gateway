@@ -5,7 +5,6 @@ namespace App\Gateways\MercadoPago;
 use App\Gateways\Contracts\GatewayDriver;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use MercadoPago\Client\Common\RequestOptions;
 use MercadoPago\Client\Payment\PaymentClient;
 use MercadoPago\Exceptions\MPApiException;
@@ -25,8 +24,17 @@ class MercadoPagoDriver implements GatewayDriver
 
     private function idempotencyKey(string $externalId): string
     {
-        // API pode exigir UUID v4 puro; uso hash do pedido para mesma tentativa retornar mesma chave
-        return Str::uuid()->toString();
+        // UUID v4 determinístico por pedido — retries reutilizam a mesma cobrança no MP.
+        $hash = md5('mercadopago:getfy:'.$externalId);
+
+        return sprintf(
+            '%s-%s-4%s-%s-%s',
+            substr($hash, 0, 8),
+            substr($hash, 8, 4),
+            substr($hash, 13, 3),
+            dechex((hexdec(substr($hash, 16, 2)) & 0x3f) | 0x80).substr($hash, 18, 2),
+            substr($hash, 20, 12)
+        );
     }
 
     private function requestOptions(string $externalId): RequestOptions
@@ -558,20 +566,34 @@ class MercadoPagoDriver implements GatewayDriver
      */
     public function getTransactionStatus(string $transactionId, array $credentials): ?string
     {
-        $this->setCredentials($credentials);
+        $token = trim($credentials['access_token'] ?? '');
+        if ($token === '') {
+            return null;
+        }
 
         try {
-            $client = new PaymentClient();
-            $payment = $client->get((int) $transactionId);
+            $response = Http::withToken($token)
+                ->timeout(20)
+                ->get('https://api.mercadopago.com/v1/payments/'.(int) $transactionId);
         } catch (\Throwable $e) {
             Log::debug('MercadoPagoDriver getTransactionStatus error', [
                 'transaction_id' => $transactionId,
                 'message' => $e->getMessage(),
             ]);
+
             return null;
         }
 
-        $status = $payment->status ?? null;
+        if (! $response->successful()) {
+            Log::debug('MercadoPagoDriver getTransactionStatus http error', [
+                'transaction_id' => $transactionId,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        $status = $response->json('status');
         if ($status === null) {
             return null;
         }
@@ -583,5 +605,71 @@ class MercadoPagoDriver implements GatewayDriver
             'rejected', 'cancelled', 'refunded', 'charged_back' => 'cancelled',
             default => 'pending',
         };
+    }
+
+    /**
+     * Busca payment_id aprovado mais recente pelo external_reference (order id interno).
+     *
+     * @param  array<string, string>  $credentials
+     */
+    public function findApprovedPaymentByExternalReference(string $orderId, array $credentials): ?string
+    {
+        $orderId = trim($orderId);
+        if ($orderId === '') {
+            return null;
+        }
+
+        $token = trim($credentials['access_token'] ?? '');
+        if ($token === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->timeout(20)
+                ->get('https://api.mercadopago.com/v1/payments/search', [
+                    'external_reference' => $orderId,
+                    'sort' => 'date_created',
+                    'criteria' => 'desc',
+                    'limit' => 5,
+                ]);
+        } catch (\Throwable $e) {
+            Log::debug('MercadoPagoDriver findApprovedPaymentByExternalReference error', [
+                'order_id' => $orderId,
+                'message' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if (! $response->successful()) {
+            Log::debug('MercadoPagoDriver findApprovedPaymentByExternalReference http error', [
+                'order_id' => $orderId,
+                'status' => $response->status(),
+            ]);
+
+            return null;
+        }
+
+        $results = $response->json('results');
+        if (! is_array($results)) {
+            return null;
+        }
+
+        foreach ($results as $payment) {
+            if (! is_array($payment)) {
+                continue;
+            }
+            $status = strtolower((string) ($payment['status'] ?? ''));
+            if (! in_array($status, ['approved', 'authorized'], true)) {
+                continue;
+            }
+            $paymentId = $payment['id'] ?? null;
+            if ($paymentId !== null && $paymentId !== '') {
+                return (string) $paymentId;
+            }
+        }
+
+        return null;
     }
 }

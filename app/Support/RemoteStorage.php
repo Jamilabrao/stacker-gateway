@@ -95,10 +95,55 @@ final class RemoteStorage
         return $path;
     }
 
+    /**
+     * Normaliza chave relativa no bucket (colapsa barras duplicadas de uploads com diretório vazio).
+     */
+    public static function normalizeObjectKey(string $key): string
+    {
+        $key = trim(str_replace('\\', '/', $key));
+        if ($key === '') {
+            return '';
+        }
+
+        $key = preg_replace('#/+#', '/', $key) ?? $key;
+
+        return ltrim($key, '/');
+    }
+
+    /**
+     * Normaliza path relativo ou URL absoluta de objeto (ex.: white-label//logo.png).
+     */
+    public static function normalizeStoredObjectReference(string $stored): string
+    {
+        $stored = trim($stored);
+        if ($stored === '') {
+            return '';
+        }
+
+        if (preg_match('#^https?://#i', $stored)) {
+            $parsed = parse_url($stored);
+            if (! is_array($parsed) || empty($parsed['host'])) {
+                return $stored;
+            }
+
+            $path = self::normalizeObjectKey((string) ($parsed['path'] ?? ''));
+            $path = $path !== '' ? '/'.$path : '';
+            $scheme = $parsed['scheme'] ?? 'https';
+            $host = $parsed['host'];
+            $port = isset($parsed['port']) ? ':'.$parsed['port'] : '';
+            $query = isset($parsed['query']) ? '?'.$parsed['query'] : '';
+            $fragment = isset($parsed['fragment']) ? '#'.$parsed['fragment'] : '';
+
+            return $scheme.'://'.$host.$port.$path.$query.$fragment;
+        }
+
+        return self::normalizeObjectKey($stored);
+    }
+
     public static function buildPublicUrl(string $baseUrl, string $objectKey): string
     {
         $base = self::normalizePublicBaseUrl($baseUrl);
-        $key = ltrim($objectKey, '/');
+        $key = self::normalizeObjectKey($objectKey);
         if ($base === '' || $key === '') {
             return '';
         }
