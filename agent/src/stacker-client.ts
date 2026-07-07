@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import { readInstalledVersion, readRuntimeVersion } from './metrics.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
@@ -71,6 +72,7 @@ export class StackerClient {
   async heartbeat(payload: {
     appUrl: string;
     version?: string;
+    runtimeVersion?: string;
     agentVersion?: string;
     hostname?: string;
     ip?: string;
@@ -117,6 +119,7 @@ export class StackerClient {
     status: 'downloading' | 'applying' | 'success' | 'failed';
     logs?: string;
     installedVersion?: string;
+    runtimeVersion?: string;
   }) {
     return this.request('POST', '/gateway/agent/update-status', data);
   }
@@ -259,10 +262,36 @@ export async function applyUpdate(
     clearInterval(keepalive);
   }
 
+  const hostVersion = readInstalledVersion(gatewayRoot);
+  const runtimeVersion = readRuntimeVersion(gatewayRoot);
+  const versionAligned =
+    hostVersion === cmd.version &&
+    runtimeVersion === cmd.version;
+
+  if (!versionAligned) {
+    const mismatchLog = [
+      applyLogs.trim(),
+      `Versão não alinhada após apply: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}, alvo=${cmd.version}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    await client.reportUpdateStatus({
+      jobId: cmd.jobId,
+      status: 'failed',
+      logs: mismatchLog,
+      installedVersion: hostVersion,
+      runtimeVersion,
+    });
+    throw new Error(
+      `Update ${cmd.version} incompleto: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}`,
+    );
+  }
+
   await client.reportUpdateStatus({
     jobId: cmd.jobId,
     status: 'success',
     installedVersion: cmd.version,
+    runtimeVersion: runtimeVersion ?? cmd.version,
     logs: applyLogs.trim() || `Update ${cmd.version} aplicado`,
   });
 

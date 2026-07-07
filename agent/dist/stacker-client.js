@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import { readInstalledVersion, readRuntimeVersion } from './metrics.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
@@ -98,10 +99,10 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
     fs.rmSync(extractDir, { recursive: true, force: true });
     fs.mkdirSync(extractDir, { recursive: true });
     if (process.platform === 'win32') {
-        execSync(`tar -xf "${zipPath}" -C "${extractDir}"`, { stdio: 'inherit' });
+        await runShell(`tar -xf "${zipPath}" -C "${extractDir}"`, gatewayRoot);
     }
     else {
-        execSync(`unzip -oq "${zipPath}" -d "${extractDir}"`, { stdio: 'inherit' });
+        await runShell(`unzip -oq "${zipPath}" -d "${extractDir}"`, gatewayRoot);
     }
     const backupDir = path.join(stagingDir, `backup-${Date.now()}`);
     fs.mkdirSync(backupDir, { recursive: true });
@@ -153,21 +154,40 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
     }
     ensurePhpUploadsIni(gatewayRoot);
     ensureComposeProjectName(gatewayRoot);
+    ensureHostDotEnv(gatewayRoot);
     const applyScript = path.join(gatewayRoot, 'docker', 'stacker-apply-update.sh');
     if (!fs.existsSync(applyScript)) {
         throw new Error('docker/stacker-apply-update.sh ausente no release');
     }
     fs.chmodSync(applyScript, 0o755);
+    await client.reportUpdateStatus({
+        jobId: cmd.jobId,
+        status: 'applying',
+        logs: 'Executando docker/stacker-apply-update.sh (build pode levar 10–30 min)...',
+    });
     let applyLogs = '';
+    const keepalive = setInterval(() => {
+        void client
+            .reportUpdateStatus({
+            jobId: cmd.jobId,
+            status: 'applying',
+            logs: applyLogs.trim().slice(-2000) || 'Apply em andamento (docker build)...',
+        })
+            .catch(() => undefined);
+    }, 60_000);
     try {
-        applyLogs = execSync(`bash "${applyScript}"`, {
-            cwd: gatewayRoot,
-            encoding: 'utf8',
-            stdio: ['inherit', 'pipe', 'pipe'],
-            env: { ...process.env, DOCKER_HOST: process.env.DOCKER_HOST || 'unix:///var/run/docker.sock' },
+        const result = await runShell(`bash "${applyScript}"`, gatewayRoot, {
+            DOCKER_HOST: process.env.DOCKER_HOST || 'unix:///var/run/docker.sock',
+        }, (chunk) => {
+            applyLogs += chunk;
+            if (applyLogs.length > 8000) {
+                applyLogs = applyLogs.slice(-6000);
+            }
         });
+        applyLogs = [result.stdout, result.stderr].filter(Boolean).join('\n');
     }
     catch (err) {
+        clearInterval(keepalive);
         const e = err;
         const logs = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
         await client.reportUpdateStatus({
@@ -177,10 +197,34 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
         });
         throw err;
     }
+    finally {
+        clearInterval(keepalive);
+    }
+    const hostVersion = readInstalledVersion(gatewayRoot);
+    const runtimeVersion = readRuntimeVersion(gatewayRoot);
+    const versionAligned = hostVersion === cmd.version &&
+        runtimeVersion === cmd.version;
+    if (!versionAligned) {
+        const mismatchLog = [
+            applyLogs.trim(),
+            `Versão não alinhada após apply: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}, alvo=${cmd.version}`,
+        ]
+            .filter(Boolean)
+            .join('\n');
+        await client.reportUpdateStatus({
+            jobId: cmd.jobId,
+            status: 'failed',
+            logs: mismatchLog,
+            installedVersion: hostVersion,
+            runtimeVersion,
+        });
+        throw new Error(`Update ${cmd.version} incompleto: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}`);
+    }
     await client.reportUpdateStatus({
         jobId: cmd.jobId,
         status: 'success',
         installedVersion: cmd.version,
+        runtimeVersion: runtimeVersion ?? cmd.version,
         logs: applyLogs.trim() || `Update ${cmd.version} aplicado`,
     });
     fs.rmSync(stagingDir, { recursive: true, force: true });
@@ -207,22 +251,111 @@ function ensureComposeProjectName(gatewayRoot) {
     const envPath = path.join(gatewayRoot, '.docker', 'stack.env');
     if (!fs.existsSync(envPath))
         return;
-    const content = fs.readFileSync(envPath, 'utf8');
-    if (/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=/m.test(content))
+    let content = fs.readFileSync(envPath, 'utf8');
+    let changed = false;
+    if (!/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=/m.test(content)) {
+        content += '\nGETFY_COMPOSE_PROJECT_NAME=getfy\n';
+        changed = true;
+    }
+    if (!/^\s*GETFY_HOST_DIR\s*=/m.test(content)) {
+        try {
+            const hostDir = detectHostGatewayDir(gatewayRoot);
+            if (hostDir) {
+                content += `GETFY_HOST_DIR=${hostDir}\n`;
+                changed = true;
+            }
+        }
+        catch {
+            // optional — stacker-apply-update.sh detecta via docker inspect
+        }
+    }
+    if (changed)
+        fs.writeFileSync(envPath, content, 'utf8');
+}
+function detectHostGatewayDir(gatewayRoot) {
+    if (gatewayRoot !== '/gateway' && path.basename(gatewayRoot) !== 'gateway') {
+        return gatewayRoot;
+    }
+    try {
+        const out = execSync(`docker ps -q --filter 'name=stacker-agent' | head -1 | xargs -r docker inspect -f '{{range .Mounts}}{{if eq .Destination "/gateway"}}{{.Source}}{{end}}{{end}}'`, { encoding: 'utf8' }).trim();
+        return out || null;
+    }
+    catch {
+        return null;
+    }
+}
+function ensureHostDotEnv(gatewayRoot) {
+    const script = path.join(gatewayRoot, 'docker', 'ensure-host-dotenv.sh');
+    if (fs.existsSync(script)) {
+        execSync(`sh "${script}"`, { cwd: gatewayRoot, stdio: 'inherit' });
         return;
-    fs.appendFileSync(envPath, '\nGETFY_COMPOSE_PROJECT_NAME=getfy\n', 'utf8');
+    }
+    const stackEnvPath = path.join(gatewayRoot, '.docker', 'stack.env');
+    const dotenvPath = path.join(gatewayRoot, '.env');
+    if (!fs.existsSync(stackEnvPath) || (fs.existsSync(dotenvPath) && fs.statSync(dotenvPath).size > 0)) {
+        return;
+    }
+    const stack = fs.readFileSync(stackEnvPath, 'utf8');
+    const pick = (key, fallback = '') => {
+        const m = stack.match(new RegExp(`^\\s*${key}\\s*=\\s*(.+)$`, 'm'));
+        return m ? m[1].trim().replace(/^["']|["']$/g, '') : fallback;
+    };
+    const lines = [
+        `GETFY_DB_CONNECTION=${pick('GETFY_DB_CONNECTION', 'pgsql')}`,
+        `GETFY_DB_HOST=${pick('GETFY_DB_HOST', 'postgres')}`,
+        `GETFY_DB_PORT=${pick('GETFY_DB_PORT', '5432')}`,
+        `GETFY_DB_DATABASE=${pick('GETFY_DB_DATABASE', 'getfy')}`,
+        `GETFY_DB_USERNAME=${pick('GETFY_DB_USERNAME', 'getfy')}`,
+        `GETFY_DB_PASSWORD=${pick('GETFY_DB_PASSWORD', 'getfy')}`,
+        `GETFY_APP_URL=${pick('GETFY_APP_URL', 'http://localhost')}`,
+    ];
+    fs.writeFileSync(dotenvPath, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+function runShell(command, cwd, extraEnv, onChunk) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, {
+            cwd,
+            shell: true,
+            env: { ...process.env, ...extraEnv },
+            stdio: ['inherit', 'pipe', 'pipe'],
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout?.on('data', (chunk) => {
+            const text = chunk.toString();
+            stdout += text;
+            onChunk?.(text);
+        });
+        child.stderr?.on('data', (chunk) => {
+            const text = chunk.toString();
+            stderr += text;
+            onChunk?.(text);
+        });
+        child.on('error', reject);
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve({ stdout, stderr });
+                return;
+            }
+            const err = new Error(`Command failed: ${command}`);
+            err.stdout = stdout;
+            err.stderr = stderr;
+            reject(err);
+        });
+    });
 }
 /** Reinicia o stacker-agent em background após reportar sucesso (evita matar o apply). */
 function scheduleStackerAgentRestart(gatewayRoot) {
     const cmd = [
         `cd "${gatewayRoot}"`,
+        'sh docker/ensure-host-dotenv.sh 2>/dev/null || true',
         'set -a && . .docker/stack.env && set +a',
         'PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"',
         'FILES="$(sh docker/detect-compose-files.sh)"',
         'ARGS=""',
         'for f in $FILES; do ARGS="$ARGS -f $f"; done',
-        'docker compose -p "$PROJECT" $ARGS --env-file .docker/stack.env build stacker-agent',
-        'docker compose -p "$PROJECT" $ARGS --env-file .docker/stack.env up -d stacker-agent',
+        'docker compose -p "$PROJECT" --project-directory /gateway $ARGS --env-file /gateway/.docker/stack.env --env-file /gateway/.env build stacker-agent',
+        'docker compose -p "$PROJECT" --project-directory /gateway $ARGS --env-file /gateway/.docker/stack.env --env-file /gateway/.env up -d stacker-agent',
     ].join(' && ');
     spawn('bash', ['-c', cmd], { detached: true, stdio: 'ignore' }).unref();
 }

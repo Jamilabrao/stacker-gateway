@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { collectMetrics, readInstalledVersion } from './metrics.js';
+import { collectMetrics, readInstalledVersion, readRuntimeVersion } from './metrics.js';
 import { applyUpdate, StackerClient } from './stacker-client.js';
 
 const AGENT_VERSION = '1.0.0';
@@ -52,6 +52,7 @@ async function main() {
       const result = await client.heartbeat({
         appUrl: resolveAppUrl(),
         version: readInstalledVersion(gatewayRoot),
+        runtimeVersion: readRuntimeVersion(gatewayRoot),
         agentVersion: AGENT_VERSION,
         hostname: os.hostname(),
         ip,

@@ -218,4 +218,17 @@ else
 fi
 "${COMPOSE[@]}" exec -T app php artisan config:clear || true
 
+echo "=== Verificando versão em runtime ==="
+HOST_VERSION="$(tr -d ' \n\r' < VERSION)"
+RUNTIME_VERSION="$("${COMPOSE[@]}" exec -T app php artisan tinker --execute="echo config('getfy.version');" 2>/dev/null | tr -d ' \n\r' || true)"
+if [ -z "$RUNTIME_VERSION" ]; then
+  echo "FATAL: não foi possível ler a versão do container app." >&2
+  exit 1
+fi
+if [ "$RUNTIME_VERSION" != "$HOST_VERSION" ]; then
+  echo "FATAL: VERSION no host ($HOST_VERSION) difere do app em execução ($RUNTIME_VERSION)." >&2
+  exit 1
+fi
+echo "Versão runtime OK: $RUNTIME_VERSION"
+
 echo "=== Stacker apply update concluído ==="

@@ -113,3 +113,18 @@ export function readInstalledVersion(gatewayRoot) {
         return undefined;
     }
 }
+/** Versão reportada pelo container Laravel em execução (config getfy.version). */
+export function readRuntimeVersion(gatewayRoot) {
+    if (process.platform === 'win32')
+        return undefined;
+    try {
+        const container = execSync(`docker ps --format '{{.Names}}' 2>/dev/null | grep -E '-app-1$' | grep -v '^gateway-' | head -1`, { encoding: 'utf8', shell: '/bin/bash', timeout: 15_000 }).trim();
+        if (!container)
+            return undefined;
+        const v = execSync(`docker exec ${container} php artisan tinker --execute="echo config('getfy.version');"`, { encoding: 'utf8', shell: '/bin/bash', timeout: 30_000 }).trim();
+        return v || undefined;
+    }
+    catch {
+        return undefined;
+    }
+}

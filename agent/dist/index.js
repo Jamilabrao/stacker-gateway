@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { collectMetrics, readInstalledVersion } from './metrics.js';
+import { collectMetrics, readInstalledVersion, readRuntimeVersion } from './metrics.js';
 import { applyUpdate, StackerClient } from './stacker-client.js';
 const AGENT_VERSION = '1.0.0';
 const HEARTBEAT_MS = Number(process.env.STACKER_HEARTBEAT_INTERVAL_MS || 30_000);
@@ -44,6 +44,7 @@ async function main() {
             const result = await client.heartbeat({
                 appUrl: resolveAppUrl(),
                 version: readInstalledVersion(gatewayRoot),
+                runtimeVersion: readRuntimeVersion(gatewayRoot),
                 agentVersion: AGENT_VERSION,
                 hostname: os.hostname(),
                 ip,
@@ -56,10 +57,8 @@ async function main() {
             for (const cmd of result.commands) {
                 if (cmd.type === 'apply_update' && !updateInProgress) {
                     updateInProgress = true;
-                    try {
-                        await applyUpdate(client, cmd, gatewayRoot, signingKey);
-                    }
-                    catch (err) {
+                    void applyUpdate(client, cmd, gatewayRoot, signingKey)
+                        .catch(async (err) => {
                         const message = err instanceof Error ? err.message : String(err);
                         await client.reportUpdateStatus({
                             jobId: cmd.jobId,
@@ -67,10 +66,10 @@ async function main() {
                             logs: message,
                         });
                         console.error('Falha no update:', message);
-                    }
-                    finally {
+                    })
+                        .finally(() => {
                         updateInProgress = false;
-                    }
+                    });
                 }
             }
         }
