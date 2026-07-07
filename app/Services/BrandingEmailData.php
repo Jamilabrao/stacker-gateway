@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Middleware\ApplyBrandingConfig;
 use App\Models\BrandingSetting;
+use App\Support\BrandingAssetUrls;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -83,12 +84,9 @@ class BrandingEmailData
         if ($url === '') {
             return null;
         }
-        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
-            return $url;
-        }
 
-        $base = rtrim((string) config('app.url'), '/');
+        $resolved = BrandingAssetUrls::resolve($url);
 
-        return $base.'/'.ltrim($url, '/');
+        return $resolved !== '' ? $resolved : null;
     }
 }

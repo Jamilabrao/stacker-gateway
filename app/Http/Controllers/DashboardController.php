@@ -6,7 +6,7 @@ use App\Events\DashboardLoading;
 use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\Product;
-use App\Models\Setting;
+use App\Support\DashboardBannerSettings;
 use App\Support\SqlDialect;
 use Carbon\Carbon;
 use App\Services\Checkout\CheckoutAbandonmentMetrics;
@@ -111,7 +111,7 @@ class DashboardController extends Controller
         });
 
         $data = new \ArrayObject($payload);
-        $data['dashboard_banners'] = $this->dashboardBanners();
+        $data['dashboard_banners'] = DashboardBannerSettings::banners(activeOnly: true, resolveUrls: true);
         event(new DashboardLoading($data));
 
         return Inertia::render('Dashboard/Index', $data->getArrayCopy());
@@ -242,29 +242,4 @@ class DashboardController extends Controller
         ])->values()->all();
     }
 
-    private function dashboardBanners(): array
-    {
-        $raw = Setting::get('dashboard_banners', [], null);
-        $rows = is_string($raw) ? json_decode($raw, true) : $raw;
-        if (! is_array($rows)) {
-            return [];
-        }
-
-        return collect($rows)
-            ->filter(fn ($item) => is_array($item))
-            ->map(function (array $item, int $idx) {
-                return [
-                    'id' => (string) ($item['id'] ?? ('banner-'.$idx)),
-                    'title' => (string) ($item['title'] ?? ''),
-                    'desktop_url' => (string) ($item['desktop_url'] ?? ''),
-                    'mobile_url' => (string) ($item['mobile_url'] ?? ''),
-                    'active' => (bool) ($item['active'] ?? true),
-                    'sort_order' => (int) ($item['sort_order'] ?? ($idx + 1)),
-                ];
-            })
-            ->filter(fn (array $item) => $item['active'] && ($item['desktop_url'] !== '' || $item['mobile_url'] !== ''))
-            ->sortBy('sort_order')
-            ->values()
-            ->all();
-    }
 }

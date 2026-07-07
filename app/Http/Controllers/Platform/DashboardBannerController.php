@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Platform;
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
 use App\Services\StorageService;
+use App\Support\DashboardBannerSettings;
 use App\Support\DashboardBannerSpecs;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,8 +14,6 @@ use Illuminate\Validation\ValidationException;
 
 class DashboardBannerController extends Controller
 {
-    private const KEY = 'dashboard_banners';
-
     public function __construct(
         protected StorageService $storage,
     ) {}
@@ -22,7 +21,7 @@ class DashboardBannerController extends Controller
     public function data(): JsonResponse
     {
         return response()->json([
-            'banners' => $this->getBanners(),
+            'banners' => DashboardBannerSettings::banners(activeOnly: false, resolveUrls: true),
             'specs' => DashboardBannerSpecs::toFrontendSpecs(),
         ]);
     }
@@ -55,7 +54,7 @@ class DashboardBannerController extends Controller
             ->values()
             ->all();
 
-        Setting::set(self::KEY, $normalized, null);
+        Setting::set(DashboardBannerSettings::KEY, $normalized, null);
 
         return response()->json([
             'ok' => true,
@@ -103,42 +102,5 @@ class DashboardBannerController extends Controller
         }
 
         return $this->storage->toStoragePath($value) ?? trim($value);
-    }
-
-    private function resolvePublicUrl(string $stored): string
-    {
-        if ($stored === '') {
-            return '';
-        }
-
-        return $this->storage->resolvePublicUrl($stored);
-    }
-
-    /**
-     * @return array<int, array{id:string,title:string,desktop_url:string,mobile_url:string,active:bool,sort_order:int}>
-     */
-    private function getBanners(): array
-    {
-        $raw = Setting::get(self::KEY, [], null);
-        $rows = is_string($raw) ? json_decode($raw, true) : $raw;
-        if (! is_array($rows)) {
-            return [];
-        }
-
-        return collect($rows)
-            ->filter(fn ($item) => is_array($item))
-            ->map(function (array $item, int $idx) {
-                return [
-                    'id' => (string) ($item['id'] ?? ('banner-'.$idx)),
-                    'title' => (string) ($item['title'] ?? ''),
-                    'desktop_url' => $this->resolvePublicUrl((string) ($item['desktop_url'] ?? '')),
-                    'mobile_url' => $this->resolvePublicUrl((string) ($item['mobile_url'] ?? '')),
-                    'active' => (bool) ($item['active'] ?? true),
-                    'sort_order' => (int) ($item['sort_order'] ?? ($idx + 1)),
-                ];
-            })
-            ->sortBy('sort_order')
-            ->values()
-            ->all();
     }
 }

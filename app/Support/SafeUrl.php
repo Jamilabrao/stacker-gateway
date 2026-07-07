@@ -2,6 +2,9 @@
 
 namespace App\Support;
 
+use App\Services\StorageService;
+use App\Services\StorageUrlNormalizer;
+
 final class SafeUrl
 {
     /**
@@ -43,13 +46,23 @@ final class SafeUrl
             return null;
         }
 
+        $normalizer = new StorageUrlNormalizer;
+        if ($normalizer->isLocalStorageUrl($url) || str_starts_with($url, '/storage/')) {
+            $resolved = app(StorageService::class)->resolvePublicUrl($url);
+
+            return $resolved !== '' ? $resolved : null;
+        }
+
         $http = self::normalizeHttpUrl($url);
         if ($http !== null) {
             return $http;
         }
 
-        if (str_starts_with($url, '/storage/')) {
-            return url($url);
+        if (! str_starts_with($url, '/')) {
+            $resolved = app(StorageService::class)->resolvePublicUrl($url);
+            if ($resolved !== '' && self::isAllowedHttpUrl($resolved)) {
+                return $resolved;
+            }
         }
 
         return null;

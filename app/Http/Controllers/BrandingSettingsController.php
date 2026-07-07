@@ -119,9 +119,12 @@ class BrandingSettingsController extends Controller
             'file' => ['required', 'file', 'max:4096', 'mimes:jpg,jpeg,png,webp,gif,ico,svg'],
         ]);
 
-        $path = $request->file('file')->store("white-label/{$user->tenant_id}", 'public');
-        $stored = BrandingAssetUrls::storePathFromUpload($path);
-        $publicUrl = app(StorageService::class)->resolvePublicUrl($stored);
+        $uploaded = app(StorageService::class)->storeUploadedPublicFile(
+            $request->file('file'),
+            "white-label/{$user->tenant_id}"
+        );
+        $stored = $uploaded['path'];
+        $publicUrl = $uploaded['url'];
 
         $row = BrandingSetting::query()->firstOrCreate(
             ['tenant_id' => $user->tenant_id],

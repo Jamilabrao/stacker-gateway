@@ -397,7 +397,7 @@ class StorageService
         }
 
         if ($this->isLocal) {
-            return url('/storage/'.ltrim($stored, '/'));
+            return '/storage/'.ltrim($stored, '/');
         }
 
         if ($base !== '') {
@@ -406,7 +406,7 @@ class StorageService
 
         $adapterUrl = $this->disk->url($stored);
         if (RemoteStorage::isLikelyNonPublicUrl($adapterUrl)) {
-            return url('/storage/'.ltrim($stored, '/'));
+            return '/storage/'.ltrim($stored, '/');
         }
 
         return $adapterUrl;
@@ -419,10 +419,10 @@ class StorageService
         }
 
         if (str_starts_with($stored, '/storage/')) {
-            return url($stored);
+            return $stored;
         }
 
-        return url('/storage/'.ltrim($stored, '/'));
+        return '/storage/'.ltrim($stored, '/');
     }
 
     /**
@@ -522,6 +522,9 @@ class StorageService
             'branding/',
             'email-templates/',
             'dashboard-banners/',
+            'white-label/',
+            'conquistas/',
+            'avatars/',
             'platform/',
         ];
         foreach ($prefixes as $prefix) {

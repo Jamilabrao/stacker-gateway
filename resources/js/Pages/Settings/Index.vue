@@ -787,6 +787,7 @@ const selectClass =
         <form
             v-show="activeTab !== 'update' && activeTab !== 'cron' && activeTab !== 'banners_dashboard' && activeTab !== 'template_dashboard' && activeTab !== 'idiomas' && activeTab !== 'demo' && !isPluginTab(activeTab)"
             class="w-full max-w-full space-y-6"
+            novalidate
             @submit.prevent="submitSettings"
         >
             <!-- Aba E-MAIL -->
@@ -963,7 +964,8 @@ const selectClass =
                                             </label>
                                             <input
                                                 v-model="form.storage_s3_url"
-                                                type="url"
+                                                type="text"
+                                                inputmode="url"
                                                 :class="inputClass"
                                                 :placeholder="form.storage_provider === 'r2'
                                                     ? 'https://pub-xxxx.r2.dev (R2 → bucket → Public access)'
@@ -1347,7 +1349,7 @@ const selectClass =
             <div
                 class="flex items-center gap-3 pt-4 sm:pt-2 md:pt-4 sticky bottom-4 z-10 -mx-2 rounded-xl border border-zinc-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur sm:static sm:mx-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:shadow-none dark:border-zinc-700 dark:bg-zinc-800/95 sm:dark:bg-transparent sm:dark:border-0"
             >
-                <Button type="submit" :disabled="form.processing">Salvar alterações</Button>
+                <Button type="button" :disabled="form.processing" @click="submitSettings">Salvar alterações</Button>
             </div>
         </form>
 

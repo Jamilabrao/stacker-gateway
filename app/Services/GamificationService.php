@@ -182,15 +182,7 @@ class GamificationService
         if ($image === '') {
             return '';
         }
-        if (str_starts_with($image, 'http')) {
-            return $image;
-        }
-        if (str_starts_with($image, '/')) {
-            return rtrim(config('app.url'), '/') . $image;
-        }
-        if (str_contains($image, 'member-area-gamification/') || str_contains($image, 'gamification')) {
-            return (new \App\Services\StorageService($product->tenant_id))->url($image);
-        }
-        return rtrim(config('app.url'), '/') . '/' . ltrim($image, '/');
+
+        return (new \App\Services\StorageService($product->tenant_id))->resolvePublicUrl($image);
     }
 }

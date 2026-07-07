@@ -143,7 +143,8 @@ async function clearIcon() {
                     <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">URL do link</label>
                     <input
                         v-model="form.seller_panel_support_url"
-                        type="url"
+                        type="text"
+                        inputmode="url"
                         class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800"
                         placeholder="https://wa.me/5511999999999 ou outro link"
                     />
