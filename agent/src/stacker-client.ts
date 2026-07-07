@@ -24,6 +24,12 @@ export interface ApplyUpdateCommand {
   size?: number;
 }
 
+export interface ReapplyUpdateCommand {
+  type: 'reapply';
+  jobId: string;
+  version: string;
+}
+
 export class StackerClient {
   constructor(
     private apiUrl: string,
@@ -79,7 +85,7 @@ export class StackerClient {
   }) {
     return this.request<{
       license: Omit<LicenseCache, 'cachedAt'>;
-      commands: ApplyUpdateCommand[];
+      commands: Array<ApplyUpdateCommand | ReapplyUpdateCommand>;
     }>('POST', '/gateway/agent/heartbeat', payload);
   }
 
@@ -210,6 +216,33 @@ export async function applyUpdate(
   ensureComposeProjectName(gatewayRoot);
   ensureHostDotEnv(gatewayRoot);
 
+  await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+
+  fs.rmSync(stagingDir, { recursive: true, force: true });
+  scheduleStackerAgentRestart(gatewayRoot);
+}
+
+export async function reapplyUpdate(
+  client: StackerClient,
+  cmd: ReapplyUpdateCommand,
+  gatewayRoot: string,
+): Promise<void> {
+  await client.reportUpdateStatus({
+    jobId: cmd.jobId,
+    status: 'applying',
+    logs: 'Reaplicando rebuild Docker (arquivos já na VPS)...',
+  });
+
+  await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+  scheduleStackerAgentRestart(gatewayRoot);
+}
+
+async function executeDockerApply(
+  client: StackerClient,
+  jobId: string,
+  targetVersion: string,
+  gatewayRoot: string,
+): Promise<void> {
   const applyScript = path.join(gatewayRoot, 'docker', 'stacker-apply-update.sh');
   if (!fs.existsSync(applyScript)) {
     throw new Error('docker/stacker-apply-update.sh ausente no release');
@@ -217,7 +250,7 @@ export async function applyUpdate(
   fs.chmodSync(applyScript, 0o755);
 
   await client.reportUpdateStatus({
-    jobId: cmd.jobId,
+    jobId,
     status: 'applying',
     logs: 'Executando docker/stacker-apply-update.sh (build pode levar 10–30 min)...',
   });
@@ -226,7 +259,7 @@ export async function applyUpdate(
   const keepalive = setInterval(() => {
     void client
       .reportUpdateStatus({
-        jobId: cmd.jobId,
+        jobId,
         status: 'applying',
         logs: applyLogs.trim().slice(-2000) || 'Apply em andamento (docker build)...',
       })
@@ -253,7 +286,7 @@ export async function applyUpdate(
     const e = err as { stdout?: string; stderr?: string; message?: string };
     const logs = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
     await client.reportUpdateStatus({
-      jobId: cmd.jobId,
+      jobId,
       status: 'failed',
       logs: logs || 'Falha ao aplicar update',
     });
@@ -265,38 +298,34 @@ export async function applyUpdate(
   const hostVersion = readInstalledVersion(gatewayRoot);
   const runtimeVersion = readRuntimeVersion(gatewayRoot);
   const versionAligned =
-    hostVersion === cmd.version &&
-    runtimeVersion === cmd.version;
+    hostVersion === targetVersion && runtimeVersion === targetVersion;
 
   if (!versionAligned) {
     const mismatchLog = [
       applyLogs.trim(),
-      `Versão não alinhada após apply: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}, alvo=${cmd.version}`,
+      `Versão não alinhada após apply: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}, alvo=${targetVersion}`,
     ]
       .filter(Boolean)
       .join('\n');
     await client.reportUpdateStatus({
-      jobId: cmd.jobId,
+      jobId,
       status: 'failed',
       logs: mismatchLog,
       installedVersion: hostVersion,
       runtimeVersion,
     });
     throw new Error(
-      `Update ${cmd.version} incompleto: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}`,
+      `Update ${targetVersion} incompleto: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}`,
     );
   }
 
   await client.reportUpdateStatus({
-    jobId: cmd.jobId,
+    jobId,
     status: 'success',
-    installedVersion: cmd.version,
-    runtimeVersion: runtimeVersion ?? cmd.version,
-    logs: applyLogs.trim() || `Update ${cmd.version} aplicado`,
+    installedVersion: targetVersion,
+    runtimeVersion: runtimeVersion ?? targetVersion,
+    logs: applyLogs.trim() || `Update ${targetVersion} aplicado`,
   });
-
-  fs.rmSync(stagingDir, { recursive: true, force: true });
-  scheduleStackerAgentRestart(gatewayRoot);
 }
 
 const UPLOADS_INI = `upload_max_filesize = 512M

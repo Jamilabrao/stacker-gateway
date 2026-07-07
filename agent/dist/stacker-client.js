@@ -155,13 +155,27 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
     ensurePhpUploadsIni(gatewayRoot);
     ensureComposeProjectName(gatewayRoot);
     ensureHostDotEnv(gatewayRoot);
+    await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    scheduleStackerAgentRestart(gatewayRoot);
+}
+export async function reapplyUpdate(client, cmd, gatewayRoot) {
+    await client.reportUpdateStatus({
+        jobId: cmd.jobId,
+        status: 'applying',
+        logs: 'Reaplicando rebuild Docker (arquivos já na VPS)...',
+    });
+    await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+    scheduleStackerAgentRestart(gatewayRoot);
+}
+async function executeDockerApply(client, jobId, targetVersion, gatewayRoot) {
     const applyScript = path.join(gatewayRoot, 'docker', 'stacker-apply-update.sh');
     if (!fs.existsSync(applyScript)) {
         throw new Error('docker/stacker-apply-update.sh ausente no release');
     }
     fs.chmodSync(applyScript, 0o755);
     await client.reportUpdateStatus({
-        jobId: cmd.jobId,
+        jobId,
         status: 'applying',
         logs: 'Executando docker/stacker-apply-update.sh (build pode levar 10–30 min)...',
     });
@@ -169,7 +183,7 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
     const keepalive = setInterval(() => {
         void client
             .reportUpdateStatus({
-            jobId: cmd.jobId,
+            jobId,
             status: 'applying',
             logs: applyLogs.trim().slice(-2000) || 'Apply em andamento (docker build)...',
         })
@@ -191,7 +205,7 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
         const e = err;
         const logs = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
         await client.reportUpdateStatus({
-            jobId: cmd.jobId,
+            jobId,
             status: 'failed',
             logs: logs || 'Falha ao aplicar update',
         });
@@ -202,33 +216,30 @@ export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
     }
     const hostVersion = readInstalledVersion(gatewayRoot);
     const runtimeVersion = readRuntimeVersion(gatewayRoot);
-    const versionAligned = hostVersion === cmd.version &&
-        runtimeVersion === cmd.version;
+    const versionAligned = hostVersion === targetVersion && runtimeVersion === targetVersion;
     if (!versionAligned) {
         const mismatchLog = [
             applyLogs.trim(),
-            `Versão não alinhada após apply: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}, alvo=${cmd.version}`,
+            `Versão não alinhada após apply: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}, alvo=${targetVersion}`,
         ]
             .filter(Boolean)
             .join('\n');
         await client.reportUpdateStatus({
-            jobId: cmd.jobId,
+            jobId,
             status: 'failed',
             logs: mismatchLog,
             installedVersion: hostVersion,
             runtimeVersion,
         });
-        throw new Error(`Update ${cmd.version} incompleto: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}`);
+        throw new Error(`Update ${targetVersion} incompleto: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}`);
     }
     await client.reportUpdateStatus({
-        jobId: cmd.jobId,
+        jobId,
         status: 'success',
-        installedVersion: cmd.version,
-        runtimeVersion: runtimeVersion ?? cmd.version,
-        logs: applyLogs.trim() || `Update ${cmd.version} aplicado`,
+        installedVersion: targetVersion,
+        runtimeVersion: runtimeVersion ?? targetVersion,
+        logs: applyLogs.trim() || `Update ${targetVersion} aplicado`,
     });
-    fs.rmSync(stagingDir, { recursive: true, force: true });
-    scheduleStackerAgentRestart(gatewayRoot);
 }
 const UPLOADS_INI = `upload_max_filesize = 512M
 post_max_size = 512M

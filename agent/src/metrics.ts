@@ -132,8 +132,20 @@ export function readInstalledVersion(gatewayRoot: string): string | undefined {
 }
 
 /** Versão reportada pelo container Laravel em execução (config getfy.version). */
+let runtimeVersionCache: { value?: string; at: number } = { at: 0 };
+const RUNTIME_VERSION_CACHE_MS = 60_000;
+
 export function readRuntimeVersion(gatewayRoot: string): string | undefined {
   if (process.platform === 'win32') return undefined;
+  if (Date.now() - runtimeVersionCache.at < RUNTIME_VERSION_CACHE_MS) {
+    return runtimeVersionCache.value;
+  }
+  const value = readRuntimeVersionUncached(gatewayRoot);
+  runtimeVersionCache = { value, at: Date.now() };
+  return value;
+}
+
+function readRuntimeVersionUncached(gatewayRoot: string): string | undefined {
   try {
     const container = execSync(
       `docker ps --format '{{.Names}}' 2>/dev/null | grep -E '-app-1$' | grep -v '^gateway-' | head -1`,
