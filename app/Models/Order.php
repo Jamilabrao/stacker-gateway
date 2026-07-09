@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\PlatformPaymentMethods;
+use App\Support\SaleOrigin;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,7 @@ class Order extends Model
         'public_reference',
         'tenant_id', 'user_id', 'product_id', 'product_offer_id', 'subscription_plan_id',
         'api_application_id', 'api_checkout_session_id',
+        'affiliate_user_id', 'affiliate_enrollment_id', 'sale_origin',
         'status', 'amount', 'shipping_amount', 'shipping_store_id', 'shipping_rule_id', 'shipping_address',
         'email', 'cpf', 'phone', 'customer_ip', 'coupon_code',
         'gateway', 'gateway_id', 'cajupay_account_id', 'payment_method', 'approved_manually', 'metadata', 'period_start', 'period_end', 'is_renewal',
@@ -41,6 +43,17 @@ class Order extends Model
                 return;
             }
             $order->public_reference = static::newUniquePublicReference();
+        });
+
+        static::saving(function (Order $order) {
+            $order->syncAffiliateColumnsFromMetadata();
+            if ($order->sale_origin === null || $order->sale_origin === '') {
+                $origin = SaleOrigin::resolveForOrder($order);
+                $order->sale_origin = $origin;
+                $meta = is_array($order->metadata) ? $order->metadata : [];
+                $meta['sale_origin'] = $origin;
+                $order->metadata = $meta;
+            }
         });
     }
 
@@ -311,9 +324,29 @@ class Order extends Model
      */
     public function isAffiliateSale(): bool
     {
+        if ($this->affiliate_user_id) {
+            return true;
+        }
+
         $m = $this->metadata ?? [];
 
         return is_array($m) && ! empty($m['affiliate_user_id']);
+    }
+
+    public function affiliateCommission(): HasOne
+    {
+        return $this->hasOne(AffiliateCommission::class);
+    }
+
+    public function syncAffiliateColumnsFromMetadata(): void
+    {
+        $m = is_array($this->metadata) ? $this->metadata : [];
+        if (! empty($m['affiliate_user_id'])) {
+            $this->affiliate_user_id = (int) $m['affiliate_user_id'];
+        }
+        if (! empty($m['affiliate_enrollment_id'])) {
+            $this->affiliate_enrollment_id = (int) $m['affiliate_enrollment_id'];
+        }
     }
 
     /**

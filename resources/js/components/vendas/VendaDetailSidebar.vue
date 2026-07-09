@@ -248,6 +248,21 @@ const shippingDeliveryLabel = computed(() => {
                                     {{ formatBRL(venda.amount_net ?? venda.amount_total ?? venda.amount) }}
                                 </p>
                             </div>
+                            <div
+                                v-if="venda.is_affiliate_sale"
+                                class="space-y-2 rounded-xl border border-violet-200 bg-violet-50/70 px-3 py-3 dark:border-violet-900/50 dark:bg-violet-950/30"
+                            >
+                                <p class="text-xs font-medium uppercase tracking-wide text-violet-800 dark:text-violet-200">Afiliado</p>
+                                <p class="text-sm font-medium text-zinc-900 dark:text-white">{{ venda.affiliate_name ?? '—' }}</p>
+                                <p class="text-sm text-zinc-700 dark:text-zinc-300">
+                                    Comissão: {{ formatBRL(venda.affiliate_commission_gross ?? 0) }}
+                                    <span v-if="venda.affiliate_commission_percent != null">({{ venda.affiliate_commission_percent }}%)</span>
+                                </p>
+                            </div>
+                            <div v-if="venda.sale_origin_label" class="space-y-1">
+                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Origem da venda</p>
+                                <p class="text-sm text-zinc-900 dark:text-white">{{ venda.sale_origin_label }}</p>
+                            </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Produto</p>
                                 <p class="text-sm text-zinc-900 dark:text-white">

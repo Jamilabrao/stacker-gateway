@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
 use App\Services\MercadoPago\MercadoPagoCheckoutCompletionService;
+use App\Services\MercadoPago\MercadoPagoWebhookResolver;
 use App\Support\PaymentWebhookDispatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,7 +31,23 @@ class MercadoPagoWebhookController extends Controller
         $event = $parsed['event'];
 
         $completion = app(MercadoPagoCheckoutCompletionService::class);
-        $order = $completion->findOrderForWebhook($paymentId, $externalReference);
+        $resolver = app(MercadoPagoWebhookResolver::class);
+        $order = $resolver->findOrderForWebhook($paymentId, $externalReference);
+
+        if ($externalReference === null && $order !== null) {
+            $externalReference = (string) $order->id;
+        }
+
+        if ($externalReference === null) {
+            $details = $resolver->fetchPaymentFromApi($paymentId, $order?->tenant_id);
+            $fetchedRef = trim((string) ($details['external_reference'] ?? ''));
+            if ($fetchedRef !== '') {
+                $externalReference = $fetchedRef;
+                if ($order === null) {
+                    $order = $completion->findOrderForWebhook($paymentId, $externalReference);
+                }
+            }
+        }
 
         $enrichedPayload = array_merge($payload, [
             'webhook_source' => 'mercadopago_webhook',

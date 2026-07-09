@@ -12,8 +12,8 @@ use App\Models\User;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Support\GatewayApiCredentials;
+use App\Support\GatewayWebhookUrl;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Route;
 
 class PaymentService
 {
@@ -76,13 +76,17 @@ class PaymentService
                 if ((! is_string($copyPaste) || $copyPaste === '') && (! is_string($qrcode) || $qrcode === '')) {
                     throw new \RuntimeException('PIX gerado sem código de pagamento. Tente novamente.');
                 }
+                $meta = is_array($order->metadata) ? $order->metadata : [];
+                if (! empty($resolved['gateway_credential_id'])) {
+                    $meta['gateway_credential_id'] = (int) $resolved['gateway_credential_id'];
+                }
                 $order->update([
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
                     'cajupay_account_id' => $gatewaySlug === 'cajupay' ? ($resolved['cajupay_account_id'] ?? null) : $order->cajupay_account_id,
+                    'metadata' => $meta,
                 ]);
                 if ($gatewaySlug === 'mercadopago' && ! empty($result['transaction_id'])) {
-                    $meta = is_array($order->metadata) ? $order->metadata : [];
                     $meta['mercadopago_payment_id'] = (string) $result['transaction_id'];
                     $order->update(['metadata' => $meta]);
                     app(\App\Services\MercadoPago\MercadoPagoCheckoutCompletionService::class)
@@ -623,15 +627,11 @@ class PaymentService
 
     private function webhookUrlForGateway(string $gatewaySlug): string
     {
-        $name = 'webhooks.' . $gatewaySlug;
-        if (Route::has($name)) {
-            return route($name);
-        }
-        return url('/webhooks/gateways/' . $gatewaySlug);
+        return GatewayWebhookUrl::forGateway($gatewaySlug);
     }
 
     /**
-     * @return array{credentials: array<string, mixed>, cajupay_account_id: ?int}|null
+     * @return array{credentials: array<string, mixed>, cajupay_account_id: ?int, gateway_credential_id: ?int}|null
      */
     private function resolveGatewayPaymentContext(?int $tenantId, string $gatewaySlug): ?array
     {
@@ -645,6 +645,7 @@ class PaymentService
             return [
                 'credentials' => $credentials,
                 'cajupay_account_id' => $account->id > 0 ? (int) $account->id : null,
+                'gateway_credential_id' => null,
             ];
         }
 
@@ -656,6 +657,7 @@ class PaymentService
         return [
             'credentials' => $credential->getDecryptedCredentials(),
             'cajupay_account_id' => null,
+            'gateway_credential_id' => (int) $credential->id,
         ];
     }
 }

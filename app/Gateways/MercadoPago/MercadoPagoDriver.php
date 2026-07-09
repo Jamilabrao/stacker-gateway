@@ -563,8 +563,40 @@ class MercadoPagoDriver implements GatewayDriver
 
     /**
      * @param  array<string, string>  $credentials
+     * @return array{external_reference: ?string, status: ?string, raw_status: ?string}|null
+     */
+    public function getPaymentDetails(string $transactionId, array $credentials): ?array
+    {
+        $payload = $this->fetchPaymentPayload($transactionId, $credentials);
+        if ($payload === null) {
+            return null;
+        }
+
+        $rawStatus = isset($payload['status']) ? strtolower((string) $payload['status']) : null;
+        $ref = $payload['external_reference'] ?? null;
+
+        return [
+            'external_reference' => ($ref !== null && $ref !== '') ? (string) $ref : null,
+            'status' => $rawStatus !== null ? $this->mapPaymentStatus($rawStatus) : null,
+            'raw_status' => $rawStatus,
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $credentials
      */
     public function getTransactionStatus(string $transactionId, array $credentials): ?string
+    {
+        $details = $this->getPaymentDetails($transactionId, $credentials);
+
+        return $details['status'] ?? null;
+    }
+
+    /**
+     * @param  array<string, string>  $credentials
+     * @return array<string, mixed>|null
+     */
+    private function fetchPaymentPayload(string $transactionId, array $credentials): ?array
     {
         $token = trim($credentials['access_token'] ?? '');
         if ($token === '') {
@@ -576,7 +608,7 @@ class MercadoPagoDriver implements GatewayDriver
                 ->timeout(20)
                 ->get('https://api.mercadopago.com/v1/payments/'.(int) $transactionId);
         } catch (\Throwable $e) {
-            Log::debug('MercadoPagoDriver getTransactionStatus error', [
+            Log::debug('MercadoPagoDriver fetchPaymentPayload error', [
                 'transaction_id' => $transactionId,
                 'message' => $e->getMessage(),
             ]);
@@ -585,7 +617,7 @@ class MercadoPagoDriver implements GatewayDriver
         }
 
         if (! $response->successful()) {
-            Log::debug('MercadoPagoDriver getTransactionStatus http error', [
+            Log::debug('MercadoPagoDriver fetchPaymentPayload http error', [
                 'transaction_id' => $transactionId,
                 'status' => $response->status(),
             ]);
@@ -593,12 +625,16 @@ class MercadoPagoDriver implements GatewayDriver
             return null;
         }
 
-        $status = $response->json('status');
-        if ($status === null) {
+        $payload = $response->json();
+        if (! is_array($payload)) {
             return null;
         }
-        $status = strtolower((string) $status);
 
+        return $payload;
+    }
+
+    private function mapPaymentStatus(string $status): string
+    {
         return match ($status) {
             'approved', 'authorized' => 'paid',
             'pending', 'in_process', 'in_mediation' => 'pending',

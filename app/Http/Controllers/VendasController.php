@@ -6,6 +6,8 @@ use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductOffer;
+use App\Models\User;
+use App\Support\SaleOrigin;
 use App\Services\AccessEmailService;
 use App\Services\ManualOrderRefundService;
 use App\Services\Med\MedPolicyService;
@@ -279,6 +281,34 @@ class VendasController extends Controller
         });
     }
 
+    private function applyAffiliateFilter($query, Request $request)
+    {
+        $affiliate = $this->normalizeString($request->query('affiliate'));
+        if ($affiliate !== '1' && $affiliate !== 'yes') {
+            return $query;
+        }
+
+        return $query->where(function ($q) {
+            $q->whereNotNull('affiliate_user_id');
+            if (DB::getDriverName() === 'pgsql') {
+                $q->orWhereRaw("(metadata->>'affiliate_user_id') IS NOT NULL AND (metadata->>'affiliate_user_id') <> ''");
+            }
+        });
+    }
+
+    private function applySaleOriginFilter($query, Request $request)
+    {
+        $origin = $this->normalizeString($request->query('sale_origin'));
+        if ($origin === null) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($origin) {
+            $q->where('sale_origin', $origin)
+                ->orWhere('metadata->sale_origin', $origin);
+        });
+    }
+
     private function buildFilteredQuery(Request $request, ?int $tenantId)
     {
         $statusFilter = $this->normalizeStatusFilter($request);
@@ -295,6 +325,8 @@ class VendasController extends Controller
         $query = $this->applyProductFilters($query, $request);
         $query = $this->applyPaymentFilters($query, $request);
         $query = $this->applySaleChannelFilter($query, $request);
+        $query = $this->applyAffiliateFilter($query, $request);
+        $query = $this->applySaleOriginFilter($query, $request);
         $query = $this->applyUtmFilters($query, $request, $tenantId);
 
         return [$query, $statusFilter];
@@ -323,6 +355,35 @@ class VendasController extends Controller
             : ($policy->isApiPixRestOrder($o) ? 'API PIX' : null);
         $arr['can_manual_refund'] = OrderManualRefund::canManualRefund($o);
         $arr['manual_refund'] = OrderManualRefund::snapshot($o);
+        $arr['is_affiliate_sale'] = $o->isAffiliateSale();
+        $arr['sale_origin'] = $o->sale_origin ?? (is_array($o->metadata) ? ($o->metadata['sale_origin'] ?? null) : null);
+        $arr['sale_origin_label'] = SaleOrigin::label($arr['sale_origin']);
+
+        $commission = $o->relationLoaded('affiliateCommission')
+            ? $o->affiliateCommission
+            : $o->affiliateCommission()->first();
+
+        if ($commission) {
+            $arr['affiliate_name'] = $commission->metadata['affiliate_name'] ?? $commission->affiliate?->name;
+            $arr['affiliate_commission_gross'] = (float) $commission->commission_gross;
+            $arr['affiliate_commission_percent'] = (float) $commission->commission_percent;
+            $arr['affiliate_commission_net'] = (float) $commission->commission_net;
+        } elseif ($o->isAffiliateSale()) {
+            $affiliateUserId = (int) ($o->affiliate_user_id ?? ($o->metadata['affiliate_user_id'] ?? 0));
+            $affiliate = $affiliateUserId > 0 ? User::query()->find($affiliateUserId) : null;
+            $arr['affiliate_name'] = $affiliate?->name;
+            $product = $o->relationLoaded('product') ? $o->product : null;
+            $pct = $product ? (float) $product->affiliate_commission_percent : 0;
+            $gross = (float) $breakdown['gross'];
+            $arr['affiliate_commission_percent'] = $pct;
+            $arr['affiliate_commission_gross'] = round($gross * $pct / 100, 2);
+            $arr['affiliate_commission_net'] = null;
+        } else {
+            $arr['affiliate_name'] = null;
+            $arr['affiliate_commission_gross'] = null;
+            $arr['affiliate_commission_percent'] = null;
+            $arr['affiliate_commission_net'] = null;
+        }
 
         return $arr;
     }
@@ -429,6 +490,7 @@ class VendasController extends Controller
                 'orderItems.productOffer:id,name',
                 'orderItems.subscriptionPlan:id,name',
                 'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
+                'affiliateCommission.affiliate:id,name,email',
             ])
             ->orderByDesc('created_at')
             ->paginate(20)
@@ -480,7 +542,10 @@ class VendasController extends Controller
                 'utm_medium' => $this->normalizeString($request->query('utm_medium')),
                 'utm_campaign' => $this->normalizeString($request->query('utm_campaign')),
                 'sale_channel' => $this->normalizeString($request->query('sale_channel')),
+                'affiliate' => $this->normalizeString($request->query('affiliate')),
+                'sale_origin' => $this->normalizeString($request->query('sale_origin')),
             ],
+            'sale_origin_options' => collect(SaleOrigin::labels())->map(fn ($label, $value) => ['value' => $value, 'label' => $label])->values()->all(),
             'products' => $products,
             'offers' => $offers,
         ]);

@@ -689,6 +689,9 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         });
         Route::get('/produtos', [\App\Http\Controllers\ProdutosController::class, 'index'])->name('produtos.index');
         Route::get('/produtos/afiliados', [\App\Http\Controllers\AffiliateProductPanelController::class, 'index'])->name('produtos.afiliados.index');
+        Route::get('/produtos/afiliados/dashboard', \App\Http\Controllers\AffiliateDashboardController::class)->name('produtos.afiliados.dashboard');
+        Route::get('/produtos/afiliados/vendas', [\App\Http\Controllers\AffiliateSalesController::class, 'index'])->name('produtos.afiliados.vendas');
+        Route::get('/produtos/afiliados/relatorios', [\App\Http\Controllers\AffiliateReportsController::class, 'index'])->name('produtos.afiliados.relatorios');
         Route::get('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'show'])->name('produtos.painel-afiliado.show');
         Route::put('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'updatePixels'])->name('produtos.painel-afiliado.update');
         Route::get('/produtos/coproducao', [\App\Http\Controllers\ProdutosController::class, 'coproductionIndex'])->name('produtos.coproducao');

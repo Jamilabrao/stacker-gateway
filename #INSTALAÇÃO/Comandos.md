@@ -82,6 +82,46 @@ docker compose -f "$COMPOSE" --env-file .docker/stack.env ps
 docker compose -f "$COMPOSE" --env-file .docker/stack.env exec redis redis-cli LLEN queues:payments
 ```
 
+### Mercado Pago PIX — diagnóstico e webhook
+
+Se o PIX aparece **aprovado no Mercado Pago** mas o pedido fica **pendente** no sistema:
+
+```bash
+cd /opt/getfy
+COMPOSE="$(sh docker/detect-compose-files.sh)"
+
+# Diagnóstico rápido (URL, credencial, fila, pedidos pendentes)
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec app \
+  php artisan payments:diagnose-mercadopago
+
+# Reconciliar manualmente pedidos MP pendentes
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec app \
+  php artisan payments:reconcile-mercadopago --limit=50 --min-age-minutes=0
+
+# Fila de webhooks (deve estar em 0 com worker ativo)
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec redis \
+  redis-cli LLEN queues:webhooks-inbound
+```
+
+**Configuração obrigatória em `.docker/stack.env`:**
+
+```bash
+GETFY_APP_URL=https://seu-dominio.com.br
+GETFY_WEBHOOK_PUBLIC_URL=https://seu-dominio.com.br   # se diferente do APP_URL
+```
+
+No painel **Mercado Pago → Suas integrações → Webhooks → Produção**, cadastre:
+
+`https://seu-dominio.com.br/webhooks/gateways/mercadopago`
+
+Evento: **Payments** (`payment`). A mesma URL aparece em **Configurações → Gateways → Mercado Pago** no painel da plataforma.
+
+Após alterar `stack.env`:
+
+```bash
+docker compose -f "$COMPOSE" --env-file .docker/stack.env restart app scheduler worker-webhooks-in
+```
+
 Qualquer modificação que você fizer no código, após finalizado, basta subir o repositorio para o github novamente, usando o GitHub Desktop ou pelo comando no terminal 
 git add .
 git commit -m update

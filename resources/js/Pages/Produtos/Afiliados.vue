@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import ProdutosTabs from '@/components/produtos/ProdutosTabs.vue';
+import AfiliadoTabs from '@/components/afiliados/AfiliadoTabs.vue';
 import { useI18n } from '@/composables/useI18n';
 import { Package, ExternalLink, UserPlus } from 'lucide-vue-next';
 
@@ -35,7 +36,7 @@ function isApproved(row) {
             </p>
         </div>
 
-        <ProdutosTabs />
+        <AfiliadoTabs />
 
         <div v-if="!list.length" class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/50 px-6 py-12 text-center dark:border-zinc-600 dark:bg-zinc-800/40">
             <UserPlus class="mx-auto h-10 w-10 text-zinc-400" aria-hidden="true" />

@@ -7,6 +7,7 @@ use App\Events\OrderRefunded;
 use App\Models\Order;
 use App\Models\TenantWallet;
 use App\Models\WalletTransaction;
+use App\Services\AffiliateCommissionRecorder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -21,6 +22,7 @@ class PlatformOrderAdminService
         }
 
         $order->update(['status' => 'cancelled']);
+        AffiliateCommissionRecorder::markCancelledForOrder($order->fresh());
         event(new OrderCancelled($order->fresh()));
     }
 
@@ -70,6 +72,7 @@ class PlatformOrderAdminService
                 'status' => 'refunded',
                 'metadata' => $meta,
             ]);
+            AffiliateCommissionRecorder::markRefundedForOrder($order->fresh());
             event(new OrderRefunded($order->fresh()));
         });
     }

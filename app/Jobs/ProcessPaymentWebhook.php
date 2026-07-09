@@ -8,6 +8,7 @@ use App\Events\OrderRejected;
 use App\Events\SubscriptionCreated;
 use App\Events\SubscriptionRenewed;
 use App\Gateways\GatewayRegistry;
+use App\Gateways\MercadoPago\MercadoPagoDriver;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Subscription;
@@ -376,7 +377,20 @@ class ProcessPaymentWebhook implements ShouldQueue
             return null;
         }
 
-        return $driver->getTransactionStatus($this->transactionId, $credentials);
+        $apiStatus = $driver->getTransactionStatus($this->transactionId, $credentials);
+
+        if ($this->gatewaySlug === 'mercadopago' && $apiStatus !== 'paid' && $driver instanceof MercadoPagoDriver) {
+            $foundId = $driver->findApprovedPaymentByExternalReference((string) $order->id, $credentials);
+            if ($foundId !== null && $foundId !== $this->transactionId) {
+                $this->transactionId = $foundId;
+                $this->syncMercadoPagoGatewayId($order);
+                $apiStatus = $driver->getTransactionStatus($foundId, $credentials);
+            } elseif ($foundId !== null) {
+                $apiStatus = 'paid';
+            }
+        }
+
+        return $apiStatus;
     }
 
     /**

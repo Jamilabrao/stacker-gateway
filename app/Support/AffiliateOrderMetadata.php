@@ -42,6 +42,7 @@ final class AffiliateOrderMetadata
         $orderMetadata['affiliate_user_id'] = $enrollment->affiliate_user_id;
         $orderMetadata['affiliate_enrollment_id'] = $enrollment->id;
         $orderMetadata['affiliate_ref'] = $ref;
+        $orderMetadata['sale_origin'] = \App\Support\SaleOrigin::AFFILIATE_LINK;
 
         return $orderMetadata;
     }

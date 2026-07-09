@@ -5,7 +5,7 @@ import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
-import ProdutosTabs from '@/components/produtos/ProdutosTabs.vue';
+import AfiliadoTabs from '@/components/afiliados/AfiliadoTabs.vue';
 import { useI18n } from '@/composables/useI18n';
 import {
     mergeConversionPixels,
@@ -117,7 +117,7 @@ function copyAffiliateLink() {
             {{ page.props.flash.success }}
         </div>
 
-        <ProdutosTabs />
+        <AfiliadoTabs />
 
         <section class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95">
             <div class="border-b border-zinc-200/80 bg-gradient-to-r from-zinc-50/90 to-zinc-100/50 px-6 py-4 dark:from-zinc-800/80 dark:to-zinc-800/50">

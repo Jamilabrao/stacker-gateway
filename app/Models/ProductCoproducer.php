@@ -268,7 +268,7 @@ class ProductCoproducer extends Model
     /**
      * @return array{tenant_id: int, gross: float, product_coproducer_id: null, role: string, product_affiliate_enrollment_id: int}|null
      */
-    private static function affiliateGrossSliceFromOrder(Order $order, float $grossTotal): ?array
+    public static function affiliateGrossSliceFromOrder(Order $order, float $grossTotal): ?array
     {
         $meta = $order->metadata ?? [];
         if (! is_array($meta) || empty($meta['affiliate_enrollment_id'])) {

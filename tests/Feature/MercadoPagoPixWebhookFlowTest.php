@@ -7,6 +7,8 @@ use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\MercadoPago\MercadoPagoCheckoutCompletionService;
+use App\Support\GatewayPaymentCredentials;
+use App\Support\GatewayWebhookUrl;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -14,7 +16,7 @@ use Tests\TestCase;
 
 class MercadoPagoPixWebhookFlowTest extends TestCase
 {
-    private function seedMercadoPagoCredentials(): void
+    private function seedMercadoPagoCredentials(): GatewayCredential
     {
         $cred = new GatewayCredential([
             'tenant_id' => null,
@@ -23,6 +25,8 @@ class MercadoPagoPixWebhookFlowTest extends TestCase
         ]);
         $cred->setEncryptedCredentials(['access_token' => 'TEST_MP_ACCESS_TOKEN']);
         $cred->save();
+
+        return $cred;
     }
 
     private function fakeMercadoPagoPaymentApproved(string $paymentId): void
@@ -227,5 +231,118 @@ class MercadoPagoPixWebhookFlowTest extends TestCase
 
         $this->assertSame('completed', $order->fresh()->status);
         Event::assertDispatched(OrderCompleted::class);
+    }
+
+    public function test_ipn_resolves_order_via_api_external_reference_when_gateway_id_stale(): void
+    {
+        Event::fake([OrderCompleted::class]);
+        $this->seedMercadoPagoCredentials();
+
+        $stalePaymentId = '101010101';
+        $paidPaymentId = '202020202';
+        $order = $this->createPendingMercadoPagoOrder($stalePaymentId);
+
+        Http::fake([
+            'https://api.mercadopago.com/v1/payments/'.$paidPaymentId => Http::response([
+                'id' => (int) $paidPaymentId,
+                'status' => 'approved',
+                'external_reference' => (string) $order->id,
+            ], 200),
+        ]);
+
+        config(['queue.default' => 'sync']);
+
+        $this->get(route('webhooks.mercadopago.ipn', [
+            'topic' => 'payment',
+            'id' => $paidPaymentId,
+        ]))->assertOk();
+
+        $fresh = $order->fresh();
+        $this->assertSame('completed', $fresh->status);
+        $this->assertSame($paidPaymentId, $fresh->gateway_id);
+        Event::assertDispatched(OrderCompleted::class);
+    }
+
+    public function test_webhook_job_falls_back_to_external_reference_search_when_gateway_id_stale(): void
+    {
+        Event::fake([OrderCompleted::class]);
+        $this->seedMercadoPagoCredentials();
+
+        $stalePaymentId = '303030303';
+        $paidPaymentId = '404040404';
+        $order = $this->createPendingMercadoPagoOrder($stalePaymentId);
+
+        Http::fake([
+            'https://api.mercadopago.com/v1/payments/'.$stalePaymentId => Http::response([
+                'id' => (int) $stalePaymentId,
+                'status' => 'pending',
+            ], 200),
+            'https://api.mercadopago.com/v1/payments/search*' => Http::response([
+                'results' => [
+                    [
+                        'id' => (int) $paidPaymentId,
+                        'status' => 'approved',
+                        'external_reference' => (string) $order->id,
+                    ],
+                ],
+            ], 200),
+            'https://api.mercadopago.com/v1/payments/'.$paidPaymentId => Http::response([
+                'id' => (int) $paidPaymentId,
+                'status' => 'approved',
+            ], 200),
+        ]);
+
+        config(['queue.default' => 'sync']);
+
+        $this->postJson(route('webhooks.mercadopago'), [
+            'action' => 'payment.updated',
+            'type' => 'payment',
+            'data' => ['id' => $stalePaymentId],
+        ])->assertOk();
+
+        $fresh = $order->fresh();
+        $this->assertSame('completed', $fresh->status);
+        $this->assertSame($paidPaymentId, $fresh->gateway_id);
+        Event::assertDispatched(OrderCompleted::class);
+    }
+
+    public function test_webhook_url_uses_public_base_when_configured(): void
+    {
+        config([
+            'getfy.webhook_public_url' => 'https://checkout.exemplo.com',
+            'app.url' => 'http://localhost',
+        ]);
+
+        $this->assertSame(
+            'https://checkout.exemplo.com/webhooks/gateways/mercadopago',
+            GatewayWebhookUrl::forGateway('mercadopago')
+        );
+    }
+
+    public function test_pinned_gateway_credential_takes_priority_over_global(): void
+    {
+        $global = new GatewayCredential([
+            'tenant_id' => null,
+            'gateway_slug' => 'mercadopago',
+            'is_connected' => true,
+        ]);
+        $global->setEncryptedCredentials(['access_token' => 'GLOBAL_TOKEN']);
+        $global->save();
+
+        $tenant = new GatewayCredential([
+            'tenant_id' => 1,
+            'gateway_slug' => 'mercadopago',
+            'is_connected' => true,
+        ]);
+        $tenant->setEncryptedCredentials(['access_token' => 'TENANT_TOKEN']);
+        $tenant->save();
+
+        $order = $this->createPendingMercadoPagoOrder('123456', [
+            'gateway_credential_id' => $tenant->id,
+        ]);
+
+        $resolved = GatewayPaymentCredentials::resolve($order->tenant_id, 'mercadopago', $order);
+
+        $this->assertSame('TENANT_TOKEN', $resolved['access_token'] ?? null);
     }
 }
