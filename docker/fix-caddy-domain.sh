@@ -48,5 +48,11 @@ docker run --rm -v "${VOLUME_NAME}:/v" alpine cat /v/Caddyfile.domains
 if [ -f docker-compose.caddy.yml ] && [ -f "$ENV_FILE" ]; then
   echo ""
   echo "Recriando Caddy..."
-  docker compose -f docker-compose.caddy.yml --env-file "$ENV_FILE" up -d --force-recreate caddy
+  COMPOSE_FILE="$(sh docker/detect-compose-files.sh 2>/dev/null || echo 'docker-compose.caddy.yml')"
+  PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"
+  COMPOSE=(docker compose -p "$PROJECT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE")
+  if [ -f .env ]; then
+    COMPOSE+=(--env-file .env)
+  fi
+  "${COMPOSE[@]}" up -d --force-recreate --no-deps caddy
 fi

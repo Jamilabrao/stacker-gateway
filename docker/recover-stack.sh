@@ -136,11 +136,33 @@ echo ""
 
 echo "=== 6) Rebuild app (limites PHP na imagem) + subir stack ==="
 "${COMPOSE[@]}" build app
+"${COMPOSE[@]}" up -d --force-recreate --no-deps app queue
+echo ""
+
+echo "Aguardando app (health /up, até 3 min)..."
+APP_OK=0
+for i in $(seq 1 90); do
+  if "${COMPOSE[@]}" exec -T app php -r "exit(@file_get_contents('http://127.0.0.1/up')===false?1:0);" 2>/dev/null; then
+    APP_OK=1
+    break
+  fi
+  sleep 2
+done
+if [ "$APP_OK" -ne 1 ]; then
+  echo "App não respondeu em /up — logs:" >&2
+  "${COMPOSE[@]}" logs app --tail 40 2>/dev/null || true
+  exit 1
+fi
+
+if [ "$COMPOSE_FILE" = "docker-compose.caddy.yml" ]; then
+  echo "Recriando Caddy..."
+  "${COMPOSE[@]}" up -d --force-recreate --no-deps caddy
+fi
 "${COMPOSE[@]}" up -d --remove-orphans
 echo ""
 
-echo "Aguardando app (15s)..."
-sleep 15
+echo "Aguardando estabilização (5s)..."
+sleep 5
 echo ""
 
 echo "=== 7) Teste HTTP local ==="

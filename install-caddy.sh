@@ -156,6 +156,19 @@ if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "(^|:)$HTTPS_PORT$"; then
   echo "Aviso: porta $HTTPS_PORT parece estar em uso. Se o compose falhar, mude GETFY_HTTPS_PORT." >&2
 fi
 
+$SUDO mkdir -p .docker
+echo "caddy" | $SUDO tee .docker/compose-profile >/dev/null
+
+if [ -f .docker/stack.env ]; then
+  if grep -Eq '^\s*GETFY_COMPOSE_FILES\s*=' .docker/stack.env; then
+    TMP="$(mktemp)"
+    awk 'BEGIN{f=0} $0 ~ /^GETFY_COMPOSE_FILES=/ { print "GETFY_COMPOSE_FILES=docker-compose.caddy.yml"; f=1; next } { print } END { if (!f) print "GETFY_COMPOSE_FILES=docker-compose.caddy.yml" }' .docker/stack.env > "$TMP"
+    $SUDO mv "$TMP" .docker/stack.env
+  else
+    echo "GETFY_COMPOSE_FILES=docker-compose.caddy.yml" | $SUDO tee -a .docker/stack.env >/dev/null
+  fi
+fi
+
 $SUDO env \
   GETFY_APP_URL="${GETFY_APP_URL:-}" \
   GETFY_WEBHOOK_PUBLIC_URL="${GETFY_WEBHOOK_PUBLIC_URL:-}" \
@@ -163,9 +176,6 @@ $SUDO env \
   GETFY_APP_ENV=production \
   GETFY_APP_DEBUG=false \
   sh docker/up.sh
-
-$SUDO mkdir -p .docker
-echo "caddy" | $SUDO tee .docker/compose-profile >/dev/null
 
 echo ""
 echo "=== Verificação de workers (API) ==="

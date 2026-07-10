@@ -33,6 +33,10 @@ if command -v docker >/dev/null 2>&1; then
     printf '%s' "docker-compose.caddy.yml"
     exit 0
   fi
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qi 'caddy'; then
+    printf '%s' "docker-compose.caddy.yml"
+    exit 0
+  fi
 fi
 
 printf '%s' "docker-compose.yml"

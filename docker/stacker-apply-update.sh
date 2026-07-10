@@ -60,6 +60,32 @@ for f in $COMPOSE_FILES; do
   fi
 done
 
+persist_compose_files_in_stack_env() {
+  local files="$1"
+  local tmp
+  if grep -Eq '^\s*GETFY_COMPOSE_FILES\s*=' "$ENV_FILE" 2>/dev/null; then
+    tmp="$(mktemp)"
+    awk -v v="$files" '
+      BEGIN { done=0 }
+      $0 ~ /^[[:space:]]*GETFY_COMPOSE_FILES[[:space:]]*=/ { print "GETFY_COMPOSE_FILES=" v; done=1; next }
+      { print }
+      END { if (!done) print "GETFY_COMPOSE_FILES=" v }
+    ' "$ENV_FILE" > "$tmp"
+    mv "$tmp" "$ENV_FILE"
+  else
+    echo "GETFY_COMPOSE_FILES=$files" >> "$ENV_FILE"
+  fi
+}
+
+persist_compose_files_in_stack_env "$COMPOSE_FILES"
+
+if [ "$COMPOSE_FILES" = "docker-compose.caddy.yml" ]; then
+  mkdir -p .docker
+  if [ ! -f .docker/compose-profile ] || [ "$(tr -d ' \t\r\n' < .docker/compose-profile)" != "caddy" ]; then
+    echo "caddy" > .docker/compose-profile
+  fi
+fi
+
 resolve_compose_project_name() {
   if [ -n "${GETFY_COMPOSE_PROJECT_NAME:-}" ]; then
     printf '%s' "$GETFY_COMPOSE_PROJECT_NAME"
@@ -208,7 +234,44 @@ if [ "${#COMPOSE_UP_SERVICES[@]}" -eq 0 ]; then
   exit 1
 fi
 
+RECREATE_SERVICES=(app queue)
+
+echo "=== Recriando containers com imagem nova (${RECREATE_SERVICES[*]}) ==="
+"${COMPOSE[@]}" up -d --force-recreate --no-deps "${RECREATE_SERVICES[@]}"
+
+echo "=== Subindo demais serviços ==="
 "${COMPOSE[@]}" up -d --remove-orphans "${COMPOSE_UP_SERVICES[@]}"
+
+wait_for_app_http() {
+  local attempt=0
+  local max=90
+  while [ "$attempt" -lt "$max" ]; do
+    if "${COMPOSE[@]}" exec -T app php -r "exit(@file_get_contents('http://127.0.0.1/up')===false?1:0);" 2>/dev/null; then
+      echo "App respondeu em /up."
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+  echo "FATAL: app não respondeu em /up após ${max} tentativas." >&2
+  "${COMPOSE[@]}" logs app --tail 80 2>/dev/null || true
+  return 1
+}
+
+echo "=== Aguardando app ficar saudável ==="
+wait_for_app_http
+
+if [ "$COMPOSE_FILES" = "docker-compose.caddy.yml" ]; then
+  echo "=== Recriando Caddy (proxy → app) ==="
+  "${COMPOSE[@]}" up -d --force-recreate --no-deps caddy
+  sleep 3
+  if command -v curl >/dev/null 2>&1; then
+    if ! curl -sI --max-time 8 "http://127.0.0.1/" 2>/dev/null | head -1 | grep -qE 'HTTP/[0-9.]+ [23]'; then
+      echo "Aviso: HTTP local ainda não retornou 2xx — verifique logs do Caddy." >&2
+      "${COMPOSE[@]}" logs caddy --tail 40 2>/dev/null || true
+    fi
+  fi
+fi
 
 echo "=== Migrate + config clear ==="
 if "${COMPOSE[@]}" exec -T app php artisan migrate --force; then

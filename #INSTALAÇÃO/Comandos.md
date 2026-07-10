@@ -122,6 +122,40 @@ Após alterar `stack.env`:
 docker compose -f "$COMPOSE" --env-file .docker/stack.env restart app scheduler worker-webhooks-in
 ```
 
+### Site fora (502) após update pelo agente Stacker (perfil Caddy)
+
+O **502 Bad Gateway** no Caddy quase sempre significa que o proxy não alcança o container `app` (app ainda reiniciando, compose errado ou Caddy apontando para instância antiga).
+
+**Recuperação imediata na VPS:**
+
+```bash
+cd /opt/getfy
+COMPOSE="$(sh docker/detect-compose-files.sh)"
+PROJECT="$(grep -E '^GETFY_COMPOSE_PROJECT_NAME=' .docker/stack.env | tail -1 | cut -d= -f2-)"
+PROJECT="${PROJECT:-getfy}"
+
+# Garantir perfil Caddy
+grep -q '^GETFY_COMPOSE_FILES=' .docker/stack.env || echo 'GETFY_COMPOSE_FILES=docker-compose.caddy.yml' >> .docker/stack.env
+echo caddy > .docker/compose-profile
+
+docker compose -p "$PROJECT" -f "$COMPOSE" --env-file .docker/stack.env --env-file .env up -d --force-recreate --no-deps app queue
+# Aguardar app (~1–3 min na primeira subida após update)
+for i in $(seq 1 60); do
+  docker compose -p "$PROJECT" -f "$COMPOSE" --env-file .docker/stack.env exec -T app \
+    php -r "exit(@file_get_contents('http://127.0.0.1/up')===false?1:0);" 2>/dev/null && break
+  sleep 3
+done
+docker compose -p "$PROJECT" -f "$COMPOSE" --env-file .docker/stack.env --env-file .env up -d --force-recreate --no-deps caddy
+
+curl -sI --max-time 8 http://127.0.0.1/ | head -3
+```
+
+Ou use o script completo: `sh docker/recover-stack.sh`
+
+**Diagnóstico:** `sh docker/diagnose-stack.sh` (logs app + caddy, perfil compose detectado).
+
+**Prevenção (já no código após deploy):** o `stacker-apply-update.sh` persiste `GETFY_COMPOSE_FILES`, recria `app`/`queue`, espera `/up` e só então recria o `caddy`.
+
 Qualquer modificação que você fizer no código, após finalizado, basta subir o repositorio para o github novamente, usando o GitHub Desktop ou pelo comando no terminal 
 git add .
 git commit -m update
