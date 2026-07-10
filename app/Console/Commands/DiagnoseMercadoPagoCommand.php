@@ -50,7 +50,13 @@ class DiagnoseMercadoPagoCommand extends Command
                 $len = (int) Redis::connection()->llen('queues:webhooks-inbound');
                 $this->line('Fila webhooks-inbound (Redis): '.$len.' job(s)');
                 if ($len > 0) {
-                    $this->warn('AVISO: há jobs na fila webhooks-inbound — verifique worker-webhooks-in.');
+                    $profile = is_file(base_path('.docker/compose-profile'))
+                        ? trim((string) file_get_contents(base_path('.docker/compose-profile')))
+                        : '';
+                    $hint = $profile === 'caddy'
+                        ? 'verifique o container queue (perfil Caddy)'
+                        : 'verifique worker-webhooks-in';
+                    $this->warn("AVISO: há jobs na fila webhooks-inbound — {$hint}.");
                 }
             } catch (\Throwable $e) {
                 $this->warn('Não foi possível ler fila Redis: '.$e->getMessage());
