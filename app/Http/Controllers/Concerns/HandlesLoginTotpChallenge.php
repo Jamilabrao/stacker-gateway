@@ -7,8 +7,6 @@ use App\Services\Platform\PlatformTotpService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Inertia\Inertia;
-use Symfony\Component\HttpFoundation\Response;
 
 trait HandlesLoginTotpChallenge
 {
@@ -64,7 +62,7 @@ trait HandlesLoginTotpChallenge
         ]);
     }
 
-    protected function completeLoginAfterTotp(Request $request, User $user): RedirectResponse|Response
+    protected function completeLoginAfterTotp(Request $request, User $user): RedirectResponse
     {
         $remember = (bool) $request->session()->get('login.totp.remember', false);
         $intended = $request->session()->get('login.totp.intended');
@@ -101,39 +99,15 @@ trait HandlesLoginTotpChallenge
     }
 
     /**
-     * Após login, visitas Inertia não devem seguir 302 via XHR (quebra com url.intended).
-     * Força navegação completa via X-Inertia-Location (sempre path relativo, no host atual).
+     * Após login, visitas Inertia seguem redirect 303 (GET no destino).
+     * Evita Inertia::location (409), que em alguns proxies/CDN não repassa X-Inertia-Location
+     * e o cliente recarrega a página de login sem parecer autenticado.
      */
-    protected function inertiaOrRedirectAfterLogin(Request $request, string $defaultUrl): RedirectResponse|Response
+    protected function inertiaOrRedirectAfterLogin(Request $request, string $defaultUrl): RedirectResponse
     {
-        if ($request->header('X-Inertia')) {
-            // url.intended costuma apontar para páginas protegidas visitadas antes do login;
-            // com Inertia isso vira loop (POST login → GET intended → GET login). Vai ao destino padrão.
-            $request->session()->forget('url.intended');
+        $request->session()->forget('url.intended');
 
-            return Inertia::location($this->toInertiaLocationPath($defaultUrl));
-        }
-
-        $intended = $request->session()->pull('url.intended');
-        $url = is_string($intended) && $intended !== '' && $this->isSafeLocalRedirect($intended)
-            ? $intended
-            : $defaultUrl;
-
-        return redirect()->to($url);
-    }
-
-    private function isSafeLocalRedirect(string $url): bool
-    {
-        if (str_starts_with($url, '/') && ! str_starts_with($url, '//')) {
-            return true;
-        }
-
-        $appUrl = rtrim((string) config('app.url'), '/');
-        if ($appUrl !== '' && str_starts_with($url, $appUrl.'/')) {
-            return true;
-        }
-
-        return false;
+        return redirect()->to($this->toInertiaLocationPath($defaultUrl));
     }
 
     private function toInertiaLocationPath(string $url): string

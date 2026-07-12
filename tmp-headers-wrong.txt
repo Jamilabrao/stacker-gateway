@@ -1,0 +1,26 @@
+HTTP/1.1 422 Unprocessable Entity
+Date: Sun, 12 Jul 2026 21:55:40 GMT
+Content-Type: application/json
+Transfer-Encoding: chunked
+Connection: keep-alive
+Host: demo.getfy.online
+Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+X-Powered-By: PHP/8.3.32
+Cache-Control: no-cache, private
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Referrer-Policy: strict-origin-when-cross-origin
+X-Xss-Protection: 1; mode=block
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://www.gstatic.com https://www.youtube.com https://youtube.com https://s.ytimg.com; script-src-elem 'self' 'unsafe-inline' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://www.gstatic.com https://www.youtube.com https://youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://api.cajupay.com.br https://pay.google.com https://www.gstatic.com; img-src 'self' data: https: blob:; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com https://cdn.cajupay.com.br https://*.cajupay.com.br; connect-src 'self' https://api.stripe.com https://api.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://http2.mlstatic.com https://*.mlstatic.com https://api.mercadolibre.com https://www.mercadolibre.com https://*.mercadolibre.com https://viacep.com.br https://api.pagar.me https://connect.facebook.net https://www.facebook.com https://facebook.com https://graph.facebook.com https://*.facebook.com https://*.facebook.net https://*.a.run.app https://*.run.app https://*.on.aws https://www.googletagmanager.com https://analytics.tiktok.com https://api.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://google.com https://www.google.com https://www.gstatic.com https://apple.com https://*.apple.com https://appleid.cdn-apple.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com wss:; frame-src 'self' https://js.stripe.com https://www.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://www.mercadolibre.com https://*.mercadolibre.com https://www.youtube-nocookie.com https://youtube-nocookie.com https://www.youtube.com https://youtube.com https://api.cajupay.com.br https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://*.apple.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com https://www.facebook.com https://*.facebook.com; worker-src 'self' blob:; media-src 'self' https: blob:
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+Vary: X-Inertia
+X-Ratelimit-Limit: 10
+X-Ratelimit-Remaining: 9
+Set-Cookie: XSRF-TOKEN=eyJpdiI6InFXZVZGaGN2SFpwamlBU2NyUGFkUEE9PSIsInZhbHVlIjoiNS9HRDF4UEF1WmY2UStjcGtHeW5QaE1xcXlKdE1UeVZERDRpUVdXWHZqRTJrTjl3dXJmUEFFM0pBamJzTVcrcXhuYjdzVk10V21rV3FXWGoxMmluNXBjcE1HNnhaaVlXcjFZQ1o1MEo3YldsSCtpUGNKL1graU41REp1cWx5eDYiLCJtYWMiOiJmNjhmNTFjYThhZDhjMmM0MGRhMjU5OGMyM2Q0YmY1M2E1MjEyNWY2YzQ2MWJiMDQzMWYzZjNlMzI2ZWJlMGE1IiwidGFnIjoiIn0%3D; expires=Mon, 13 Jul 2026 21:55:40 GMT; Max-Age=86400; path=/; secure; samesite=lax
+Set-Cookie: getfy-session=eyJpdiI6Ik9jYWdUSU8zSzVkbmVJbHF2V1VmRWc9PSIsInZhbHVlIjoibDFhTVhZc1l3cVNNTFNvbWNlTUFuazV1d3llWGVwVnRFQ0lYR2lEUjhMNnEweW5kK2ovWHAzZEViNE9nZFF6eGhHQ04wT1drM0RTNGpzeWdtWHliODd4cGRTWU9qSW5XNjBSclRYa1BNYzcrM0M1cGxkeUVDMGNBVG1FWExQMmkiLCJtYWMiOiIzNjdkZjA4NTg2YzRhOGNhMGMwNDMwN2QzMmFkNmJiODhkNmY3OGQ0NTg3MWFiOWY0NWU1OTlmYTlhMzIxNWI0IiwidGFnIjoiIn0%3D; expires=Mon, 13 Jul 2026 21:55:40 GMT; Max-Age=86400; path=/; secure; httponly; samesite=lax
+Cf-Cache-Status: DYNAMIC
+Report-To: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=YYdIJpDRo1mRXhWaT2k8E0GR9zzFk8RrK4ukJndhtm8%2Fchb1eOx3q3hsnRnzMDGc5G6%2B15%2FbKWsV196f3inaaFAz%2FIxFbXfnTQuBaoD%2Fv0f3R1MlDpT2HR%2FFYxOEBzRxg05Lt8F%2FeukNkiUIYpkQLg%3D%3D"}]}
+Server: cloudflare
+CF-RAY: a1a34b207f45d4b1-GRU
+alt-svc: h3=":443"; ma=86400
+

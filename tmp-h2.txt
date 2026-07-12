@@ -1,0 +1,30 @@
+HTTP/1.1 302 Found
+Date: Sun, 12 Jul 2026 21:55:45 GMT
+Content-Type: text/html; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+Host: demo.getfy.online
+Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+X-Powered-By: PHP/8.3.32
+Cache-Control: max-age=0, must-revalidate, no-cache, no-store, private
+Location: https://demo.getfy.online/plataforma/login
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Referrer-Policy: strict-origin-when-cross-origin
+X-Xss-Protection: 1; mode=block
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://www.gstatic.com https://www.youtube.com https://youtube.com https://s.ytimg.com; script-src-elem 'self' 'unsafe-inline' https://js.stripe.com https://sdk.mercadopago.com https://http2.mlstatic.com https://*.mlstatic.com https://static.cloudflareinsights.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com https://checkout.pagar.me https://connect.facebook.net https://www.googletagmanager.com https://analytics.tiktok.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://www.gstatic.com https://www.youtube.com https://youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.cajupay.com.br https://*.cajupay.com.br https://api.cajupay.com.br https://pay.google.com https://www.gstatic.com; img-src 'self' data: https: blob:; font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com https://cdn.cajupay.com.br https://*.cajupay.com.br; connect-src 'self' https://api.stripe.com https://api.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://http2.mlstatic.com https://*.mlstatic.com https://api.mercadolibre.com https://www.mercadolibre.com https://*.mercadolibre.com https://viacep.com.br https://api.pagar.me https://connect.facebook.net https://www.facebook.com https://facebook.com https://graph.facebook.com https://*.facebook.com https://*.facebook.net https://*.a.run.app https://*.run.app https://*.on.aws https://www.googletagmanager.com https://analytics.tiktok.com https://api.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://google.com https://www.google.com https://www.gstatic.com https://apple.com https://*.apple.com https://appleid.cdn-apple.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com wss:; frame-src 'self' https://js.stripe.com https://www.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.br https://www.mercadolibre.com https://*.mercadolibre.com https://www.youtube-nocookie.com https://youtube-nocookie.com https://www.youtube.com https://youtube.com https://api.cajupay.com.br https://cdn.cajupay.com.br https://*.cajupay.com.br https://pay.google.com https://*.apple.com https://challenges.cloudflare.com https://*.challenges.cloudflare.com https://www.facebook.com https://*.facebook.com; worker-src 'self' blob:; media-src 'self' https: blob:
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+Pragma: no-cache
+Vary: X-Inertia
+X-Ratelimit-Limit: 10
+X-Ratelimit-Remaining: 9
+Set-Cookie: XSRF-TOKEN=eyJpdiI6IkhzVzNIOUpqeU8yM0JKbmh2VFBtWUE9PSIsInZhbHVlIjoiSDRVMmJPdG9tL0szb2hIVWFLclVxbUhsUkpZV3pwSzdXK1RTYS9jYU5ONWRpelJkWjJHeE5XaUdOTWVtSnBOeEtVbGtRRWh4TDZ2dHlrejFTN3pSOU9xbUZaQXYvckdPbndNOFlNTHhtKzhsdFJheWV1d25tVW5LV2gxQ1BweXUiLCJtYWMiOiIxODAwODk4MjVlOWVkMTViMTI1ZjYzZTJjZmI5ZWZjMjBlNjQ4YWQwMjA2ZThiZjk4MDk0Yzk0YmQ4ZjJmNGJmIiwidGFnIjoiIn0%3D; expires=Mon, 13 Jul 2026 21:55:45 GMT; Max-Age=86400; path=/; secure; samesite=lax
+Set-Cookie: getfy-session=eyJpdiI6ImE1aGVZaUJ4c2x1eEttd1lwcDZIbkE9PSIsInZhbHVlIjoicE9CdWsyVERVL0tUQmU5aUYxYm1rVmp4SkhJYW9ueXl4TmtQcGIwbDV0NVl2SnV5WnlFN1JXR21Tc3VST29aVnlpb0JPcW4zb0ptcElZam9HMnluMWJLTE4yVGJ6emp6UHRhd0s2WkhaZTM5Mkx4NDZremUvSTRHYXpLQjA1cnUiLCJtYWMiOiI1MzEyZDExYjQ5Yzk2MDNhMjM1NTU2NDQ2ZmFhY2JmZmVjODlmZGUwMGNlY2FiNzc1MjIxMGI0ZTAwN2M1Nzg4IiwidGFnIjoiIn0%3D; expires=Mon, 13 Jul 2026 21:55:45 GMT; Max-Age=86400; path=/; secure; httponly; samesite=lax
+Cf-Cache-Status: DYNAMIC
+Server-Timing: cfCacheStatus;desc="DYNAMIC"
+Server-Timing: cfEdge;dur=8,cfOrigin;dur=475
+Report-To: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=EqKy6qwqlljXCp01mlqz2ujuWU6UuRH0OuNdMoWQvjtOP2ezbcQZfG3q7mFQcnqnqkIDt%2FJ94XBdUMQsq7zh5%2BXsyCKyXKU5ZQ%2Bfetrbuw7Q1Yu8HpPG9xOXV9lQDHO%2BoQYKRU2%2F0k%2FigwvD%2FaPGXw%3D%3D"}]}
+Server: cloudflare
+CF-RAY: a1a34b3fef60fd72-GRU
+alt-svc: h3=":443"; ma=86400
+
