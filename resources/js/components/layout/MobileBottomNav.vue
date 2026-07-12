@@ -3,12 +3,14 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import { LayoutDashboard, CircleDollarSign, Package, Cable } from 'lucide-vue-next';
 import { usePwaInstall } from '@/composables/usePwaInstall';
+import { useSidebar } from '@/composables/useSidebar';
 import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
 
 const DEFAULT_LOGO = '/images/favicon.png';
 
 const page = usePage();
 const { isStandalone } = usePwaInstall('painel');
+const { isMobileOpen, isMobile } = useSidebar();
 
 const appSettings = computed(() => page.props.appSettings ?? {});
 
@@ -83,6 +85,7 @@ onUnmounted(() => {
     <nav
         v-if="isStandalone"
         class="fixed bottom-4 left-4 right-4 z-[99998] mx-auto grid max-w-md grid-cols-5 items-end gap-0 rounded-2xl border border-zinc-200 bg-white px-1 pb-2 pt-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900 lg:hidden transition-transform duration-300 ease-out"
+        :class="isMobile && isMobileOpen ? 'pointer-events-none' : ''"
         aria-label="Navegação principal"
         role="navigation"
         :style="{ transform: navVisible ? 'translateY(0)' : 'translateY(calc(100% + 2rem))' }"

@@ -88,13 +88,16 @@ const dashboardGreetingSubtitleClass = computed(() => {
 <template>
     <header
         class="z-[99998] flex shrink-0 w-full items-center justify-between gap-4 bg-transparent px-4 lg:px-6"
-        :class="themedHeaderCompact ? 'py-2 lg:py-2.5' : 'py-3 lg:py-4'"
+        :class="[
+            themedHeaderCompact ? 'py-2 lg:py-2.5' : 'py-3 lg:py-4',
+            isMobile && isMobileOpen ? 'pointer-events-none' : '',
+        ]"
     >
         <div class="flex min-w-0 flex-1 items-center gap-3">
             <button
                 v-if="isMobile && !isMobileOpen"
                 type="button"
-                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors"
+                class="flex h-9 w-9 shrink-0 touch-manipulation cursor-pointer select-none items-center justify-center rounded-lg transition-colors"
                 :class="hidePageTitleOnThemedDashboard ? iconBtnClass : iconBtnClass"
                 aria-label="Abrir menu"
                 @click="toggleSidebar"

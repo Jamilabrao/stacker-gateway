@@ -50,6 +50,7 @@ function onItemMouseLeave() {
             {
                 'w-[260px] translate-x-0': isMobileOpen,
                 '-translate-x-full': !isMobileOpen,
+                'pointer-events-none': isMobile && !isMobileOpen,
                 'lg:translate-x-0': true,
                 'lg:w-[260px]': isExpanded || isMobileOpen,
                 'lg:w-[72px]': !isExpanded && !isMobileOpen,
@@ -76,7 +77,7 @@ function onItemMouseLeave() {
                 </Link>
                 <button
                     type="button"
-                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    class="flex h-8 w-8 shrink-0 touch-manipulation cursor-pointer select-none items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                     :aria-label="isMobile ? 'Fechar menu' : 'Recolher menu'"
                     @click="toggleSidebar"
                 >

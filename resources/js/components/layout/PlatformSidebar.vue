@@ -167,6 +167,7 @@ const linkInactive =
             {
                 'translate-x-0 shadow-xl': isMobileOpen,
                 '-translate-x-full': !isMobileOpen,
+                'pointer-events-none': isMobile && !isMobileOpen,
                 'lg:translate-x-0': true,
                 'lg:w-[260px]': isExpanded || isMobileOpen,
                 'lg:w-[72px]': !isExpanded && !isMobileOpen,
@@ -214,7 +215,7 @@ const linkInactive =
             <button
                 v-if="isMobile"
                 type="button"
-                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200/80 dark:hover:bg-zinc-800"
+                class="flex h-9 w-9 shrink-0 touch-manipulation cursor-pointer select-none items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200/80 dark:hover:bg-zinc-800"
                 aria-label="Fechar menu"
                 @click="toggleSidebar"
             >

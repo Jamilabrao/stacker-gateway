@@ -122,6 +122,29 @@ Após alterar `stack.env`:
 docker compose -f "$COMPOSE" --env-file .docker/stack.env restart app scheduler worker-webhooks-in
 ```
 
+### Diagnóstico completo (salvar, KYC, PIX, workers)
+
+Quando **só uma instalação** falha (ex.: botões de salvar, upload KYC, PIX não atualiza):
+
+```bash
+cd /opt/getfy
+sh docker/diagnose-installation-health.sh
+```
+
+Correção rápida de workers + reconciliar PIX pendentes:
+
+```bash
+sh docker/diagnose-installation-health.sh --restart-workers --reconcile-pix
+```
+
+Se o modo demo estiver ligado por engano:
+
+```bash
+sh docker/diagnose-installation-health.sh --fix-demo-off --restart-workers
+```
+
+O script verifica: `GETFY_DEMO_MODE`, URLs em `stack.env`, containers, filas Redis, `payments:diagnose-mercadopago` e últimas linhas do `laravel.log`.
+
 ### Site fora (502) após update pelo agente Stacker (perfil Caddy)
 
 O **502 Bad Gateway** no Caddy quase sempre significa que o proxy não alcança o container `app` (app ainda reiniciando, compose errado ou Caddy apontando para instância antiga).

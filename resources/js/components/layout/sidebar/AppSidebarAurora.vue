@@ -24,6 +24,7 @@ const {
             'aurora-sidebar fixed left-0 top-0 z-[99999] flex h-screen flex-col',
             'transition-transform duration-300 ease-in-out',
             isMobileOpen ? 'translate-x-0' : '-translate-x-full',
+            isMobile && !isMobileOpen ? 'pointer-events-none' : '',
             'lg:translate-x-0',
         ]"
     >
@@ -60,7 +61,7 @@ const {
             <button
                 v-if="isMobile"
                 type="button"
-                class="aurora-icon-btn ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
+                class="aurora-icon-btn ml-1 flex h-8 w-8 shrink-0 touch-manipulation cursor-pointer select-none items-center justify-center rounded-md"
                 aria-label="Fechar menu"
                 @click="toggleSidebar"
             >

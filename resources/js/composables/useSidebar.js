@@ -1,7 +1,15 @@
-import { ref, computed, onMounted, onUnmounted, provide, inject } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, provide, inject } from 'vue';
 import { router } from '@inertiajs/vue3';
 
 const SidebarSymbol = Symbol();
+
+function applyMobileScrollLock(locked) {
+    if (typeof document === 'undefined') {
+        return;
+    }
+    document.body.style.overflow = locked ? 'hidden' : '';
+    document.body.style.touchAction = locked ? 'none' : '';
+}
 
 export function useSidebarProvider() {
     const isExpanded = ref(true);
@@ -12,6 +20,10 @@ export function useSidebarProvider() {
     const closeMobileSidebar = () => {
         isMobileOpen.value = false;
     };
+
+    watch([isMobileOpen, isMobile], ([open, mobile]) => {
+        applyMobileScrollLock(Boolean(mobile && open));
+    });
 
     const handleResize = () => {
         const mobile = window.innerWidth < 1024;
@@ -37,6 +49,7 @@ export function useSidebarProvider() {
     onUnmounted(() => {
         window.removeEventListener('resize', handleResize);
         removeNavigateListener?.();
+        applyMobileScrollLock(false);
     });
 
     const setExpanded = (value) => {
