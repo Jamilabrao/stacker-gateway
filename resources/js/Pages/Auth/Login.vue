@@ -65,7 +65,6 @@ function submit() {
     form.transform((data) => ({
         ...data,
         turnstile_token: turnstileToken.value || data.turnstile_token || '',
-        _token: page.props.csrf_token,
     })).post('/login', {
         onFinish: () => form.reset('password'),
     });

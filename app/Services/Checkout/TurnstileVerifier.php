@@ -38,7 +38,17 @@ final class TurnstileVerifier
                 return false;
             }
 
-            return ($data['success'] ?? false) === true;
+            if (($data['success'] ?? false) !== true) {
+                $codes = $data['error-codes'] ?? [];
+                Log::warning('TurnstileVerifier: verification failed', [
+                    'error_codes' => is_array($codes) ? $codes : [],
+                    'hostname' => $data['hostname'] ?? null,
+                ]);
+
+                return false;
+            }
+
+            return true;
         } catch (\Throwable $e) {
             Log::warning('TurnstileVerifier: exception', ['message' => $e->getMessage()]);
 
