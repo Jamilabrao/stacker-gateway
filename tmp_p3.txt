@@ -1,0 +1,11 @@
+HTTP/1.1 409 Conflict
+Host: localhost:8085
+Connection: close
+X-Powered-By: PHP/8.3.32
+X-Inertia-Location: http://localhost:8085/produtos/1bf6179f-23fd-4a90-9a37-3be05bcc2106/edit?tab=afiliados
+Cache-Control: no-cache, private
+Date: Sat, 11 Jul 2026 16:56:24 GMT
+Content-Type: text/html; charset=utf-8
+Set-Cookie: XSRF-TOKEN=eyJpdiI6IlkrcWtUUG04SDkxMXhkVWFnRkN5M0E9PSIsInZhbHVlIjoiVVBsTkw3OXVKcnNoYXdxK3pESEgrUUxwNHV0c2c3Y3ArMXVCMWkzWGRwV2ZFbW5qYzdlWUV4M2xQYkJaRExYZUx5RjFVc29ncWdPM2xVR0UzdmdWU0orRERPRnArQmQ2ZlBOU0R4eTcvYTViYzhkZ09LNHlVQWtBbWpZNTNiTXAiLCJtYWMiOiIyY2JmM2ZiYzk1NGY2Njg4ODQzY2RmZWM1ZTVkMDVhNzlkYzU1MDNmMjY2ZGViMTE5NTNlNTAzNDNlYTY4YWZjIiwidGFnIjoiIn0%3D; expires=Sat, 11 Jul 2026 18:56:24 GMT; Max-Age=7200; path=/; samesite=lax
+Set-Cookie: getfy-session=eyJpdiI6Imkrb0hHeE12N3pIZ2pLeDNvUkljYWc9PSIsInZhbHVlIjoiLzU1Z3pGMExVSElyMjZaWFdFalJFMHgvbXlxdlU2ellqeWNMb2lNVUhiVGFTVFBGRHk4UjdJMzlpOTBQK3hSZVdDd2h1K2kvZWtWZEhIWVh5VVdLVEYxcGQ0ZU1QVXRiaFphRys3dEJKL0wwMGJKdWp1bmc5d2QzakxRY05NNEciLCJtYWMiOiJmMzQyMGEwNDNlMDM2NjI3MGZkYThkODlhZGUzYzIzNzY3ZTkzMDQ3YjBhZDA4Zjg3MzlmNjA1OTkwNmE4M2I5IiwidGFnIjoiIn0%3D; expires=Sat, 11 Jul 2026 18:56:24 GMT; Max-Age=7200; path=/; httponly; samesite=lax
+

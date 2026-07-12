@@ -3,21 +3,25 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Concerns\HandlesLoginTotpChallenge;
+use App\Http\Controllers\Concerns\ValidatesAuthTurnstile;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\TeamAuditLog;
 use App\Services\MemberAreaResolver;
 use App\Services\Platform\PlatformTotpService;
 use App\Support\DockerSetupState;
+use App\Support\LoginTurnstileSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class LoginController extends Controller
 {
     use HandlesLoginTotpChallenge;
+    use ValidatesAuthTurnstile;
 
     /**
      * Exibe o login da plataforma ou, se o host for de área de membros (subdomínio/domínio próprio),
@@ -45,10 +49,15 @@ class LoginController extends Controller
             ]);
         }
 
-        return Inertia::render('Auth/Login');
+        // Evita redirecionar para URL antiga (ex.: /produtos/.../edit) após login via Inertia.
+        $request->session()->forget('url.intended');
+
+        return Inertia::render('Auth/Login', [
+            'login_turnstile' => LoginTurnstileSettings::publicConfig(),
+        ]);
     }
 
-    public function login(Request $request): RedirectResponse
+    public function login(Request $request): RedirectResponse|HttpResponse
     {
         if (DockerSetupState::isDocker() && ! DockerSetupState::isSetupDone()) {
             return redirect('/docker-setup');
@@ -69,9 +78,14 @@ class LoginController extends Controller
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
         ]);
 
-        if (Auth::attempt($credentials, (bool) $request->boolean('remember'))) {
+        if ($turnstileError = $this->validateLoginTurnstile($request)) {
+            return $turnstileError;
+        }
+
+        if (Auth::attempt($request->only('email', 'password'), (bool) $request->boolean('remember'))) {
             $user = Auth::user();
             if ($user && $user->canAccessPlatformPanel()) {
                 Auth::logout();
@@ -121,16 +135,16 @@ class LoginController extends Controller
             if ($user->canAccessSellerPanel()) {
                 $request->session()->put('panel_context', 'seller');
 
-                return redirect()->intended('/dashboard');
+                return $this->inertiaOrRedirectAfterLogin($request, '/dashboard');
             }
 
             if ($user->canAccessCustomerPanel()) {
                 $request->session()->put('panel_context', 'customer');
 
-                return redirect()->intended('/painel-cliente');
+                return $this->inertiaOrRedirectAfterLogin($request, '/painel-cliente');
             }
 
-            return redirect()->intended('/painel-cliente');
+            return $this->inertiaOrRedirectAfterLogin($request, '/painel-cliente');
         }
 
         return back()->withErrors([

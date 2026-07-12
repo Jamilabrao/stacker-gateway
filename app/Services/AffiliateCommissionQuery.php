@@ -23,12 +23,12 @@ class AffiliateCommissionQuery
             ->with([
                 'order:id,status,payment_method,email,user_id,created_at,public_reference',
                 'order.user:id,name,email',
-                'product:id,name,image,tenant_id',
+                'product:id,name,image,tenant_id,affiliate_hide_customer_data',
                 'producer:id,name,email',
             ]);
     }
 
-    public static function applyFilters(Builder $query, Request $request): Builder
+    public static function applyFilters(Builder $query, Request $request, bool $searchCustomerFields = true): Builder
     {
         $period = $request->query('period', 'total');
         if (! in_array($period, self::PERIODS, true)) {
@@ -66,14 +66,16 @@ class AffiliateCommissionQuery
 
         $q = trim((string) $request->query('q', ''));
         if ($q !== '') {
-            $query->where(function (Builder $sub) use ($q) {
+            $query->where(function (Builder $sub) use ($q, $searchCustomerFields) {
                 $sub->where('affiliate_commissions.id', 'like', '%'.$q.'%')
                     ->orWhere('affiliate_commissions.order_id', 'like', '%'.$q.'%')
                     ->orWhere('affiliate_ref', 'like', '%'.$q.'%')
-                    ->orWhereHas('order', function (Builder $oq) use ($q) {
-                        $oq->where('email', 'like', '%'.$q.'%')
-                            ->orWhere('public_reference', 'like', '%'.$q.'%')
-                            ->orWhereHas('user', fn (Builder $uq) => $uq->where('name', 'like', '%'.$q.'%')->orWhere('email', 'like', '%'.$q.'%'));
+                    ->orWhereHas('order', function (Builder $oq) use ($q, $searchCustomerFields) {
+                        $oq->where('public_reference', 'like', '%'.$q.'%');
+                        if ($searchCustomerFields) {
+                            $oq->orWhere('email', 'like', '%'.$q.'%')
+                                ->orWhereHas('user', fn (Builder $uq) => $uq->where('name', 'like', '%'.$q.'%')->orWhere('email', 'like', '%'.$q.'%'));
+                        }
                     })
                     ->orWhereHas('product', fn (Builder $pq) => $pq->where('name', 'like', '%'.$q.'%'));
             });
@@ -167,14 +169,23 @@ class AffiliateCommissionQuery
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return array<string, mixed>
      */
     public static function commissionToArray(AffiliateCommission $commission): array
     {
+        return self::commissionToArrayForAffiliate($commission);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function commissionToArrayForAffiliate(AffiliateCommission $commission): array
+    {
         $order = $commission->order;
         $meta = is_array($commission->metadata) ? $commission->metadata : [];
+        $hideCustomer = self::shouldHideCustomerData($commission);
 
-        return [
+        $data = [
             'id' => $commission->id,
             'order_id' => $commission->order_id,
             'order_public_reference' => $order?->public_reference,
@@ -185,8 +196,6 @@ class AffiliateCommissionQuery
             'product_id' => $commission->product_id,
             'product_name' => $commission->product?->name,
             'product_image_url' => $commission->product?->image,
-            'customer_name' => $meta['customer_name'] ?? $order?->user?->name,
-            'customer_email' => $meta['customer_email'] ?? $order?->email ?? $order?->user?->email,
             'sale_gross' => (float) $commission->sale_gross,
             'commission_percent' => (float) $commission->commission_percent,
             'commission_gross' => (float) $commission->commission_gross,
@@ -199,7 +208,30 @@ class AffiliateCommissionQuery
             'affiliate_ref' => $commission->affiliate_ref,
             'affiliate_link' => $commission->affiliate_link,
             'created_at' => $commission->created_at?->toIso8601String(),
+            'is_affiliate_commission' => true,
         ];
+
+        if ($hideCustomer) {
+            $data['customer_hidden'] = true;
+        } else {
+            $data['customer_name'] = $meta['customer_name'] ?? $order?->user?->name;
+            $data['customer_email'] = $meta['customer_email'] ?? $order?->email ?? $order?->user?->email;
+        }
+
+        return $data;
+    }
+
+    public static function shouldHideCustomerData(AffiliateCommission $commission): bool
+    {
+        return (bool) ($commission->product?->affiliate_hide_customer_data ?? false);
+    }
+
+    public static function userHasApprovedEnrollments(int $userId): bool
+    {
+        return \App\Models\ProductAffiliateEnrollment::query()
+            ->where('affiliate_user_id', $userId)
+            ->where('status', \App\Models\ProductAffiliateEnrollment::STATUS_APPROVED)
+            ->exists();
     }
 
     public static function statusLabel(string $status): string

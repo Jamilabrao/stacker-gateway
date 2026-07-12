@@ -23,6 +23,7 @@ class ProductAffiliateController extends Controller
             'affiliate_page_url' => ['nullable', 'string', 'max:2048'],
             'affiliate_support_email' => ['nullable', 'email', 'max:255'],
             'affiliate_showcase_description' => ['nullable', 'string', 'max:65535'],
+            'affiliate_hide_customer_data' => ['boolean'],
         ]);
 
         $affiliateEnabled = $request->boolean('affiliate_enabled', false);
@@ -42,6 +43,7 @@ class ProductAffiliateController extends Controller
         $produto->affiliate_page_url = $validated['affiliate_page_url'] ?? null;
         $produto->affiliate_support_email = $validated['affiliate_support_email'] ?? null;
         $produto->affiliate_showcase_description = $validated['affiliate_showcase_description'] ?? null;
+        $produto->affiliate_hide_customer_data = $request->boolean('affiliate_hide_customer_data', false);
 
         if ($produto->affiliate_enabled && ! $produto->affiliateCommissionTotalsValid()) {
             return back()->withErrors([

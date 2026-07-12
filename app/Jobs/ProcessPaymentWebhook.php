@@ -16,6 +16,7 @@ use App\Services\CajuPay\CajuPaySdkCheckoutService;
 use App\Services\PlatformOrderAdminService;
 use App\Support\CajuPayCheckoutMetadata;
 use App\Support\GatewayPaymentCredentials;
+use App\Support\MercadoPagoCredentialCandidates;
 use App\Services\EfiPixRecorrenteService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -356,13 +357,11 @@ class ProcessPaymentWebhook implements ShouldQueue
 
     private function fetchGatewayTransactionStatus(Order $order): ?string
     {
-        $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, $this->gatewaySlug, $order);
-
-        if ($credentials === null) {
-            return null;
-        }
-
         if ($this->gatewaySlug === 'cajupay') {
+            $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, $this->gatewaySlug, $order);
+            if ($credentials === null) {
+                return null;
+            }
             $publicToken = CajuPayCheckoutMetadata::publicSessionToken($order) ?? '';
             if ($publicToken !== '') {
                 $fromSdk = app(CajuPaySdkCheckoutService::class)->getPublicSessionStatus($publicToken, $credentials);
@@ -377,20 +376,38 @@ class ProcessPaymentWebhook implements ShouldQueue
             return null;
         }
 
-        $apiStatus = $driver->getTransactionStatus($this->transactionId, $credentials);
+        if ($this->gatewaySlug === 'mercadopago' && $driver instanceof MercadoPagoDriver) {
+            $paymentId = trim($this->transactionId);
+            $lastStatus = null;
+            foreach (MercadoPagoCredentialCandidates::forOrder($order) as $candidate) {
+                $credentials = $candidate['credentials'];
+                if ($paymentId !== '') {
+                    $apiStatus = $driver->getTransactionStatus($paymentId, $credentials);
+                    $lastStatus = $apiStatus ?? $lastStatus;
+                    if ($apiStatus === 'paid') {
+                        return 'paid';
+                    }
+                }
+                $foundId = $driver->findApprovedPaymentByExternalReference((string) $order->id, $credentials);
+                if ($foundId !== null) {
+                    if ($foundId !== $this->transactionId) {
+                        $this->transactionId = $foundId;
+                        $this->syncMercadoPagoGatewayId($order);
+                    }
 
-        if ($this->gatewaySlug === 'mercadopago' && $apiStatus !== 'paid' && $driver instanceof MercadoPagoDriver) {
-            $foundId = $driver->findApprovedPaymentByExternalReference((string) $order->id, $credentials);
-            if ($foundId !== null && $foundId !== $this->transactionId) {
-                $this->transactionId = $foundId;
-                $this->syncMercadoPagoGatewayId($order);
-                $apiStatus = $driver->getTransactionStatus($foundId, $credentials);
-            } elseif ($foundId !== null) {
-                $apiStatus = 'paid';
+                    return 'paid';
+                }
             }
+
+            return $lastStatus;
         }
 
-        return $apiStatus;
+        $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, $this->gatewaySlug, $order);
+        if ($credentials === null) {
+            return null;
+        }
+
+        return $driver->getTransactionStatus($this->transactionId, $credentials);
     }
 
     /**

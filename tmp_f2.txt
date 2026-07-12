@@ -1,0 +1,19 @@
+HTTP/1.1 302 Found
+Host: localhost:8085
+Connection: close
+X-Powered-By: PHP/8.3.32
+Cache-Control: max-age=0, must-revalidate, no-cache, no-store, private
+Date: Sat, 11 Jul 2026 16:56:46 GMT
+Location: http://localhost:8085/produtos/1bf6179f-23fd-4a90-9a37-3be05bcc2106/edit?tab=afiliados
+Content-Type: text/html; charset=utf-8
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Referrer-Policy: strict-origin-when-cross-origin
+X-XSS-Protection: 1; mode=block
+Pragma: no-cache
+Vary: X-Inertia
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 8
+Set-Cookie: XSRF-TOKEN=eyJpdiI6IklIL09nNWJXYkNNWW5kZ1NXWUJaWGc9PSIsInZhbHVlIjoiMDd1bzlOdWJFaDFvK2tsaW56Q0VwVWZpTFArL2dEaHBObDdpUjdNeTNBTGw0RTU1TW4xVkdZQ1VYSlJpTld2YTNkZHVCQWNFZGUxUTNocWEwRnFmZ0ZuRGtNc2FKeWxwQkFySGhJakVvSll3L1QveWpQZC9jc1FSWTgzQytwQjUiLCJtYWMiOiJhYzg3YWMxMzI5NjA3M2U0MmE1NWUxYTk3YjBlZmUwNTQzZjhjNjhiMDRhZjQ4NzFlMTk2Zjg4OGQ0OGU4NjdmIiwidGFnIjoiIn0%3D; expires=Sat, 11 Jul 2026 18:56:46 GMT; Max-Age=7200; path=/; samesite=lax
+Set-Cookie: getfy-session=eyJpdiI6Ik4yTm4vdUpoMnpqOUJNVzVxSUthN1E9PSIsInZhbHVlIjoiYThkR3cyNTgvdUZCZ25wclRXekhwdFcyVVV3OGNTVHNPd1g4ZGk5Q0VZczRSQTRQMG9hcTJvZzBEODVzWDVDcXhpelJSOWVOektycmhLcngzYnJ6Mll5SlN1UVZXWjZ1dW1GK1ZqZkV4VDBRUDVQekErdUtXWkZVeUc5WTBZcmoiLCJtYWMiOiJmZmExMjc2MjgzMGIzMzZhOTg4ZTRkMjQ0OTEwZTA4NTUzM2YwOTE1MTExN2MzMzc4MGVjYjQyMDQ2MGEzNGUxIiwidGFnIjoiIn0%3D; expires=Sat, 11 Jul 2026 18:56:46 GMT; Max-Age=7200; path=/; httponly; samesite=lax
+

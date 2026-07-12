@@ -11,6 +11,7 @@ use App\Services\PlatformAuditService;
 use App\Support\HtmlSanitizer;
 use App\Support\CheckoutTranslations;
 use App\Support\CheckoutTurnstileSettings;
+use App\Support\LoginTurnstileSettings;
 use App\Support\PlatformConfigContext;
 use App\Support\RegistrationEmailVerificationSettings;
 use App\Support\RegistrationTurnstileSettings;
@@ -126,6 +127,7 @@ class SettingsController extends Controller
                 'storage_cloud_r2_managed' => $cloudR2Managed,
                 'physical_products_enabled' => PhysicalProductAccess::globalEnabled(),
                 ...($tenantId === null ? CheckoutTurnstileSettings::forSettingsForm() : []),
+                ...($tenantId === null ? LoginTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? RegistrationTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? RegistrationEmailVerificationSettings::forSettingsForm() : []),
                 ...($tenantId === null ? SellerPanelSupportSettings::forSettingsForm() : []),
@@ -183,10 +185,9 @@ class SettingsController extends Controller
             'storage_s3_endpoint' => ['nullable', 'string', 'max:512'],
             'storage_s3_url' => ['nullable', 'string', 'max:512'],
             'physical_products_enabled' => ['nullable', 'boolean'],
-            'checkout_turnstile_enabled' => ['nullable', 'boolean'],
             'checkout_turnstile_site_key' => ['nullable', 'string', 'max:255'],
             'checkout_turnstile_secret_key' => ['nullable', 'string', 'max:512'],
-            'checkout_turnstile_mode' => ['nullable', 'string', 'in:disabled,pix_boleto,all_payments'],
+            'login_turnstile_enabled' => ['nullable', 'boolean'],
             'registration_turnstile_enabled' => ['nullable', 'boolean'],
             'registration_email_verification_enabled' => ['nullable', 'boolean'],
             'seller_panel_support_enabled' => ['nullable', 'boolean'],
@@ -206,20 +207,18 @@ class SettingsController extends Controller
         $this->persistEmailProviderFromRequest($request, $tenantId);
 
         if ($tenantId === null) {
-            if (array_key_exists('checkout_turnstile_enabled', $validated)) {
-                Setting::set(
-                    'checkout_turnstile_enabled',
-                    ($validated['checkout_turnstile_enabled'] ?? false) ? '1' : '0',
-                    null
-                );
-            }
             if (array_key_exists('checkout_turnstile_site_key', $validated)) {
                 Setting::set('checkout_turnstile_site_key', trim((string) ($validated['checkout_turnstile_site_key'] ?? '')), null);
             }
-            if (array_key_exists('checkout_turnstile_mode', $validated) && $validated['checkout_turnstile_mode'] !== null) {
-                Setting::set('checkout_turnstile_mode', (string) $validated['checkout_turnstile_mode'], null);
-            }
             CheckoutTurnstileSettings::storeSecret($validated['checkout_turnstile_secret_key'] ?? null);
+
+            if (array_key_exists('login_turnstile_enabled', $validated)) {
+                Setting::set(
+                    'login_turnstile_enabled',
+                    ($validated['login_turnstile_enabled'] ?? false) ? '1' : '0',
+                    null
+                );
+            }
 
             if (array_key_exists('registration_turnstile_enabled', $validated)) {
                 Setting::set(

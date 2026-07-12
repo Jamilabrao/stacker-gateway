@@ -1,0 +1,9 @@
+HTTP/1.1 419 unknown status
+Host: localhost:8085
+Connection: close
+X-Powered-By: PHP/8.3.32
+Cache-Control: no-cache, private
+date: Sat, 11 Jul 2026 16:01:53 GMT
+Content-Type: text/html; charset=utf-8
+Set-Cookie: getfy-session=eyJpdiI6IkljSHluSTdmT3VWTU9kUmt1NXNEM2c9PSIsInZhbHVlIjoidW5PUnpyUHQzRUV5Nnd3dSt4S2UyOWFMWkovMXZBOXFYMlR1aXFzRVZYTTBKcEc0bDlqaDZ0Q3RqTnVISkhxZFhCL0IwWU52Mlh2QTgzNHNKekExNUdIWjlsbEVnelU1MlNBQWpyd3dkbmpDLytObUJYa0p0ZEdLN2pUVm12UXMiLCJtYWMiOiJiNjRhZjk2YzJmOTdmOTkwMzExM2NkZTAzMDgyMmY2YWY4Y2I2Mzc4ZDZkNDg5YTA2NTRkYjE0YzQ3N2Y5MzFkIiwidGFnIjoiIn0%3D; expires=Sat, 11 Jul 2026 18:01:53 GMT; Max-Age=7200; path=/; httponly; samesite=lax
+

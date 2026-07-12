@@ -6,6 +6,7 @@ use App\Models\AffiliateCommission;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
+use App\Models\ProductCoproducer;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Support\SaleOrigin;
@@ -97,7 +98,7 @@ class AffiliateCommissionRecorder
             'wallet_transaction_id' => $walletTx?->id,
             'affiliate_ref' => $affiliateRef,
             'affiliate_link' => $affiliateLink,
-            'metadata' => self::buildSnapshot($order, $affiliateUser),
+            'metadata' => self::buildSnapshot($order, $affiliateUser, $product),
         ]);
 
         return $commission;
@@ -224,16 +225,23 @@ class AffiliateCommissionRecorder
     /**
      * @return array<string, mixed>
      */
-    private static function buildSnapshot(Order $order, ?User $affiliateUser): array
+    private static function buildSnapshot(Order $order, ?User $affiliateUser, ?Product $product): array
     {
-        return [
-            'customer_name' => $order->user?->name,
-            'customer_email' => $order->email ?? $order->user?->email,
+        $hideCustomer = (bool) ($product?->affiliate_hide_customer_data ?? false);
+
+        $snapshot = [
             'payment_method' => $order->payment_method,
             'order_status' => $order->status,
             'affiliate_name' => $affiliateUser?->name,
             'affiliate_email' => $affiliateUser?->email,
             'producer_name' => $order->tenantOwner?->name,
         ];
+
+        if (! $hideCustomer) {
+            $snapshot['customer_name'] = $order->user?->name;
+            $snapshot['customer_email'] = $order->email ?? $order->user?->email;
+        }
+
+        return $snapshot;
     }
 }

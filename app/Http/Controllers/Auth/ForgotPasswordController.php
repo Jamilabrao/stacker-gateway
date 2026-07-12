@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\PlatformAuditService;
 use App\Services\TenantMailConfigService;
+use App\Support\NormalizedEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -31,7 +33,19 @@ class ForgotPasswordController extends Controller
             'email' => ['required', 'email'],
         ]);
 
-        $user = User::query()->where('email', $request->input('email'))->first();
+        $email = NormalizedEmail::normalize($request->input('email'));
+        $request->merge(['email' => $email]);
+
+        $user = User::query()->whereRaw('LOWER(email) = ?', [$email])->first();
+
+        if ($user?->isPlatformAdmin()) {
+            PlatformAuditService::log('security.password_reset_blocked_platform_admin', [
+                'user_id' => $user->id,
+                'email' => $email,
+            ], $request);
+
+            return back()->with('status', 'Se o e-mail estiver cadastrado, você receberá o link de redefinição em sua caixa de entrada.');
+        }
 
         try {
             $this->mailConfig->applyForPasswordReset($user);

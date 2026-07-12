@@ -434,6 +434,7 @@ class ProdutosController extends Controller
         $produtoArray['affiliate_page_url'] = $produto->affiliate_page_url;
         $produtoArray['affiliate_support_email'] = $produto->affiliate_support_email;
         $produtoArray['affiliate_showcase_description'] = $produto->affiliate_showcase_description;
+        $produtoArray['affiliate_hide_customer_data'] = (bool) $produto->affiliate_hide_customer_data;
         $produtoArray['affiliate_checkout_base_url'] = $checkoutBaseUrl;
 
         $produtoArray['refund_policy_days'] = $produto->refund_policy_days !== null

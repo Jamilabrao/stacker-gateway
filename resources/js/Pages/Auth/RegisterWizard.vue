@@ -3,7 +3,7 @@ import { ref, computed, watch, watchEffect, onMounted } from 'vue';
 import { useForm, Link, usePage } from '@inertiajs/vue3';
 import { User, Building2, ChevronLeft } from 'lucide-vue-next';
 import Button from '@/components/ui/Button.vue';
-import CheckoutTurnstile from '@/components/checkout/CheckoutTurnstile.vue';
+import AuthTurnstileField from '@/components/auth/AuthTurnstileField.vue';
 import AuthPageShell from '@/components/auth/AuthPageShell.vue';
 import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
 import { useAuthBranding } from '@/composables/useAuthBranding';
@@ -270,6 +270,7 @@ const form = useForm({
     password_confirmation: '',
     accept_terms_privacy: false,
     turnstile_token: '',
+    website: '',
 });
 
 onMounted(() => {
@@ -311,7 +312,7 @@ async function checkEmailBlur() {
         const res = await window.axios.post('/cadastro/validar-email', { email });
         emailCheckMsg.value = res.data?.available
             ? ''
-            : 'Este e-mail já está em uso.';
+            : (res.data?.message || 'Este e-mail já está em uso.');
     } catch {
         emailCheckMsg.value = '';
     }
@@ -519,6 +520,17 @@ function submitRegistration() {
                 </div>
 
                 <form class="mt-8 space-y-4" novalidate @submit.prevent="onWizardSubmit" @keydown.enter="onWizardKeydownEnter">
+                    <div class="absolute -left-[9999px] h-0 w-0 overflow-hidden opacity-0" aria-hidden="true">
+                        <label for="registration-website">Website</label>
+                        <input
+                            id="registration-website"
+                            v-model="form.website"
+                            type="text"
+                            name="website"
+                            tabindex="-1"
+                            autocomplete="off"
+                        />
+                    </div>
                     <!-- Step 1 -->
                     <div v-show="step === 1" class="space-y-4">
                         <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Tipo de conta</p>
@@ -719,11 +731,11 @@ function submitRegistration() {
                             {{ form.errors.accept_terms_privacy }}
                         </p>
                         <div v-if="registration_turnstile?.enabled && registration_turnstile?.site_key" class="pt-2">
-                            <CheckoutTurnstile
-                                :site-key="registration_turnstile.site_key"
+                            <AuthTurnstileField
+                                :config="registration_turnstile"
                                 v-model="turnstileToken"
+                                :error="form.errors.turnstile_token"
                             />
-                            <p v-if="form.errors.turnstile_token" class="mt-2 text-sm text-red-600">{{ form.errors.turnstile_token }}</p>
                         </div>
                     </div>
 

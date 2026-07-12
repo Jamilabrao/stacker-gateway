@@ -13,6 +13,7 @@ import {
     MessageSquare,
     Smartphone,
     Wallet,
+    Activity,
     ArrowLeftRight,
     AlertTriangle,
     Banknote,
@@ -77,6 +78,7 @@ const navItemsCore = [
     { name: 'Saques', href: '/plataforma/saques', icon: Banknote, badgeKey: 'saques' },
     { name: 'Saldo', href: '/plataforma/saldo', icon: CircleDollarSign },
     { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet, badgeKey: 'financeiro' },
+    { name: 'Saúde de Pagamentos', href: '/plataforma/ops/saude-pagamentos', icon: Activity },
     { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
     { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
     { name: 'App', href: '/plataforma/app', icon: Smartphone },
@@ -141,6 +143,9 @@ function isActive(href) {
     }
     if (href === '/plataforma/financeiro') {
         return url === '/plataforma/financeiro' || url.startsWith('/plataforma/financeiro/');
+    }
+    if (href === '/plataforma/ops/saude-pagamentos') {
+        return url === '/plataforma/ops/saude-pagamentos' || url.startsWith('/plataforma/ops/saude-pagamentos/');
     }
     if (href === '/plataforma/configuracoes') {
         return url === '/plataforma/configuracoes' || url.startsWith('/plataforma/configuracoes/');

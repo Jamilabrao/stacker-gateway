@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Http\Controllers\Controller;
 use App\Services\MercadoPago\MercadoPagoCheckoutCompletionService;
 use App\Services\MercadoPago\MercadoPagoWebhookResolver;
+use App\Support\GatewayWebhookTelemetry;
 use App\Support\PaymentWebhookDispatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,8 @@ class MercadoPagoWebhookController extends Controller
      */
     public function handle(Request $request): JsonResponse
     {
+        GatewayWebhookTelemetry::record('mercadopago');
+
         $payload = $request->all();
         $parsed = $this->parseNotification($request, $payload);
 

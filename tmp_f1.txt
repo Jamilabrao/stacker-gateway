@@ -1,0 +1,11 @@
+HTTP/1.1 302 Found
+Host: localhost:8085
+Connection: close
+X-Powered-By: PHP/8.3.32
+Cache-Control: no-cache, private
+Date: Sat, 11 Jul 2026 16:56:36 GMT
+Location: http://localhost:8085/login
+Content-Type: text/html; charset=utf-8
+Set-Cookie: XSRF-TOKEN=eyJpdiI6Ikg0dW5Dd21GeDNnZFY1MkZKclRtNlE9PSIsInZhbHVlIjoiQ3V5d21XbzhuWjRDQVNuMG9qcVkrT3U0S3lxVi9KZEN3R2taWFYyN1ZJMlNSTEl2c3I5SjVEOUx6bk5BYm1WUS8zdGJvd09BL2FTY0VhOE43a3NWSGRpSWdWcTlsVGJGSWErWUpTVmlJVk1IWHZVU0lkTEtRUk9EU0ZDalQ2RE4iLCJtYWMiOiIyZmMzZTBkYTllZTBhOWRkYTY1ODg5MWFlMTg2YjI1Mjc5NDQxOTFhMWIxNWY3NjMxYWE5MDZjMWEyYTMyZGFmIiwidGFnIjoiIn0%3D; expires=Sat, 11 Jul 2026 18:56:36 GMT; Max-Age=7200; path=/; samesite=lax
+Set-Cookie: getfy-session=eyJpdiI6IkQwOEhHVDdLK0NtMCtQaU45N0NOSHc9PSIsInZhbHVlIjoiMFVsWjdzMmNPc29zVHFadXlGU1dvYUN1ZXpZUURVcjFhZzNqVTZHWUdhQWhRa0djRWVMeG02NmtvLzRDT1BpaElrbVpxVnNoTjFwb3RYdlV3QmoxcFVFRDAvK2Q2VXRMeWhja3VIT2NRZUFIY0E0MjZHT0NqbWE5UXYzeDJaOHgiLCJtYWMiOiJmMDlkN2RmODk5ZjQyZjBmMTBkMDM4ZmIzNTkzOGE3ZmJjOGI0MzkzZjIyZmU0YTgyZmJjYWZhMDZiZmM0OWE0IiwidGFnIjoiIn0%3D; expires=Sat, 11 Jul 2026 18:56:36 GMT; Max-Age=7200; path=/; httponly; samesite=lax
+

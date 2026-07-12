@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Events\ProductDeleted;
+use App\Models\MerchantAdminNote;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\StorageService;
@@ -35,6 +37,62 @@ class PlatformAdminDeletionService
 
         $user->products()->detach();
         $user->delete();
+    }
+
+    public static function merchantDeletionBlockReason(User $user, bool $force = false): ?string
+    {
+        if (! $user->isInfoprodutor()) {
+            return 'Conta não é de infoprodutor.';
+        }
+
+        $tenantId = (int) ($user->tenant_id ?? $user->id);
+
+        if (Schema::hasTable('tenant_wallets')) {
+            $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->first();
+            if ($wallet !== null) {
+                $balance = (float) $wallet->available_balance + (float) $wallet->pending_balance;
+                if ($balance > 0.009) {
+                    return 'Carteira com saldo disponível ou pendente.';
+                }
+            }
+        }
+
+        if (! $force && Order::query()
+            ->where('tenant_id', $tenantId)
+            ->whereIn('status', ['completed', 'disputed'])
+            ->exists()) {
+            return 'Existem pedidos pagos ou em disputa vinculados a esta conta.';
+        }
+
+        return null;
+    }
+
+    public static function deleteMerchant(User $user, bool $force = false): void
+    {
+        $reason = self::merchantDeletionBlockReason($user, $force);
+        if ($reason !== null) {
+            throw new InvalidArgumentException($reason);
+        }
+
+        $tenantId = (int) ($user->tenant_id ?? $user->id);
+
+        DB::transaction(function () use ($user, $tenantId) {
+            User::query()
+                ->where('tenant_id', $user->id)
+                ->where('id', '!=', $user->id)
+                ->where('role', User::ROLE_TEAM)
+                ->delete();
+
+            if (Schema::hasTable('merchant_admin_notes')) {
+                MerchantAdminNote::query()->where('merchant_user_id', $user->id)->delete();
+            }
+
+            if (Schema::hasTable('tenant_wallets')) {
+                TenantWallet::query()->where('tenant_id', $tenantId)->delete();
+            }
+
+            $user->delete();
+        });
     }
 
     /**

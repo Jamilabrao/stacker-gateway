@@ -16,11 +16,10 @@ final class RegistrationTurnstileSettings
     public static function publicConfig(): array
     {
         $flagOn = Setting::get('registration_turnstile_enabled', '0', null) === '1';
-        $checkout = CheckoutTurnstileSettings::publicConfig();
 
         return [
-            'enabled' => $flagOn && $checkout['site_key'] !== '' && CheckoutTurnstileSettings::secretKey() !== '',
-            'site_key' => $checkout['site_key'],
+            'enabled' => $flagOn && CheckoutTurnstileSettings::keysConfigured(),
+            'site_key' => CheckoutTurnstileSettings::siteKey(),
         ];
     }
 
@@ -34,13 +33,9 @@ final class RegistrationTurnstileSettings
      */
     public static function forSettingsForm(): array
     {
-        $public = self::publicConfig();
-        $checkoutKeysConfigured = CheckoutTurnstileSettings::secretKey() !== ''
-            && trim((string) Setting::get('checkout_turnstile_site_key', '', null)) !== '';
-
         return [
             'registration_turnstile_enabled' => Setting::get('registration_turnstile_enabled', '0', null) === '1' ? '1' : '0',
-            'registration_turnstile_available' => $checkoutKeysConfigured,
+            'turnstile_keys_configured' => CheckoutTurnstileSettings::keysConfigured(),
         ];
     }
 }

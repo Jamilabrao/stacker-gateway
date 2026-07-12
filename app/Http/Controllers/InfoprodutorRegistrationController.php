@@ -12,12 +12,15 @@ use App\Support\BrazilianDocuments;
 use App\Support\DockerSetupState;
 use App\Support\EmailVerificationResendGuard;
 use App\Support\HtmlSanitizer;
+use App\Support\NormalizedEmail;
 use App\Support\RegistrationEmailVerificationSettings;
+use App\Services\PlatformAuditService;
 use App\Support\RegistrationTurnstileSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -88,12 +91,25 @@ class InfoprodutorRegistrationController extends Controller
             'email' => ['required', 'email', 'max:255'],
         ]);
 
-        $q = User::query()->where('email', $validated['email']);
-        if (Auth::check()) {
-            $q->where('id', '!=', Auth::id());
+        $email = NormalizedEmail::normalize($validated['email']);
+
+        if (NormalizedEmail::isReservedForRegistration($email)) {
+            PlatformAuditService::log('security.registration_blocked_reserved_email', [
+                'email' => $email,
+                'context' => 'validate_email',
+            ], $request);
+
+            return response()->json([
+                'available' => false,
+                'message' => 'Este e-mail não pode ser usado para cadastro.',
+            ]);
         }
 
-        return response()->json(['available' => ! $q->exists()]);
+        $ignoreId = Auth::check() ? Auth::id() : null;
+
+        return response()->json([
+            'available' => ! NormalizedEmail::isTaken($email, is_int($ignoreId) ? $ignoreId : null),
+        ]);
     }
 
     public function validateDocument(Request $request): \Illuminate\Http\JsonResponse
@@ -200,10 +216,16 @@ class InfoprodutorRegistrationController extends Controller
             return $turnstileError;
         }
 
+        if ($honeypotError = $this->rejectRegistrationHoneypot($request)) {
+            return $honeypotError;
+        }
+
+        $request->merge(['email' => NormalizedEmail::normalize($request->input('email'))]);
+
         $rules = [
             'person_type' => ['required', 'string', Rule::in(['pf', 'pj'])],
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'birth_date' => ['required', 'date', 'before:'.now()->subYears(18)->format('Y-m-d')],
             'document' => ['required', 'string', 'max:20'],
             'company_name' => ['nullable', 'string', 'max:255'],
@@ -226,6 +248,17 @@ class InfoprodutorRegistrationController extends Controller
             'birth_date.before' => 'É necessário ter pelo menos 18 anos.',
             'accept_terms_privacy.accepted' => 'Você precisa aceitar os Termos de Uso e a Política de Privacidade.',
         ]);
+
+        if (NormalizedEmail::isReservedForRegistration($validated['email'])) {
+            PlatformAuditService::log('security.registration_blocked_reserved_email', [
+                'email' => $validated['email'],
+                'context' => 'store',
+            ], $request);
+
+            return back()->withErrors([
+                'email' => 'Este e-mail não pode ser usado para cadastro.',
+            ])->withInput();
+        }
 
         // Campos de texto puro: previne XSS armazenado (endereços, nomes, etc.)
         foreach ([
@@ -365,6 +398,12 @@ class InfoprodutorRegistrationController extends Controller
             return $turnstileError;
         }
 
+        if ($honeypotError = $this->rejectRegistrationHoneypot($request)) {
+            return $honeypotError;
+        }
+
+        $request->merge(['email' => NormalizedEmail::normalize($request->input('email'))]);
+
         $rules = [
             'person_type' => ['required', 'string', Rule::in(['pf', 'pj'])],
             'name' => ['required', 'string', 'max:255'],
@@ -391,6 +430,17 @@ class InfoprodutorRegistrationController extends Controller
             'birth_date.before' => 'É necessário ter pelo menos 18 anos.',
             'accept_terms_privacy.accepted' => 'Você precisa aceitar os Termos de Uso e a Política de Privacidade.',
         ]);
+
+        if (NormalizedEmail::isReservedForRegistration($validated['email'])) {
+            PlatformAuditService::log('security.registration_blocked_reserved_email', [
+                'email' => $validated['email'],
+                'context' => 'upgrade',
+            ], $request);
+
+            return back()->withErrors([
+                'email' => 'Este e-mail não pode ser usado para cadastro.',
+            ])->withInput();
+        }
 
         foreach ([
             'name' => 255,
@@ -540,6 +590,27 @@ class InfoprodutorRegistrationController extends Controller
         }
 
         return null;
+    }
+
+    private function rejectRegistrationHoneypot(Request $request): ?RedirectResponse
+    {
+        if (trim((string) $request->input('website', '')) === '') {
+            return null;
+        }
+
+        PlatformAuditService::log('security.registration_honeypot', [
+            'ip' => $request->ip(),
+            'user_agent' => (string) $request->userAgent(),
+        ], $request);
+
+        Log::warning('registration honeypot triggered', [
+            'ip' => $request->ip(),
+            'user_agent' => (string) $request->userAgent(),
+        ]);
+
+        return back()->withErrors([
+            'email' => 'Não foi possível concluir o cadastro. Tente novamente.',
+        ])->withInput();
     }
 
     private function redirectAfterRegistration(User $user, string $successMessage, ?bool $verificationEmailSent = null): RedirectResponse

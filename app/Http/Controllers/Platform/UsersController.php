@@ -20,9 +20,11 @@ use App\Services\ApiPixAccess;
 use App\Services\Med\MedPolicyService;
 use App\Services\Platform\MerchantRevenueBreakdownService;
 use App\Services\Platform\PlatformTotpService;
+use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
 use App\Services\SalesAchievementsService;
 use App\Support\MerchantProfileSnapshot;
+use App\Support\NormalizedEmail;
 use App\Support\PlatformConfigContext;
 use App\Support\PercentDecimal;
 use Illuminate\Http\JsonResponse;
@@ -32,6 +34,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -294,6 +297,8 @@ class UsersController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+        $request->merge(['email' => NormalizedEmail::normalize($request->input('email'))]);
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
@@ -329,21 +334,93 @@ class UsersController extends Controller
         return redirect()->route('plataforma.usuarios.index')->with('success', 'Infoprodutor cadastrado com sucesso.');
     }
 
-    public function destroy(User $user): RedirectResponse
+    public function destroy(Request $request, User $user): RedirectResponse
     {
         Gate::authorize('manageMerchantForPlatform', $user);
 
         $id = $user->id;
-        $user->delete();
 
-        PlatformAuditService::log('platform.merchant.deleted', ['user_id' => $id], request());
+        try {
+            PlatformAdminDeletionService::deleteMerchant($user);
+        } catch (InvalidArgumentException $e) {
+            return redirect()
+                ->route('plataforma.usuarios.index')
+                ->with('error', $e->getMessage());
+        }
+
+        PlatformAuditService::log('platform.merchant.deleted', ['user_id' => $id], $request);
 
         return redirect()->route('plataforma.usuarios.index')->with('success', 'Usuário excluído.');
+    }
+
+    public function bulkDestroy(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'max:100'],
+            'ids.*' => ['integer', 'exists:users,id'],
+            'confirm' => ['accepted'],
+            'force' => ['nullable', 'boolean'],
+            'totp_code' => ['nullable', 'string', 'max:16'],
+        ], [
+            'confirm.accepted' => 'Confirme a exclusão em massa.',
+        ]);
+
+        $this->validatePlatformStepUp($request);
+
+        $force = $request->boolean('force');
+        $deleted = [];
+        $skipped = [];
+
+        foreach ($validated['ids'] as $id) {
+            $merchant = User::query()->find($id);
+            if ($merchant === null) {
+                continue;
+            }
+
+            try {
+                Gate::authorize('manageMerchantForPlatform', $merchant);
+                PlatformAdminDeletionService::deleteMerchant($merchant, $force);
+                PlatformAuditService::log('platform.merchant.deleted', [
+                    'user_id' => $merchant->id,
+                    'bulk' => true,
+                ], $request);
+                $deleted[] = $merchant->id;
+            } catch (\Illuminate\Auth\Access\AuthorizationException) {
+                $skipped[] = ['id' => $id, 'reason' => 'Sem permissão para excluir esta conta.'];
+            } catch (InvalidArgumentException $e) {
+                $skipped[] = ['id' => $id, 'reason' => $e->getMessage()];
+            }
+        }
+
+        PlatformAuditService::log('platform.merchant.bulk_deleted', [
+            'deleted_count' => count($deleted),
+            'skipped_count' => count($skipped),
+            'deleted_ids' => $deleted,
+            'force' => $force,
+        ], $request);
+
+        $message = count($deleted) > 0
+            ? count($deleted).' conta(s) excluída(s).'
+            : 'Nenhuma conta foi excluída.';
+
+        if (count($skipped) > 0) {
+            $message .= ' '.count($skipped).' ignorada(s).';
+        }
+
+        return redirect()
+            ->route('plataforma.usuarios.index', array_filter(['q' => $request->query('q')]))
+            ->with('success', $message)
+            ->with('bulk_delete_result', [
+                'deleted' => $deleted,
+                'skipped' => $skipped,
+            ]);
     }
 
     public function update(Request $request, User $user): RedirectResponse
     {
         Gate::authorize('manageMerchantForPlatform', $user);
+
+        $request->merge(['email' => NormalizedEmail::normalize($request->input('email'))]);
 
         $prevAccountStatus = $user->account_status;
 

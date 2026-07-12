@@ -47,6 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->web(prepend: [
+            \App\Http\Middleware\ForceLocalCanonicalHost::class,
             \App\Http\Middleware\ForceHttpsWhenForwardedProto::class,
             \App\Http\Middleware\EnsureDockerSetup::class,
             \App\Http\Middleware\EnsureInstalled::class,

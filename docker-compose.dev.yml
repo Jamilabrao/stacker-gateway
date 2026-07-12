@@ -1,9 +1,9 @@
-# Desenvolvimento local do gateway (app + agent + DB/Redis do host).
-# Uso:
-#   docker compose -f docker-compose.local-db.yml up -d
-#   docker compose -f docker-compose.dev.yml up --build
+# Desenvolvimento local do gateway (app + agent + Postgres/Redis).
+# Uso (recomendado — um comando):
+#   docker compose -f docker-compose.local-db.yml -f docker-compose.dev.yml up --build
 #
-# Postgres: localhost:5433 | Redis: localhost:6379
+# Postgres no host: localhost:5433 | Redis no host: localhost:6379
+# Dentro da rede Docker use os serviços postgres:5432 e redis:6379 (mais rápido que host.docker.internal).
 
 services:
   app:
@@ -24,21 +24,27 @@ services:
       APP_DEBUG: "true"
       GETFY_APP_URL: ${GETFY_APP_URL:-http://localhost:8085}
       GETFY_DOCKER: "true"
-      GETFY_RUN_SETUP: "true"
+      GETFY_RUN_SETUP: "false"
       DB_CONNECTION: pgsql
-      DB_HOST: host.docker.internal
-      DB_PORT: ${LOCALDB_PG_PORT:-5433}
+      DB_HOST: ${GETFY_DEV_DB_HOST:-postgres}
+      DB_PORT: ${GETFY_DEV_DB_PORT:-5432}
       DB_DATABASE: ${LOCALDB_POSTGRES_DB:-getfy}
       DB_USERNAME: ${LOCALDB_POSTGRES_USER:-getfy}
       DB_PASSWORD: ${LOCALDB_POSTGRES_PASSWORD:-getfy}
-      REDIS_HOST: host.docker.internal
-      REDIS_PORT: ${LOCALDB_REDIS_PORT:-6379}
+      REDIS_HOST: ${GETFY_DEV_REDIS_HOST:-redis}
+      REDIS_PORT: ${GETFY_DEV_REDIS_PORT:-6379}
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
+      SESSION_DRIVER: database
+      SESSION_ENCRYPT: "false"
       STACKER_LICENSE_DISABLED: ${STACKER_LICENSE_DISABLED:-1}
       STACKER_API_URL: ${STACKER_API_URL:-http://host.docker.internal:3000}
       STACKER_AGENT_TOKEN: ${STACKER_AGENT_TOKEN:-dev-agent-token}
     depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       stacker-agent:
         condition: service_started
 
@@ -81,16 +87,22 @@ services:
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "false"
       DB_CONNECTION: pgsql
-      DB_HOST: host.docker.internal
-      DB_PORT: ${LOCALDB_PG_PORT:-5433}
+      DB_HOST: ${GETFY_DEV_DB_HOST:-postgres}
+      DB_PORT: ${GETFY_DEV_DB_PORT:-5432}
       DB_DATABASE: ${LOCALDB_POSTGRES_DB:-getfy}
       DB_USERNAME: ${LOCALDB_POSTGRES_USER:-getfy}
       DB_PASSWORD: ${LOCALDB_POSTGRES_PASSWORD:-getfy}
-      REDIS_HOST: host.docker.internal
-      REDIS_PORT: ${LOCALDB_REDIS_PORT:-6379}
+      REDIS_HOST: ${GETFY_DEV_REDIS_HOST:-redis}
+      REDIS_PORT: ${GETFY_DEV_REDIS_PORT:-6379}
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
+      SESSION_DRIVER: database
+      SESSION_ENCRYPT: "false"
     depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       app:
         condition: service_started
 
@@ -107,15 +119,21 @@ services:
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "false"
       DB_CONNECTION: pgsql
-      DB_HOST: host.docker.internal
-      DB_PORT: ${LOCALDB_PG_PORT:-5433}
+      DB_HOST: ${GETFY_DEV_DB_HOST:-postgres}
+      DB_PORT: ${GETFY_DEV_DB_PORT:-5432}
       DB_DATABASE: ${LOCALDB_POSTGRES_DB:-getfy}
       DB_USERNAME: ${LOCALDB_POSTGRES_USER:-getfy}
       DB_PASSWORD: ${LOCALDB_POSTGRES_PASSWORD:-getfy}
-      REDIS_HOST: host.docker.internal
-      REDIS_PORT: ${LOCALDB_REDIS_PORT:-6379}
+      REDIS_HOST: ${GETFY_DEV_REDIS_HOST:-redis}
+      REDIS_PORT: ${GETFY_DEV_REDIS_PORT:-6379}
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
+      SESSION_DRIVER: database
+      SESSION_ENCRYPT: "false"
     depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       app:
         condition: service_started

@@ -52,6 +52,7 @@ class Product extends Model
         'affiliate_page_url',
         'affiliate_support_email',
         'affiliate_showcase_description',
+        'affiliate_hide_customer_data',
         'refund_policy_days',
         'shipping_store_id',
         'physical_config',
@@ -70,6 +71,7 @@ class Product extends Model
             'affiliate_commission_percent' => 'decimal:2',
             'affiliate_manual_approval' => 'boolean',
             'affiliate_show_in_showcase' => 'boolean',
+            'affiliate_hide_customer_data' => 'boolean',
             'refund_policy_days' => 'integer',
             'physical_config' => 'array',
         ];

@@ -156,13 +156,12 @@ const form = useForm({
     storage_s3_endpoint: props.settings.storage_s3_endpoint ?? '',
     storage_s3_url: props.settings.storage_s3_url ?? '',
     physical_products_enabled: Boolean(props.settings.physical_products_enabled),
-    checkout_turnstile_enabled: props.settings.checkout_turnstile_enabled ?? '0',
     checkout_turnstile_site_key: props.settings.checkout_turnstile_site_key ?? '',
     checkout_turnstile_secret_key: '',
-    checkout_turnstile_mode: props.settings.checkout_turnstile_mode ?? 'pix_boleto',
     checkout_turnstile_secret_configured: Boolean(props.settings.checkout_turnstile_secret_configured),
+    turnstile_keys_configured: Boolean(props.settings.turnstile_keys_configured),
+    login_turnstile_enabled: props.settings.login_turnstile_enabled ?? '0',
     registration_turnstile_enabled: props.settings.registration_turnstile_enabled ?? '0',
-    registration_turnstile_available: Boolean(props.settings.registration_turnstile_available),
     registration_email_verification_enabled: props.settings.registration_email_verification_enabled ?? '0',
     legal_privacy_policy_html: props.settings.legal_privacy_policy_html ?? '',
     legal_terms_of_use_html: props.settings.legal_terms_of_use_html ?? '',
@@ -573,12 +572,11 @@ function syncLegalSettingsFromProps() {
 
 function applySecuritySettingsFromSettings(s) {
     if (!s) return;
-    form.checkout_turnstile_enabled = s.checkout_turnstile_enabled ?? '0';
     form.checkout_turnstile_site_key = s.checkout_turnstile_site_key ?? '';
-    form.checkout_turnstile_mode = s.checkout_turnstile_mode ?? 'pix_boleto';
     form.checkout_turnstile_secret_configured = Boolean(s.checkout_turnstile_secret_configured);
+    form.turnstile_keys_configured = Boolean(s.turnstile_keys_configured);
+    form.login_turnstile_enabled = s.login_turnstile_enabled ?? '0';
     form.registration_turnstile_enabled = s.registration_turnstile_enabled ?? '0';
-    form.registration_turnstile_available = Boolean(s.registration_turnstile_available);
     form.registration_email_verification_enabled = s.registration_email_verification_enabled ?? '0';
 }
 
@@ -613,10 +611,9 @@ function buildSettingsPayload() {
     }
     if (activeTab.value === 'seguranca') {
         return {
-            checkout_turnstile_enabled: data.checkout_turnstile_enabled,
             checkout_turnstile_site_key: data.checkout_turnstile_site_key,
             checkout_turnstile_secret_key: data.checkout_turnstile_secret_key,
-            checkout_turnstile_mode: data.checkout_turnstile_mode,
+            login_turnstile_enabled: data.login_turnstile_enabled,
             registration_turnstile_enabled: data.registration_turnstile_enabled,
             registration_email_verification_enabled: data.registration_email_verification_enabled,
         };

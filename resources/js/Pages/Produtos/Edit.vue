@@ -220,6 +220,7 @@ const affiliateForm = useForm({
     affiliate_page_url: props.produto.affiliate_page_url ?? '',
     affiliate_support_email: props.produto.affiliate_support_email ?? '',
     affiliate_showcase_description: props.produto.affiliate_showcase_description ?? '',
+    affiliate_hide_customer_data: Boolean(props.produto.affiliate_hide_customer_data),
 });
 
 watch(
@@ -2977,6 +2978,14 @@ function submit() {
                             :label="t('products.edit.affiliate_manual', 'Aprovar afiliações manualmente')"
                             class="w-full"
                         />
+                        <Checkbox
+                            v-model="affiliateForm.affiliate_hide_customer_data"
+                            :label="t('products.edit.affiliate_hide_customer', 'Ocultar dados do cliente para afiliados')"
+                            class="w-full"
+                        />
+                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                            {{ t('products.edit.affiliate_hide_customer_hint', 'Quando ativo, afiliados veem a venda e a comissão, mas não nome nem e-mail do comprador.') }}
+                        </p>
                         <Checkbox
                             v-model="affiliateForm.affiliate_show_in_showcase"
                             :disabled="!affiliateForm.affiliate_enabled"

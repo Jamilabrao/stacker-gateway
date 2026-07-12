@@ -7,6 +7,7 @@ import AuthPageShell from '@/components/auth/AuthPageShell.vue';
 import AuthSpotlightField from '@/components/auth/AuthSpotlightField.vue';
 import AuthImmersiveField from '@/components/auth/AuthImmersiveField.vue';
 import AuthSpotlightFormCard from '@/components/auth/AuthSpotlightFormCard.vue';
+import AuthTurnstileField from '@/components/auth/AuthTurnstileField.vue';
 import { useAuthFormStyles } from '@/composables/useAuthFormStyles';
 import { useLoginTemplate } from '@/composables/useLoginTemplate';
 
@@ -31,6 +32,12 @@ const {
 
 const { isModernLogin } = useLoginTemplate();
 
+const props = defineProps({
+    login_turnstile: { type: Object, default: () => ({ enabled: false, site_key: '' }) },
+});
+
+const turnstileToken = ref('');
+
 const pageTitle = computed(() => (isModernLogin.value ? 'Bem-vindo de volta' : 'Entrar'));
 const pageSubtitle = computed(() => (
     isModernLogin.value
@@ -42,10 +49,16 @@ const form = useForm({
     email: '',
     password: '',
     remember: false,
+    turnstile_token: '',
 });
 
 function submit() {
-    form.post('/plataforma/login', {
+    form.turnstile_token = turnstileToken.value;
+    form.transform((data) => ({
+        ...data,
+        turnstile_token: turnstileToken.value || data.turnstile_token || '',
+        _token: page.props.csrf_token,
+    })).post('/plataforma/login', {
         onFinish: () => form.reset('password'),
     });
 }
@@ -116,6 +129,12 @@ function loginDemoAdmin() {
                 <label for="remember" :class="mutedTextClass">Lembrar de mim</label>
             </div>
 
+            <AuthTurnstileField
+                :config="login_turnstile"
+                v-model="turnstileToken"
+                :error="form.errors.turnstile_token"
+            />
+
             <button
                 type="submit"
                 :class="submitButtonClass"
@@ -176,6 +195,12 @@ function loginDemoAdmin() {
                     <label for="remember" :class="mutedTextClass">Lembrar de mim</label>
                 </div>
 
+                <AuthTurnstileField
+                    :config="login_turnstile"
+                    v-model="turnstileToken"
+                    :error="form.errors.turnstile_token"
+                />
+
                 <button
                     type="submit"
                     :class="submitButtonClass"
@@ -232,6 +257,12 @@ function loginDemoAdmin() {
                 <input id="remember" v-model="form.remember" type="checkbox" :class="checkboxClass" />
                 <label for="remember" :class="mutedTextClass">Lembrar de mim</label>
             </div>
+
+            <AuthTurnstileField
+                :config="login_turnstile"
+                v-model="turnstileToken"
+                :error="form.errors.turnstile_token"
+            />
 
             <Button
                 type="submit"

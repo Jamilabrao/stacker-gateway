@@ -4,11 +4,10 @@ namespace App\Console\Commands;
 
 use App\Gateways\GatewayRegistry;
 use App\Gateways\MercadoPago\MercadoPagoDriver;
-use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Services\MercadoPago\MercadoPagoCheckoutCompletionService;
-use App\Support\GatewayPaymentCredentials;
 use App\Support\GatewayWebhookUrl;
+use App\Support\MercadoPagoCredentialCandidates;
 use Illuminate\Console\Command;
 
 class DebugMercadoPagoOrderCommand extends Command
@@ -36,27 +35,12 @@ class DebugMercadoPagoOrderCommand extends Command
         $this->line('gateway_id: '.($order->gateway_id ?? '-'));
         $this->line('tenant_id: '.($order->tenant_id ?? '-'));
         $this->line('amount: '.$order->amount);
-        $this->line('created_at: '.($order->created_at?->toDateTimeString() ?? '-'));
 
         $meta = is_array($order->metadata) ? $order->metadata : [];
-        $this->line('metadata.mercadopago_payment_id: '.($meta['mercadopago_payment_id'] ?? '-'));
         $this->line('metadata.gateway_credential_id: '.($meta['gateway_credential_id'] ?? '-'));
 
         $this->newLine();
         $this->line('Webhook URL: '.GatewayWebhookUrl::forGateway('mercadopago'));
-
-        $global = GatewayCredential::resolveForPayment(null, 'mercadopago');
-        $this->line('Credencial global MP: '.($global !== null && $global->is_connected ? "ok (id {$global->id})" : 'ausente'));
-
-        $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, 'mercadopago', $order);
-        if ($credentials === null) {
-            $this->error('Nenhuma credencial MP resolvida para este pedido.');
-
-            return self::FAILURE;
-        }
-
-        $token = (string) ($credentials['access_token'] ?? '');
-        $this->line('Access token usado: '.($token !== '' ? substr($token, 0, 8).'…'.substr($token, -4) : '(vazio)'));
 
         $driver = GatewayRegistry::driver('mercadopago');
         if (! $driver instanceof MercadoPagoDriver) {
@@ -66,53 +50,53 @@ class DebugMercadoPagoOrderCommand extends Command
         }
 
         $paymentId = trim((string) ($order->gateway_id ?? ''));
-        $this->newLine();
+        $candidates = MercadoPagoCredentialCandidates::forOrder($order);
 
-        if ($paymentId !== '') {
-            $details = $driver->getPaymentDetails($paymentId, $credentials);
-            $this->line("GET /v1/payments/{$paymentId}:");
-            if ($details === null) {
-                $this->warn('  (sem resposta — token errado, pagamento inexistente nesta conta ou HTTP erro)');
-            } else {
-                $this->line('  status mapeado: '.($details['status'] ?? '?'));
-                $this->line('  status MP: '.($details['raw_status'] ?? '?'));
-                $this->line('  external_reference: '.($details['external_reference'] ?? '-'));
-            }
-        } else {
-            $this->warn('Pedido sem gateway_id — não dá para consultar payment direto.');
+        if ($candidates === []) {
+            $this->error('Nenhuma credencial MP disponível.');
+
+            return self::FAILURE;
         }
 
-        $foundId = $driver->findApprovedPaymentByExternalReference((string) $order->id, $credentials);
         $this->newLine();
-        $this->line('Busca approved por external_reference='.(string) $order->id.':');
-        $this->line($foundId !== null ? "  encontrado payment_id {$foundId}" : '  nenhum pagamento approved');
+        $this->line('Credenciais testadas:');
+        foreach ($candidates as $candidate) {
+            $credentials = $candidate['credentials'];
+            $token = (string) ($credentials['access_token'] ?? '');
+            $this->line("  [{$candidate['label']}] token ".($token !== '' ? substr($token, 0, 8).'…' : '(vazio)'));
 
-        if ($foundId !== null && $foundId !== $paymentId) {
-            $details = $driver->getPaymentDetails($foundId, $credentials);
-            $this->line("  GET /v1/payments/{$foundId} status: ".($details['status'] ?? '?'));
-        }
-
-        if ($this->option('apply')) {
-            $completion = app(MercadoPagoCheckoutCompletionService::class);
-            $completion->applyPendingForOrder($order);
-            $order->refresh();
-
-            if ($order->status !== 'completed') {
-                $useId = $foundId ?? ($paymentId !== '' ? $paymentId : null);
-                if ($useId !== null) {
-                    $status = $driver->getTransactionStatus($useId, $credentials);
-                    if ($status === 'paid') {
-                        $completion->applyPaid($order, $useId, ['webhook_source' => 'debug_mercadopago']);
-                        $order->refresh();
-                    }
+            if ($paymentId !== '') {
+                $details = $driver->getPaymentDetails($paymentId, $credentials);
+                if ($details === null) {
+                    $this->line("    GET /payments/{$paymentId}: (não encontrado nesta conta)");
+                } else {
+                    $this->line("    GET /payments/{$paymentId}: {$details['raw_status']} → {$details['status']}");
                 }
             }
 
-            $this->newLine();
-            $this->line('Status após --apply: '.$order->fresh()->status);
+            $foundId = $driver->findApprovedPaymentByExternalReference((string) $order->id, $credentials);
+            $this->line('    search external_reference='.(string) $order->id.': '.($foundId ?? 'nenhum'));
+        }
+
+        $approved = MercadoPagoCredentialCandidates::findApprovedPaymentForOrder($order, $driver);
+        $this->newLine();
+        if ($approved !== null) {
+            $this->info("Pagamento aprovado encontrado: {$approved['payment_id']} via {$approved['label']}");
         } else {
-            $this->newLine();
-            $this->line('Para tentar concluir: php artisan payments:debug-mercadopago-order '.$orderId.' --apply');
+            $this->warn('Nenhum pagamento approved encontrado em nenhuma credencial (global/tenant).');
+            $this->line('Confira se o PIX foi pago na mesma conta MP do Access Token configurado.');
+        }
+
+        if ($this->option('apply') && $approved !== null) {
+            app(MercadoPagoCheckoutCompletionService::class)->applyPaid($order, $approved['payment_id'], [
+                'webhook_source' => 'debug_mercadopago',
+                'mp_credential_label' => $approved['label'],
+            ]);
+            $this->line('Status após --apply: '.$order->fresh()->status);
+        } elseif ($this->option('apply')) {
+            $this->warn('Nada a aplicar — pagamento não encontrado como approved.');
+        } else {
+            $this->line('Para concluir: php artisan payments:debug-mercadopago-order '.$orderId.' --apply');
         }
 
         return self::SUCCESS;

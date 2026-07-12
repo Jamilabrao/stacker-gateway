@@ -86,6 +86,32 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('registration-store', function (Request $request) {
+            $ip = $request->ip();
+
+            return [
+                Limit::perMinute(2)->by('registration-store:burst:'.$ip),
+                Limit::perHour(3)->by('registration-store:hour:'.$ip),
+                Limit::perDay(10)->by('registration-store:day:'.$ip),
+            ];
+        });
+
+        RateLimiter::for('registration-validate', function (Request $request) {
+            return Limit::perMinute(15)->by('registration-validate:'.$request->ip());
+        });
+
+        RateLimiter::for('password-reset', function (Request $request) {
+            $email = strtolower(trim((string) $request->input('email', '')));
+            $limits = [
+                Limit::perHour(3)->by('password-reset:ip:'.$request->ip()),
+            ];
+            if ($email !== '') {
+                $limits[] = Limit::perHour(5)->by('password-reset:email:'.$email);
+            }
+
+            return $limits;
+        });
+
         RateLimiter::for('api', function (Request $request) {
             $apiKey = $request->attributes->get('api_key');
             $app = $request->attributes->get('api_application');

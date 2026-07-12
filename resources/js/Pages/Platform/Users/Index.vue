@@ -6,6 +6,7 @@ import Button from '@/components/ui/Button.vue';
 import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
 import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare, Search, Shield } from 'lucide-vue-next';
 import {
     formatPercentForInput,
@@ -34,6 +35,7 @@ const props = defineProps({
 });
 
 const page = usePage();
+const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
 
 const searchQ = ref(props.q ?? '');
 
@@ -53,6 +55,11 @@ const editUser = ref(null);
 const savedFeeOverrides = ref(null);
 const savedSettlementOverrides = ref(null);
 const deletingId = ref(null);
+const selectedIds = ref([]);
+const bulkDeleteOpen = ref(false);
+const bulkDeleteLoading = ref(false);
+const bulkStepUpOpen = ref(false);
+const bulkDeleteForce = ref(false);
 const feesDirty = ref(false);
 const settlementDirty = ref(false);
 const gatewayOrderDirty = ref(false);
@@ -594,6 +601,99 @@ function destroyUser(id) {
     });
 }
 
+const selectedCount = computed(() => selectedIds.value.length);
+
+const allVisibleSelected = computed(() => {
+    if (!props.users.length) return false;
+    return props.users.every((u) => selectedIds.value.includes(u.id));
+});
+
+const bulkDeleteTargets = computed(() =>
+    props.users.filter((u) => selectedIds.value.includes(u.id))
+);
+
+const bulkDeleteResult = computed(() => page.props.flash?.bulk_delete_result ?? null);
+
+function toggleUserSelection(id) {
+    if (selectedIds.value.includes(id)) {
+        selectedIds.value = selectedIds.value.filter((rowId) => rowId !== id);
+        return;
+    }
+    selectedIds.value = [...selectedIds.value, id];
+}
+
+function toggleSelectAllVisible() {
+    if (allVisibleSelected.value) {
+        const visibleIds = new Set(props.users.map((u) => u.id));
+        selectedIds.value = selectedIds.value.filter((id) => !visibleIds.has(id));
+        return;
+    }
+    const merged = new Set([...selectedIds.value, ...props.users.map((u) => u.id)]);
+    selectedIds.value = [...merged];
+}
+
+function selectPendingWithoutSales() {
+    const ids = props.users
+        .filter((u) => (u.account_status || 'approved') === 'pending' && Number(u.vendas_totais || 0) === 0)
+        .map((u) => u.id);
+    selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
+}
+
+function openBulkDeleteModal(force = false) {
+    if (!selectedIds.value.length) return;
+    bulkDeleteForce.value = force;
+    bulkDeleteOpen.value = true;
+}
+
+function closeBulkDeleteModal() {
+    bulkDeleteOpen.value = false;
+    bulkDeleteLoading.value = false;
+}
+
+function closeBulkStepUp() {
+    bulkStepUpOpen.value = false;
+    bulkDeleteLoading.value = false;
+}
+
+function requestBulkDelete() {
+    if (!selectedIds.value.length) return;
+    if (platformTotpEnabled.value) {
+        bulkDeleteOpen.value = false;
+        bulkStepUpOpen.value = true;
+        return;
+    }
+    submitBulkDelete();
+}
+
+function onBulkStepUpConfirm(payload) {
+    bulkDeleteLoading.value = true;
+    submitBulkDelete(payload.totp_code);
+}
+
+function submitBulkDelete(totpCode = '') {
+    bulkDeleteLoading.value = true;
+    router.post(
+        '/plataforma/usuarios/excluir-em-massa',
+        {
+            ids: selectedIds.value,
+            confirm: true,
+            force: bulkDeleteForce.value,
+            totp_code: totpCode || undefined,
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                selectedIds.value = [];
+                closeBulkDeleteModal();
+            },
+            onFinish: () => {
+                bulkDeleteLoading.value = false;
+                bulkStepUpOpen.value = false;
+            },
+        }
+    );
+}
+
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 }
@@ -659,10 +759,69 @@ function formatBlockUntilForInput(iso) {
             {{ page.props.flash.success }}
         </p>
 
+        <p
+            v-if="page.props.flash?.error"
+            class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
+        >
+            {{ page.props.flash.error }}
+        </p>
+
+        <div
+            v-if="bulkDeleteResult"
+            class="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-200"
+        >
+            <p class="font-medium">Resultado da exclusão em massa</p>
+            <p v-if="bulkDeleteResult.deleted?.length" class="mt-2 text-xs">
+                Excluídos: {{ bulkDeleteResult.deleted.join(', ') }}
+            </p>
+            <ul v-if="bulkDeleteResult.skipped?.length" class="mt-2 list-inside list-disc space-y-1 text-xs">
+                <li v-for="row in bulkDeleteResult.skipped" :key="`${row.id}-${row.reason}`">
+                    #{{ row.id }} — {{ row.reason }}
+                </li>
+            </ul>
+        </div>
+
+        <div
+            v-if="selectedCount > 0"
+            class="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/60"
+        >
+            <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">{{ selectedCount }} selecionado(s)</span>
+            <button
+                type="button"
+                class="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+                @click="openBulkDeleteModal(false)"
+            >
+                Excluir selecionados ({{ selectedCount }})
+            </button>
+            <button
+                type="button"
+                class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-white dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                @click="selectPendingWithoutSales"
+            >
+                Selecionar pendentes sem vendas
+            </button>
+            <button
+                type="button"
+                class="rounded-lg px-3 py-1.5 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+                @click="selectedIds = []"
+            >
+                Limpar seleção
+            </button>
+        </div>
+
         <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
             <table class="w-full text-left text-sm">
                 <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-400">
                     <tr>
+                        <th class="w-10 px-3 py-3">
+                            <input
+                                type="checkbox"
+                                class="h-4 w-4 rounded border-zinc-300"
+                                :checked="allVisibleSelected"
+                                :disabled="!users.length"
+                                @change="toggleSelectAllVisible"
+                            />
+                        </th>
                         <th class="px-4 py-3">Nome</th>
                         <th class="px-4 py-3">E-mail</th>
                         <th class="px-4 py-3">Documento</th>
@@ -677,6 +836,14 @@ function formatBlockUntilForInput(iso) {
                 </thead>
                 <tbody>
                     <tr v-for="u in users" :key="u.id" class="border-b border-zinc-100 dark:border-zinc-800">
+                        <td class="px-3 py-3">
+                            <input
+                                type="checkbox"
+                                class="h-4 w-4 rounded border-zinc-300"
+                                :checked="selectedIds.includes(u.id)"
+                                @change="toggleUserSelection(u.id)"
+                            />
+                        </td>
                         <td class="px-4 py-3 font-medium text-zinc-900 dark:text-white">
                             <span>{{ u.name }}</span>
                             <span
@@ -764,7 +931,7 @@ function formatBlockUntilForInput(iso) {
                         </td>
                     </tr>
                     <tr v-if="!users.length">
-                        <td colspan="8" class="px-4 py-10 text-center text-zinc-500">
+                        <td colspan="9" class="px-4 py-10 text-center text-zinc-500">
                             {{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}
                         </td>
                     </tr>
@@ -1145,5 +1312,43 @@ function formatBlockUntilForInput(iso) {
                 </form>
             </div>
         </div>
+
+        <div
+            v-if="bulkDeleteOpen"
+            class="fixed inset-0 z-[200001] flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            @click.self="closeBulkDeleteModal"
+        >
+            <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-900">
+                <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">Excluir contas selecionadas</h3>
+                <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    Esta ação não pode ser desfeita. Contas com saldo ou pedidos pagos/em disputa serão ignoradas.
+                </p>
+                <ul class="mt-4 max-h-48 space-y-1 overflow-y-auto text-sm text-zinc-700 dark:text-zinc-300">
+                    <li v-for="u in bulkDeleteTargets" :key="u.id">
+                        #{{ u.id }} — {{ u.name }} ({{ u.email }})
+                    </li>
+                </ul>
+                <div class="mt-6 flex justify-end gap-2">
+                    <Button type="button" variant="secondary" :disabled="bulkDeleteLoading" @click="closeBulkDeleteModal">
+                        Cancelar
+                    </Button>
+                    <Button type="button" :disabled="bulkDeleteLoading" @click="requestBulkDelete">
+                        Excluir {{ selectedCount }} conta(s)
+                    </Button>
+                </div>
+            </div>
+        </div>
+
+        <PlatformStepUpModal
+            :open="bulkStepUpOpen"
+            title="Confirmar exclusão em massa"
+            description="Informe o código 2FA para excluir as contas selecionadas."
+            confirm-label="Excluir contas"
+            :loading="bulkDeleteLoading"
+            @close="closeBulkStepUp"
+            @confirm="onBulkStepUpConfirm"
+        />
     </div>
 </template>

@@ -11,6 +11,7 @@ use App\Services\CajuPay\CajuPayCheckoutCompletionService;
 use App\Services\CajuPay\CajuPayMedService;
 use App\Services\PlatformOrderAdminService;
 use App\Support\CajuPayPaymentId;
+use App\Support\GatewayWebhookTelemetry;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -26,6 +27,8 @@ class CajuPayCheckoutWebhookController extends Controller
      */
     public function handle(Request $request): Response
     {
+        GatewayWebhookTelemetry::record('cajupay');
+
         $rawBody = $request->getContent();
         if (! is_string($rawBody) || $rawBody === '') {
             return response('empty body', 400);

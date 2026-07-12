@@ -8,6 +8,7 @@ import AuthSpotlightField from '@/components/auth/AuthSpotlightField.vue';
 import AuthImmersiveField from '@/components/auth/AuthImmersiveField.vue';
 import AuthSpotlightFormCard from '@/components/auth/AuthSpotlightFormCard.vue';
 import LegalFooterLinks from '@/components/legal/LegalFooterLinks.vue';
+import AuthTurnstileField from '@/components/auth/AuthTurnstileField.vue';
 import { useAuthFormStyles } from '@/composables/useAuthFormStyles';
 import { useLoginTemplate } from '@/composables/useLoginTemplate';
 
@@ -32,6 +33,12 @@ const {
 
 const { isModernLogin } = useLoginTemplate();
 
+const props = defineProps({
+    login_turnstile: { type: Object, default: () => ({ enabled: false, site_key: '' }) },
+});
+
+const turnstileToken = ref('');
+
 const pageTitle = computed(() => (isModernLogin.value ? 'Bem-vindo de volta' : 'Entrar'));
 const pageSubtitle = computed(() => (
     isModernLogin.value
@@ -43,10 +50,16 @@ const form = useForm({
     email: '',
     password: '',
     remember: false,
+    turnstile_token: '',
 });
 
 function submit() {
-    form.post('/login', {
+    form.turnstile_token = turnstileToken.value;
+    form.transform((data) => ({
+        ...data,
+        turnstile_token: turnstileToken.value || data.turnstile_token || '',
+        _token: page.props.csrf_token,
+    })).post('/login', {
         onFinish: () => form.reset('password'),
     });
 }
@@ -121,6 +134,12 @@ function loginDemo(role) {
                 <Link href="/esqueci-senha" :class="linkClass">Esqueci a senha</Link>
             </div>
 
+            <AuthTurnstileField
+                :config="login_turnstile"
+                v-model="turnstileToken"
+                :error="form.errors.turnstile_token"
+            />
+
             <button
                 type="submit"
                 :class="submitButtonClass"
@@ -192,6 +211,12 @@ function loginDemo(role) {
                     </Link>
                 </div>
 
+                <AuthTurnstileField
+                    :config="login_turnstile"
+                    v-model="turnstileToken"
+                    :error="form.errors.turnstile_token"
+                />
+
                 <button
                     type="submit"
                     :class="submitButtonClass"
@@ -259,6 +284,12 @@ function loginDemo(role) {
                     Esqueci a senha
                 </Link>
             </div>
+
+            <AuthTurnstileField
+                :config="login_turnstile"
+                v-model="turnstileToken"
+                :error="form.errors.turnstile_token"
+            />
 
             <Button
                 type="submit"

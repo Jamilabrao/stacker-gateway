@@ -15,29 +15,26 @@ const props = defineProps({
                 <Shield class="h-5 w-5" />
             </div>
             <div>
-                <h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Segurança do checkout</h2>
+                <h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Cloudflare Turnstile</h2>
                 <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    Proteção contra bots e flood em <code class="text-xs">/checkout</code>. Rate limits já estão ativos no servidor;
-                    o Turnstile é opcional.
+                    Proteção anti-bot em <code class="text-xs">/login</code>, <code class="text-xs">/plataforma/login</code> e
+                    <code class="text-xs">/cadastro</code>. Configure as chaves uma vez e ative por tela.
                 </p>
             </div>
+        </div>
+
+        <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+            <p class="font-medium">Recomendado em produção</p>
+            <p class="mt-2 text-xs">
+                Em ambientes públicos, ative o Turnstile no login e no cadastro, além da
+                <strong>verificação de e-mail</strong> abaixo, para reduzir abuso automatizado.
+            </p>
         </div>
 
         <div
             class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
         >
-            <label class="flex cursor-pointer items-center gap-3">
-                <input
-                    v-model="form.checkout_turnstile_enabled"
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
-                    true-value="1"
-                    false-value="0"
-                />
-                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Ativar Cloudflare Turnstile no checkout</span>
-            </label>
-
-            <div class="mt-5 grid gap-4 sm:grid-cols-2">
+            <div class="grid gap-4 sm:grid-cols-2">
                 <div class="sm:col-span-2">
                     <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Site key (pública)</label>
                     <input
@@ -64,32 +61,33 @@ const props = defineProps({
                         autocomplete="new-password"
                     />
                 </div>
-                <div class="sm:col-span-2">
-                    <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Modo no checkout</label>
-                    <select
-                        v-model="form.checkout_turnstile_mode"
-                        class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800"
-                    >
-                        <option value="disabled">Desativado (mesmo com toggle ligado, use para testes)</option>
-                        <option value="pix_boleto">PIX e boleto apenas (recomendado)</option>
-                        <option value="all_payments">Todos os métodos de pagamento</option>
-                    </select>
-                    <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                        No painel Cloudflare, crie o widget como <strong>Managed</strong>. No site usamos
-                        <code class="text-[11px]">appearance: interaction-only</code> — a maioria dos compradores não vê desafio;
-                        só tráfego suspeito.
-                    </p>
-                </div>
             </div>
+            <p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                No painel Cloudflare, crie o widget como <strong>Managed</strong>. No site usamos
+                <code class="text-[11px]">appearance: interaction-only</code> — a maioria dos usuários não vê desafio;
+                só tráfego suspeito.
+            </p>
         </div>
 
-        <div class="flex items-start gap-3 pt-4">
-            <div>
-                <h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Segurança do cadastro</h2>
-                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    Proteção opcional em <code class="text-xs">/cadastro</code> de infoprodutores. Desligado por padrão.
-                </p>
-            </div>
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+            <label class="flex cursor-pointer items-center gap-3">
+                <input
+                    v-model="form.login_turnstile_enabled"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    true-value="1"
+                    false-value="0"
+                    :disabled="!form.turnstile_keys_configured"
+                />
+                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Ativar Turnstile no login</span>
+            </label>
+            <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                Exibe o widget em <code class="text-[11px]">/login</code> (infoprodutor/cliente) e
+                <code class="text-[11px]">/plataforma/login</code> (admin).
+            </p>
+            <p v-if="!form.turnstile_keys_configured" class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                Configure site key e secret key acima para habilitar.
+            </p>
         </div>
 
         <div class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -100,15 +98,15 @@ const props = defineProps({
                     class="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
                     true-value="1"
                     false-value="0"
-                    :disabled="!form.registration_turnstile_available"
+                    :disabled="!form.turnstile_keys_configured"
                 />
-                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Ativar Cloudflare Turnstile no cadastro</span>
+                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Ativar Turnstile no cadastro</span>
             </label>
-            <p v-if="!form.registration_turnstile_available" class="mt-2 text-xs text-amber-700 dark:text-amber-400">
-                Configure as chaves do Turnstile do checkout acima para habilitar no cadastro.
+            <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                Exibe o widget na última etapa de <code class="text-[11px]">/cadastro</code> de infoprodutores.
             </p>
-            <p v-else class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                Reutiliza as mesmas chaves do checkout configuradas acima.
+            <p v-if="!form.turnstile_keys_configured" class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                Configure site key e secret key acima para habilitar.
             </p>
         </div>
 
@@ -135,9 +133,9 @@ const props = defineProps({
         <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
             <p class="font-medium">Rate limit (automático)</p>
             <ul class="mt-2 list-inside list-disc space-y-1 text-xs">
-                <li>PIX: até 3 tentativas por IP por minuto</li>
-                <li>Checkout geral: até 10 pedidos por IP por minuto</li>
-                <li>Pedidos pendentes duplicados: bloqueio por e-mail + produto</li>
+                <li>Login: até 10 tentativas por IP + e-mail por minuto</li>
+                <li>Cadastro: até 3 contas por IP por hora</li>
+                <li>Recuperação de senha: até 3 solicitações por IP por hora</li>
             </ul>
             <p class="mt-2 text-xs">Em produção com muito tráfego, use Redis como <code>CACHE_STORE</code> para contadores precisos.</p>
         </div>

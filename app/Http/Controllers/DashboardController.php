@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Support\DashboardBannerSettings;
 use App\Support\SqlDialect;
 use Carbon\Carbon;
+use App\Services\AffiliateCommissionQuery;
 use App\Services\Checkout\CheckoutAbandonmentMetrics;
 use App\Services\TeamAccessService;
 use Illuminate\Http\Request;
@@ -30,6 +31,7 @@ class DashboardController extends Controller
         }
 
         $tenantId = auth()->user()->tenant_id;
+        $userId = (int) auth()->id();
         $cacheKey = 'dashboard:v4:' . ($tenantId ?? 'global') . ':' . $period;
 
         $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($tenantId, $period) {
@@ -112,6 +114,31 @@ class DashboardController extends Controller
 
         $data = new \ArrayObject($payload);
         $data['dashboard_banners'] = DashboardBannerSettings::banners(activeOnly: true, resolveUrls: true);
+        $data['has_affiliate_enrollments'] = AffiliateCommissionQuery::userHasApprovedEnrollments($userId);
+
+        if ($data['has_affiliate_enrollments']) {
+            $affiliateCacheKey = 'dashboard:affiliate:'.$userId.':'.$period;
+            $affiliatePayload = Cache::remember($affiliateCacheKey, self::CACHE_TTL_SECONDS, function () use ($userId, $period) {
+                $affiliateRequest = Request::create('/', 'GET', ['period' => $period]);
+
+                return [
+                    'stats' => AffiliateCommissionQuery::statsFor($userId, $affiliateRequest),
+                    'recent_sales' => AffiliateCommissionQuery::baseQuery($userId)
+                        ->orderByDesc('created_at')
+                        ->limit(5)
+                        ->get()
+                        ->map(fn ($c) => AffiliateCommissionQuery::commissionToArrayForAffiliate($c))
+                        ->values()
+                        ->all(),
+                ];
+            });
+            $data['affiliate_stats'] = $affiliatePayload['stats'];
+            $data['affiliate_recent_sales'] = $affiliatePayload['recent_sales'];
+        } else {
+            $data['affiliate_stats'] = null;
+            $data['affiliate_recent_sales'] = [];
+        }
+
         event(new DashboardLoading($data));
 
         return Inertia::render('Dashboard/Index', $data->getArrayCopy());

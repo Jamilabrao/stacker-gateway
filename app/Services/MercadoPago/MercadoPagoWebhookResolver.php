@@ -4,8 +4,8 @@ namespace App\Services\MercadoPago;
 
 use App\Gateways\GatewayRegistry;
 use App\Gateways\MercadoPago\MercadoPagoDriver;
-use App\Models\GatewayCredential;
 use App\Models\Order;
+use App\Support\MercadoPagoCredentialCandidates;
 use Illuminate\Support\Facades\Log;
 
 class MercadoPagoWebhookResolver
@@ -27,12 +27,20 @@ class MercadoPagoWebhookResolver
             return null;
         }
 
-        foreach ($this->credentialCandidates($tenantId) as $credentials) {
-            $details = $driver->getPaymentDetails($paymentId, $credentials);
+        $stub = new Order(['tenant_id' => $tenantId]);
+        $stub->exists = false;
+
+        foreach (MercadoPagoCredentialCandidates::forOrder($stub) as $candidate) {
+            $details = $driver->getPaymentDetails($paymentId, $candidate['credentials']);
             if ($details !== null) {
                 return $details;
             }
         }
+
+        Log::debug('MercadoPagoWebhookResolver: payment não encontrado em nenhuma credencial', [
+            'payment_id' => $paymentId,
+            'tenant_id' => $tenantId,
+        ]);
 
         return null;
     }
@@ -58,42 +66,5 @@ class MercadoPagoWebhookResolver
         }
 
         return null;
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    private function credentialCandidates(?int $tenantId): array
-    {
-        $seen = [];
-        $out = [];
-
-        $global = GatewayCredential::resolveForPayment(null, 'mercadopago');
-        if ($global !== null) {
-            $creds = $global->getDecryptedCredentials();
-            if ($creds !== []) {
-                $out[] = $creds;
-                $seen[md5(json_encode($creds))] = true;
-            }
-        }
-
-        if ($tenantId !== null) {
-            $tenant = GatewayCredential::resolveForPayment($tenantId, 'mercadopago');
-            if ($tenant !== null) {
-                $creds = $tenant->getDecryptedCredentials();
-                $hash = md5(json_encode($creds));
-                if ($creds !== [] && ! isset($seen[$hash])) {
-                    $out[] = $creds;
-                }
-            }
-        }
-
-        if ($out === []) {
-            Log::debug('MercadoPagoWebhookResolver: nenhuma credencial disponível', [
-                'tenant_id' => $tenantId,
-            ]);
-        }
-
-        return $out;
     }
 }

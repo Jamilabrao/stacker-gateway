@@ -7,6 +7,7 @@ use App\Gateways\MercadoPago\MercadoPagoDriver;
 use App\Models\Order;
 use App\Services\MercadoPago\MercadoPagoCheckoutCompletionService;
 use App\Support\GatewayPaymentCredentials;
+use App\Support\MercadoPagoCredentialCandidates;
 use Illuminate\Console\Command;
 
 class ReconcileMercadoPagoPaymentsCommand extends Command
@@ -67,33 +68,16 @@ class ReconcileMercadoPagoPaymentsCommand extends Command
             }
 
             $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, 'mercadopago', $order);
-            if ($credentials === null) {
+            if ($credentials === null && MercadoPagoCredentialCandidates::forOrder($order) === []) {
                 continue;
             }
 
-            $paymentId = trim((string) ($order->gateway_id ?? ''));
-            $apiStatus = null;
-
-            if ($paymentId !== '') {
-                try {
-                    $apiStatus = $driver->getTransactionStatus($paymentId, $credentials);
-                } catch (\Throwable) {
-                    $apiStatus = null;
-                }
-            }
-
-            if ($apiStatus !== 'paid') {
-                $foundId = $driver->findApprovedPaymentByExternalReference((string) $order->id, $credentials);
-                if ($foundId !== null) {
-                    $paymentId = $foundId;
-                    $apiStatus = 'paid';
-                }
-            }
-
-            if ($apiStatus === 'paid' && $paymentId !== '') {
-                $completion->applyPaid($order, $paymentId, [
+            $approved = MercadoPagoCredentialCandidates::findApprovedPaymentForOrder($order, $driver);
+            if ($approved !== null) {
+                $completion->applyPaid($order, $approved['payment_id'], [
                     'webhook_source' => 'reconcile_mercadopago',
                     'source' => 'reconcile_mercadopago',
+                    'mp_credential_label' => $approved['label'],
                 ]);
                 $paid++;
             }

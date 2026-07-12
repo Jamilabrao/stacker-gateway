@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AffiliateCommission;
 use App\Models\CheckoutSession;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductOffer;
 use App\Models\User;
 use App\Support\SaleOrigin;
+use App\Services\AffiliateCommissionQuery;
 use App\Services\AccessEmailService;
 use App\Services\ManualOrderRefundService;
 use App\Services\Med\MedPolicyService;
@@ -476,7 +478,18 @@ class VendasController extends Controller
 
     public function index(Request $request): InertiaResponse
     {
-        $tenantId = auth()->user()->tenant_id;
+        $user = auth()->user();
+        $hasAffiliateEnrollments = AffiliateCommissionQuery::userHasApprovedEnrollments((int) $user->id);
+        $view = $request->query('view', 'own');
+        if (! in_array($view, ['own', 'affiliate'], true)) {
+            $view = 'own';
+        }
+
+        if ($view === 'affiliate' && $hasAffiliateEnrollments) {
+            return $this->affiliateVendasIndex($request, $user, $hasAffiliateEnrollments);
+        }
+
+        $tenantId = $user->tenant_id;
         [$filteredQuery, $statusFilter] = $this->buildFilteredQuery($request, $tenantId);
 
         $vendas = $filteredQuery
@@ -526,6 +539,8 @@ class VendasController extends Controller
         }
 
         return Inertia::render('Vendas/Index', [
+            'view' => 'own',
+            'has_affiliate_enrollments' => $hasAffiliateEnrollments,
             'vendas' => $vendas,
             'stats' => $stats,
             'status_filter' => $statusFilter,
@@ -549,6 +564,88 @@ class VendasController extends Controller
             'products' => $products,
             'offers' => $offers,
         ]);
+    }
+
+    private function affiliateVendasIndex(Request $request, User $user, bool $hasAffiliateEnrollments): InertiaResponse
+    {
+        $affiliateRequest = $this->affiliateRequestFromVendas($request);
+
+        $query = AffiliateCommissionQuery::applyFilters(
+            AffiliateCommissionQuery::baseQuery($user->id),
+            $affiliateRequest,
+            false,
+        )->orderByDesc('created_at');
+
+        $paginator = $query
+            ->paginate(20)
+            ->withQueryString()
+            ->through(fn ($c) => AffiliateCommissionQuery::commissionToArrayForAffiliate($c));
+
+        return Inertia::render('Vendas/Index', [
+            'view' => 'affiliate',
+            'has_affiliate_enrollments' => $hasAffiliateEnrollments,
+            'vendas' => $paginator,
+            'stats' => AffiliateCommissionQuery::statsFor($user->id, $affiliateRequest),
+            'status_filter' => 'todas',
+            'filters' => [
+                'q' => $this->normalizeString($request->query('q')),
+                'period' => $this->normalizeString($request->query('period')) ?? 'all',
+                'date_from' => $this->normalizeString($request->query('date_from')),
+                'date_to' => $this->normalizeString($request->query('date_to')),
+                'product_id' => $this->normalizeString($request->query('product_id', '')),
+                'producer_id' => $this->normalizeString($request->query('producer_id', '')),
+                'commission_status' => $this->normalizeString($request->query('commission_status', '')) ?? 'all',
+            ],
+            'products' => AffiliateCommissionQuery::productFilterOptions($user->id),
+            'producers' => AffiliateCommissionQuery::producerFilterOptions($user->id),
+            'commission_status_options' => [
+                ['value' => 'all', 'label' => 'Todos'],
+                ['value' => AffiliateCommission::STATUS_PENDING, 'label' => 'Pendente'],
+                ['value' => AffiliateCommission::STATUS_APPROVED, 'label' => 'Aprovada'],
+                ['value' => AffiliateCommission::STATUS_CANCELLED, 'label' => 'Cancelada'],
+                ['value' => AffiliateCommission::STATUS_REFUNDED, 'label' => 'Estornada'],
+            ],
+            'offers' => [],
+            'sale_origin_options' => [],
+        ]);
+    }
+
+    private function affiliateRequestFromVendas(Request $request): Request
+    {
+        $period = $this->normalizeString($request->query('period')) ?? 'all';
+        $dateFrom = $this->normalizeString($request->query('date_from'));
+        $dateTo = $this->normalizeString($request->query('date_to'));
+
+        $affiliatePeriod = match ($period) {
+            'today' => 'hoje',
+            '7d' => '7dias',
+            '30d' => 'mes',
+            'this_month' => 'mes',
+            'last_month' => 'personalizado',
+            'custom' => 'personalizado',
+            default => 'total',
+        };
+
+        if ($period === 'last_month') {
+            $dateFrom = now()->subMonth()->startOfMonth()->toDateString();
+            $dateTo = now()->subMonth()->endOfMonth()->toDateString();
+        }
+
+        $params = [
+            'period' => $affiliatePeriod,
+            'q' => $request->query('q', ''),
+            'product_id' => $request->query('product_id', ''),
+            'producer_id' => $request->query('producer_id', ''),
+            'status' => $request->query('commission_status', 'all'),
+            'payment_method' => $request->query('payment_method', 'all'),
+        ];
+
+        if ($affiliatePeriod === 'personalizado') {
+            $params['date_from'] = $dateFrom;
+            $params['date_to'] = $dateTo;
+        }
+
+        return Request::create('/', 'GET', $params);
     }
 
     public function export(Request $request): StreamedResponse

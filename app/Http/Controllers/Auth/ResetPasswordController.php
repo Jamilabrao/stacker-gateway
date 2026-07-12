@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Support\NormalizedEmail;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,8 @@ class ResetPasswordController extends Controller
             'password.confirmed' => 'A confirmação da senha não confere.',
             'password.min' => 'A senha deve ter no mínimo 8 caracteres.',
         ]);
+
+        $request->merge(['email' => NormalizedEmail::normalize($request->input('email'))]);
 
         $status = Password::reset(
             $request->only('email', 'password', 'password_confirmation', 'token'),

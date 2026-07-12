@@ -242,9 +242,9 @@ Route::get('/email/verificar/{id}/{hash}', [\App\Http\Controllers\EmailVerificat
     ->middleware(['signed', 'throttle:6,1'])
     ->name('verification.verify');
 
-Route::post('/cadastro', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'store'])->middleware('throttle:10,1');
-Route::post('/cadastro/validar-email', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateEmail'])->middleware('throttle:30,1');
-Route::post('/cadastro/validar-documento', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateDocument'])->middleware('throttle:30,1');
+Route::post('/cadastro', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'store'])->middleware('throttle:registration-store');
+Route::post('/cadastro/validar-email', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateEmail'])->middleware('throttle:registration-validate');
+Route::post('/cadastro/validar-documento', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateDocument'])->middleware('throttle:registration-validate');
 
 Route::middleware('throttle:10,1')->group(function () {
     Route::post('/demo/login/admin', [\App\Http\Controllers\DemoLoginController::class, 'loginAdmin'])->name('demo.login.admin');
@@ -261,9 +261,9 @@ Route::middleware('guest')->group(function () {
     Route::post('/login/2fa', [TwoFactorLoginController::class, 'verifySeller'])->name('login.two-factor.verify')->middleware('throttle:login');
     Route::post('/login/2fa/cancelar', [TwoFactorLoginController::class, 'cancelSeller'])->name('login.two-factor.cancel');
     Route::get('/esqueci-senha', [ForgotPasswordController::class, 'showLinkRequestForm'])->name('password.request');
-    Route::post('/esqueci-senha', [ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email')->middleware('throttle:6,1');
+    Route::post('/esqueci-senha', [ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email')->middleware('throttle:password-reset');
     Route::get('/redefinir-senha/{token}', [ResetPasswordController::class, 'showResetForm'])->name('password.reset');
-    Route::post('/redefinir-senha', [ResetPasswordController::class, 'reset'])->name('password.update')->middleware('throttle:6,1');
+    Route::post('/redefinir-senha', [ResetPasswordController::class, 'reset'])->name('password.update')->middleware('throttle:password-reset');
 });
 
 Route::middleware('auth')->group(function () {
@@ -315,6 +315,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             Route::get('/', [\App\Http\Controllers\Platform\UsersController::class, 'index'])->name('index');
             Route::get('/create', [\App\Http\Controllers\Platform\UsersController::class, 'create'])->name('create');
             Route::post('/', [\App\Http\Controllers\Platform\UsersController::class, 'store'])->name('store');
+            Route::post('/excluir-em-massa', [\App\Http\Controllers\Platform\UsersController::class, 'bulkDestroy'])
+                ->middleware('throttle:5,1')
+                ->name('bulk-destroy');
             Route::get('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'show'])->name('show');
             Route::get('/{user}/taxas-efetivas', [\App\Http\Controllers\Platform\UsersController::class, 'effectiveFees'])->name('effective-fees');
             Route::get('/{user}/observacoes', [\App\Http\Controllers\Platform\MerchantAdminNotesController::class, 'index'])->name('notes.index');
@@ -330,6 +333,17 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             Route::get('/ops/mercadopago-saldo', \App\Http\Controllers\Platform\MercadoPagoBalanceController::class)
                 ->name('ops.mercadopago-balance');
         });
+
+        Route::get('/ops/saude-pagamentos', [\App\Http\Controllers\Platform\PaymentHealthController::class, 'index'])
+            ->name('ops.payment-health');
+        Route::get('/ops/saude-pagamentos/pedidos/{order}/probe', [\App\Http\Controllers\Platform\PaymentHealthController::class, 'probeOrder'])
+            ->name('ops.payment-health.probe');
+        Route::post('/ops/saude-pagamentos/reconciliar', [\App\Http\Controllers\Platform\PaymentHealthController::class, 'reconcile'])
+            ->middleware('throttle:3,1')
+            ->name('ops.payment-health.reconcile');
+        Route::post('/ops/saude-pagamentos/pedidos/{order}/reconciliar', [\App\Http\Controllers\Platform\PaymentHealthController::class, 'reconcileOrder'])
+            ->middleware('throttle:10,1')
+            ->name('ops.payment-health.reconcile-order');
 
         Route::get('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'index'])->name('settings.index');
         Route::put('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'update'])->name('settings.update');

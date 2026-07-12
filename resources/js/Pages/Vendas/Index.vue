@@ -5,6 +5,7 @@ import axios from 'axios';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import VendasTabs from '@/components/vendas/VendasTabs.vue';
 import VendaDetailSidebar from '@/components/vendas/VendaDetailSidebar.vue';
+import AfiliadoVendaDetailSidebar from '@/components/afiliados/AfiliadoVendaDetailSidebar.vue';
 import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
 import AuroraPageSection from '@/components/aurora/AuroraPageSection.vue';
 import AuroraStatCard from '@/components/aurora/AuroraStatCard.vue';
@@ -45,15 +46,42 @@ const {
 } = usePanelThemeClasses();
 
 const props = defineProps({
+    view: { type: String, default: 'own' },
+    has_affiliate_enrollments: { type: Boolean, default: false },
     vendas: { type: Object, default: () => ({ data: [], links: [] }) },
     stats: { type: Object, default: () => ({}) },
     status_filter: { type: String, default: 'todas' },
     filters: { type: Object, default: () => ({}) },
     products: { type: Array, default: () => [] },
+    producers: { type: Array, default: () => [] },
+    commission_status_options: { type: Array, default: () => [] },
     offers: { type: Array, default: () => [] },
 });
 
-const vendasList = computed(() => props.vendas?.data ?? props.vendas ?? []);
+const isAffiliateView = computed(() => props.view === 'affiliate');
+
+const affiliateSidebarOpen = ref(false);
+const selectedAffiliateVenda = ref(null);
+
+const salesViewOptions = [
+    { value: 'own', label: t('sales.view.own', 'Minhas vendas') },
+    { value: 'affiliate', label: t('sales.view.affiliate', 'Comissões (afiliado)') },
+];
+
+function switchSalesView(nextView) {
+    if (nextView === props.view) return;
+    router.get('/vendas', { view: nextView }, { preserveState: false });
+}
+
+function openAffiliateDetail(venda) {
+    selectedAffiliateVenda.value = venda;
+    affiliateSidebarOpen.value = true;
+}
+
+function formatAffiliateDate(value) {
+    if (!value) return '—';
+    return new Date(value).toLocaleString('pt-BR');
+}
 
 const valuesVisible = ref(true);
 const sidebarOpen = ref(false);
@@ -124,6 +152,18 @@ const filterForm = ref({
     sale_channel: props.filters?.sale_channel ?? '',
 });
 
+const affiliateFilterForm = ref({
+    q: props.filters?.q ?? '',
+    period: props.filters?.period ?? 'all',
+    date_from: props.filters?.date_from ?? '',
+    date_to: props.filters?.date_to ?? '',
+    product_id: props.filters?.product_id ?? '',
+    producer_id: props.filters?.producer_id ?? '',
+    commission_status: props.filters?.commission_status ?? 'all',
+});
+
+const vendasList = computed(() => props.vendas?.data ?? props.vendas ?? []);
+
 const advancedFiltersOpen = ref(false);
 const productFilterOpen = ref(false);
 const searchFieldFocused = ref(false);
@@ -165,11 +205,31 @@ const selectedProductLabels = computed(() => {
 });
 
 function buildQuery(overrides = {}) {
+    if (isAffiliateView.value) {
+        const f = { ...affiliateFilterForm.value, ...overrides };
+        if (typeof f.q === 'string') {
+            f.q = f.q.trim();
+        }
+        const q = { view: 'affiliate', ...f };
+        const cleaned = {};
+        Object.entries(q).forEach(([k, v]) => {
+            if (v === null || v === undefined) return;
+            if (typeof v === 'string' && v.trim() === '') return;
+            if ((k === 'period' || k === 'commission_status') && v === 'all') return;
+            cleaned[k] = v;
+        });
+        if (cleaned.period !== 'custom') {
+            delete cleaned.date_from;
+            delete cleaned.date_to;
+        }
+        return cleaned;
+    }
+
     const f = { ...filterForm.value, ...overrides };
     if (typeof f.q === 'string') {
         f.q = f.q.trim();
     }
-    const q = { status_filter: props.status_filter, ...f };
+    const q = { view: 'own', status_filter: props.status_filter, ...f };
 
     const cleaned = {};
     Object.entries(q).forEach(([k, v]) => {
@@ -473,7 +533,28 @@ function onFilterChange() {
     applyFilters();
 }
 
+function clearAffiliateFilters() {
+    affiliateFilterForm.value = {
+        q: '',
+        period: 'all',
+        date_from: '',
+        date_to: '',
+        product_id: '',
+        producer_id: '',
+        commission_status: 'all',
+    };
+    applyFilters();
+}
+
+function onAffiliateFilterChange() {
+    applyFilters();
+}
+
 function clearFilters() {
+    if (isAffiliateView.value) {
+        clearAffiliateFilters();
+        return;
+    }
     filterForm.value = {
         q: '',
         period: 'all',
@@ -517,11 +598,188 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
     <div :class="pageClass">
         <AuroraPageHeader
             :title="t('sidebar.sales', 'Vendas')"
-            :subtitle="t('sales.subtitle', 'Acompanhe pedidos, status de pagamento e desempenho comercial.')"
+            :subtitle="isAffiliateView ? t('sales.subtitle_affiliate', 'Comissões das vendas que você indicou como afiliado.') : t('sales.subtitle', 'Acompanhe pedidos, status de pagamento e desempenho comercial.')"
         />
 
-        <VendasTabs />
+        <nav
+            v-if="has_affiliate_enrollments"
+            :class="[
+                themePrefix
+                    ? `${themePrefix}-subnav`
+                    : 'inline-flex rounded-xl bg-zinc-100/80 p-1 dark:bg-zinc-800/80',
+                'mb-4',
+            ]"
+            aria-label="Tipo de vendas"
+        >
+            <button
+                v-for="opt in salesViewOptions"
+                :key="opt.value"
+                type="button"
+                :aria-current="view === opt.value ? 'true' : undefined"
+                :class="[
+                    themePrefix
+                        ? [`${themePrefix}-subnav-item`, view === opt.value && `${themePrefix}-subnav-item-active`]
+                        : [
+                            'rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
+                            view === opt.value
+                                ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
+                                : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
+                        ],
+                ]"
+                @click="switchSalesView(opt.value)"
+            >
+                {{ opt.label }}
+            </button>
+        </nav>
 
+        <VendasTabs v-if="!isAffiliateView" />
+
+        <template v-if="isAffiliateView">
+            <AuroraPageSection>
+                <div class="flex items-center justify-between gap-3">
+                    <p class="aurora-section-title">Resumo de comissões</p>
+                    <button
+                        type="button"
+                        :aria-label="valuesVisible ? t('dashboard.hide_values', 'Ocultar valores') : t('dashboard.show_values', 'Mostrar valores')"
+                        class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                        :class="iconBtn"
+                        @click="valuesVisible = !valuesVisible"
+                    >
+                        <Eye v-if="valuesVisible" class="h-5 w-5" aria-hidden="true" />
+                        <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
+                    </button>
+                </div>
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <AuroraStatCard
+                        :icon="ShoppingCart"
+                        label="Vendas como afiliado"
+                        :value="displayNumber(stats.total_vendas ?? 0)"
+                    />
+                    <AuroraStatCard
+                        :icon="CircleDollarSign"
+                        label="Comissão aprovada"
+                        :value="displayCurrency(stats.comissao_aprovada ?? 0)"
+                    />
+                    <AuroraStatCard
+                        :icon="Banknote"
+                        label="Comissão pendente"
+                        :value="displayCurrency(stats.comissao_pendente ?? 0)"
+                    />
+                    <AuroraStatCard
+                        :icon="CreditCard"
+                        label="Ticket médio"
+                        :value="displayCurrency(stats.ticket_medio ?? 0)"
+                    />
+                </div>
+            </AuroraPageSection>
+
+            <AuroraPageSection>
+                <div :class="stackClass">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <input
+                            v-model="affiliateFilterForm.q"
+                            type="search"
+                            placeholder="Buscar por produto, pedido ou referência..."
+                            class="min-w-[200px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                            @change="onAffiliateFilterChange"
+                        />
+                        <select
+                            v-model="affiliateFilterForm.period"
+                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                            @change="onAffiliateFilterChange"
+                        >
+                            <option v-for="p in periodOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
+                        </select>
+                        <select
+                            v-model="affiliateFilterForm.commission_status"
+                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                            @change="onAffiliateFilterChange"
+                        >
+                            <option v-for="opt in commission_status_options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                        <select
+                            v-model="affiliateFilterForm.product_id"
+                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                            @change="onAffiliateFilterChange"
+                        >
+                            <option value="">Todos produtos</option>
+                            <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
+                        </select>
+                        <select
+                            v-model="affiliateFilterForm.producer_id"
+                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                            @change="onAffiliateFilterChange"
+                        >
+                            <option value="">Todos produtores</option>
+                            <option v-for="p in producers" :key="p.id" :value="p.id">{{ p.name }}</option>
+                        </select>
+                        <button type="button" :class="btnSecondary" @click="clearAffiliateFilters">Limpar filtros</button>
+                    </div>
+
+                    <div class="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-zinc-50 text-left text-xs uppercase text-zinc-500 dark:bg-zinc-900/50">
+                                <tr>
+                                    <th class="px-4 py-3">Data</th>
+                                    <th class="px-4 py-3">Produto</th>
+                                    <th class="px-4 py-3">Cliente</th>
+                                    <th class="px-4 py-3">Comissão</th>
+                                    <th class="px-4 py-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr
+                                    v-for="v in vendasList"
+                                    :key="v.id"
+                                    class="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900/40"
+                                    @click="openAffiliateDetail(v)"
+                                >
+                                    <td class="px-4 py-3">{{ formatAffiliateDate(v.created_at) }}</td>
+                                    <td class="px-4 py-3">{{ v.product_name }}</td>
+                                    <td class="px-4 py-3">
+                                        <span v-if="v.customer_hidden" class="text-zinc-500">Oculto</span>
+                                        <span v-else>{{ v.customer_name ?? v.customer_email ?? '—' }}</span>
+                                    </td>
+                                    <td class="px-4 py-3 font-medium">{{ displayCurrency(v.commission_net) }}</td>
+                                    <td class="px-4 py-3">{{ v.status_label }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p v-if="!vendasList.length" class="p-8 text-center text-sm text-zinc-500">Nenhuma comissão encontrada.</p>
+                    </div>
+
+                    <nav
+                        v-if="vendas?.links?.length > 3"
+                        class="flex items-center justify-center gap-2"
+                        aria-label="Paginação"
+                    >
+                        <a
+                            v-for="link in vendas.links"
+                            :key="link.label"
+                            :href="link.url"
+                            :aria-current="link.active ? 'page' : undefined"
+                            :class="[
+                                'relative inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium transition',
+                                link.active
+                                    ? 'bg-[var(--color-primary)] text-white'
+                                    : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800',
+                                !link.url && 'pointer-events-none opacity-40',
+                            ]"
+                            v-text="htmlToText(link.label)"
+                            @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
+                        />
+                    </nav>
+                </div>
+            </AuroraPageSection>
+
+            <AfiliadoVendaDetailSidebar
+                :open="affiliateSidebarOpen"
+                :venda="selectedAffiliateVenda"
+                @close="affiliateSidebarOpen = false"
+            />
+        </template>
+
+        <template v-else>
         <AuroraPageSection>
             <div class="flex items-center justify-between gap-3">
                 <p class="aurora-section-title">
@@ -1205,5 +1463,6 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 </div>
             </Transition>
         </Teleport>
+        </template>
     </div>
 </template>

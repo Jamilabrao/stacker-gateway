@@ -6,7 +6,7 @@ use App\Gateways\GatewayRegistry;
 use App\Gateways\MercadoPago\MercadoPagoDriver;
 use App\Jobs\ProcessPaymentWebhook;
 use App\Models\Order;
-use App\Support\GatewayPaymentCredentials;
+use App\Support\MercadoPagoCredentialCandidates;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -142,38 +142,20 @@ class MercadoPagoCheckoutCompletionService
             return $order->status === 'completed';
         }
 
-        $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, 'mercadopago', $order);
-        if ($credentials === null) {
-            return false;
-        }
-
         $driver = GatewayRegistry::driver('mercadopago');
         if (! $driver instanceof MercadoPagoDriver) {
             return false;
         }
 
-        $paymentId = trim((string) ($order->gateway_id ?? ''));
-        $apiStatus = null;
-
-        if ($paymentId !== '') {
-            $apiStatus = $driver->getTransactionStatus($paymentId, $credentials);
-        }
-
-        if ($apiStatus !== 'paid') {
-            $foundId = $driver->findApprovedPaymentByExternalReference((string) $order->id, $credentials);
-            if ($foundId !== null) {
-                $paymentId = $foundId;
-                $apiStatus = 'paid';
-            }
-        }
-
-        if ($apiStatus !== 'paid' || $paymentId === '') {
+        $approved = MercadoPagoCredentialCandidates::findApprovedPaymentForOrder($order, $driver);
+        if ($approved === null) {
             return false;
         }
 
-        $this->applyPaid($order->fresh(), $paymentId, [
+        $this->applyPaid($order->fresh(), $approved['payment_id'], [
             'webhook_source' => 'order_status_poll',
             'source' => 'order_status_poll',
+            'mp_credential_label' => $approved['label'],
         ]);
 
         return $order->fresh()->status === 'completed';

@@ -452,6 +452,11 @@ class User extends Authenticatable
      *
      * @return array<string, string>
      */
+    public function setEmailAttribute(?string $value): void
+    {
+        $this->attributes['email'] = $value === null ? null : strtolower(trim($value));
+    }
+
     protected function casts(): array
     {
         return [

@@ -68,6 +68,11 @@ final class BrandingAssetUrls
     {
         $path = '/'.ltrim($path, '/');
 
+        // Assets em public/images e public/icons — não passam por storage/app/public.
+        if (str_starts_with($path, '/images/') || str_starts_with($path, '/icons/')) {
+            return $path;
+        }
+
         return app(StorageService::class)->resolvePublicUrl($path);
     }
 

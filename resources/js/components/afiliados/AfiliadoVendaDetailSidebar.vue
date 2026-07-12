@@ -52,8 +52,11 @@ function formatDate(value) {
                     </div>
                     <div class="space-y-1">
                         <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Cliente</p>
-                        <p class="text-sm">{{ venda.customer_name ?? '—' }}</p>
-                        <p class="text-xs text-zinc-500">{{ venda.customer_email ?? '' }}</p>
+                        <p v-if="venda.customer_hidden" class="text-sm text-zinc-500">Dados ocultos pelo produtor</p>
+                        <template v-else>
+                            <p class="text-sm">{{ venda.customer_name ?? '—' }}</p>
+                            <p class="text-xs text-zinc-500">{{ venda.customer_email ?? '' }}</p>
+                        </template>
                     </div>
                     <div class="space-y-1">
                         <p class="text-xs font-medium uppercase tracking-wide text-zinc-500">Valor da venda</p>

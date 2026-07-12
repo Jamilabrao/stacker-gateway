@@ -4,6 +4,7 @@ import { router, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
+import AffiliateDashboardSection from '@/components/dashboard/AffiliateDashboardSection.vue';
 
 defineOptions({ layout: LayoutInfoprodutor });
 
@@ -43,6 +44,9 @@ const props = defineProps({
     reembolsos_total: { type: Number, default: 0 },
     quantidade_produtos: { type: Number, default: 0 },
     grafico_vendas: { type: Array, default: () => [] },
+    has_affiliate_enrollments: { type: Boolean, default: false },
+    affiliate_stats: { type: Object, default: null },
+    affiliate_recent_sales: { type: Array, default: () => [] },
 });
 
 const periodOptions = [
@@ -205,11 +209,21 @@ const sharedViewProps = computed(() => ({
 </script>
 
 <template>
-    <component
-        :is="dashboardView"
-        v-if="dashboardView"
-        v-bind="sharedViewProps"
-        @update:period="setPeriod"
-        @toggle-values="valuesVisible = !valuesVisible"
-    />
+    <div class="space-y-6">
+        <component
+            :is="dashboardView"
+            v-if="dashboardView"
+            v-bind="sharedViewProps"
+            @update:period="setPeriod"
+            @toggle-values="valuesVisible = !valuesVisible"
+        />
+        <AffiliateDashboardSection
+            v-if="has_affiliate_enrollments && affiliate_stats"
+            :stats="affiliate_stats"
+            :recent-sales="affiliate_recent_sales"
+            :values-visible="valuesVisible"
+            :format-currency="displayCurrency"
+            :format-number="displayNumber"
+        />
+    </div>
 </template>

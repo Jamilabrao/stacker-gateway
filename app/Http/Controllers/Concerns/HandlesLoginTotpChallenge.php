@@ -7,6 +7,8 @@ use App\Services\Platform\PlatformTotpService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\Response;
 
 trait HandlesLoginTotpChallenge
 {
@@ -62,7 +64,7 @@ trait HandlesLoginTotpChallenge
         ]);
     }
 
-    protected function completeLoginAfterTotp(Request $request, User $user): RedirectResponse
+    protected function completeLoginAfterTotp(Request $request, User $user): RedirectResponse|Response
     {
         $remember = (bool) $request->session()->get('login.totp.remember', false);
         $intended = $request->session()->get('login.totp.intended');
@@ -78,23 +80,85 @@ trait HandlesLoginTotpChallenge
         }
 
         if (is_string($intended) && $intended !== '') {
-            return redirect()->intended($intended);
+            return $this->inertiaOrRedirectAfterLogin($request, $intended);
         }
 
         if ($panel === 'platform' && $user->canAccessPlatformPanel()) {
-            return redirect()->intended(route('plataforma.dashboard'));
+            return $this->inertiaOrRedirectAfterLogin($request, route('plataforma.dashboard'));
         }
 
         if ($user->canAccessSellerPanel()) {
-            return redirect()->intended('/dashboard');
+            return $this->inertiaOrRedirectAfterLogin($request, '/dashboard');
         }
 
         if ($user->canAccessCustomerPanel()) {
             $request->session()->put('panel_context', 'customer');
 
-            return redirect()->intended('/painel-cliente');
+            return $this->inertiaOrRedirectAfterLogin($request, '/painel-cliente');
         }
 
-        return redirect()->intended('/painel-cliente');
+        return $this->inertiaOrRedirectAfterLogin($request, '/painel-cliente');
+    }
+
+    /**
+     * Após login, visitas Inertia não devem seguir 302 via XHR (quebra com url.intended).
+     * Força navegação completa via X-Inertia-Location (sempre path relativo, no host atual).
+     */
+    protected function inertiaOrRedirectAfterLogin(Request $request, string $defaultUrl): RedirectResponse|Response
+    {
+        if ($request->header('X-Inertia')) {
+            // url.intended costuma apontar para páginas protegidas visitadas antes do login;
+            // com Inertia isso vira loop (POST login → GET intended → GET login). Vai ao destino padrão.
+            $request->session()->forget('url.intended');
+
+            return Inertia::location($this->toInertiaLocationPath($defaultUrl));
+        }
+
+        $intended = $request->session()->pull('url.intended');
+        $url = is_string($intended) && $intended !== '' && $this->isSafeLocalRedirect($intended)
+            ? $intended
+            : $defaultUrl;
+
+        return redirect()->to($url);
+    }
+
+    private function isSafeLocalRedirect(string $url): bool
+    {
+        if (str_starts_with($url, '/') && ! str_starts_with($url, '//')) {
+            return true;
+        }
+
+        $appUrl = rtrim((string) config('app.url'), '/');
+        if ($appUrl !== '' && str_starts_with($url, $appUrl.'/')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function toInertiaLocationPath(string $url): string
+    {
+        if (str_starts_with($url, '/') && ! str_starts_with($url, '//')) {
+            return $url;
+        }
+
+        $appUrl = rtrim((string) config('app.url'), '/');
+        if ($appUrl !== '' && str_starts_with($url, $appUrl)) {
+            $relative = substr($url, strlen($appUrl));
+
+            return ($relative === '' || $relative === false) ? '/' : $relative;
+        }
+
+        $parts = parse_url($url);
+        if (! isset($parts['path'])) {
+            return '/';
+        }
+
+        $path = $parts['path'];
+        if (! empty($parts['query'])) {
+            $path .= '?'.$parts['query'];
+        }
+
+        return $path;
     }
 }

@@ -28,7 +28,7 @@ final class CheckoutTurnstileSettings
     public static function publicConfig(): array
     {
         $enabled = Setting::get('checkout_turnstile_enabled', '0', null) === '1';
-        $siteKey = trim((string) Setting::get('checkout_turnstile_site_key', '', null));
+        $siteKey = self::siteKey();
         $mode = trim((string) Setting::get('checkout_turnstile_mode', self::MODE_PIX_BOLETO, null));
         if (! in_array($mode, self::MODES, true)) {
             $mode = self::MODE_PIX_BOLETO;
@@ -39,6 +39,16 @@ final class CheckoutTurnstileSettings
             'site_key' => $siteKey,
             'mode' => $mode,
         ];
+    }
+
+    public static function siteKey(): string
+    {
+        return trim((string) Setting::get('checkout_turnstile_site_key', '', null));
+    }
+
+    public static function keysConfigured(): bool
+    {
+        return self::siteKey() !== '' && self::secretKey() !== '';
     }
 
     public static function isEnabled(): bool
@@ -81,14 +91,12 @@ final class CheckoutTurnstileSettings
      */
     public static function forSettingsForm(): array
     {
-        $public = self::publicConfig();
         $hasSecret = self::secretKey() !== '';
 
         return [
-            'checkout_turnstile_enabled' => $public['enabled'] ? '1' : (Setting::get('checkout_turnstile_enabled', '0', null) === '1' ? '1' : '0'),
-            'checkout_turnstile_site_key' => $public['site_key'],
-            'checkout_turnstile_mode' => $public['mode'],
+            'checkout_turnstile_site_key' => self::siteKey(),
             'checkout_turnstile_secret_configured' => $hasSecret,
+            'turnstile_keys_configured' => self::keysConfigured(),
         ];
     }
 
