@@ -114,7 +114,7 @@ class SellerKycController extends Controller
             report($e);
 
             throw ValidationException::withMessages([
-                $field => 'Não foi possível processar o arquivo. Use imagem (JPG, PNG, WebP, GIF ou HEIC) ou PDF, máx. 20 MB.',
+                $field => 'Não foi possível processar o arquivo. Use imagem (JPG, PNG, WebP ou HEIC) ou PDF, máx. 20 MB.',
             ]);
         }
 
@@ -150,7 +150,7 @@ class SellerKycController extends Controller
 
         $isPj = $subject->person_type === 'pj';
 
-        $kycFile = ['required', 'file', 'max:'.KycUpload::MAX_FILE_KB, 'mimes:jpg,jpeg,png,webp,gif,heic,heif,pdf'];
+        $kycFile = ['required', 'file', 'max:'.KycUpload::MAX_FILE_KB, 'mimes:jpg,jpeg,png,webp,heic,heif,pdf'];
 
         $rules = [
             'rg_front' => $kycFile,
@@ -202,7 +202,7 @@ class SellerKycController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
-            return redirect(self::financeiroKycTabUrl())->with('error', 'Não foi possível processar os arquivos. Use imagem (JPG, PNG, WebP, GIF ou HEIC) ou PDF, máx. 20 MB por arquivo.');
+            return redirect(self::financeiroKycTabUrl())->with('error', 'Não foi possível processar os arquivos. Use imagem (JPG, PNG, WebP ou HEIC) ou PDF, máx. 20 MB por arquivo.');
         }
 
         return $this->markPendingReview($subject);

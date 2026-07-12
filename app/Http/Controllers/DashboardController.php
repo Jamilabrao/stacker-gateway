@@ -32,9 +32,10 @@ class DashboardController extends Controller
 
         $tenantId = auth()->user()->tenant_id;
         $userId = (int) auth()->id();
-        $cacheKey = 'dashboard:v4:' . ($tenantId ?? 'global') . ':' . $period;
+        $hasAffiliateEnrollments = AffiliateCommissionQuery::userHasApprovedEnrollments($userId);
+        $cacheKey = 'dashboard:v5:'.($tenantId ?? 'global').':'.$userId.':'.$period;
 
-        $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($tenantId, $period) {
+        $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, function () use ($tenantId, $period, $userId, $hasAffiliateEnrollments) {
             [$start, $end] = $this->rangeForPeriod($period);
 
             $ordersQuery = Order::forTenant($tenantId);
@@ -56,10 +57,27 @@ class DashboardController extends Controller
 
         $vendasTotais = (float) $ordersCompleted->sum('amount');
         $quantidadeVendas = $ordersCompleted->count();
-        $ticketMedio = $quantidadeVendas > 0 ? $vendasTotais / $quantidadeVendas : 0.0;
         $vendasPendentes = (float) $ordersPending->sum('amount');
         $reembolsosCount = $ordersRefunded->count();
         $reembolsosTotal = (float) (clone $ordersQuery)->where('status', 'refunded')->sum('amount');
+
+        if ($hasAffiliateEnrollments) {
+            $affiliateRequest = Request::create('/', 'GET', ['period' => $period]);
+            $affiliateApproved = AffiliateCommissionQuery::applyFilters(
+                AffiliateCommissionQuery::baseQuery($userId),
+                $affiliateRequest,
+            )
+                ->where('status', \App\Models\AffiliateCommission::STATUS_APPROVED)
+                ->get(['commission_net']);
+
+            $affiliateTotal = (float) $affiliateApproved->sum('commission_net');
+            $affiliateCount = $affiliateApproved->count();
+
+            $vendasTotais += $affiliateTotal;
+            $quantidadeVendas += $affiliateCount;
+        }
+
+        $ticketMedio = $quantidadeVendas > 0 ? $vendasTotais / $quantidadeVendas : 0.0;
 
         $formasPagamentoRows = (clone $ordersQuery)
             ->where('status', 'completed')
@@ -85,7 +103,7 @@ class DashboardController extends Controller
             ->values()
             ->all();
 
-        $graficoVendas = $this->buildGraficoVendas($tenantId, $period, $start, $end);
+        $graficoVendas = $this->buildGraficoVendas($tenantId, $period, $start, $end, $hasAffiliateEnrollments ? $userId : null);
 
         $productsQuery = Product::forTenant($tenantId);
         if (auth()->user()?->isTeam()) {
@@ -114,30 +132,9 @@ class DashboardController extends Controller
 
         $data = new \ArrayObject($payload);
         $data['dashboard_banners'] = DashboardBannerSettings::banners(activeOnly: true, resolveUrls: true);
-        $data['has_affiliate_enrollments'] = AffiliateCommissionQuery::userHasApprovedEnrollments($userId);
-
-        if ($data['has_affiliate_enrollments']) {
-            $affiliateCacheKey = 'dashboard:affiliate:'.$userId.':'.$period;
-            $affiliatePayload = Cache::remember($affiliateCacheKey, self::CACHE_TTL_SECONDS, function () use ($userId, $period) {
-                $affiliateRequest = Request::create('/', 'GET', ['period' => $period]);
-
-                return [
-                    'stats' => AffiliateCommissionQuery::statsFor($userId, $affiliateRequest),
-                    'recent_sales' => AffiliateCommissionQuery::baseQuery($userId)
-                        ->orderByDesc('created_at')
-                        ->limit(5)
-                        ->get()
-                        ->map(fn ($c) => AffiliateCommissionQuery::commissionToArrayForAffiliate($c))
-                        ->values()
-                        ->all(),
-                ];
-            });
-            $data['affiliate_stats'] = $affiliatePayload['stats'];
-            $data['affiliate_recent_sales'] = $affiliatePayload['recent_sales'];
-        } else {
-            $data['affiliate_stats'] = null;
-            $data['affiliate_recent_sales'] = [];
-        }
+        $data['has_affiliate_enrollments'] = $hasAffiliateEnrollments;
+        $data['affiliate_stats'] = null;
+        $data['affiliate_recent_sales'] = [];
 
         event(new DashboardLoading($data));
 
@@ -218,7 +215,7 @@ class DashboardController extends Controller
         return [$start?->toDateTimeString(), $end?->toDateTimeString()];
     }
 
-    private function buildGraficoVendas(?int $tenantId, string $period, ?string $start, ?string $end): array
+    private function buildGraficoVendas(?int $tenantId, string $period, ?string $start, ?string $end, ?int $affiliateUserId = null): array
     {
         $query = Order::forTenant($tenantId)->where('status', 'completed');
         if (auth()->user()?->isTeam()) {
@@ -234,6 +231,10 @@ class DashboardController extends Controller
             $query->where('created_at', '<=', $end);
         }
 
+        $affiliateRequest = $affiliateUserId
+            ? Request::create('/', 'GET', ['period' => $period])
+            : null;
+
         $isHourly = in_array($period, ['hoje', 'ontem'], true);
 
         if ($isHourly) {
@@ -245,11 +246,15 @@ class DashboardController extends Controller
                 ->get()
                 ->keyBy('hora');
 
+            $affiliateByHour = $affiliateUserId
+                ? AffiliateCommissionQuery::approvedCommissionTotalsByHour($affiliateUserId, $affiliateRequest)
+                : [];
+
             $result = [];
             for ($h = 0; $h <= 23; $h++) {
                 $result[] = [
                     'data' => (string) $h,
-                    'total' => (float) ($rows->get($h)?->total ?? 0),
+                    'total' => (float) ($rows->get($h)?->total ?? 0) + ($affiliateByHour[$h] ?? 0),
                 ];
             }
 
@@ -261,12 +266,25 @@ class DashboardController extends Controller
             ->selectRaw($dateExpr.' as data, SUM(amount) as total')
             ->groupBy('data')
             ->orderBy('data')
-            ->get();
+            ->get()
+            ->keyBy('data');
 
-        return $rows->map(fn ($r) => [
-            'data' => $r->data,
-            'total' => (float) $r->total,
-        ])->values()->all();
+        $affiliateByDate = $affiliateUserId
+            ? AffiliateCommissionQuery::approvedCommissionTotalsByDate($affiliateUserId, $affiliateRequest)
+            : [];
+
+        $dates = collect($rows->keys())->merge(array_keys($affiliateByDate))->unique()->sort()->values();
+
+        if ($dates->isEmpty()) {
+            return [];
+        }
+
+        return $dates->map(function (string $date) use ($rows, $affiliateByDate) {
+            return [
+                'data' => $date,
+                'total' => (float) ($rows->get($date)?->total ?? 0) + ($affiliateByDate[$date] ?? 0),
+            ];
+        })->values()->all();
     }
 
 }

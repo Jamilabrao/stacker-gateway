@@ -58,29 +58,60 @@ const props = defineProps({
     offers: { type: Array, default: () => [] },
 });
 
-const isAffiliateView = computed(() => props.view === 'affiliate');
-
 const affiliateSidebarOpen = ref(false);
 const selectedAffiliateVenda = ref(null);
-
-const salesViewOptions = [
-    { value: 'own', label: t('sales.view.own', 'Minhas vendas') },
-    { value: 'affiliate', label: t('sales.view.affiliate', 'Comissões (afiliado)') },
-];
-
-function switchSalesView(nextView) {
-    if (nextView === props.view) return;
-    router.get('/vendas', { view: nextView }, { preserveState: false });
-}
 
 function openAffiliateDetail(venda) {
     selectedAffiliateVenda.value = venda;
     affiliateSidebarOpen.value = true;
 }
 
-function formatAffiliateDate(value) {
-    if (!value) return '—';
-    return new Date(value).toLocaleString('pt-BR');
+function vendaRowKey(v) {
+    return v?.list_key ?? String(v?.id ?? '');
+}
+
+function openRowDetail(v) {
+    if (v?.is_affiliate_commission) {
+        openAffiliateDetail(v);
+        return;
+    }
+    openDetail(v);
+}
+
+function customerDisplayName(v) {
+    if (v?.is_affiliate_commission) {
+        if (v.customer_hidden) return 'Oculto';
+        return v.customer_name ?? v.customer_email ?? '—';
+    }
+    return v.user?.name ?? '—';
+}
+
+function customerDisplayEmail(v) {
+    if (v?.is_affiliate_commission) {
+        if (v.customer_hidden) return '—';
+        return v.customer_email ?? '—';
+    }
+    return v.email ?? v.user?.email ?? '—';
+}
+
+function rowStatusBadgeLabel(v) {
+    if (v?.is_affiliate_commission) {
+        return v.status_label ?? v.status ?? '–';
+    }
+    return statusBadgeLabel(v.status);
+}
+
+function rowStatusBadgeClass(v) {
+    if (v?.is_affiliate_commission) {
+        const map = {
+            approved: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+            pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+            cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300',
+            refunded: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+        };
+        return map[v.status] ?? 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300';
+    }
+    return statusBadgeClass(v.status);
 }
 
 const valuesVisible = ref(true);
@@ -150,14 +181,6 @@ const filterForm = ref({
     utm_medium: props.filters?.utm_medium ?? '',
     utm_campaign: props.filters?.utm_campaign ?? '',
     sale_channel: props.filters?.sale_channel ?? '',
-});
-
-const affiliateFilterForm = ref({
-    q: props.filters?.q ?? '',
-    period: props.filters?.period ?? 'all',
-    date_from: props.filters?.date_from ?? '',
-    date_to: props.filters?.date_to ?? '',
-    product_id: props.filters?.product_id ?? '',
     producer_id: props.filters?.producer_id ?? '',
     commission_status: props.filters?.commission_status ?? 'all',
 });
@@ -188,6 +211,8 @@ watch(
         filterForm.value.utm_medium = f.utm_medium ?? '';
         filterForm.value.utm_campaign = f.utm_campaign ?? '';
         filterForm.value.sale_channel = f.sale_channel ?? '';
+        filterForm.value.producer_id = f.producer_id ?? '';
+        filterForm.value.commission_status = f.commission_status ?? 'all';
     },
     { deep: true },
 );
@@ -205,31 +230,11 @@ const selectedProductLabels = computed(() => {
 });
 
 function buildQuery(overrides = {}) {
-    if (isAffiliateView.value) {
-        const f = { ...affiliateFilterForm.value, ...overrides };
-        if (typeof f.q === 'string') {
-            f.q = f.q.trim();
-        }
-        const q = { view: 'affiliate', ...f };
-        const cleaned = {};
-        Object.entries(q).forEach(([k, v]) => {
-            if (v === null || v === undefined) return;
-            if (typeof v === 'string' && v.trim() === '') return;
-            if ((k === 'period' || k === 'commission_status') && v === 'all') return;
-            cleaned[k] = v;
-        });
-        if (cleaned.period !== 'custom') {
-            delete cleaned.date_from;
-            delete cleaned.date_to;
-        }
-        return cleaned;
-    }
-
     const f = { ...filterForm.value, ...overrides };
     if (typeof f.q === 'string') {
         f.q = f.q.trim();
     }
-    const q = { view: 'own', status_filter: props.status_filter, ...f };
+    const q = { status_filter: props.status_filter, ...f };
 
     const cleaned = {};
     Object.entries(q).forEach(([k, v]) => {
@@ -240,7 +245,7 @@ function buildQuery(overrides = {}) {
             return;
         }
         if (typeof v === 'string' && v.trim() === '') return;
-        if ((k === 'period' || k === 'payment_method' || k === 'payment_status') && v === 'all') return;
+        if ((k === 'period' || k === 'payment_method' || k === 'payment_status' || k === 'commission_status') && v === 'all') return;
         if (k === 'sale_channel' && (v === '' || v === 'all')) return;
         cleaned[k] = v;
     });
@@ -262,7 +267,7 @@ function applyFilters(overrides = {}) {
 const menuVenda = computed(() => {
     if (openMenuId.value == null) return null;
     const list = vendasList.value ?? [];
-    return list.find((x) => x.id === openMenuId.value) ?? null;
+    return list.find((x) => vendaRowKey(x) === openMenuId.value) ?? null;
 });
 
 function setFilter(value) {
@@ -533,28 +538,7 @@ function onFilterChange() {
     applyFilters();
 }
 
-function clearAffiliateFilters() {
-    affiliateFilterForm.value = {
-        q: '',
-        period: 'all',
-        date_from: '',
-        date_to: '',
-        product_id: '',
-        producer_id: '',
-        commission_status: 'all',
-    };
-    applyFilters();
-}
-
-function onAffiliateFilterChange() {
-    applyFilters();
-}
-
 function clearFilters() {
-    if (isAffiliateView.value) {
-        clearAffiliateFilters();
-        return;
-    }
     filterForm.value = {
         q: '',
         period: 'all',
@@ -567,6 +551,9 @@ function clearFilters() {
         utm_source: '',
         utm_medium: '',
         utm_campaign: '',
+        sale_channel: '',
+        producer_id: '',
+        commission_status: 'all',
     };
     applyFilters();
 }
@@ -598,188 +585,11 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
     <div :class="pageClass">
         <AuroraPageHeader
             :title="t('sidebar.sales', 'Vendas')"
-            :subtitle="isAffiliateView ? t('sales.subtitle_affiliate', 'Comissões das vendas que você indicou como afiliado.') : t('sales.subtitle', 'Acompanhe pedidos, status de pagamento e desempenho comercial.')"
+            :subtitle="t('sales.subtitle', 'Acompanhe pedidos, status de pagamento e desempenho comercial.')"
         />
 
-        <nav
-            v-if="has_affiliate_enrollments"
-            :class="[
-                themePrefix
-                    ? `${themePrefix}-subnav`
-                    : 'inline-flex rounded-xl bg-zinc-100/80 p-1 dark:bg-zinc-800/80',
-                'mb-4',
-            ]"
-            aria-label="Tipo de vendas"
-        >
-            <button
-                v-for="opt in salesViewOptions"
-                :key="opt.value"
-                type="button"
-                :aria-current="view === opt.value ? 'true' : undefined"
-                :class="[
-                    themePrefix
-                        ? [`${themePrefix}-subnav-item`, view === opt.value && `${themePrefix}-subnav-item-active`]
-                        : [
-                            'rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
-                            view === opt.value
-                                ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
-                                : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
-                        ],
-                ]"
-                @click="switchSalesView(opt.value)"
-            >
-                {{ opt.label }}
-            </button>
-        </nav>
+        <VendasTabs />
 
-        <VendasTabs v-if="!isAffiliateView" />
-
-        <template v-if="isAffiliateView">
-            <AuroraPageSection>
-                <div class="flex items-center justify-between gap-3">
-                    <p class="aurora-section-title">Resumo de comissões</p>
-                    <button
-                        type="button"
-                        :aria-label="valuesVisible ? t('dashboard.hide_values', 'Ocultar valores') : t('dashboard.show_values', 'Mostrar valores')"
-                        class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
-                        :class="iconBtn"
-                        @click="valuesVisible = !valuesVisible"
-                    >
-                        <Eye v-if="valuesVisible" class="h-5 w-5" aria-hidden="true" />
-                        <EyeOff v-else class="h-5 w-5" aria-hidden="true" />
-                    </button>
-                </div>
-                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <AuroraStatCard
-                        :icon="ShoppingCart"
-                        label="Vendas como afiliado"
-                        :value="displayNumber(stats.total_vendas ?? 0)"
-                    />
-                    <AuroraStatCard
-                        :icon="CircleDollarSign"
-                        label="Comissão aprovada"
-                        :value="displayCurrency(stats.comissao_aprovada ?? 0)"
-                    />
-                    <AuroraStatCard
-                        :icon="Banknote"
-                        label="Comissão pendente"
-                        :value="displayCurrency(stats.comissao_pendente ?? 0)"
-                    />
-                    <AuroraStatCard
-                        :icon="CreditCard"
-                        label="Ticket médio"
-                        :value="displayCurrency(stats.ticket_medio ?? 0)"
-                    />
-                </div>
-            </AuroraPageSection>
-
-            <AuroraPageSection>
-                <div :class="stackClass">
-                    <div class="flex flex-wrap items-center gap-3">
-                        <input
-                            v-model="affiliateFilterForm.q"
-                            type="search"
-                            placeholder="Buscar por produto, pedido ou referência..."
-                            class="min-w-[200px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                            @change="onAffiliateFilterChange"
-                        />
-                        <select
-                            v-model="affiliateFilterForm.period"
-                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                            @change="onAffiliateFilterChange"
-                        >
-                            <option v-for="p in periodOptions" :key="p.value" :value="p.value">{{ p.label }}</option>
-                        </select>
-                        <select
-                            v-model="affiliateFilterForm.commission_status"
-                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                            @change="onAffiliateFilterChange"
-                        >
-                            <option v-for="opt in commission_status_options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                        </select>
-                        <select
-                            v-model="affiliateFilterForm.product_id"
-                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                            @change="onAffiliateFilterChange"
-                        >
-                            <option value="">Todos produtos</option>
-                            <option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option>
-                        </select>
-                        <select
-                            v-model="affiliateFilterForm.producer_id"
-                            class="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-                            @change="onAffiliateFilterChange"
-                        >
-                            <option value="">Todos produtores</option>
-                            <option v-for="p in producers" :key="p.id" :value="p.id">{{ p.name }}</option>
-                        </select>
-                        <button type="button" :class="btnSecondary" @click="clearAffiliateFilters">Limpar filtros</button>
-                    </div>
-
-                    <div class="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
-                        <table class="min-w-full text-sm">
-                            <thead class="bg-zinc-50 text-left text-xs uppercase text-zinc-500 dark:bg-zinc-900/50">
-                                <tr>
-                                    <th class="px-4 py-3">Data</th>
-                                    <th class="px-4 py-3">Produto</th>
-                                    <th class="px-4 py-3">Cliente</th>
-                                    <th class="px-4 py-3">Comissão</th>
-                                    <th class="px-4 py-3">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr
-                                    v-for="v in vendasList"
-                                    :key="v.id"
-                                    class="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900/40"
-                                    @click="openAffiliateDetail(v)"
-                                >
-                                    <td class="px-4 py-3">{{ formatAffiliateDate(v.created_at) }}</td>
-                                    <td class="px-4 py-3">{{ v.product_name }}</td>
-                                    <td class="px-4 py-3">
-                                        <span v-if="v.customer_hidden" class="text-zinc-500">Oculto</span>
-                                        <span v-else>{{ v.customer_name ?? v.customer_email ?? '—' }}</span>
-                                    </td>
-                                    <td class="px-4 py-3 font-medium">{{ displayCurrency(v.commission_net) }}</td>
-                                    <td class="px-4 py-3">{{ v.status_label }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <p v-if="!vendasList.length" class="p-8 text-center text-sm text-zinc-500">Nenhuma comissão encontrada.</p>
-                    </div>
-
-                    <nav
-                        v-if="vendas?.links?.length > 3"
-                        class="flex items-center justify-center gap-2"
-                        aria-label="Paginação"
-                    >
-                        <a
-                            v-for="link in vendas.links"
-                            :key="link.label"
-                            :href="link.url"
-                            :aria-current="link.active ? 'page' : undefined"
-                            :class="[
-                                'relative inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium transition',
-                                link.active
-                                    ? 'bg-[var(--color-primary)] text-white'
-                                    : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800',
-                                !link.url && 'pointer-events-none opacity-40',
-                            ]"
-                            v-text="htmlToText(link.label)"
-                            @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
-                        />
-                    </nav>
-                </div>
-            </AuroraPageSection>
-
-            <AfiliadoVendaDetailSidebar
-                :open="affiliateSidebarOpen"
-                :venda="selectedAffiliateVenda"
-                @close="affiliateSidebarOpen = false"
-            />
-        </template>
-
-        <template v-else>
         <AuroraPageSection>
             <div class="flex items-center justify-between gap-3">
                 <p class="aurora-section-title">
@@ -1080,6 +890,27 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                             @change="onFilterChange"
                         />
                     </div>
+                    <div v-if="has_affiliate_enrollments">
+                        <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Produtor</label>
+                        <select
+                            v-model="filterForm.producer_id"
+                            class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                            @change="onFilterChange"
+                        >
+                            <option value="">Todos produtores</option>
+                            <option v-for="p in producers" :key="p.id" :value="p.id">{{ p.name }}</option>
+                        </select>
+                    </div>
+                    <div v-if="has_affiliate_enrollments">
+                        <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Status da comissão</label>
+                        <select
+                            v-model="filterForm.commission_status"
+                            class="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                            @change="onFilterChange"
+                        >
+                            <option v-for="opt in commission_status_options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1090,13 +921,13 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
         <div :class="['sm:hidden space-y-3', isThemedShell && 'p-4']">
             <div
                 v-for="v in vendasList"
-                :key="v.id"
+                :key="vendaRowKey(v)"
                 class="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/60 dark:hover:bg-zinc-700/80"
                 role="button"
                 tabindex="0"
-                @click="openDetail(v)"
-                @keydown.enter.prevent="openDetail(v)"
-                @keydown.space.prevent="openDetail(v)"
+                @click="openRowDetail(v)"
+                @keydown.enter.prevent="openRowDetail(v)"
+                @keydown.space.prevent="openRowDetail(v)"
             >
                 <div class="flex items-center justify-between gap-3">
                     <div class="min-w-0">
@@ -1113,11 +944,15 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                                 v-if="v.is_pixgo"
                                 class="ml-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
                             >{{ v.sale_channel_label || 'PixGO' }}</span>
+                            <span
+                                v-if="v.is_affiliate_commission"
+                                class="ml-1 inline-flex rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-violet-800 dark:bg-violet-900/40 dark:text-violet-200"
+                            >Afiliados</span>
                         </p>
                     </div>
                     <div class="flex shrink-0 items-center gap-1" @click.stop>
                         <a
-                            v-if="whatsappCustomerUrl(v)"
+                            v-if="!v.is_affiliate_commission && whatsappCustomerUrl(v)"
                             :href="whatsappCustomerUrl(v)"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -1131,13 +966,13 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                                 />
                             </svg>
                         </a>
-                        <div class="relative" :data-venda-menu="v.id">
+                        <div v-if="!v.is_affiliate_commission" class="relative" :data-venda-menu="vendaRowKey(v)">
                             <button
                                 type="button"
                                 class="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
                                 :aria-label="t('common.open_menu', 'Abrir menu')"
-                                aria-expanded="openMenuId === v.id"
-                                @click="toggleMenu(v.id, $event)"
+                                :aria-expanded="openMenuId === vendaRowKey(v)"
+                                @click="toggleMenu(vendaRowKey(v), $event)"
                             >
                                 <MoreVertical class="h-4 w-4" />
                             </button>
@@ -1152,10 +987,10 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                                 {{ t('sales.customer', 'Cliente') }}
                             </p>
                             <p class="mt-1 break-words text-sm font-medium leading-snug text-zinc-900 dark:text-white">
-                                {{ v.user?.name ?? '–' }}
+                                {{ customerDisplayName(v) }}
                             </p>
                             <p class="mt-0.5 break-words text-xs leading-snug text-zinc-500 dark:text-zinc-400">
-                                {{ v.email ?? v.user?.email ?? '–' }}
+                                {{ customerDisplayEmail(v) }}
                             </p>
                         </div>
                         <div class="min-w-0 text-right">
@@ -1166,10 +1001,10 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                                 <span
                                     :class="[
                                         'inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium',
-                                        statusBadgeClass(v.status),
+                                        rowStatusBadgeClass(v),
                                     ]"
                                 >
-                                    {{ statusBadgeLabel(v.status) }}
+                                    {{ rowStatusBadgeLabel(v) }}
                                 </span>
                                 <span class="break-words text-xs leading-snug text-zinc-500 dark:text-zinc-400">
                                     {{ v.gateway_label ?? '–' }}
@@ -1238,9 +1073,9 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 <tbody class="divide-y divide-zinc-200 dark:divide-zinc-700">
                     <tr
                         v-for="v in vendasList"
-                        :key="v.id"
+                        :key="vendaRowKey(v)"
                         class="cursor-pointer bg-white transition hover:bg-zinc-50 dark:bg-zinc-800/60 dark:hover:bg-zinc-700/80"
-                        @click="openDetail(v)"
+                        @click="openRowDetail(v)"
                     >
                         <td class="whitespace-nowrap px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">
                             {{ new Date(v.created_at).toLocaleDateString('pt-BR') }}
@@ -1255,14 +1090,18 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                                 v-if="v.is_pixgo"
                                 class="ml-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
                             >{{ v.sale_channel_label || 'PixGO' }}</span>
+                            <span
+                                v-if="v.is_affiliate_commission"
+                                class="ml-1 inline-flex rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-violet-800 dark:bg-violet-900/40 dark:text-violet-200"
+                            >Afiliados</span>
                         </td>
                         <td class="px-4 py-3">
                             <div class="flex flex-col gap-0.5">
                                 <span class="text-sm font-medium text-zinc-900 dark:text-white">
-                                    {{ v.user?.name ?? '–' }}
+                                    {{ customerDisplayName(v) }}
                                 </span>
                                 <span class="text-xs text-zinc-500 dark:text-zinc-400">
-                                    {{ v.email ?? v.user?.email ?? '–' }}
+                                    {{ customerDisplayEmail(v) }}
                                 </span>
                             </div>
                         </td>
@@ -1271,10 +1110,10 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                                 <span
                                     :class="[
                                         'inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium',
-                                        statusBadgeClass(v.status),
+                                        rowStatusBadgeClass(v),
                                     ]"
                                 >
-                                    {{ statusBadgeLabel(v.status) }}
+                                    {{ rowStatusBadgeLabel(v) }}
                                 </span>
                                 <span class="text-xs text-zinc-500 dark:text-zinc-400">
                                     {{ v.gateway_label ?? '–' }}
@@ -1287,7 +1126,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                         <td class="relative whitespace-nowrap px-2 py-3" @click.stop>
                             <div class="flex items-center justify-end gap-1">
                                 <a
-                                    v-if="whatsappCustomerUrl(v)"
+                                    v-if="!v.is_affiliate_commission && whatsappCustomerUrl(v)"
                                     :href="whatsappCustomerUrl(v)"
                                     target="_blank"
                                     rel="noopener noreferrer"
@@ -1301,13 +1140,13 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                                         />
                                     </svg>
                                 </a>
-                                <div class="relative" :data-venda-menu="v.id">
+                                <div v-if="!v.is_affiliate_commission" class="relative" :data-venda-menu="vendaRowKey(v)">
                                     <button
                                         type="button"
                                         class="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
                                         :aria-label="t('common.open_menu', 'Abrir menu')"
-                                        aria-expanded="openMenuId === v.id"
-                                        @click="toggleMenu(v.id, $event)"
+                                        :aria-expanded="openMenuId === vendaRowKey(v)"
+                                        @click="toggleMenu(vendaRowKey(v), $event)"
                                     >
                                         <MoreVertical class="h-4 w-4" />
                                     </button>
@@ -1357,6 +1196,12 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
             @close="closeSidebar"
         />
 
+        <AfiliadoVendaDetailSidebar
+            :open="affiliateSidebarOpen"
+            :venda="selectedAffiliateVenda"
+            @close="affiliateSidebarOpen = false"
+        />
+
         <!-- Toast local -->
         <Teleport to="body">
             <div
@@ -1370,7 +1215,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 <button
                     type="button"
                     class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                    @click="openDetail(menuVenda)"
+                    @click="openRowDetail(menuVenda)"
                 >
                     <FileText class="h-4 w-4 shrink-0" />
                     {{ t('sales.details', 'Detalhes') }}
@@ -1378,18 +1223,18 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 <button
                     type="button"
                     class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                    :disabled="resendingId === openMenuId || menuVenda.status === 'pending'"
+                    :disabled="resendingId === menuVenda?.id || menuVenda.status === 'pending'"
                     :title="t('sales.resend_unavailable_pending', 'Indisponível para pagamentos pendentes')"
                     @click="resendEmail(menuVenda)"
                 >
                     <Mail class="h-4 w-4 shrink-0" />
-                    {{ resendingId === openMenuId ? t('common.sending', 'Enviando...') : t('sales.resend_purchase_email', 'Reenviar e-mail de compra') }}
+                    {{ resendingId === menuVenda?.id ? t('common.sending', 'Enviando...') : t('sales.resend_purchase_email', 'Reenviar e-mail de compra') }}
                 </button>
                 <button
                     v-if="canShowRefundAction(menuVenda)"
                     type="button"
                     class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    :disabled="refundingId === openMenuId"
+                    :disabled="refundingId === menuVenda?.id"
                     @click="openRefundModal(menuVenda)"
                 >
                     <RotateCcw class="h-4 w-4 shrink-0" />
@@ -1463,6 +1308,5 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 </div>
             </Transition>
         </Teleport>
-        </template>
     </div>
 </template>

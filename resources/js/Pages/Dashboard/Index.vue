@@ -4,7 +4,6 @@ import { router, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
-import AffiliateDashboardSection from '@/components/dashboard/AffiliateDashboardSection.vue';
 
 defineOptions({ layout: LayoutInfoprodutor });
 
@@ -216,14 +215,6 @@ const sharedViewProps = computed(() => ({
             v-bind="sharedViewProps"
             @update:period="setPeriod"
             @toggle-values="valuesVisible = !valuesVisible"
-        />
-        <AffiliateDashboardSection
-            v-if="has_affiliate_enrollments && affiliate_stats"
-            :stats="affiliate_stats"
-            :recent-sales="affiliate_recent_sales"
-            :values-visible="valuesVisible"
-            :format-currency="displayCurrency"
-            :format-number="displayNumber"
         />
     </div>
 </template>

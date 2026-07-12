@@ -2,8 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\EnsureInstalled;
+use App\Http\Middleware\EnsureStackerLicense;
 use App\Models\User;
 use App\Support\KycUpload;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -11,6 +14,16 @@ use Tests\TestCase;
 
 class KycUploadSecurityTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->withoutMiddleware([
+            EnsureInstalled::class,
+            EnsureStackerLicense::class,
+            ValidateCsrfToken::class,
+        ]);
+    }
+
     private function createSellerForKyc(): User
     {
         $seller = User::query()->create([
@@ -142,7 +155,7 @@ class KycUploadSecurityTest extends TestCase
         Storage::fake('local');
 
         $seller = $this->createSellerForKyc();
-        $jpeg = UploadedFile::fake()->image('evil.php.jpg', 100, 100);
+        $jpeg = UploadedFile::fake()->image('evil.php.jpg', 200, 200);
 
         $this->actingAs($seller)
             ->postJson(route('kyc.document'), [
@@ -154,7 +167,7 @@ class KycUploadSecurityTest extends TestCase
         $doc = $seller->kycDocuments()->where('kind', 'rg_front')->first();
         $this->assertNotNull($doc);
         $this->assertStringEndsWith('.jpg', $doc->disk_path);
-        $this->assertNotStringContainsString('.php', $doc->disk_path);
+        $this->assertStringNotContainsString('.php', $doc->disk_path);
     }
 
     public function test_kyc_upload_unit_rejects_octet_stream_without_client_fallback(): void
@@ -163,5 +176,77 @@ class KycUploadSecurityTest extends TestCase
 
         $this->expectException(\Illuminate\Validation\ValidationException::class);
         KycUpload::assertValid($file, 'rg_front');
+    }
+
+    public function test_gif_upload_is_rejected(): void
+    {
+        Storage::fake('local');
+
+        $seller = $this->createSellerForKyc();
+        $gif = UploadedFile::fake()->createWithContent(
+            'doc.gif',
+            'GIF89a'.str_repeat("\0", 20),
+            'image/gif'
+        );
+
+        $this->actingAs($seller)
+            ->postJson(route('kyc.document'), [
+                'field' => 'rg_front',
+                'rg_front' => $gif,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rg_front']);
+    }
+
+    public function test_gif_disguised_as_jpeg_is_rejected(): void
+    {
+        Storage::fake('local');
+
+        $seller = $this->createSellerForKyc();
+        $gif = UploadedFile::fake()->createWithContent(
+            'photo.jpg',
+            'GIF89a'.str_repeat("\0", 20),
+            'image/jpeg'
+        );
+
+        $this->actingAs($seller)
+            ->postJson(route('kyc.document'), [
+                'field' => 'rg_front',
+                'rg_front' => $gif,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rg_front']);
+    }
+
+    public function test_tiny_image_below_minimum_dimensions_is_rejected(): void
+    {
+        Storage::fake('local');
+
+        $seller = $this->createSellerForKyc();
+        $tiny = UploadedFile::fake()->image('tiny.jpg', 50, 50);
+
+        $this->actingAs($seller)
+            ->postJson(route('kyc.document'), [
+                'field' => 'rg_front',
+                'rg_front' => $tiny,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rg_front']);
+    }
+
+    public function test_oversized_dimensions_are_rejected(): void
+    {
+        Storage::fake('local');
+
+        $seller = $this->createSellerForKyc();
+        $huge = UploadedFile::fake()->image('huge.jpg', 10001, 200);
+
+        $this->actingAs($seller)
+            ->postJson(route('kyc.document'), [
+                'field' => 'rg_front',
+                'rg_front' => $huge,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['rg_front']);
     }
 }

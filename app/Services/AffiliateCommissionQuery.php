@@ -44,9 +44,20 @@ class AffiliateCommissionQuery
             $query->where('affiliate_commissions.created_at', '<=', $end);
         }
 
-        $productId = trim((string) $request->query('product_id', ''));
-        if ($productId !== '') {
-            $query->where('affiliate_commissions.product_id', $productId);
+        $productIds = $request->query('product_ids');
+        if (is_array($productIds) && $productIds !== []) {
+            $ids = array_values(array_filter(array_map(
+                fn ($id) => trim((string) $id),
+                $productIds
+            ), fn ($id) => $id !== ''));
+            if ($ids !== []) {
+                $query->whereIn('affiliate_commissions.product_id', $ids);
+            }
+        } else {
+            $productId = trim((string) $request->query('product_id', ''));
+            if ($productId !== '') {
+                $query->where('affiliate_commissions.product_id', $productId);
+            }
         }
 
         $producerId = (int) $request->query('producer_id', 0);
@@ -166,6 +177,80 @@ class AffiliateCommissionQuery
             ->take($limit)
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function toUnifiedVendaListItem(AffiliateCommission $commission): array
+    {
+        $data = self::commissionToArrayForAffiliate($commission);
+        $data['list_key'] = 'commission:'.$commission->id;
+        $data['product_display_name'] = $data['product_name'] ?? '—';
+        $data['amount_net'] = $data['commission_net'];
+        $data['gateway_label'] = $data['payment_method_label'] ?? '—';
+
+        if (! empty($data['customer_hidden'])) {
+            $data['user'] = null;
+            $data['email'] = null;
+        } else {
+            $data['user'] = [
+                'name' => $data['customer_name'] ?? null,
+                'email' => $data['customer_email'] ?? null,
+            ];
+            $data['email'] = $data['customer_email'] ?? null;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @return array{vendas_encontradas: int, valor_liquido: float}
+     */
+    public static function vendasStatsContribution(Collection $commissions): array
+    {
+        $count = $commissions->count();
+        $valorLiquido = (float) $commissions
+            ->where('status', AffiliateCommission::STATUS_APPROVED)
+            ->sum('commission_net');
+
+        return [
+            'vendas_encontradas' => $count,
+            'valor_liquido' => round($valorLiquido, 2),
+        ];
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    public static function approvedCommissionTotalsByDate(int $affiliateUserId, Request $request): array
+    {
+        $rows = self::applyFilters(self::baseQuery($affiliateUserId), $request)
+            ->where('status', AffiliateCommission::STATUS_APPROVED)
+            ->get(['commission_net', 'created_at']);
+
+        return $rows
+            ->groupBy(fn (AffiliateCommission $c) => $c->created_at?->format('Y-m-d') ?? '')
+            ->map(fn (Collection $group) => (float) $group->sum('commission_net'))
+            ->all();
+    }
+
+    /**
+     * @return array<int, float>
+     */
+    public static function approvedCommissionTotalsByHour(int $affiliateUserId, Request $request): array
+    {
+        $rows = self::applyFilters(self::baseQuery($affiliateUserId), $request)
+            ->where('status', AffiliateCommission::STATUS_APPROVED)
+            ->get(['commission_net', 'created_at']);
+
+        $totals = [];
+        foreach ($rows as $row) {
+            $hour = (int) ($row->created_at?->format('G') ?? 0);
+            $totals[$hour] = ($totals[$hour] ?? 0) + (float) $row->commission_net;
+        }
+
+        return $totals;
     }
 
     /**

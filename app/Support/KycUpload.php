@@ -11,12 +11,21 @@ final class KycUpload
 
     public const MAX_FILE_KB = 20480;
 
+    public const MIN_WIDTH = 200;
+
+    public const MIN_HEIGHT = 200;
+
+    public const MAX_WIDTH = 10000;
+
+    public const MAX_HEIGHT = 10000;
+
+    public const MAX_PIXELS = 20_000_000;
+
     /** @var list<string> */
     public const ALLOWED_MIMES = [
         'image/jpeg',
         'image/png',
         'image/webp',
-        'image/gif',
         'image/heic',
         'image/heif',
         'application/pdf',
@@ -28,7 +37,6 @@ final class KycUpload
         'image/jpeg' => 'jpg',
         'image/png' => 'png',
         'image/webp' => 'webp',
-        'image/gif' => 'gif',
         'image/heic' => 'heic',
         'image/heif' => 'heif',
         'application/pdf' => 'pdf',
@@ -40,7 +48,6 @@ final class KycUpload
         'image/jpeg',
         'image/png',
         'image/webp',
-        'image/gif',
     ];
 
     public static function assertValid(UploadedFile $file, string $fieldLabel): void
@@ -51,10 +58,15 @@ final class KycUpload
             ]);
         }
 
+        $path = $file->getRealPath();
+        if (is_string($path) && $path !== '' && is_readable($path)) {
+            self::assertNotGif($path, $fieldLabel);
+        }
+
         $mime = self::normalizeMime($file);
         if (! in_array($mime, self::ALLOWED_MIMES, true)) {
             throw ValidationException::withMessages([
-                $fieldLabel => 'Formato não permitido. Use JPG, PNG, WebP, GIF, HEIC/HEIF ou PDF.',
+                $fieldLabel => 'Formato não permitido. Use JPG, PNG, WebP, HEIC/HEIF ou PDF.',
             ]);
         }
 
@@ -120,13 +132,10 @@ final class KycUpload
             ]);
         }
 
+        self::assertNotGif($path, $fieldLabel);
+
         if (in_array($mime, self::RASTER_IMAGE_MIMES, true)) {
-            $size = @getimagesize($path);
-            if (! is_array($size) || ! isset($size[0], $size[1])) {
-                throw ValidationException::withMessages([
-                    $fieldLabel => 'O arquivo não é uma imagem válida. Use JPG, PNG, WebP ou GIF.',
-                ]);
-            }
+            self::assertRasterImageValid($path, $mime, $fieldLabel);
 
             return;
         }
@@ -143,6 +152,99 @@ final class KycUpload
         }
 
         // HEIC/HEIF: MIME finfo only (no GD decode — preserves iPhone uploads).
+    }
+
+    private static function assertNotGif(string $path, string $fieldLabel): void
+    {
+        $header = @file_get_contents($path, false, null, 0, 6);
+        if (! is_string($header) || strlen($header) < 6) {
+            return;
+        }
+
+        if (str_starts_with($header, 'GIF87a') || str_starts_with($header, 'GIF89a')) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'GIF não é permitido para documentos KYC. Envie JPG, PNG, WebP, HEIC/HEIF ou PDF.',
+            ]);
+        }
+    }
+
+    private static function assertRasterImageValid(string $path, string $mime, string $fieldLabel): void
+    {
+        self::assertRasterMagicBytes($path, $mime, $fieldLabel);
+
+        $size = @getimagesize($path);
+        if (! is_array($size) || ! isset($size[0], $size[1])) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'O arquivo não é uma imagem válida. Use JPG, PNG ou WebP.',
+            ]);
+        }
+
+        $width = (int) $size[0];
+        $height = (int) $size[1];
+
+        if ($width < self::MIN_WIDTH || $height < self::MIN_HEIGHT) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'A imagem é pequena demais. Envie uma foto nítida do documento (mínimo '.self::MIN_WIDTH.'×'.self::MIN_HEIGHT.' px).',
+            ]);
+        }
+
+        if ($width > self::MAX_WIDTH || $height > self::MAX_HEIGHT) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'A imagem é grande demais. Reduza a resolução ou envie outra foto do documento.',
+            ]);
+        }
+
+        if ($width * $height > self::MAX_PIXELS) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'A imagem tem resolução excessiva. Envie uma foto do documento com resolução menor.',
+            ]);
+        }
+
+        if (function_exists('imagecreatefromstring')) {
+            $contents = @file_get_contents($path);
+            if (! is_string($contents) || $contents === '') {
+                throw ValidationException::withMessages([
+                    $fieldLabel => 'Não foi possível ler o arquivo enviado.',
+                ]);
+            }
+
+            $image = @imagecreatefromstring($contents);
+            if ($image === false) {
+                throw ValidationException::withMessages([
+                    $fieldLabel => 'A imagem está corrompida ou é inválida. Envie outra foto do documento.',
+                ]);
+            }
+
+            imagedestroy($image);
+        }
+    }
+
+    private static function assertRasterMagicBytes(string $path, string $mime, string $fieldLabel): void
+    {
+        $header = @file_get_contents($path, false, null, 0, 12);
+        if (! is_string($header) || $header === '') {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'O arquivo não é uma imagem válida. Use JPG, PNG ou WebP.',
+            ]);
+        }
+
+        $valid = match ($mime) {
+            'image/jpeg' => strlen($header) >= 3
+                && ord($header[0]) === 0xFF
+                && ord($header[1]) === 0xD8
+                && ord($header[2]) === 0xFF,
+            'image/png' => str_starts_with($header, "\x89PNG\r\n\x1a\n"),
+            'image/webp' => strlen($header) >= 12
+                && str_starts_with($header, 'RIFF')
+                && substr($header, 8, 4) === 'WEBP',
+            default => false,
+        };
+
+        if (! $valid) {
+            throw ValidationException::withMessages([
+                $fieldLabel => 'O conteúdo do arquivo não corresponde ao formato declarado. Use JPG, PNG ou WebP.',
+            ]);
+        }
     }
 
     private static function iniBytesToInt(string|false $value): int

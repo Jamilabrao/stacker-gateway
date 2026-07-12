@@ -139,7 +139,7 @@ const inputFileClass =
     'block w-full cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 file:mr-3 file:rounded file:border-0 file:bg-zinc-100 file:px-3 file:py-1 file:text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:file:bg-zinc-700';
 
 const fileAccept =
-    'image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic,image/heif,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif';
+    'image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif';
 </script>
 
 <template>
@@ -157,7 +157,7 @@ const fileAccept =
         <div v-else-if="embedded && !isReadOnlyKyc">
             <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Documentos para verificação</h3>
             <p class="mt-1 text-xs text-zinc-500">
-                Selecione cada arquivo separadamente (até 20 MB). Formatos: JPG, PNG, WebP, GIF, HEIC/HEIF ou PDF.
+                Selecione cada arquivo separadamente (até 20 MB). Formatos: JPG, PNG, WebP, HEIC/HEIF ou PDF.
             </p>
         </div>
 

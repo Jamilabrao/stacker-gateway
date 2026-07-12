@@ -18,7 +18,9 @@ use App\Services\OrderFeeBreakdownService;
 use App\Services\TeamAccessService;
 use App\Support\OrderManualRefund;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -358,6 +360,8 @@ class VendasController extends Controller
         $arr['can_manual_refund'] = OrderManualRefund::canManualRefund($o);
         $arr['manual_refund'] = OrderManualRefund::snapshot($o);
         $arr['is_affiliate_sale'] = $o->isAffiliateSale();
+        $arr['is_affiliate_commission'] = false;
+        $arr['list_key'] = 'order:'.$o->id;
         $arr['sale_origin'] = $o->sale_origin ?? (is_array($o->metadata) ? ($o->metadata['sale_origin'] ?? null) : null);
         $arr['sale_origin_label'] = SaleOrigin::label($arr['sale_origin']);
 
@@ -409,6 +413,9 @@ class VendasController extends Controller
             'utm_medium' => $this->normalizeString($request->query('utm_medium')),
             'utm_campaign' => $this->normalizeString($request->query('utm_campaign')),
             'sale_channel' => $this->normalizeString($request->query('sale_channel')),
+            'producer_id' => $this->normalizeString($request->query('producer_id')),
+            'commission_status' => $this->normalizeString($request->query('commission_status')) ?? 'all',
+            'affiliate_user' => (int) auth()->id(),
             'team' => auth()->user()?->isTeam() ? app(TeamAccessService::class)->allowedProductIdsFor(auth()->user()) : null,
         ]));
 
@@ -422,7 +429,10 @@ class VendasController extends Controller
      */
     private function computeVendasStats(Request $request, int $tenantId): array
     {
-        [$statsQuery] = $this->buildFilteredQuery($request, $tenantId);
+        [$statsQuery, $statusFilter] = $this->buildFilteredQuery($request, $tenantId);
+        $userId = (int) auth()->id();
+        $hasAffiliateEnrollments = AffiliateCommissionQuery::userHasApprovedEnrollments($userId);
+        $mergeAffiliate = $this->shouldMergeAffiliateCommissions($request, $statusFilter, $hasAffiliateEnrollments);
 
         $vendasEncontradas = (clone $statsQuery)->count();
 
@@ -436,6 +446,14 @@ class VendasController extends Controller
                     $valorLiquido += OrderFeeBreakdownService::forOrder($order)['net'];
                 }
             });
+
+        if ($mergeAffiliate) {
+            $affiliateContribution = AffiliateCommissionQuery::vendasStatsContribution(
+                $this->buildAffiliateCommissionQuery($request, $userId, $statusFilter)->get()
+            );
+            $vendasEncontradas += $affiliateContribution['vendas_encontradas'];
+            $valorLiquido += $affiliateContribution['valor_liquido'];
+        }
 
         $vendasPix = (clone $statsQuery)
             ->where(function ($q) {
@@ -476,39 +494,42 @@ class VendasController extends Controller
         ];
     }
 
-    public function index(Request $request): InertiaResponse
+    public function index(Request $request): InertiaResponse|RedirectResponse
     {
         $user = auth()->user();
         $hasAffiliateEnrollments = AffiliateCommissionQuery::userHasApprovedEnrollments((int) $user->id);
         $view = $request->query('view', 'own');
-        if (! in_array($view, ['own', 'affiliate'], true)) {
-            $view = 'own';
-        }
 
-        if ($view === 'affiliate' && $hasAffiliateEnrollments) {
-            return $this->affiliateVendasIndex($request, $user, $hasAffiliateEnrollments);
+        if ($view === 'affiliate') {
+            $query = $request->query();
+            unset($query['view']);
+
+            return redirect()->to('/vendas'.($query !== [] ? '?'.http_build_query($query) : ''));
         }
 
         $tenantId = $user->tenant_id;
         [$filteredQuery, $statusFilter] = $this->buildFilteredQuery($request, $tenantId);
+        $mergeAffiliate = $this->shouldMergeAffiliateCommissions($request, $statusFilter, $hasAffiliateEnrollments);
 
-        $vendas = $filteredQuery
-            ->with([
-                'product:id,name,slug,checkout_slug',
-                'user:id,name,email',
-                'productOffer:id,name,checkout_slug',
-                'subscriptionPlan:id,name,checkout_slug',
-                'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
-                'orderItems.product:id,name',
-                'orderItems.productOffer:id,name',
-                'orderItems.subscriptionPlan:id,name',
-                'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
-                'affiliateCommission.affiliate:id,name,email',
-            ])
-            ->orderByDesc('created_at')
-            ->paginate(20)
-            ->withQueryString()
-            ->through(fn (Order $o) => $this->orderToVendaArray($o));
+        $vendas = $mergeAffiliate
+            ? $this->paginateUnifiedVendas($request, $filteredQuery, (int) $user->id, $statusFilter)
+            : $filteredQuery
+                ->with([
+                    'product:id,name,slug,checkout_slug',
+                    'user:id,name,email',
+                    'productOffer:id,name,checkout_slug',
+                    'subscriptionPlan:id,name,checkout_slug',
+                    'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
+                    'orderItems.product:id,name',
+                    'orderItems.productOffer:id,name',
+                    'orderItems.subscriptionPlan:id,name',
+                    'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
+                    'affiliateCommission.affiliate:id,name,email',
+                ])
+                ->orderByDesc('created_at')
+                ->paginate(20)
+                ->withQueryString()
+                ->through(fn (Order $o) => $this->orderToVendaArray($o));
 
         $stats = $this->resolveVendasStats($request, (int) $tenantId, $statusFilter);
 
@@ -559,55 +580,190 @@ class VendasController extends Controller
                 'sale_channel' => $this->normalizeString($request->query('sale_channel')),
                 'affiliate' => $this->normalizeString($request->query('affiliate')),
                 'sale_origin' => $this->normalizeString($request->query('sale_origin')),
+                'producer_id' => $this->normalizeString($request->query('producer_id')),
+                'commission_status' => $this->normalizeString($request->query('commission_status')) ?? 'all',
             ],
             'sale_origin_options' => collect(SaleOrigin::labels())->map(fn ($label, $value) => ['value' => $value, 'label' => $label])->values()->all(),
             'products' => $products,
             'offers' => $offers,
-        ]);
-    }
-
-    private function affiliateVendasIndex(Request $request, User $user, bool $hasAffiliateEnrollments): InertiaResponse
-    {
-        $affiliateRequest = $this->affiliateRequestFromVendas($request);
-
-        $query = AffiliateCommissionQuery::applyFilters(
-            AffiliateCommissionQuery::baseQuery($user->id),
-            $affiliateRequest,
-            false,
-        )->orderByDesc('created_at');
-
-        $paginator = $query
-            ->paginate(20)
-            ->withQueryString()
-            ->through(fn ($c) => AffiliateCommissionQuery::commissionToArrayForAffiliate($c));
-
-        return Inertia::render('Vendas/Index', [
-            'view' => 'affiliate',
-            'has_affiliate_enrollments' => $hasAffiliateEnrollments,
-            'vendas' => $paginator,
-            'stats' => AffiliateCommissionQuery::statsFor($user->id, $affiliateRequest),
-            'status_filter' => 'todas',
-            'filters' => [
-                'q' => $this->normalizeString($request->query('q')),
-                'period' => $this->normalizeString($request->query('period')) ?? 'all',
-                'date_from' => $this->normalizeString($request->query('date_from')),
-                'date_to' => $this->normalizeString($request->query('date_to')),
-                'product_id' => $this->normalizeString($request->query('product_id', '')),
-                'producer_id' => $this->normalizeString($request->query('producer_id', '')),
-                'commission_status' => $this->normalizeString($request->query('commission_status', '')) ?? 'all',
-            ],
-            'products' => AffiliateCommissionQuery::productFilterOptions($user->id),
-            'producers' => AffiliateCommissionQuery::producerFilterOptions($user->id),
-            'commission_status_options' => [
+            'producers' => $hasAffiliateEnrollments ? AffiliateCommissionQuery::producerFilterOptions((int) $user->id) : [],
+            'commission_status_options' => $hasAffiliateEnrollments ? [
                 ['value' => 'all', 'label' => 'Todos'],
                 ['value' => AffiliateCommission::STATUS_PENDING, 'label' => 'Pendente'],
                 ['value' => AffiliateCommission::STATUS_APPROVED, 'label' => 'Aprovada'],
                 ['value' => AffiliateCommission::STATUS_CANCELLED, 'label' => 'Cancelada'],
                 ['value' => AffiliateCommission::STATUS_REFUNDED, 'label' => 'Estornada'],
-            ],
-            'offers' => [],
-            'sale_origin_options' => [],
+            ] : [],
         ]);
+    }
+
+    private function shouldMergeAffiliateCommissions(Request $request, string $statusFilter, bool $hasAffiliateEnrollments): bool
+    {
+        if (! $hasAffiliateEnrollments) {
+            return false;
+        }
+
+        if ($statusFilter === 'med') {
+            return false;
+        }
+
+        if ($this->normalizeString($request->query('offer_id'))) {
+            return false;
+        }
+
+        if ($this->normalizeString($request->query('utm_source'))) {
+            return false;
+        }
+
+        if ($this->normalizeString($request->query('utm_medium'))) {
+            return false;
+        }
+
+        if ($this->normalizeString($request->query('utm_campaign'))) {
+            return false;
+        }
+
+        if ($this->normalizeString($request->query('sale_channel'))) {
+            return false;
+        }
+
+        if (in_array($this->normalizeString($request->query('affiliate')), ['1', 'yes'], true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function buildAffiliateCommissionQuery(Request $request, int $userId, string $statusFilter)
+    {
+        $affiliateRequest = $this->affiliateRequestFromVendas($request);
+        $query = AffiliateCommissionQuery::applyFilters(
+            AffiliateCommissionQuery::baseQuery($userId),
+            $affiliateRequest,
+            false,
+        );
+
+        if ($statusFilter === 'aprovadas') {
+            $query->where('affiliate_commissions.status', AffiliateCommission::STATUS_APPROVED);
+        }
+
+        $paymentStatus = $this->normalizeString($request->query('payment_status'));
+        if ($paymentStatus !== null && $paymentStatus !== 'all') {
+            $commissionStatus = match ($paymentStatus) {
+                'completed' => AffiliateCommission::STATUS_APPROVED,
+                'pending' => AffiliateCommission::STATUS_PENDING,
+                'cancelled' => AffiliateCommission::STATUS_CANCELLED,
+                'refunded' => AffiliateCommission::STATUS_REFUNDED,
+                default => null,
+            };
+            if ($commissionStatus !== null) {
+                $query->where('affiliate_commissions.status', $commissionStatus);
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+        }
+
+        return $query;
+    }
+
+    private function paginateUnifiedVendas(Request $request, $filteredQuery, int $userId, string $statusFilter): LengthAwarePaginator
+    {
+        $perPage = 20;
+        $page = max(1, (int) $request->query('page', 1));
+
+        $orderStubs = (clone $filteredQuery)
+            ->select(['orders.id', 'orders.created_at'])
+            ->get()
+            ->map(fn (Order $order) => [
+                'kind' => 'order',
+                'id' => $order->id,
+                'ts' => $order->created_at?->getTimestamp() ?? 0,
+            ]);
+
+        $commissionStubs = $this->buildAffiliateCommissionQuery($request, $userId, $statusFilter)
+            ->select(['affiliate_commissions.id', 'affiliate_commissions.created_at'])
+            ->get()
+            ->map(fn (AffiliateCommission $commission) => [
+                'kind' => 'commission',
+                'id' => $commission->id,
+                'ts' => $commission->created_at?->getTimestamp() ?? 0,
+            ]);
+
+        $merged = $orderStubs
+            ->concat($commissionStubs)
+            ->sortByDesc('ts')
+            ->values();
+
+        $total = $merged->count();
+        $pageItems = $merged->slice(($page - 1) * $perPage, $perPage)->values();
+
+        $orderIds = $pageItems->where('kind', 'order')->pluck('id')->all();
+        $commissionIds = $pageItems->where('kind', 'commission')->pluck('id')->all();
+
+        $ordersById = $orderIds === []
+            ? collect()
+            : Order::query()
+                ->whereIn('id', $orderIds)
+                ->with([
+                    'product:id,name,slug,checkout_slug',
+                    'user:id,name,email',
+                    'productOffer:id,name,checkout_slug',
+                    'subscriptionPlan:id,name,checkout_slug',
+                    'orderItems:id,order_id,product_id,product_offer_id,subscription_plan_id,amount,position',
+                    'orderItems.product:id,name',
+                    'orderItems.productOffer:id,name',
+                    'orderItems.subscriptionPlan:id,name',
+                    'checkoutSession:'.CheckoutSession::eagerSelectForOrderRelation(),
+                    'affiliateCommission.affiliate:id,name,email',
+                ])
+                ->get()
+                ->keyBy('id');
+
+        $commissionsById = $commissionIds === []
+            ? collect()
+            : AffiliateCommission::query()
+                ->whereIn('id', $commissionIds)
+                ->with([
+                    'order:id,status,payment_method,email,user_id,created_at,public_reference',
+                    'order.user:id,name,email',
+                    'product:id,name,image,tenant_id,affiliate_hide_customer_data',
+                    'producer:id,name,email',
+                ])
+                ->get()
+                ->keyBy('id');
+
+        $items = $pageItems
+            ->map(function (array $stub) use ($ordersById, $commissionsById) {
+                if ($stub['kind'] === 'order') {
+                    $order = $ordersById->get($stub['id']);
+                    if (! $order) {
+                        return null;
+                    }
+
+                    return $this->orderToVendaArray($order);
+                }
+
+                $commission = $commissionsById->get($stub['id']);
+                if (! $commission) {
+                    return null;
+                }
+
+                return AffiliateCommissionQuery::toUnifiedVendaListItem($commission);
+            })
+            ->filter()
+            ->values()
+            ->all();
+
+        return new LengthAwarePaginator(
+            $items,
+            $total,
+            $perPage,
+            $page,
+            [
+                'path' => $request->url(),
+                'query' => $request->query(),
+            ]
+        );
     }
 
     private function affiliateRequestFromVendas(Request $request): Request
@@ -615,6 +771,7 @@ class VendasController extends Controller
         $period = $this->normalizeString($request->query('period')) ?? 'all';
         $dateFrom = $this->normalizeString($request->query('date_from'));
         $dateTo = $this->normalizeString($request->query('date_to'));
+        $productIds = $this->normalizeProductIds($request);
 
         $affiliatePeriod = match ($period) {
             'today' => 'hoje',
@@ -634,7 +791,8 @@ class VendasController extends Controller
         $params = [
             'period' => $affiliatePeriod,
             'q' => $request->query('q', ''),
-            'product_id' => $request->query('product_id', ''),
+            'product_id' => count($productIds) === 1 ? $productIds[0] : $request->query('product_id', ''),
+            'product_ids' => $productIds,
             'producer_id' => $request->query('producer_id', ''),
             'status' => $request->query('commission_status', 'all'),
             'payment_method' => $request->query('payment_method', 'all'),

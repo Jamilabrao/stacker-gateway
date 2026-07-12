@@ -19,6 +19,8 @@ defineOptions({ layout: LayoutPlatform });
 const props = defineProps({
     users: { type: Array, default: () => [] },
     q: { type: String, default: null },
+    status: { type: String, default: null },
+    status_options: { type: Array, default: () => [] },
     edit_user_id: { type: Number, default: null },
     gateways: { type: Array, default: () => [] },
     platform_gateway_order: {
@@ -38,6 +40,7 @@ const page = usePage();
 const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
 
 const searchQ = ref(props.q ?? '');
+const statusFilter = ref(props.status ?? '');
 
 watch(
     () => props.q,
@@ -46,9 +49,23 @@ watch(
     }
 );
 
+watch(
+    () => props.status,
+    (v) => {
+        statusFilter.value = v ?? '';
+    }
+);
+
 function applySearch() {
     const q = searchQ.value?.trim() || undefined;
-    router.get('/plataforma/usuarios', { q }, { preserveState: true, replace: true });
+    const status = statusFilter.value?.trim() || undefined;
+    router.get('/plataforma/usuarios', { q, status }, { preserveState: true, replace: true });
+}
+
+function clearFilters() {
+    searchQ.value = '';
+    statusFilter.value = '';
+    router.get('/plataforma/usuarios', {}, { preserveState: true, replace: true });
 }
 
 const editUser = ref(null);
@@ -744,11 +761,27 @@ function formatBlockUntilForInput(iso) {
                     class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
                 />
             </div>
+            <select
+                v-model="statusFilter"
+                class="min-w-[11rem] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                @change="applySearch"
+            >
+                <option value="">Todos os status</option>
+                <option v-for="opt in status_options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
             <button
                 type="submit"
                 class="rounded-xl bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
             >
                 Pesquisar
+            </button>
+            <button
+                v-if="searchQ || statusFilter"
+                type="button"
+                class="rounded-xl border border-zinc-300 px-4 py-2 text-sm text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                @click="clearFilters"
+            >
+                Limpar
             </button>
         </form>
 

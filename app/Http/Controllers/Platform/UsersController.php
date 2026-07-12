@@ -44,6 +44,9 @@ class UsersController extends Controller
     use ProvidesPlatformGatewayProps;
     use RequiresPlatformStepUp;
 
+    /** @var list<string> */
+    private const ACCOUNT_STATUS_FILTERS = ['approved', 'pending', 'rejected', 'suspended', 'blocked'];
+
     public function __construct(
         protected SalesAchievementsService $salesAchievements,
         protected MinimumChargeService $minimumChargeService,
@@ -56,8 +59,23 @@ class UsersController extends Controller
         $search = is_string($search) ? trim($search) : '';
         $search = $search !== '' ? $search : null;
 
+        $statusFilter = $request->query('status');
+        $statusFilter = is_string($statusFilter) ? trim($statusFilter) : '';
+        $statusFilter = in_array($statusFilter, self::ACCOUNT_STATUS_FILTERS, true) ? $statusFilter : null;
+
         $usersQuery = User::query()
             ->where('role', User::ROLE_INFOPRODUTOR);
+
+        if ($statusFilter !== null) {
+            if ($statusFilter === 'approved') {
+                $usersQuery->where(function ($q) {
+                    $q->where('account_status', 'approved')
+                        ->orWhereNull('account_status');
+                });
+            } else {
+                $usersQuery->where('account_status', $statusFilter);
+            }
+        }
 
         if ($search !== null) {
             $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
@@ -146,6 +164,14 @@ class UsersController extends Controller
         return Inertia::render('Platform/Users/Index', [
             'users' => $rows,
             'q' => $search,
+            'status' => $statusFilter,
+            'status_options' => [
+                ['value' => 'approved', 'label' => 'Aprovado'],
+                ['value' => 'pending', 'label' => 'Pendente'],
+                ['value' => 'rejected', 'label' => 'Rejeitado'],
+                ['value' => 'suspended', 'label' => 'Suspenso'],
+                ['value' => 'blocked', 'label' => 'Bloqueado'],
+            ],
             'edit_user_id' => $editUserId,
             'gateways' => $this->buildGatewaysListForMerchantPicker(),
             'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
