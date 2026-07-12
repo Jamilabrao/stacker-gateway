@@ -367,6 +367,35 @@ Sem TTY (`curl | bash`): exporte antes `STACKER_AGENT_TOKEN=...` ou edite `.env`
 
 Desativar prompt: `GETFY_SKIP_STACKER_TOKEN_PROMPT=1`
 
+#### Corrigir agente offline (comando automático)
+
+Na VPS, na pasta da instalação:
+
+```bash
+cd /opt/getfy && sh docker/fix-stacker-agent.sh
+```
+
+O script:
+1. Sincroniza `STACKER_AGENT_TOKEN` entre `.env` e `.docker/stack.env`
+2. Recria o container `stacker-agent`
+3. Aguarda heartbeat e mostra logs
+
+Só diagnóstico (sem reiniciar):
+
+```bash
+cd /opt/getfy && sh docker/fix-stacker-agent.sh --check-only
+```
+
+Rebuild da imagem do agente (após `git pull` com mudanças em `agent/`):
+
+```bash
+cd /opt/getfy && sh docker/fix-stacker-agent.sh --rebuild
+```
+
+Atalho equivalente: `sh docker/restart-stacker-agent.sh`
+
+**Códigos de saída:** `0` = OK · `1` = token ausente · `2` = token não chegou ao container · `3` = subiu mas heartbeat não confirmado (rede/token inválido)
+
 Se `getfy-stacker-agent-1` estiver em **Restarting** ou o painel mostrar "Aguardando agente":
 
 ```bash

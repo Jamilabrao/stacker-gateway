@@ -4,11 +4,17 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
 const props = defineProps({
     siteKey: { type: String, required: true },
     modelValue: { type: String, default: '' },
+    /** interaction-only no checkout; always no login/cadastro para o checkbox aparecer */
+    appearance: { type: String, default: 'interaction-only' },
+    theme: { type: String, default: 'auto' },
+    size: { type: String, default: 'flexible' },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'ready', 'error']);
 
 const containerRef = ref(null);
+const loadError = ref('');
+const loading = ref(true);
 let widgetId = null;
 let scriptLoading = null;
 
@@ -42,6 +48,15 @@ function loadTurnstileScript() {
     return scriptLoading;
 }
 
+function onWidgetError(message = '') {
+    loadError.value =
+        message ||
+        'Não foi possível carregar a verificação. Confira o domínio no painel Cloudflare Turnstile e recarregue a página.';
+    loading.value = false;
+    emit('update:modelValue', '');
+    emit('error', loadError.value);
+}
+
 function renderWidget() {
     if (!containerRef.value || !window.turnstile || !props.siteKey) {
         return;
@@ -54,14 +69,34 @@ function renderWidget() {
         }
         widgetId = null;
     }
-    widgetId = window.turnstile.render(containerRef.value, {
-        sitekey: props.siteKey,
-        appearance: 'interaction-only',
-        size: 'flexible',
-        callback: (token) => emit('update:modelValue', token),
-        'expired-callback': () => emit('update:modelValue', ''),
-        'error-callback': () => emit('update:modelValue', ''),
-    });
+
+    loadError.value = '';
+    loading.value = true;
+
+    try {
+        widgetId = window.turnstile.render(containerRef.value, {
+            sitekey: props.siteKey,
+            appearance: props.appearance,
+            theme: props.theme,
+            size: props.size,
+            callback: (token) => {
+                loading.value = false;
+                emit('update:modelValue', token);
+                emit('ready', token);
+            },
+            'expired-callback': () => {
+                emit('update:modelValue', '');
+            },
+            'error-callback': () => {
+                onWidgetError();
+            },
+        });
+        if (widgetId === undefined || widgetId === null) {
+            onWidgetError();
+        }
+    } catch (err) {
+        onWidgetError(err instanceof Error ? err.message : String(err));
+    }
 }
 
 onMounted(async () => {
@@ -69,7 +104,7 @@ onMounted(async () => {
         await loadTurnstileScript();
         renderWidget();
     } catch (_) {
-        emit('update:modelValue', '');
+        onWidgetError('Falha ao carregar o script do Cloudflare Turnstile.');
     }
 });
 
@@ -102,5 +137,18 @@ defineExpose({ reset });
 </script>
 
 <template>
-    <div ref="containerRef" class="min-h-[65px] w-full" aria-label="Verificação de segurança" />
+    <div class="w-full">
+        <div
+            ref="containerRef"
+            class="w-full"
+            :class="loadError ? '' : appearance === 'always' ? 'min-h-[72px]' : 'min-h-[65px]'"
+            aria-label="Verificação de segurança"
+        />
+        <p v-if="loading && !loadError" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Carregando verificação de segurança…
+        </p>
+        <p v-if="loadError" class="mt-2 text-sm text-red-600 dark:text-red-400">
+            {{ loadError }}
+        </p>
+    </div>
 </template>

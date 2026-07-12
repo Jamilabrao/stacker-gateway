@@ -63,9 +63,8 @@ const props = defineProps({
                 </div>
             </div>
             <p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                No painel Cloudflare, crie o widget como <strong>Managed</strong>. No site usamos
-                <code class="text-[11px]">appearance: interaction-only</code> — a maioria dos usuários não vê desafio;
-                só tráfego suspeito.
+                No painel Cloudflare, crie o widget como <strong>Gerenciado</strong> e inclua o domínio da instalação
+                (ex.: <code class="text-[11px]">app.seudominio.com.br</code>) em hostnames permitidos.
             </p>
         </div>
 

@@ -38,6 +38,9 @@ const props = defineProps({
 });
 
 const turnstileToken = ref('');
+const turnstileActive = computed(
+    () => Boolean(props.login_turnstile?.enabled && props.login_turnstile?.site_key)
+);
 
 const pageTitle = computed(() => (isModernLogin.value ? 'Bem-vindo de volta' : 'Entrar'));
 const pageSubtitle = computed(() => (
@@ -54,6 +57,10 @@ const form = useForm({
 });
 
 function submit() {
+    if (turnstileActive.value && !turnstileToken.value) {
+        form.setError('turnstile_token', 'Aguarde a verificação de segurança ou recarregue a página.');
+        return;
+    }
     form.turnstile_token = turnstileToken.value;
     form.transform((data) => ({
         ...data,
@@ -143,12 +150,12 @@ function loginDemo(role) {
             <button
                 type="submit"
                 :class="submitButtonClass"
-                :disabled="form.processing"
+                :disabled="form.processing || (turnstileActive && !turnstileToken)"
                 :style="{ background: primary, color: '#0a0a0a' }"
             >
                 <span class="inline-flex w-full items-center justify-center gap-2">
-                    {{ form.processing ? 'Entrando…' : 'Entrar na plataforma' }}
-                    <ArrowRight v-if="!form.processing" class="h-4 w-4" />
+                    {{ form.processing ? 'Entrando…' : (turnstileActive && !turnstileToken ? 'Aguardando verificação…' : 'Entrar na plataforma') }}
+                    <ArrowRight v-if="!form.processing && !(turnstileActive && !turnstileToken)" class="h-4 w-4" />
                 </span>
             </button>
         </form>
@@ -220,12 +227,12 @@ function loginDemo(role) {
                 <button
                     type="submit"
                     :class="submitButtonClass"
-                    :disabled="form.processing"
+                    :disabled="form.processing || (turnstileActive && !turnstileToken)"
                     :style="{ background: primary, color: '#0a0a0a' }"
                 >
                     <span class="inline-flex w-full items-center justify-center gap-2">
-                        {{ form.processing ? 'Entrando…' : 'Entrar na plataforma' }}
-                        <ArrowRight v-if="!form.processing" class="h-4 w-4" />
+                        {{ form.processing ? 'Entrando…' : (turnstileActive && !turnstileToken ? 'Aguardando verificação…' : 'Entrar na plataforma') }}
+                        <ArrowRight v-if="!form.processing && !(turnstileActive && !turnstileToken)" class="h-4 w-4" />
                     </span>
                 </button>
             </form>
@@ -294,9 +301,9 @@ function loginDemo(role) {
             <Button
                 type="submit"
                 :class="submitButtonClass"
-                :disabled="form.processing"
+                :disabled="form.processing || (turnstileActive && !turnstileToken)"
             >
-                {{ form.processing ? 'Entrando…' : 'Entrar' }}
+                {{ form.processing ? 'Entrando…' : (turnstileActive && !turnstileToken ? 'Aguardando verificação…' : 'Entrar') }}
             </Button>
         </form>
 

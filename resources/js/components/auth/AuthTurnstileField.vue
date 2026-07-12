@@ -15,6 +15,9 @@ defineEmits(['update:modelValue']);
         <CheckoutTurnstile
             :site-key="config.site_key"
             :model-value="modelValue"
+            appearance="always"
+            theme="auto"
+            size="normal"
             @update:model-value="$emit('update:modelValue', $event)"
         />
         <p v-if="error" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ error }}</p>
