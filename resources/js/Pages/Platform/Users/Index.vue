@@ -153,13 +153,14 @@ function computeEffectiveFeesPreview(draftOverrides) {
                 effective[k].fixed = Number(block.fixed) || 0;
             }
         }
-        if (!overrideBlockIsExplicit(draftOverrides, 'api_pix')) {
+        // Só herda quando o pai foi customizado (espelha EffectiveMerchantFees).
+        if (!overrideBlockIsExplicit(draftOverrides, 'api_pix') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
             effective.api_pix = { ...effective.pix };
         }
-        if (!overrideBlockIsExplicit(draftOverrides, 'apple_pay')) {
+        if (!overrideBlockIsExplicit(draftOverrides, 'apple_pay') && overrideBlockIsExplicit(draftOverrides, 'card')) {
             effective.apple_pay = { ...effective.card };
         }
-        if (!overrideBlockIsExplicit(draftOverrides, 'google_pay')) {
+        if (!overrideBlockIsExplicit(draftOverrides, 'google_pay') && overrideBlockIsExplicit(draftOverrides, 'card')) {
             effective.google_pay = { ...effective.card };
         }
     }

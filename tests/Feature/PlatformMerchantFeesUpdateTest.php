@@ -256,4 +256,92 @@ class PlatformMerchantFeesUpdateTest extends TestCase
         $this->assertIsArray($merchant->merchant_fees);
         $this->assertSame(7.5, $merchant->merchant_fees['pix']['percent']);
     }
+
+    public function test_api_pix_only_override_does_not_change_sibling_channels(): void
+    {
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 3.0, 'fixed' => 0.0],
+            'card' => ['percent' => 3.0, 'fixed' => 0.0],
+            'apple_pay' => ['percent' => 5.0, 'fixed' => 0.0],
+            'google_pay' => ['percent' => 6.0, 'fixed' => 0.0],
+            'boleto' => ['percent' => 2.5, 'fixed' => 0.0],
+            'withdrawal' => ['percent' => 1.0, 'fixed' => 0.5],
+        ], null);
+
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $merchant = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $merchant->forceFill([
+            'tenant_id' => $merchant->id,
+            'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
+        ])->save();
+
+        $this->actingAs($admin)->put(route('plataforma.usuarios.update', $merchant), [
+            'name' => $merchant->name,
+            'email' => $merchant->email,
+            'merchant_fees' => [
+                'api_pix' => ['percent' => 4.5, 'fixed' => 2.0],
+            ],
+        ])->assertRedirect();
+
+        $merchant->refresh();
+        $effective = EffectiveMerchantFees::forTenant((int) $merchant->id);
+
+        $this->assertSame(4.5, $effective['api_pix']['percent']);
+        $this->assertSame(2.0, $effective['api_pix']['fixed']);
+        $this->assertSame(2.0, $effective['pix']['percent']);
+        $this->assertSame(3.0, $effective['card']['percent']);
+        $this->assertSame(5.0, $effective['apple_pay']['percent']);
+        $this->assertSame(6.0, $effective['google_pay']['percent']);
+        $this->assertSame(2.5, $effective['boleto']['percent']);
+        $this->assertSame(1.0, $effective['withdrawal']['percent']);
+    }
+
+    public function test_withdrawal_only_override_does_not_inherit_wallets_to_card(): void
+    {
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 3.5, 'fixed' => 0.0],
+            'card' => ['percent' => 3.0, 'fixed' => 0.0],
+            'apple_pay' => ['percent' => 5.0, 'fixed' => 0.0],
+            'google_pay' => ['percent' => 6.0, 'fixed' => 0.0],
+            'boleto' => ['percent' => 2.0, 'fixed' => 0.0],
+            'withdrawal' => ['percent' => 1.0, 'fixed' => 0.0],
+        ], null);
+
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $merchant = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $merchant->forceFill([
+            'tenant_id' => $merchant->id,
+            'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
+        ])->save();
+
+        $this->actingAs($admin)->put(route('plataforma.usuarios.update', $merchant), [
+            'name' => $merchant->name,
+            'email' => $merchant->email,
+            'merchant_fees' => [
+                'withdrawal' => ['percent' => 2.5, 'fixed' => 1.0],
+            ],
+        ])->assertRedirect();
+
+        $merchant->refresh();
+        $effective = EffectiveMerchantFees::forTenant((int) $merchant->id);
+
+        $this->assertSame(2.5, $effective['withdrawal']['percent']);
+        $this->assertSame(1.0, $effective['withdrawal']['fixed']);
+        $this->assertSame(2.0, $effective['pix']['percent']);
+        $this->assertSame(3.5, $effective['api_pix']['percent']);
+        $this->assertSame(5.0, $effective['apple_pay']['percent']);
+        $this->assertSame(6.0, $effective['google_pay']['percent']);
+    }
 }

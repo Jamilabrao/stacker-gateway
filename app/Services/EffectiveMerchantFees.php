@@ -161,13 +161,18 @@ class EffectiveMerchantFees
      */
     private static function applyDerivedInheritance(array $effective, ?array $rawOverrides): array
     {
-        if (! self::overrideBlockIsExplicit($rawOverrides, 'api_pix')) {
+        // Só herda quando o pai foi customizado. Override só de api_pix/saque/etc.
+        // não pode puxar wallets para card nem api_pix para pix global.
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'api_pix')
+            && self::overrideBlockIsExplicit($rawOverrides, 'pix')) {
             $effective['api_pix'] = $effective['pix'];
         }
-        if (! self::overrideBlockIsExplicit($rawOverrides, 'apple_pay')) {
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'apple_pay')
+            && self::overrideBlockIsExplicit($rawOverrides, 'card')) {
             $effective['apple_pay'] = $effective['card'];
         }
-        if (! self::overrideBlockIsExplicit($rawOverrides, 'google_pay')) {
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'google_pay')
+            && self::overrideBlockIsExplicit($rawOverrides, 'card')) {
             $effective['google_pay'] = $effective['card'];
         }
 
