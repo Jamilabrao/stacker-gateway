@@ -9,6 +9,8 @@ use App\Services\MercadoPago\MercadoPagoCheckoutCompletionService;
 use App\Support\GatewayPaymentCredentials;
 use App\Support\MercadoPagoCredentialCandidates;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class ReconcileMercadoPagoPaymentsCommand extends Command
 {
@@ -42,6 +44,7 @@ class ReconcileMercadoPagoPaymentsCommand extends Command
         $checked = 0;
         $paid = 0;
         $skipped = 0;
+        $skippedCredential = 0;
 
         $driver = GatewayRegistry::driver('mercadopago');
         if (! $driver instanceof MercadoPagoDriver) {
@@ -69,10 +72,25 @@ class ReconcileMercadoPagoPaymentsCommand extends Command
 
             $credentials = GatewayPaymentCredentials::resolve($order->tenant_id, 'mercadopago', $order);
             if ($credentials === null && MercadoPagoCredentialCandidates::forOrder($order) === []) {
+                $skippedCredential++;
+                Log::warning('payments:reconcile-mercadopago skip', [
+                    'order_id' => $order->id,
+                    'reason' => 'credential_missing',
+                    'tenant_id' => $order->tenant_id,
+                ]);
                 continue;
             }
 
-            $approved = MercadoPagoCredentialCandidates::findApprovedPaymentForOrder($order, $driver);
+            try {
+                $approved = MercadoPagoCredentialCandidates::findApprovedPaymentForOrder($order, $driver);
+            } catch (\Throwable $e) {
+                Log::warning('payments:reconcile-mercadopago api_exception', [
+                    'order_id' => $order->id,
+                    'message' => $e->getMessage(),
+                ]);
+                continue;
+            }
+
             if ($approved !== null) {
                 $completion->applyPaid($order, $approved['payment_id'], [
                     'webhook_source' => 'reconcile_mercadopago',
@@ -83,7 +101,17 @@ class ReconcileMercadoPagoPaymentsCommand extends Command
             }
         }
 
-        $this->info("Checados: {$checked} | Pagos: {$paid} | Ignorados (janela): {$skipped}");
+        Cache::put('reconcile_heartbeat', now()->toIso8601String(), now()->addMinutes(30));
+        Cache::put('reconcile_last_stats', [
+            'command' => 'payments:reconcile-mercadopago',
+            'checked' => $checked,
+            'paid' => $paid,
+            'skipped_window' => $skipped,
+            'skipped_credential' => $skippedCredential,
+            'at' => now()->toIso8601String(),
+        ], now()->addMinutes(30));
+
+        $this->info("Checados: {$checked} | Pagos: {$paid} | Ignorados (janela): {$skipped} | Sem credencial: {$skippedCredential}");
 
         return self::SUCCESS;
     }

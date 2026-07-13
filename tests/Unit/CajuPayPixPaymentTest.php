@@ -123,4 +123,63 @@ class CajuPayPixPaymentTest extends TestCase
             ''
         );
     }
+
+    public function test_get_sdk_session_status_prefers_payment_status_over_active_session(): void
+    {
+        Http::fake([
+            'https://api.cajupay.com.br/api/sdk/public/checkout/sessions/*' => Http::response([
+                'status' => 'active',
+                'payment_status' => 'paid',
+            ], 200),
+        ]);
+
+        $driver = new CajuPayDriver;
+        $status = $driver->getSdkSessionStatus('tok_sess_very_long_token_abcdef', [
+            'public_key' => 'pk_test',
+            'secret_key' => 'sk_test',
+        ]);
+
+        $this->assertSame('paid', $status);
+    }
+
+    public function test_get_sdk_session_status_maps_active_session_to_pending(): void
+    {
+        Http::fake([
+            'https://api.cajupay.com.br/api/sdk/public/checkout/sessions/*' => Http::response([
+                'status' => 'active',
+            ], 200),
+        ]);
+
+        $driver = new CajuPayDriver;
+        $status = $driver->getSdkSessionStatus('tok_sess_very_long_token_abcdef', [
+            'public_key' => 'pk_test',
+            'secret_key' => 'sk_test',
+        ]);
+
+        $this->assertSame('pending', $status);
+    }
+
+    public function test_get_transaction_status_uuid_falls_through_to_pix_api_when_sdk_not_paid(): void
+    {
+        $paymentId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+        Http::fake([
+            'https://api.cajupay.com.br/api/sdk/public/checkout/sessions/*' => Http::response([
+                'status' => 'active',
+                'payment_status' => 'pending',
+            ], 200),
+            "https://api.cajupay.com.br/api/payments/{$paymentId}" => Http::response([
+                'payment_id' => $paymentId,
+                'status' => 'paid',
+            ], 200),
+        ]);
+
+        $driver = new CajuPayDriver;
+        $status = $driver->getTransactionStatus($paymentId, [
+            'public_key' => 'pk_test',
+            'secret_key' => 'sk_test',
+        ]);
+
+        $this->assertSame('paid', $status);
+    }
 }

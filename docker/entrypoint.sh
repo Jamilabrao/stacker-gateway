@@ -63,9 +63,24 @@ fi
 # Se houver cache de config, pode "prender" env antigo. Limpa de forma segura (sem falhar o boot).
 rm -f bootstrap/cache/config.php 2>/dev/null || true
 
-# Worker/scheduler compartilham o volume .env com o app. Regravar .env aqui reinicia
-# "php artisan serve" (watch do .env) e derruba a resposta HTTP (ERR_EMPTY_RESPONSE).
+# Worker/scheduler: .env NÃO é volume compartilhado (só storage + .docker). Sem sync do
+# APP_KEY, decrypt de GatewayCredential falha e reconciliação/webhooks inbound viram no-op
+# silencioso — enquanto "Reconciliar agora" no container app continua funcionando.
+# Não rodar o setup completo aqui (regravar .env do app reinicia php artisan serve).
 if [ "${GETFY_RUN_SETUP:-true}" != "true" ]; then
+  if [ -f .docker/app.key ]; then
+    KEY="$(tr -d '\n\r' < .docker/app.key)"
+    if [ -n "$KEY" ]; then
+      export APP_KEY="$KEY"
+      if [ -f .env ]; then
+        if grep -qE '^APP_KEY=' .env 2>/dev/null; then
+          sed -i "s|^APP_KEY=.*|APP_KEY=$KEY|" .env
+        else
+          echo "APP_KEY=$KEY" >> .env
+        fi
+      fi
+    fi
+  fi
   exec "$@"
 fi
 

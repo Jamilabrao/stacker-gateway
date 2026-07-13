@@ -82,6 +82,37 @@ docker compose -f "$COMPOSE" --env-file .docker/stack.env ps
 docker compose -f "$COMPOSE" --env-file .docker/stack.env exec redis redis-cli LLEN queues:payments
 ```
 
+### PIX pendente com “Reconciliar agora” funcionando (scheduler/workers)
+
+Sintoma: PIX pago na CajuPay/Mercado Pago, pedido fica **pendente** se o comprador sair da tela do PIX; em `/plataforma/ops/saude-pagamentos` o botão **Reconciliar agora** aprova, mas a reconciliação automática (1–2 min) não.
+
+Causa comum: containers `scheduler` / `workers` com `GETFY_RUN_SETUP=false` **sem APP_KEY** alinhada ao `app` (o `.env` não é volume compartilhado — só `storage` + `.docker`). Credenciais do gateway não decryptam → reconcile/webhooks inbound viram no-op; heartbeats continuam verdes.
+
+```bash
+cd /opt/getfy
+COMPOSE="$(sh docker/detect-compose-files.sh)"
+
+# APP_KEY deve existir nos três (mesmo valor)
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec app \
+  php artisan tinker --execute="echo config('app.key') ? 'app:ok' : 'app:EMPTY';"
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec scheduler \
+  php artisan tinker --execute="echo config('app.key') ? 'scheduler:ok' : 'scheduler:EMPTY';"
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec worker-webhooks-in \
+  php artisan tinker --execute="echo config('app.key') ? 'worker:ok' : 'worker:EMPTY';"
+
+# Após update com entrypoint corrigido, recreate:
+docker compose -f "$COMPOSE" --env-file .docker/stack.env up -d --force-recreate \
+  scheduler worker-webhooks-in worker-payments
+
+# Forçar um ciclo de reconciliação
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec app \
+  php artisan payments:reconcile-pending --limit=50 --days=45 --min-age-minutes=0
+docker compose -f "$COMPOSE" --env-file .docker/stack.env exec app \
+  php artisan payments:reconcile-mercadopago --limit=50 --days=45 --min-age-minutes=0
+```
+
+Na página **Saúde de Pagamentos**, o card **Reconciliação** deve ficar **Ativa** após o schedule rodar (não só Scheduler/Workers).
+
 ### Mercado Pago PIX — diagnóstico e webhook
 
 Se o PIX aparece **aprovado no Mercado Pago** mas o pedido fica **pendente** no sistema:
@@ -144,6 +175,53 @@ sh docker/diagnose-installation-health.sh --fix-demo-off --restart-workers
 ```
 
 O script verifica: `GETFY_DEMO_MODE`, URLs em `stack.env`, containers, filas Redis, `payments:diagnose-mercadopago` e últimas linhas do `laravel.log`.
+
+### Site fora (522) após update — migration de e-mail duplicado
+
+Sintoma: Cloudflare **522**, container `getfy-app-1` em **Restarting**, log com `normalize_users_email_unique` / `users_email_lower_unique` / `duplicate key`.
+
+Causa: duas contas com o mesmo e-mail (diferença só de maiúsculas/minúsculas ou cadastro duplicado). A migration corrige isso automaticamente nas versões **≥ 2.0.6**; instalações que atualizaram antes precisam do SQL manual abaixo.
+
+**Diagnóstico:**
+
+```bash
+cd /opt/getfy
+COMPOSE="$(sh docker/detect-compose-files.sh)"
+docker compose -f "$COMPOSE" --env-file .docker/stack.env logs app --tail 30
+```
+
+**Correção manual (se a migration antiga ainda não tiver passado):**
+
+```bash
+ENV=".docker/stack.env"
+DB_USER="$(grep '^GETFY_DB_USERNAME=' "$ENV" | cut -d= -f2-)"
+DB_NAME="$(grep '^GETFY_DB_DATABASE=' "$ENV" | cut -d= -f2-)"
+
+# 1) Renomear duplicatas (mantém o menor id)
+docker compose -f "$COMPOSE" --env-file "$ENV" exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "
+WITH ranked AS (
+  SELECT id, email, ROW_NUMBER() OVER (PARTITION BY LOWER(TRIM(email)) ORDER BY id) AS rn
+  FROM users WHERE TRIM(email) <> ''
+)
+UPDATE users u SET email = CASE
+  WHEN position('@' in u.email) > 0 THEN
+    LOWER(split_part(u.email, '@', 1)) || '+dup' || u.id::text || '@' || LOWER(split_part(u.email, '@', 2))
+  ELSE LOWER(TRIM(u.email)) || '+dup' || u.id::text
+END FROM ranked r WHERE u.id = r.id AND r.rn > 1;
+"
+
+# 2) Lowercase nos restantes
+docker compose -f "$COMPOSE" --env-file "$ENV" exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "
+UPDATE users SET email = LOWER(TRIM(email)) WHERE email <> LOWER(TRIM(email)) AND TRIM(email) <> '';
+"
+
+docker compose -f "$COMPOSE" --env-file "$ENV" run --rm app php artisan migrate --force
+docker compose -f "$COMPOSE" --env-file "$ENV" up -d --force-recreate app
+```
+
+Contas renomeadas com `+dup{id}` devem ser revisadas em `/plataforma/usuarios`.
+
+**Prevenção:** publique a versão com a migration corrigida (`database/migrations/2026_07_12_120000_normalize_users_email_unique.php`) e atualize todas as instalações pelo Stacker **antes** que rodem a migration quebrada.
 
 ### Site fora (502) após update pelo agente Stacker (perfil Caddy)
 

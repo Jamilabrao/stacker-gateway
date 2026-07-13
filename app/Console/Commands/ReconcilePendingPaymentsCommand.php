@@ -7,6 +7,8 @@ use App\Jobs\ProcessPaymentWebhook;
 use App\Models\Order;
 use App\Support\GatewayPaymentCredentials;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class ReconcilePendingPaymentsCommand extends Command
 {
@@ -50,6 +52,9 @@ class ReconcilePendingPaymentsCommand extends Command
         $paid = 0;
         $cancelled = 0;
         $skipped = 0;
+        $skippedCredential = 0;
+        $skippedDriver = 0;
+        $apiErrors = 0;
 
         foreach ($orders as $order) {
             if ($this->isPastReconcileWindow($order)) {
@@ -63,26 +68,49 @@ class ReconcilePendingPaymentsCommand extends Command
             $transactionId = is_string($order->gateway_id) ? $order->gateway_id : (string) $order->gateway_id;
 
             if ($gatewaySlug === '' || $transactionId === '') {
+                Log::warning('payments:reconcile-pending skip', [
+                    'order_id' => $order->id,
+                    'reason' => 'missing_gateway_or_id',
+                    'gateway' => $gatewaySlug,
+                ]);
                 continue;
             }
 
             $credential = GatewayPaymentCredentials::resolve($order->tenant_id, $gatewaySlug, $order);
 
             if ($credential === null) {
+                $skippedCredential++;
+                Log::warning('payments:reconcile-pending skip', [
+                    'order_id' => $order->id,
+                    'reason' => 'credential_missing',
+                    'gateway' => $gatewaySlug,
+                    'tenant_id' => $order->tenant_id,
+                ]);
                 continue;
             }
 
             $driver = GatewayRegistry::driver($gatewaySlug);
             if (! $driver) {
+                $skippedDriver++;
+                Log::warning('payments:reconcile-pending skip', [
+                    'order_id' => $order->id,
+                    'reason' => 'driver_missing',
+                    'gateway' => $gatewaySlug,
+                ]);
                 continue;
             }
 
-            $credentials = $credential;
-
             try {
-                $apiStatus = $driver->getTransactionStatus($transactionId, $credentials);
-            } catch (\Throwable) {
+                $apiStatus = $driver->getTransactionStatus($transactionId, $credential);
+            } catch (\Throwable $e) {
+                $apiErrors++;
                 $apiStatus = null;
+                Log::warning('payments:reconcile-pending api_exception', [
+                    'order_id' => $order->id,
+                    'gateway' => $gatewaySlug,
+                    'transaction_id' => $transactionId,
+                    'message' => $e->getMessage(),
+                ]);
             }
 
             if ($apiStatus === 'paid') {
@@ -103,9 +131,30 @@ class ReconcilePendingPaymentsCommand extends Command
                 $cancelled++;
                 continue;
             }
+
+            if ($apiStatus !== null && $apiStatus !== 'pending') {
+                Log::info('payments:reconcile-pending status', [
+                    'order_id' => $order->id,
+                    'gateway' => $gatewaySlug,
+                    'api_status' => $apiStatus,
+                ]);
+            }
         }
 
-        $this->info("Checados: {$checked} | Pagos: {$paid} | Cancelados: {$cancelled} | Ignorados (janela): {$skipped}");
+        Cache::put('reconcile_heartbeat', now()->toIso8601String(), now()->addMinutes(30));
+        Cache::put('reconcile_last_stats', [
+            'command' => 'payments:reconcile-pending',
+            'checked' => $checked,
+            'paid' => $paid,
+            'cancelled' => $cancelled,
+            'skipped_window' => $skipped,
+            'skipped_credential' => $skippedCredential,
+            'skipped_driver' => $skippedDriver,
+            'api_errors' => $apiErrors,
+            'at' => now()->toIso8601String(),
+        ], now()->addMinutes(30));
+
+        $this->info("Checados: {$checked} | Pagos: {$paid} | Cancelados: {$cancelled} | Ignorados (janela): {$skipped} | Sem credencial: {$skippedCredential} | Erros API: {$apiErrors}");
 
         return self::SUCCESS;
     }

@@ -278,7 +278,7 @@ function isOrderBusy(orderId) {
             </div>
         </div>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
                 <p class="text-xs font-medium uppercase text-zinc-500">Scheduler</p>
                 <div class="mt-2 flex items-center gap-2">
@@ -299,6 +299,27 @@ function isOrderBusy(orderId) {
                 </div>
                 <p class="mt-2 text-xs text-zinc-500">
                     {{ formatDateTime(infrastructure.queue_heartbeat) }}
+                </p>
+            </div>
+            <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+                <p class="text-xs font-medium uppercase text-zinc-500">Reconciliação</p>
+                <div class="mt-2 flex items-center gap-2">
+                    <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold" :class="statusBadgeClass(infrastructure.reconcile_healthy)">
+                        {{ infrastructure.reconcile_healthy ? 'Ativa' : 'Parada?' }}
+                    </span>
+                </div>
+                <p class="mt-2 text-xs text-zinc-500">
+                    {{ formatDateTime(infrastructure.reconcile_heartbeat) }}
+                </p>
+                <p
+                    v-if="infrastructure.reconcile_last_stats"
+                    class="mt-1 text-xs text-zinc-500"
+                >
+                    Último: {{ infrastructure.reconcile_last_stats.checked ?? 0 }} checados ·
+                    {{ infrastructure.reconcile_last_stats.paid ?? 0 }} pagos
+                    <template v-if="(infrastructure.reconcile_last_stats.skipped_credential ?? 0) > 0">
+                        · {{ infrastructure.reconcile_last_stats.skipped_credential }} sem credencial
+                    </template>
                 </p>
             </div>
             <div class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">

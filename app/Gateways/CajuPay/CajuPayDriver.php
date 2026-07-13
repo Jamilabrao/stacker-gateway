@@ -321,11 +321,24 @@ class CajuPayDriver implements GatewayDriver
             }
         }
 
+        // payment_id PIX também é UUID: se a consulta de sessão SDK não confirmar pago,
+        // consulta a API de payments antes de devolver status intermediário da sessão.
         if ($this->looksLikeUuid($transactionId)) {
             $sdkStatus = $this->getSdkSessionStatus($transactionId, $credentials);
+            if ($sdkStatus === 'paid') {
+                return 'paid';
+            }
+
+            $pixStatus = $this->getPixPaymentStatus($transactionId, $credentials);
+            if ($pixStatus !== null) {
+                return $pixStatus;
+            }
+
             if ($sdkStatus !== null) {
                 return $sdkStatus;
             }
+
+            return null;
         }
 
         return $this->getPixPaymentStatus($transactionId, $credentials);
@@ -540,7 +553,8 @@ class CajuPayDriver implements GatewayDriver
      */
     private function extractPublicSessionStatus(array $data): mixed
     {
-        foreach (['status', 'state', 'checkout_status', 'session_status', 'payment_status'] as $key) {
+        // payment_status manda: sessão pode permanecer "active" depois do PIX liquidado.
+        foreach (['payment_status'] as $key) {
             if (! array_key_exists($key, $data)) {
                 continue;
             }
@@ -555,7 +569,7 @@ class CajuPayDriver implements GatewayDriver
             if (! is_array($obj)) {
                 continue;
             }
-            foreach (['status', 'state'] as $key) {
+            foreach (['status', 'state', 'payment_status'] as $key) {
                 if (! array_key_exists($key, $obj)) {
                     continue;
                 }
@@ -563,6 +577,16 @@ class CajuPayDriver implements GatewayDriver
                 if (is_string($v) && trim($v) !== '') {
                     return $v;
                 }
+            }
+        }
+
+        foreach (['status', 'state', 'checkout_status', 'session_status'] as $key) {
+            if (! array_key_exists($key, $data)) {
+                continue;
+            }
+            $v = $data[$key];
+            if (is_string($v) && trim($v) !== '') {
+                return $v;
             }
         }
 
@@ -719,13 +743,14 @@ class CajuPayDriver implements GatewayDriver
             return null;
         }
         $s = strtolower(trim($status));
-        if (in_array($s, ['paid', 'completed', 'settled', 'approved', 'confirmed'], true)) {
+        if (in_array($s, ['paid', 'completed', 'settled', 'approved', 'confirmed', 'succeeded', 'success'], true)) {
             return 'paid';
         }
-        if (in_array($s, ['pending', 'processing', 'waiting'], true)) {
+        // status de sessão aberta — não confundir com liquidação do pagamento
+        if (in_array($s, ['pending', 'processing', 'waiting', 'active', 'open', 'requires_action', 'awaiting_payment'], true)) {
             return 'pending';
         }
-        if (in_array($s, ['cancelled', 'canceled', 'expired', 'failed', 'refunded'], true)) {
+        if (in_array($s, ['cancelled', 'canceled', 'expired', 'failed', 'refunded', 'rejected', 'declined'], true)) {
             return 'cancelled';
         }
 

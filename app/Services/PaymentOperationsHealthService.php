@@ -193,6 +193,8 @@ class PaymentOperationsHealthService
     {
         $scheduleHeartbeat = Cache::get('schedule_heartbeat');
         $queueHeartbeat = Cache::get('queue_heartbeat');
+        $reconcileHeartbeat = Cache::get('reconcile_heartbeat');
+        $reconcileLastStats = Cache::get('reconcile_last_stats');
         $queueDefault = (string) config('queue.default', 'sync');
         $asyncWebhooks = (bool) config('getfy.api.inbound_webhooks_async', true);
         $queues = $this->readQueueDepths($queueDefault);
@@ -202,6 +204,9 @@ class PaymentOperationsHealthService
             'schedule_healthy' => self::isHeartbeatRecent($scheduleHeartbeat, 5),
             'queue_heartbeat' => is_string($queueHeartbeat) ? $queueHeartbeat : null,
             'queue_healthy' => self::isHeartbeatRecent($queueHeartbeat, 5),
+            'reconcile_heartbeat' => is_string($reconcileHeartbeat) ? $reconcileHeartbeat : null,
+            'reconcile_healthy' => self::isHeartbeatRecent($reconcileHeartbeat, 10),
+            'reconcile_last_stats' => is_array($reconcileLastStats) ? $reconcileLastStats : null,
             'queue_connection' => $queueDefault,
             'inbound_webhooks_async' => $asyncWebhooks,
             'queues' => $queues,
@@ -331,6 +336,27 @@ class PaymentOperationsHealthService
                 'code' => 'schedule_stale',
                 'message' => 'O agendador (cron/scheduler) não registrou heartbeat nos últimos 5 minutos. A reconciliação automática pode não estar rodando.',
                 'action' => 'Verifique o container scheduler ou configure o cron em /cron?token=...',
+            ];
+        }
+
+        if (($infrastructure['schedule_healthy'] ?? false) && ! ($infrastructure['reconcile_healthy'] ?? false)
+            && (($pendingSummary['total'] ?? 0) > 0 || $infrastructure['reconcile_heartbeat'] === null)) {
+            $issues[] = [
+                'severity' => 'warning',
+                'code' => 'reconcile_stale',
+                'message' => 'Scheduler ativo, mas a reconciliação de pagamentos não registrou execução recente (últimos 10 min).',
+                'action' => 'Confira logs do scheduler (`payments:reconcile-*`). No Docker, valide se APP_KEY do scheduler/workers bate com o app (volume .docker/app.key).',
+            ];
+        }
+
+        $lastStats = $infrastructure['reconcile_last_stats'] ?? null;
+        if (is_array($lastStats) && (int) ($lastStats['skipped_credential'] ?? 0) > 0) {
+            $skippedCred = (int) $lastStats['skipped_credential'];
+            $issues[] = [
+                'severity' => 'warning',
+                'code' => 'reconcile_credential_skips',
+                'message' => "Última reconciliação pulou {$skippedCred} pedido(s) sem credencial descriptografável.",
+                'action' => 'No Docker, reinicie scheduler/workers após update e confirme APP_KEY sincronizado via .docker/app.key.',
             ];
         }
 

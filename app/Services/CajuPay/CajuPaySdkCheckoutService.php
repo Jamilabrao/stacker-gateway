@@ -142,18 +142,35 @@ class CajuPaySdkCheckoutService
      */
     private function mapPublicSessionStatus(array $data): ?string
     {
-        $status = $data['status'] ?? $data['payment_status'] ?? $data['state'] ?? null;
+        $status = $data['payment_status'] ?? null;
+        if (! is_string($status) || trim($status) === '') {
+            foreach (['payment', 'latest_payment', 'charge', 'latest_charge'] as $nest) {
+                $obj = $data[$nest] ?? null;
+                if (! is_array($obj)) {
+                    continue;
+                }
+                $nested = $obj['payment_status'] ?? $obj['status'] ?? $obj['state'] ?? null;
+                if (is_string($nested) && trim($nested) !== '') {
+                    $status = $nested;
+                    break;
+                }
+            }
+        }
+        if (! is_string($status) || trim($status) === '') {
+            $status = $data['status'] ?? $data['state'] ?? null;
+        }
         if (! is_string($status) || trim($status) === '') {
             return 'pending';
         }
         $s = strtolower(trim($status));
-        if (in_array($s, ['paid', 'completed', 'succeeded', 'success', 'confirmed', 'approved'], true)) {
+        if (in_array($s, ['paid', 'completed', 'succeeded', 'success', 'confirmed', 'approved', 'settled'], true)) {
             return 'paid';
         }
-        if (in_array($s, ['failed', 'canceled', 'cancelled', 'rejected', 'declined'], true)) {
+        if (in_array($s, ['failed', 'canceled', 'cancelled', 'rejected', 'declined', 'expired', 'refunded'], true)) {
             return 'cancelled';
         }
-        if (in_array($s, ['pending', 'processing', 'open', 'requires_action', 'awaiting_payment'], true)) {
+        // "active"/"open" = sessão aberta; liquidação vem em payment_status
+        if (in_array($s, ['pending', 'processing', 'open', 'active', 'requires_action', 'awaiting_payment'], true)) {
             return 'pending';
         }
 
