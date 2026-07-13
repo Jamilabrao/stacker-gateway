@@ -14,36 +14,45 @@ return new class extends Migration
             return;
         }
 
-        $seen = [];
+        // Passo 1: renomear duplicatas (mantém o menor id) antes de normalizar casing.
+        // Se normalizar casing primeiro, UPDATE no id menor colide com o id maior que já está em minúsculas.
+        $duplicateIds = collect(DB::select("
+            WITH ranked AS (
+                SELECT id, ROW_NUMBER() OVER (PARTITION BY LOWER(TRIM(email)) ORDER BY id) AS rn
+                FROM users
+                WHERE TRIM(email) <> ''
+            )
+            SELECT id FROM ranked WHERE rn > 1 ORDER BY id
+        "))->pluck('id');
+
+        foreach ($duplicateIds as $duplicateId) {
+            $row = DB::table('users')->where('id', $duplicateId)->first(['id', 'email']);
+            if ($row === null) {
+                continue;
+            }
+
+            $normalized = strtolower(trim((string) $row->email));
+            $resolved = $this->deduplicateEmail((string) $row->email, (int) $row->id);
+
+            Log::warning('normalize_users_email: duplicate email — suffix applied before casing normalization', [
+                'email' => $normalized,
+                'user_id' => (int) $row->id,
+                'resolved_email' => $resolved,
+            ]);
+
+            DB::table('users')->where('id', $row->id)->update(['email' => $resolved]);
+        }
+
+        // Passo 2: normalizar casing nos e-mails restantes.
         $rows = DB::table('users')->select('id', 'email')->orderBy('id')->get();
 
         foreach ($rows as $row) {
             $normalized = strtolower(trim((string) $row->email));
-            if ($normalized === '') {
+            if ($normalized === '' || (string) $row->email === $normalized) {
                 continue;
             }
 
-            if (isset($seen[$normalized])) {
-                $duplicateId = (int) $row->id;
-                $resolved = $this->deduplicateEmail((string) $row->email, $duplicateId);
-
-                Log::warning('normalize_users_email: duplicate email after normalization — suffix applied', [
-                    'email' => $normalized,
-                    'user_id' => $duplicateId,
-                    'kept_user_id' => $seen[$normalized],
-                    'resolved_email' => $resolved,
-                ]);
-
-                DB::table('users')->where('id', $duplicateId)->update(['email' => $resolved]);
-
-                continue;
-            }
-
-            $seen[$normalized] = (int) $row->id;
-
-            if ((string) $row->email !== $normalized) {
-                DB::table('users')->where('id', $row->id)->update(['email' => $normalized]);
-            }
+            DB::table('users')->where('id', $row->id)->update(['email' => $normalized]);
         }
 
         $driver = Schema::getConnection()->getDriverName();
