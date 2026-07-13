@@ -24,11 +24,17 @@ return new class extends Migration
             }
 
             if (isset($seen[$normalized])) {
-                Log::warning('normalize_users_email: duplicate email after normalization', [
+                $duplicateId = (int) $row->id;
+                $resolved = $this->deduplicateEmail((string) $row->email, $duplicateId);
+
+                Log::warning('normalize_users_email: duplicate email after normalization — suffix applied', [
                     'email' => $normalized,
-                    'user_id' => $row->id,
+                    'user_id' => $duplicateId,
                     'kept_user_id' => $seen[$normalized],
+                    'resolved_email' => $resolved,
                 ]);
+
+                DB::table('users')->where('id', $duplicateId)->update(['email' => $resolved]);
 
                 continue;
             }
@@ -61,6 +67,24 @@ return new class extends Migration
         }
 
         DB::statement('CREATE UNIQUE INDEX users_email_lower_unique ON users (LOWER(email))');
+    }
+
+    /**
+     * Garante e-mail único quando já existe outra conta com o mesmo endereço (case-insensitive).
+     */
+    private function deduplicateEmail(string $email, int $userId): string
+    {
+        $email = trim($email);
+        $at = strrpos($email, '@');
+
+        if ($at === false) {
+            return strtolower($email).'+dup'.$userId;
+        }
+
+        $local = substr($email, 0, $at);
+        $domain = substr($email, $at + 1);
+
+        return strtolower($local).'+dup'.$userId.'@'.strtolower($domain);
     }
 
     public function down(): void
