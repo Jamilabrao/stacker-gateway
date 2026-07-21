@@ -40,6 +40,23 @@ const props = defineProps({
 const page = usePage();
 const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
 
+/** Exibe WhatsApp no modal no formato BR (sem DDI 55). */
+function formatPhoneForInput(phone) {
+    const digits = String(phone ?? '').replace(/\D/g, '');
+    if (!digits) {
+        return '';
+    }
+    let local = digits;
+    if (local.startsWith('55') && local.length >= 12) {
+        local = local.slice(2);
+    }
+    local = local.slice(0, 11);
+    if (local.length <= 2) return local;
+    if (local.length <= 6) return `(${local.slice(0, 2)}) ${local.slice(2)}`;
+    if (local.length <= 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+    return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+}
+
 const searchQ = ref(props.q ?? '');
 const statusFilter = ref(props.status ?? '');
 
@@ -450,7 +467,7 @@ function openEditModal(u) {
     editForm.defaults({
         name: u.name,
         email: u.email,
-        phone: u.phone || '',
+        phone: formatPhoneForInput(u.phone),
         password: '',
         password_confirmation: '',
         account_status: u.account_status || 'approved',
@@ -1012,11 +1029,12 @@ function formatBlockUntilForInput(iso) {
                     <div>
                         <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">WhatsApp / telefone</label>
                         <input
-                            v-model="editForm.phone"
+                            :value="editForm.phone"
                             type="tel"
                             inputmode="tel"
                             placeholder="(11) 99999-9999"
                             class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
+                            @input="editForm.phone = formatPhoneForInput($event.target.value)"
                         />
                         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Exibido no contato do infoprodutor com link para o WhatsApp.</p>
                         <p v-if="editForm.errors.phone" class="mt-1 text-sm text-red-600">{{ editForm.errors.phone }}</p>

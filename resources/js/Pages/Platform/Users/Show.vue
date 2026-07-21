@@ -1,9 +1,11 @@
 <script setup>
+import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import WalletAdjustForm from '@/components/platform/WalletAdjustForm.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
 import { BadgeCheck, Shield, MessageCircle, MapPin, User as UserIcon } from 'lucide-vue-next';
+import { buildWhatsAppUrl } from '@/lib/whatsappUrl';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -27,6 +29,31 @@ const props = defineProps({
         }),
     },
 });
+
+function formatPhoneBr(phone) {
+    const digits = String(phone ?? '').replace(/\D/g, '');
+    if (digits.length < 10) {
+        return null;
+    }
+    let local = digits;
+    if (local.startsWith('55') && local.length >= 12) {
+        local = local.slice(2);
+    }
+    if (local.length === 11) {
+        return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+    }
+    if (local.length === 10) {
+        return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+    }
+    return String(phone);
+}
+
+const whatsappDisplay = computed(
+    () => props.profile?.whatsapp || props.profile?.phone || formatPhoneBr(props.merchant?.phone) || null
+);
+const whatsappUrl = computed(
+    () => props.profile?.whatsapp_url || buildWhatsAppUrl(props.merchant?.phone || props.profile?.whatsapp || props.profile?.phone)
+);
 
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
@@ -183,12 +210,12 @@ function formatFeePreview(percent, fixed) {
                     <div>
                         <dt class="text-xs uppercase text-zinc-500">WhatsApp</dt>
                         <dd class="mt-1 flex flex-wrap items-center gap-2 font-medium text-zinc-900 dark:text-white">
-                            <span :class="profile.whatsapp ? '' : 'text-zinc-500'">
-                                {{ snap(profile.whatsapp) }}
+                            <span :class="whatsappDisplay ? '' : 'text-zinc-500'">
+                                {{ snap(whatsappDisplay) }}
                             </span>
                             <a
-                                v-if="profile.whatsapp_url"
-                                :href="profile.whatsapp_url"
+                                v-if="whatsappUrl"
+                                :href="whatsappUrl"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500"

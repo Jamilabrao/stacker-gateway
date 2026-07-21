@@ -241,11 +241,15 @@ class UsersController extends Controller
             }
         }
 
+        // Garante atributos frescos (ex.: phone) antes do snapshot de contato.
+        $user->refresh();
+
         return Inertia::render('Platform/Users/Show', [
             'merchant' => [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'phone' => Schema::hasColumn('users', 'phone') ? ($user->phone ?? null) : null,
                 'document' => $user->document,
                 'person_type' => $user->person_type,
                 'account_status' => $user->account_status ?? 'approved',

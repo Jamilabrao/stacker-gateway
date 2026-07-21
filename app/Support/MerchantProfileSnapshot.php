@@ -141,11 +141,9 @@ final class MerchantProfileSnapshot
      */
     private static function resolveWhatsApp(User $user, string $pixKeyType, string $pixKey): array
     {
-        if (Schema::hasColumn('users', 'phone')) {
-            $fromUser = self::whatsappFromPhoneDigits((string) ($user->phone ?? ''));
-            if ($fromUser !== []) {
-                return $fromUser;
-            }
+        $fromUser = self::whatsappFromPhoneDigits((string) ($user->phone ?? ''));
+        if ($fromUser !== []) {
+            return $fromUser;
         }
 
         return self::whatsappFromPixKey($pixKeyType, $pixKey);
@@ -176,7 +174,8 @@ final class MerchantProfileSnapshot
      */
     private static function whatsappFromPixKey(string $pixKeyType, string $pixKey): array
     {
-        if ($pixKeyType !== 'phone' || trim($pixKey) === '') {
+        $type = strtolower(trim($pixKeyType));
+        if (! in_array($type, ['phone', 'telefone', 'mobile'], true) || trim($pixKey) === '') {
             return [];
         }
 
