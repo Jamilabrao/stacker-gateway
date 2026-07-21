@@ -134,10 +134,16 @@ class CajuPayMedService
         }
 
         $mappedStatus = match ($outcome) {
-            'won' => MedDispute::STATUS_RESOLVED_WON,
-            'lost' => MedDispute::STATUS_RESOLVED_LOST,
-            'cancelled' => MedDispute::STATUS_CANCELLED,
+            'won', 'merchant_won', 'resolved_won' => MedDispute::STATUS_RESOLVED_WON,
+            'lost', 'payer_won', 'customer_won', 'resolved_lost' => MedDispute::STATUS_RESOLVED_LOST,
+            'cancelled', 'canceled', 'resolved_cancelled', 'resolved_canceled' => MedDispute::STATUS_CANCELLED,
             default => MedDispute::STATUS_RESOLVED_WON,
+        };
+
+        $walletOutcome = match ($mappedStatus) {
+            MedDispute::STATUS_RESOLVED_LOST => 'lost',
+            MedDispute::STATUS_CANCELLED => 'cancelled',
+            default => 'won',
         };
 
         $responsibleParty = $this->policy->responsiblePartyForOrder($order);
@@ -150,7 +156,7 @@ class CajuPayMedService
                 'cajupay_dispute_id' => $disputeId !== '' ? $disputeId : 'unknown-'.$order->id,
                 'cajupay_payment_id' => CajuPayPaymentId::fromOrder($order),
                 'status' => $mappedStatus,
-                'outcome' => $outcome,
+                'outcome' => $walletOutcome,
                 'amount_cents' => (int) ($object['amount_cents'] ?? 0),
                 'currency' => (string) ($object['currency'] ?? 'BRL'),
                 'txid' => isset($object['txid']) ? (string) $object['txid'] : null,
@@ -160,7 +166,7 @@ class CajuPayMedService
         } else {
             $dispute->update([
                 'status' => $mappedStatus,
-                'outcome' => $outcome !== '' ? $outcome : $dispute->outcome,
+                'outcome' => $walletOutcome,
                 'resolved_at' => now(),
                 'metadata' => array_merge(is_array($dispute->metadata) ? $dispute->metadata : [], [
                     'webhook_resolved' => $object,
@@ -168,7 +174,7 @@ class CajuPayMedService
             ]);
         }
 
-        $this->resolution->applyWalletOutcome($dispute->fresh(), $outcome !== '' ? $outcome : 'won');
+        $this->resolution->applyWalletOutcome($dispute->fresh(), $walletOutcome);
         $this->notifications->medResolved($dispute->fresh());
 
         return $dispute->fresh();
@@ -240,7 +246,21 @@ class CajuPayMedService
             $q->whereNotIn('status', [MedDispute::STATUS_OPEN, MedDispute::STATUS_DEFENSE_SUBMITTED]);
         }
 
-        return $q->limit(100)->get()->all();
+        $items = $q->limit(100)->get();
+        if ($statusFilter === 'open' || $statusFilter === null) {
+            $this->reconcileOpenDisputesFromRemote($items);
+            $items = $items->map(fn (MedDispute $d) => $d->fresh() ?? $d)
+                ->filter(function (MedDispute $d) use ($statusFilter) {
+                    if ($statusFilter === 'open') {
+                        return $d->isOpen();
+                    }
+
+                    return true;
+                })
+                ->values();
+        }
+
+        return $items->all();
     }
 
     public function getForTenant(int $tenantId, MedDispute $dispute): MedDispute
@@ -254,6 +274,11 @@ class CajuPayMedService
         }
 
         $dispute->load(['order.product', 'order.user']);
+
+        if ($dispute->isOpen()) {
+            $dispute = $this->reconcileFromRemoteIfNeeded($dispute);
+            $dispute->load(['order.product', 'order.user']);
+        }
 
         $resolved = $this->resolveDriverForOrder($dispute->order) ?? $this->resolveDriverForTenant($tenantId);
         if ($resolved !== null && $dispute->cajupay_dispute_id && ! str_starts_with($dispute->cajupay_dispute_id, 'checkout-order-')) {
@@ -359,5 +384,106 @@ class CajuPayMedService
         }
 
         return null;
+    }
+
+    /**
+     * Resolve pedido para webhooks MED (API PIX incluso): payment id ou disputa já aberta localmente.
+     *
+     * @param  array<string, mixed>  $object
+     */
+    public static function findOrderForMedWebhook(array $object): ?Order
+    {
+        $byPayment = self::findOrderForPixWebhook($object);
+        if ($byPayment !== null) {
+            return $byPayment;
+        }
+
+        $disputeId = trim((string) ($object['med_dispute_id'] ?? $object['dispute_id'] ?? ''));
+        if ($disputeId === '' && isset($object['id']) && is_string($object['id'])) {
+            // Só usa `id` se parecer disputa MED (não confundir com payment id genérico sem contexto).
+            $disputeId = trim($object['id']);
+        }
+        if ($disputeId === '') {
+            return null;
+        }
+
+        $dispute = MedDispute::query()
+            ->where('cajupay_dispute_id', $disputeId)
+            ->with('order')
+            ->first();
+
+        return $dispute?->order;
+    }
+
+    /**
+     * Se a Caju já encerrou a MED e o webhook não atualizou o local, concilia via API.
+     */
+    public function reconcileFromRemoteIfNeeded(MedDispute $dispute): MedDispute
+    {
+        if (! $dispute->isOpen()) {
+            return $dispute;
+        }
+
+        $remoteId = trim((string) ($dispute->cajupay_dispute_id ?? ''));
+        if ($remoteId === '' || str_starts_with($remoteId, 'checkout-order-')) {
+            return $dispute;
+        }
+
+        $dispute->loadMissing('order');
+        $order = $dispute->order;
+        if ($order === null) {
+            return $dispute;
+        }
+
+        $resolved = $this->resolveDriverForOrder($order) ?? $this->resolveDriverForTenant((int) $dispute->tenant_id);
+        if ($resolved === null) {
+            return $dispute;
+        }
+
+        try {
+            $remote = $resolved['driver']->getMedDispute($resolved['credentials'], $remoteId);
+        } catch (\Throwable) {
+            return $dispute;
+        }
+
+        $statusRaw = strtolower(trim((string) ($remote['status'] ?? '')));
+        $outcome = strtolower(trim((string) ($remote['outcome'] ?? '')));
+
+        if ($outcome === '' && str_starts_with($statusRaw, 'resolved_')) {
+            $outcome = str_replace('resolved_', '', $statusRaw);
+        }
+
+        $terminal = in_array($statusRaw, [
+            'resolved_won', 'resolved_lost', 'cancelled', 'canceled', 'won', 'lost',
+        ], true) || in_array($outcome, ['won', 'lost', 'cancelled', 'canceled', 'merchant_won', 'payer_won'], true);
+
+        if (! $terminal) {
+            return $dispute;
+        }
+
+        $object = array_merge(is_array($remote) ? $remote : [], [
+            'med_dispute_id' => $remoteId,
+            'status' => $statusRaw !== '' ? $statusRaw : ('resolved_'.($outcome !== '' ? $outcome : 'won')),
+            'outcome' => $outcome !== '' ? $outcome : (str_contains($statusRaw, 'lost') ? 'lost' : (str_contains($statusRaw, 'cancel') ? 'cancelled' : 'won')),
+        ]);
+
+        return $this->syncResolvedFromWebhook($order, $object);
+    }
+
+    /**
+     * @param  iterable<MedDispute>  $disputes
+     */
+    public function reconcileOpenDisputesFromRemote(iterable $disputes): void
+    {
+        foreach ($disputes as $dispute) {
+            if (! $dispute instanceof MedDispute || ! $dispute->isOpen()) {
+                continue;
+            }
+            try {
+                $this->reconcileFromRemoteIfNeeded($dispute);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
     }
 }

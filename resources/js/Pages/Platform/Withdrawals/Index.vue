@@ -451,6 +451,7 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
         <PlatformStepUpModal
             :open="stepUpOpen"
             :loading="stepUpLoading"
+            :require-totp="Boolean(page.props.auth?.user?.totp_enabled)"
             :require-pin="stepUpRequirePin"
             :require-external-confirm="stepUpManual"
             :title="stepUpAction === 'reject' ? 'Cancelar saque' : stepUpManual ? 'Aprovar manualmente' : 'Aprovar saque'"

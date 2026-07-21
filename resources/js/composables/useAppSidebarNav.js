@@ -20,6 +20,7 @@ import {
     TicketPercent,
     GraduationCap,
     UserPlus,
+    Gift,
     Truck,
     Zap,
 } from 'lucide-vue-next';
@@ -142,6 +143,14 @@ export function useAppSidebarNav() {
 
         if (canView('financeiro.view')) {
             items.push({ name: t('sidebar.finance', 'Financeiro'), href: '/financeiro', icon: Wallet });
+        }
+
+        if (page.props.referral_program?.enabled) {
+            items.push({
+                name: t('sidebar.referral', 'Indique e Ganhe'),
+                href: '/indique-e-ganhe',
+                icon: Gift,
+            });
         }
 
         if (!page.props.customer_panel) {

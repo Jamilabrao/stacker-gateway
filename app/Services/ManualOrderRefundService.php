@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Jobs\PollCajuPayPixRefundJob;
 use App\Models\Order;
+use App\Models\RefundRequest;
 use App\Models\User;
 use App\Support\OrderManualRefund;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 
 class ManualOrderRefundService
@@ -47,6 +49,13 @@ class ManualOrderRefundService
 
         if ($gw['status'] === 'gateway_pending') {
             PollCajuPayPixRefundJob::dispatch($order->id)->delay(now()->addSeconds(5));
+            $this->recordApprovedRefundRequest(
+                $order,
+                $actor,
+                $reason,
+                $gw,
+                pendingGateway: true
+            );
 
             return [
                 'success' => true,
@@ -59,11 +68,66 @@ class ManualOrderRefundService
         $debitReason = $initiatedBy === 'platform' ? 'platform_manual_refund' : 'seller_manual_refund';
 
         PlatformOrderAdminService::refundPaidOrDisputed($order, $manualRefundMeta, $debitReason);
+        $this->recordApprovedRefundRequest($order->fresh(), $actor, $reason, $gw);
 
         return [
             'success' => true,
             'message' => 'Pedido #'.$order->id.' reembolsado.',
             'gateway_status' => (string) ($gw['status'] ?? 'gateway_ok'),
         ];
+    }
+
+    /**
+     * Garante que o reembolso manual apareça em Vendas → Reembolsos (aba Aprovados).
+     *
+     * @param  array{status?: string, note?: string|null}  $gw
+     */
+    private function recordApprovedRefundRequest(
+        Order $order,
+        User $actor,
+        ?string $reason,
+        array $gw,
+        bool $pendingGateway = false,
+    ): void {
+        if (! Schema::hasTable('refund_requests') || ! $order->user_id) {
+            return;
+        }
+
+        $customerReason = trim((string) ($reason ?? ''));
+        if ($customerReason === '') {
+            $customerReason = $pendingGateway
+                ? 'Reembolso iniciado pelo vendedor/plataforma (aguardando confirmação no gateway).'
+                : 'Reembolso iniciado pelo vendedor/plataforma.';
+        }
+
+        $existing = RefundRequest::query()
+            ->where('order_id', $order->id)
+            ->orderByDesc('id')
+            ->first();
+
+        $payload = [
+            'status' => RefundRequest::STATUS_APPROVED,
+            'resolved_by_user_id' => $actor->id,
+            'resolved_at' => now(),
+            'gateway_refund_status' => $gw['status'] ?? null,
+            'gateway_refund_note' => $gw['note'] ?? null,
+        ];
+
+        if ($existing !== null) {
+            if ($existing->status === RefundRequest::STATUS_PENDING
+                || $existing->status === RefundRequest::STATUS_APPROVED) {
+                $existing->update($payload);
+            }
+
+            return;
+        }
+
+        RefundRequest::query()->create([
+            'order_id' => $order->id,
+            'user_id' => $order->user_id,
+            'tenant_id' => (int) $order->tenant_id,
+            'customer_reason' => $customerReason,
+            ...$payload,
+        ]);
     }
 }

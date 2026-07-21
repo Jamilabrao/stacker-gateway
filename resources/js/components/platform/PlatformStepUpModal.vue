@@ -6,6 +6,8 @@ const props = defineProps({
     open: { type: Boolean, default: false },
     title: { type: String, default: 'Confirmação de segurança' },
     description: { type: String, default: '' },
+    /** When false, hide the 2FA field (platform TOTP not enabled). */
+    requireTotp: { type: Boolean, default: true },
     requirePin: { type: Boolean, default: false },
     requireExternalConfirm: { type: Boolean, default: false },
     confirmLabel: { type: String, default: 'Confirmar' },
@@ -70,9 +72,9 @@ function submit() {
             </p>
 
             <div class="mt-4 space-y-3">
-                <div>
+                <div v-if="requireTotp">
                     <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                        Código 2FA (se ativo)
+                        Código 2FA
                     </label>
                     <input
                         v-model="totpCode"

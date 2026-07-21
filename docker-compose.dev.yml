@@ -4,6 +4,12 @@
 #
 # Postgres no host: localhost:5433 | Redis no host: localhost:6379
 # Dentro da rede Docker use os serviços postgres:5432 e redis:6379 (mais rápido que host.docker.internal).
+#
+# Performance (Windows):
+# - OPcache CLI + realpath cache via docker/php/dev.ini
+# - vendor/ em volume Docker (FS Linux) — evita milhares de reads lentos no bind mount NTFS
+# - Melhor ainda: clone o repo dentro do WSL2 (~/...) em vez de D:\..., ou use só
+#   docker-compose.local-db.yml + PHP no Laragon/host (Vite continua com npm run dev no host)
 
 services:
   app:
@@ -16,7 +22,10 @@ services:
       - "${GETFY_HTTP_PORT:-8085}:80"
     volumes:
       - .:/var/www/html
+      # vendor no volume Linux (bind mount Windows/macOS mata o autoload do Composer)
+      - getfy_dev_vendor:/var/www/html/vendor
       - ./docker/php/uploads.ini:/usr/local/etc/php/conf.d/99-uploads.ini:ro
+      - ./docker/php/dev.ini:/usr/local/etc/php/conf.d/99-dev.ini:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -35,7 +44,7 @@ services:
       REDIS_PORT: ${GETFY_DEV_REDIS_PORT:-6379}
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
-      SESSION_DRIVER: database
+      SESSION_DRIVER: redis
       SESSION_ENCRYPT: "false"
       STACKER_LICENSE_DISABLED: ${STACKER_LICENSE_DISABLED:-1}
       STACKER_API_URL: ${STACKER_API_URL:-http://host.docker.internal:3000}
@@ -80,6 +89,8 @@ services:
       - "--timeout=120"
     volumes:
       - .:/var/www/html
+      - getfy_dev_vendor:/var/www/html/vendor
+      - ./docker/php/dev.ini:/usr/local/etc/php/conf.d/99-dev.ini:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -96,7 +107,7 @@ services:
       REDIS_PORT: ${GETFY_DEV_REDIS_PORT:-6379}
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
-      SESSION_DRIVER: database
+      SESSION_DRIVER: redis
       SESSION_ENCRYPT: "false"
     depends_on:
       postgres:
@@ -112,6 +123,8 @@ services:
     command: ["php", "artisan", "schedule:work"]
     volumes:
       - .:/var/www/html
+      - getfy_dev_vendor:/var/www/html/vendor
+      - ./docker/php/dev.ini:/usr/local/etc/php/conf.d/99-dev.ini:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -128,7 +141,7 @@ services:
       REDIS_PORT: ${GETFY_DEV_REDIS_PORT:-6379}
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
-      SESSION_DRIVER: database
+      SESSION_DRIVER: redis
       SESSION_ENCRYPT: "false"
     depends_on:
       postgres:
@@ -137,3 +150,7 @@ services:
         condition: service_healthy
       app:
         condition: service_started
+
+volumes:
+  getfy_dev_vendor:
+    driver: local

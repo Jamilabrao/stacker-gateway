@@ -38,6 +38,7 @@ use App\Services\Shipping\ShippingQuoteService;
 use App\Services\StorageService;
 use App\Services\Checkout\CheckoutAbuseGuard;
 use App\Services\CouponCheckoutService;
+use Illuminate\Support\Facades\Schema;
 use App\Support\CajuPayBrowserSdk;
 use App\Support\CheckoutCardContract;
 use App\Support\CheckoutPaymentConsumer;
@@ -2655,6 +2656,17 @@ class CheckoutController extends Controller
             foreach ($merged as $key => $value) {
                 if (is_string($value) && trim($value) !== '') {
                     $orderMetadata[$key] = trim($value);
+                }
+            }
+
+            // Se o ref veio no pay (ex.: sessionStorage) mas a sessão foi recriada sem ?ref=,
+            // grava na sessão para não perder atribuição em reprocessamentos.
+            $refTrim = is_string($affiliateRef) ? trim($affiliateRef) : '';
+            if ($refTrim !== '' && Schema::hasColumn('checkout_sessions', 'affiliate_ref')) {
+                $existingRef = trim((string) ($session->affiliate_ref ?? ''));
+                if ($existingRef === '') {
+                    $session->affiliate_ref = $refTrim;
+                    $session->save();
                 }
             }
 

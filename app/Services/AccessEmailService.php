@@ -5,13 +5,14 @@ namespace App\Services;
 use App\Mail\AccessGrantedMail;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\Setting;
 use App\Models\User;
 use App\Support\AccessEmailSendResult;
 use App\Support\EmailLogoHtml;
+use App\Support\PublicAppUrl;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\URL;
 
 class AccessEmailService
 {
@@ -162,7 +163,7 @@ class AccessEmailService
             }
         }
 
-        $sendResult = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template);
+        $sendResult = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template, $product);
         if (! $sendResult->success) {
             return $sendResult;
         }
@@ -191,13 +192,15 @@ class AccessEmailService
 
     /**
      * Tenta SMTP do tenant (se configurado) e depois SMTP global da plataforma.
+     * Remetente/Reply-To preferem o e-mail do seller (ou suporte do checkout), não o From global.
      */
     private function sendAccessMailableWithFallback(
         string $subject,
         string $bodyHtml,
         string $customerEmail,
         ?int $tenantIdForMail,
-        array $template
+        array $template,
+        ?Product $product = null
     ): AccessEmailSendResult {
         $attempts = [];
 
@@ -230,12 +233,7 @@ class AccessEmailService
             );
         }
 
-        $resolveFrom = function () use ($template) {
-            $fromAddress = config('mail.from.address');
-            $fromName = ! empty($template['from_name']) ? $template['from_name'] : (config('mail.from.name') ?? '');
-
-            return [$fromAddress, $fromName];
-        };
+        $sellerSender = $this->resolveSellerSenderIdentity($tenantIdForMail, $product);
 
         $lastError = null;
 
@@ -244,7 +242,18 @@ class AccessEmailService
                 $attempt['apply']();
                 $this->mailConfig->assertSmtpHostIsConfigured();
                 Mail::purge('smtp');
-                [$fromAddress, $fromName] = $resolveFrom();
+
+                [$fromAddress, $fromName, $replyTo] = $this->resolveBuyerFacingFrom(
+                    $template,
+                    $sellerSender,
+                    $attempt['label'] === 'smtp_tenant' ? $tenantIdForMail : null
+                );
+
+                // Evita Reply-To global da plataforma sobrescrever o do seller.
+                config(['mail.reply_to' => $replyTo
+                    ? ['address' => $replyTo['address'], 'name' => $replyTo['name']]
+                    : null]);
+
                 Log::info('AccessEmailService: enviando.', [
                     'via' => $attempt['label'],
                     'tenant_id_for_mail' => $tenantIdForMail,
@@ -254,9 +263,13 @@ class AccessEmailService
                     'host' => config('mail.mailers.smtp.host'),
                     'from' => $fromAddress,
                     'from_name' => $fromName,
+                    'reply_to' => $replyTo['address'] ?? null,
                 ]);
                 $mailable = new AccessGrantedMail($subject, $bodyHtml);
                 $mailable->from($fromAddress, $fromName);
+                if ($replyTo !== null) {
+                    $mailable->replyTo($replyTo['address'], $replyTo['name'] ?? null);
+                }
                 Mail::mailer('smtp')->to($customerEmail)->send($mailable);
 
                 return AccessEmailSendResult::ok();
@@ -274,6 +287,91 @@ class AccessEmailService
             AccessEmailSendResult::REASON_SMTP_SEND_FAILED,
             AccessEmailSendResult::messageForReason(AccessEmailSendResult::REASON_SMTP_SEND_FAILED, $lastError)
         );
+    }
+
+    /**
+     * @return array{email: ?string, name: ?string}
+     */
+    private function resolveSellerSenderIdentity(?int $tenantId, ?Product $product = null): array
+    {
+        $email = null;
+        $name = null;
+
+        if ($product !== null) {
+            $footer = is_array($product->checkout_config['footer'] ?? null)
+                ? $product->checkout_config['footer']
+                : [];
+            $support = trim((string) ($footer['support_email'] ?? ''));
+            if ($support !== '' && filter_var($support, FILTER_VALIDATE_EMAIL)) {
+                $email = $support;
+            }
+        }
+
+        $seller = null;
+        if ($tenantId !== null && $tenantId > 0) {
+            $seller = User::query()->find($tenantId);
+        }
+
+        if ($seller instanceof User) {
+            if ($email === null) {
+                $candidate = trim((string) ($seller->email ?? ''));
+                if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+                    $email = $candidate;
+                }
+            }
+            $name = trim((string) ($seller->company_name ?: $seller->name ?: ''));
+            if ($name === '') {
+                $name = null;
+            }
+        }
+
+        return ['email' => $email, 'name' => $name];
+    }
+
+    /**
+     * @param  array{email: ?string, name: ?string}  $sellerSender
+     * @return array{0: string, 1: string, 2: ?array{address: string, name: ?string}}
+     */
+    private function resolveBuyerFacingFrom(array $template, array $sellerSender, ?int $tenantSmtpScope): array
+    {
+        $smtpFromAddress = (string) (config('mail.from.address') ?? '');
+        $smtpFromName = (string) (config('mail.from.name') ?? '');
+
+        $fromName = ! empty($template['from_name'])
+            ? (string) $template['from_name']
+            : ($sellerSender['name'] ?: $smtpFromName);
+
+        $sellerEmail = $sellerSender['email'] ?? null;
+
+        // Preferência: e-mail From configurado no SMTP do tenant (mail_from_address / Hostinger / SendGrid).
+        $tenantConfiguredFrom = null;
+        if ($tenantSmtpScope !== null) {
+            foreach (['mail_from_address', 'hostinger_mail_from_address', 'sendgrid_mail_from_address'] as $key) {
+                $v = trim((string) Setting::get($key, '', $tenantSmtpScope));
+                if ($v !== '' && filter_var($v, FILTER_VALIDATE_EMAIL)) {
+                    $tenantConfiguredFrom = $v;
+                    break;
+                }
+            }
+        }
+
+        // E-mails ao comprador devem aparecer como do seller (não o From global da plataforma).
+        $fromAddress = $tenantConfiguredFrom
+            ?: ($sellerEmail ?: $smtpFromAddress);
+
+        $replyTo = null;
+        if (is_string($sellerEmail) && $sellerEmail !== '') {
+            $replyTo = [
+                'address' => $sellerEmail,
+                'name' => $sellerSender['name'],
+            ];
+        }
+
+        if ($fromAddress === '' || ! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
+            $fromAddress = $smtpFromAddress !== '' ? $smtpFromAddress : (string) config('mail.from.address');
+        }
+
+        return [$fromAddress, $fromName !== '' ? $fromName : 'Suporte', $replyTo];
     }
 
     /**
@@ -359,7 +457,7 @@ class AccessEmailService
             $bodyHtml = $this->prependLogoToBody($template['logo_url'], $bodyHtml);
         }
 
-        return $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $product->tenant_id, $template);
+        return $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $product->tenant_id, $template, $product);
     }
 
     private function resolveLinkAcesso(Product $product): string
@@ -376,64 +474,12 @@ class AccessEmailService
 
     private function resolveMemberAreaMagicLink(Product $product, User $user): string
     {
-        $base = $this->memberAreaResolver->baseUrlForProduct($product);
-        $expiresAt = now()->addDays(7);
-        $appUrl = rtrim((string) config('app.url'), '/');
-        $appScheme = parse_url($appUrl, PHP_URL_SCHEME) ?: null;
-
-        $useHostAccess = true;
-        $path = parse_url($base, PHP_URL_PATH);
-        if (is_string($path) && str_starts_with(trim($path, '/'), 'm/')) {
-            $useHostAccess = false;
-        }
-
-        $slugForSignedPathAccess = null;
-        if (! $useHostAccess) {
-            $basePath = parse_url($base, PHP_URL_PATH);
-            if (is_string($basePath) && $basePath !== '') {
-                $segments = explode('/', trim($basePath, '/'));
-                if (($segments[0] ?? null) === 'm' && ! empty($segments[1])) {
-                    $slugForSignedPathAccess = (string) $segments[1];
-                }
-            }
-            if ($slugForSignedPathAccess === null || $slugForSignedPathAccess === '') {
-                $slugForSignedPathAccess = (string) ($product->checkout_slug ?? '');
-            }
-        }
-
-        $originalRoot = $appUrl;
-        $originalScheme = $appScheme;
-
-        try {
-            if ($useHostAccess) {
-                $scheme = parse_url($base, PHP_URL_SCHEME);
-                if (is_string($scheme) && $scheme !== '') {
-                    URL::forceScheme($scheme);
-                }
-                URL::forceRootUrl(rtrim($base, '/'));
-
-                return URL::temporarySignedRoute('member-area.magic-access.host', $expiresAt, [
-                    'u' => $user->id,
-                    'p' => $product->id,
-                ]);
-            }
-
-            return URL::temporarySignedRoute('member-area.magic-access', $expiresAt, [
-                'slug' => $slugForSignedPathAccess,
-                'u' => $user->id,
-                'p' => $product->id,
-            ]);
-        } finally {
-            URL::forceRootUrl($originalRoot);
-            if (is_string($originalScheme) && $originalScheme !== '') {
-                URL::forceScheme($originalScheme);
-            }
-        }
+        return $this->memberAreaResolver->signedMagicAccessUrl($product, $user);
     }
 
     private function resolvePlatformLoginLink(): string
     {
-        return url('/login');
+        return rtrim(PublicAppUrl::base(), '/').'/login';
     }
 
     private function prependLogoToBody(string $logoUrl, string $bodyHtml): string
@@ -493,7 +539,7 @@ class AccessEmailService
 
         $template = array_merge(Product::defaultEmailTemplate(), ($product->checkout_config ?? [])['email_template'] ?? []);
 
-        $sendResult = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template);
+        $sendResult = $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $tenantIdForMail, $template, $product);
         if ($sendResult->success) {
             Cache::put($cacheKey, true, now()->addHours(1));
         }

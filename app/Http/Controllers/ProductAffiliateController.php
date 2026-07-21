@@ -8,6 +8,8 @@ use App\Services\AffiliateEnrollmentNotifier;
 use App\Services\TeamAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
 
 class ProductAffiliateController extends Controller
 {
@@ -24,6 +26,11 @@ class ProductAffiliateController extends Controller
             'affiliate_support_email' => ['nullable', 'email', 'max:255'],
             'affiliate_showcase_description' => ['nullable', 'string', 'max:65535'],
             'affiliate_hide_customer_data' => ['boolean'],
+            'affiliate_shared_offer_ids' => ['nullable', 'array'],
+            'affiliate_shared_offer_ids.*' => [
+                'integer',
+                Rule::exists('product_offers', 'id')->where(fn ($q) => $q->where('product_id', $produto->id)),
+            ],
         ]);
 
         $affiliateEnabled = $request->boolean('affiliate_enabled', false);
@@ -52,6 +59,21 @@ class ProductAffiliateController extends Controller
         }
 
         $produto->save();
+
+        if (Schema::hasColumn('product_offers', 'affiliate_share_enabled')) {
+            $sharedIds = collect($validated['affiliate_shared_offer_ids'] ?? [])
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values()
+                ->all();
+
+            $produto->offers()->update(['affiliate_share_enabled' => false]);
+
+            if ($sharedIds !== []) {
+                $produto->offers()->whereIn('id', $sharedIds)->update(['affiliate_share_enabled' => true]);
+            }
+        }
 
         $tab = $request->query('tab');
         $url = route('produtos.edit', $produto).($tab ? '?tab='.urlencode((string) $tab) : '');

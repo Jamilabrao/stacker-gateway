@@ -70,7 +70,7 @@ class ProductAffiliateEnrollment extends Model
         }
 
         return self::query()
-            ->where('public_ref', $ref)
+            ->whereRaw('LOWER(public_ref) = ?', [Str::lower($ref)])
             ->where('product_id', $product->id)
             ->where('status', self::STATUS_APPROVED)
             ->first();

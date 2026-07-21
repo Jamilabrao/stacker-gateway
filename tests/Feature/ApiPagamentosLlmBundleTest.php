@@ -23,6 +23,13 @@ class ApiPagamentosLlmBundleTest extends TestCase
         $this->assertStringContainsString('# Confirmação de pagamento e fallbacks', $content);
     }
 
+    public function test_llm_bundle_legacy_full_md_url_still_works(): void
+    {
+        $this->withoutMiddleware(EnsureInstalled::class);
+
+        $this->get('/docs/api-pagamentos/llm/full.md')->assertOk();
+    }
+
     public function test_llm_bundle_service_builds_with_base_url_placeholder(): void
     {
         $bundle = app(ApiPagamentosLlmBundle::class);

@@ -82,13 +82,36 @@ class SellerPanelSupportSettingsTest extends TestCase
         Setting::set('seller_panel_support_destination', 'whatsapp', null);
         Setting::set('seller_panel_support_whatsapp', '5511999887766', null);
         Setting::set('seller_panel_support_icon', 'custom', null);
-        Setting::set('seller_panel_support_icon_image', '/storage/seller-panel-support/icon.png', null);
+        Setting::set('seller_panel_support_icon_image', 'seller-panel-support/icon.png', null);
 
         $config = SellerPanelSupportSettings::publicConfig();
 
         $this->assertTrue($config['enabled']);
         $this->assertSame('custom', $config['icon']);
-        $this->assertStringContainsString('/storage/seller-panel-support/icon.png', (string) $config['icon_url']);
+        $this->assertSame('/storage/seller-panel-support/icon.png', $config['icon_url']);
+    }
+
+    public function test_custom_icon_uses_platform_storage_not_tenant_disk(): void
+    {
+        Setting::set('seller_panel_support_enabled', '1', null);
+        Setting::set('seller_panel_support_destination', 'whatsapp', null);
+        Setting::set('seller_panel_support_whatsapp', '5511999887766', null);
+        Setting::set('seller_panel_support_icon', 'custom', null);
+        Setting::set('seller_panel_support_icon_image', '/storage/seller-panel-support/avatar.webp', null);
+
+        // Simula infoprodutor logado: StorageService padrão pegaria tenant_id e poderia quebrar o src.
+        $seller = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+            'tenant_id' => 99,
+            'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
+        ]);
+        $this->actingAs($seller);
+
+        $config = SellerPanelSupportSettings::publicConfig();
+
+        $this->assertSame('custom', $config['icon']);
+        $this->assertSame('/storage/seller-panel-support/avatar.webp', $config['icon_url']);
     }
 
     public function test_is_enabled_accepts_legacy_truthy_values(): void

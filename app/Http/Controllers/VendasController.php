@@ -96,6 +96,9 @@ class VendasController extends Controller
         if ($period === 'today') {
             $start = $now->copy()->startOfDay();
             $end = $now->copy()->endOfDay();
+        } elseif ($period === 'yesterday') {
+            $start = $now->copy()->subDay()->startOfDay();
+            $end = $now->copy()->subDay()->endOfDay();
         } elseif ($period === '7d') {
             $start = $now->copy()->subDays(6)->startOfDay();
             $end = $now->copy()->endOfDay();
@@ -378,8 +381,16 @@ class VendasController extends Controller
             $affiliateUserId = (int) ($o->affiliate_user_id ?? ($o->metadata['affiliate_user_id'] ?? 0));
             $affiliate = $affiliateUserId > 0 ? User::query()->find($affiliateUserId) : null;
             $arr['affiliate_name'] = $affiliate?->name;
-            $product = $o->relationLoaded('product') ? $o->product : null;
-            $pct = $product ? (float) $product->affiliate_commission_percent : 0;
+            $product = $o->relationLoaded('product') ? $o->product : $o->product()->first();
+            // Eager load parcial pode omitir affiliate_commission_percent → vinha como 0% na UI.
+            $pct = 0.0;
+            if ($product) {
+                if (! array_key_exists('affiliate_commission_percent', $product->getAttributes())) {
+                    $pct = (float) Product::query()->whereKey($product->getKey())->value('affiliate_commission_percent');
+                } else {
+                    $pct = (float) $product->affiliate_commission_percent;
+                }
+            }
             $gross = (float) $breakdown['gross'];
             $arr['affiliate_commission_percent'] = $pct;
             $arr['affiliate_commission_gross'] = round($gross * $pct / 100, 2);
@@ -515,7 +526,7 @@ class VendasController extends Controller
             ? $this->paginateUnifiedVendas($request, $filteredQuery, (int) $user->id, $statusFilter)
             : $filteredQuery
                 ->with([
-                    'product:id,name,slug,checkout_slug',
+                    'product:id,name,slug,checkout_slug,affiliate_commission_percent,affiliate_enabled,affiliate_hide_customer_data',
                     'user:id,name,email',
                     'productOffer:id,name,checkout_slug',
                     'subscriptionPlan:id,name,checkout_slug',
@@ -705,7 +716,7 @@ class VendasController extends Controller
             : Order::query()
                 ->whereIn('id', $orderIds)
                 ->with([
-                    'product:id,name,slug,checkout_slug',
+                    'product:id,name,slug,checkout_slug,affiliate_commission_percent,affiliate_enabled,affiliate_hide_customer_data',
                     'user:id,name,email',
                     'productOffer:id,name,checkout_slug',
                     'subscriptionPlan:id,name,checkout_slug',
@@ -775,6 +786,7 @@ class VendasController extends Controller
 
         $affiliatePeriod = match ($period) {
             'today' => 'hoje',
+            'yesterday' => 'ontem',
             '7d' => '7dias',
             '30d' => 'mes',
             'this_month' => 'mes',

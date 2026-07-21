@@ -8,6 +8,7 @@ use App\Models\PlatformIntegraxSetting;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\MemberAreaResolver;
+use App\Support\PublicAppUrl;
 use Illuminate\Support\Facades\URL;
 
 class IntegraxMessageBuilder
@@ -95,77 +96,25 @@ class IntegraxMessageBuilder
     private function resolveAccessLink(?Product $product, ?User $user): string
     {
         if (! $product || ! $user) {
-            return url('/login');
+            return rtrim(PublicAppUrl::base(), '/').'/login';
         }
 
         if ($product->type === Product::TYPE_LINK) {
             $config = $product->checkout_config ?? [];
             $link = $config['deliverable_link'] ?? '';
 
-            return is_string($link) && $link !== '' ? $link : url('/login');
+            return is_string($link) && $link !== '' ? $link : rtrim(PublicAppUrl::base(), '/').'/login';
         }
 
         if ($product->type === Product::TYPE_AREA_MEMBROS) {
             return $this->resolveMemberAreaMagicLink($product, $user);
         }
 
-        return url('/login');
+        return rtrim(PublicAppUrl::base(), '/').'/login';
     }
 
     private function resolveMemberAreaMagicLink(Product $product, User $user): string
     {
-        $base = $this->memberAreaResolver->baseUrlForProduct($product);
-        $expiresAt = now()->addDays(7);
-        $appUrl = rtrim((string) config('app.url'), '/');
-        $appScheme = parse_url($appUrl, PHP_URL_SCHEME) ?: null;
-
-        $useHostAccess = true;
-        $path = parse_url($base, PHP_URL_PATH);
-        if (is_string($path) && str_starts_with(trim($path, '/'), 'm/')) {
-            $useHostAccess = false;
-        }
-
-        $slugForSignedPathAccess = null;
-        if (! $useHostAccess) {
-            $basePath = parse_url($base, PHP_URL_PATH);
-            if (is_string($basePath) && $basePath !== '') {
-                $segments = explode('/', trim($basePath, '/'));
-                if (($segments[0] ?? null) === 'm' && ! empty($segments[1])) {
-                    $slugForSignedPathAccess = (string) $segments[1];
-                }
-            }
-            if ($slugForSignedPathAccess === null || $slugForSignedPathAccess === '') {
-                $slugForSignedPathAccess = (string) ($product->checkout_slug ?? '');
-            }
-        }
-
-        $originalRoot = $appUrl;
-        $originalScheme = $appScheme;
-
-        try {
-            if ($useHostAccess) {
-                $scheme = parse_url($base, PHP_URL_SCHEME);
-                if (is_string($scheme) && $scheme !== '') {
-                    URL::forceScheme($scheme);
-                }
-                URL::forceRootUrl(rtrim($base, '/'));
-
-                return URL::temporarySignedRoute('member-area.magic-access.host', $expiresAt, [
-                    'u' => $user->id,
-                    'p' => $product->id,
-                ]);
-            }
-
-            return URL::temporarySignedRoute('member-area.magic-access', $expiresAt, [
-                'slug' => $slugForSignedPathAccess,
-                'u' => $user->id,
-                'p' => $product->id,
-            ]);
-        } finally {
-            URL::forceRootUrl($originalRoot);
-            if (is_string($originalScheme) && $originalScheme !== '') {
-                URL::forceScheme($originalScheme);
-            }
-        }
+        return $this->memberAreaResolver->signedMagicAccessUrl($product, $user);
     }
 }

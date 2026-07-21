@@ -221,7 +221,29 @@ const affiliateForm = useForm({
     affiliate_support_email: props.produto.affiliate_support_email ?? '',
     affiliate_showcase_description: props.produto.affiliate_showcase_description ?? '',
     affiliate_hide_customer_data: Boolean(props.produto.affiliate_hide_customer_data),
+    affiliate_shared_offer_ids: (props.produto.offers || [])
+        .filter((o) => o.affiliate_share_enabled)
+        .map((o) => Number(o.id)),
 });
+
+const affiliateShareableOffers = computed(() => props.produto.offers || []);
+
+function isAffiliateOfferShared(offerId) {
+    const id = Number(offerId);
+    return (affiliateForm.affiliate_shared_offer_ids || []).map(Number).includes(id);
+}
+
+function toggleAffiliateOfferShare(offerId, enabled) {
+    const id = Number(offerId);
+    const ids = (affiliateForm.affiliate_shared_offer_ids || []).map(Number).filter((n) => n > 0);
+    const idx = ids.indexOf(id);
+    if (enabled && idx === -1) {
+        ids.push(id);
+    } else if (!enabled && idx !== -1) {
+        ids.splice(idx, 1);
+    }
+    affiliateForm.affiliate_shared_offer_ids = ids;
+}
 
 watch(
     () => affiliateForm.affiliate_enabled,
@@ -3019,6 +3041,31 @@ function submit() {
                                 rows="4"
                                 class="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
                             />
+                        </div>
+                        <div v-if="affiliateShareableOffers.length" class="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-600 dark:bg-zinc-900/40">
+                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                {{ t('products.edit.affiliate_shared_offers', 'Links de ofertas para afiliados') }}
+                            </p>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                {{ t('products.edit.affiliate_shared_offers_hint', 'O link principal do checkout sempre fica disponível. Marque as ofertas extras que os afiliados poderão copiar no painel.') }}
+                            </p>
+                            <ul class="mt-3 space-y-2">
+                                <li
+                                    v-for="offer in affiliateShareableOffers"
+                                    :key="offer.id"
+                                    class="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+                                >
+                                    <Checkbox
+                                        :model-value="isAffiliateOfferShared(offer.id)"
+                                        :label="`${offer.name || ('Oferta #' + offer.id)} — ${Number(offer.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: offer.currency || 'BRL' })}`"
+                                        class="w-full"
+                                        @update:model-value="(v) => toggleAffiliateOfferShare(offer.id, v)"
+                                    />
+                                </li>
+                            </ul>
+                            <p v-if="affiliateForm.errors.affiliate_shared_offer_ids" class="mt-2 text-sm text-red-600">
+                                {{ affiliateForm.errors.affiliate_shared_offer_ids }}
+                            </p>
                         </div>
                         <div class="flex justify-end">
                             <Button type="submit" :disabled="affiliateForm.processing">{{ affiliateForm.processing ? 'Salvando…' : t('common.save', 'Salvar') }}</Button>

@@ -39,7 +39,7 @@ class CajuPayCheckoutWebhookController extends Controller
             return response('invalid json', 400);
         }
 
-        $eventType = (string) ($request->header('X-CajuPay-Event') ?? ($payload['type'] ?? ''));
+        $eventType = strtolower(trim((string) ($request->header('X-CajuPay-Event') ?: ($payload['type'] ?? ''))));
 
         $sigHeader = (string) $request->header('X-CajuPay-Signature', '');
         $parsed = $this->parseSignatureHeader($sigHeader);
@@ -66,6 +66,9 @@ class CajuPayCheckoutWebhookController extends Controller
         $order = $this->findOrderForWebhook($checkoutSessionId, $paymentId);
         if ($order === null && is_array($object)) {
             $order = CajuPayMedService::findOrderForPixWebhook($object);
+        }
+        if ($order === null && is_array($object) && ($this->isPixMedOpenedEvent($eventType) || $this->isPixMedResolvedEvent($eventType))) {
+            $order = CajuPayMedService::findOrderForMedWebhook($object);
         }
 
         $secret = $this->resolveSigningSecret($rawBody, (string) $timestamp, $signatureHex, $order?->tenant_id);
@@ -172,18 +175,40 @@ class CajuPayCheckoutWebhookController extends Controller
         }
 
         if ($this->isPixMedOpenedEvent($eventType)) {
-            $pixOrder = $order ?? CajuPayMedService::findOrderForPixWebhook($object ?? []);
+            $pixOrder = $order ?? (is_array($object) ? CajuPayMedService::findOrderForMedWebhook($object) : null);
             if ($pixOrder !== null && is_array($object)) {
                 app(CajuPayMedService::class)->syncOpenedFromWebhook($pixOrder, $object);
+            } else {
+                Log::warning('CajuPayWebhook: med_opened sem pedido', [
+                    'event' => $eventType,
+                    'payment_id' => $paymentId,
+                    'med_dispute_id' => is_array($object) ? ($object['med_dispute_id'] ?? null) : null,
+                ]);
             }
 
             return response('ok', 200);
         }
 
         if ($this->isPixMedResolvedEvent($eventType)) {
-            $pixOrder = $order ?? CajuPayMedService::findOrderForPixWebhook($object ?? []);
+            $pixOrder = $order ?? (is_array($object) ? CajuPayMedService::findOrderForMedWebhook($object) : null);
             if ($pixOrder !== null && is_array($object)) {
+                // Aliases de evento sem outcome explícito.
+                if (! isset($object['outcome']) || trim((string) $object['outcome']) === '') {
+                    if (str_ends_with($eventType, 'med_won')) {
+                        $object['outcome'] = 'won';
+                    } elseif (str_ends_with($eventType, 'med_lost')) {
+                        $object['outcome'] = 'lost';
+                    } elseif (str_ends_with($eventType, 'med_cancelled')) {
+                        $object['outcome'] = 'cancelled';
+                    }
+                }
                 app(CajuPayMedService::class)->syncResolvedFromWebhook($pixOrder, $object);
+            } else {
+                Log::warning('CajuPayWebhook: med_resolved sem pedido', [
+                    'event' => $eventType,
+                    'payment_id' => $paymentId,
+                    'med_dispute_id' => is_array($object) ? ($object['med_dispute_id'] ?? null) : null,
+                ]);
             }
 
             return response('ok', 200);
@@ -237,12 +262,27 @@ class CajuPayCheckoutWebhookController extends Controller
 
     private function isPixMedOpenedEvent(string $eventType): bool
     {
-        return $eventType === 'pix.payment.med_opened';
+        $eventType = strtolower(trim($eventType));
+
+        return in_array($eventType, [
+            'pix.payment.med_opened',
+            'pix.med_opened',
+            'payment.med_opened',
+        ], true);
     }
 
     private function isPixMedResolvedEvent(string $eventType): bool
     {
-        return $eventType === 'pix.payment.med_resolved';
+        $eventType = strtolower(trim($eventType));
+
+        return in_array($eventType, [
+            'pix.payment.med_resolved',
+            'pix.med_resolved',
+            'payment.med_resolved',
+            'pix.payment.med_won',
+            'pix.payment.med_lost',
+            'pix.payment.med_cancelled',
+        ], true);
     }
 
     /**
@@ -316,12 +356,14 @@ class CajuPayCheckoutWebhookController extends Controller
         if ($object === null) {
             return '';
         }
-        foreach (['cajupay_charge_id', 'charge_id', 'payment_id', 'id'] as $k) {
+        foreach (['cajupay_payment_id', 'cajupay_charge_id', 'charge_id', 'payment_id'] as $k) {
             $v = $object[$k] ?? null;
             if (is_string($v) && trim($v) !== '') {
                 return trim($v);
             }
         }
+
+        // Não usar `id` genérico: em payloads MED o `id` costuma ser o da disputa, não do pagamento.
 
         return '';
     }

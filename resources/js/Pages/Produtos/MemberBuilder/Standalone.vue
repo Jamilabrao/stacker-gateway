@@ -1355,6 +1355,8 @@ function removeLoginBackground() {
 function reload() {
     const url = new URL(window.location.href);
     url.searchParams.set('tab', activeTab.value);
+    // Force navigation even when already on the same tab URL (otherwise the UI stays stale).
+    url.searchParams.set('_', String(Date.now()));
     window.location.href = url.toString();
 }
 
@@ -1619,6 +1621,17 @@ async function removeInternalProduct(internalProductId) {
         reload();
     } catch (_) {}
 }
+// Lista reativa de turmas (atualiza a UI na hora, sem depender só de reload)
+const turmasList = ref([...(props.produto.turmas ?? [])].map((t) => ({
+    ...t,
+    users: [...(t.users ?? [])],
+})));
+watch(() => props.produto.turmas, (turmas) => {
+    turmasList.value = Array.isArray(turmas)
+        ? turmas.map((t) => ({ ...t, users: [...(t.users ?? [])] }))
+        : [];
+}, { deep: true });
+
 // Modal Nova/Editar turma
 const turmaModalOpen = ref(false);
 const turmaModalName = ref('');
@@ -1645,11 +1658,18 @@ async function saveTurmaModal() {
     try {
         if (editing) {
             await axios.put(`${base.value}/turmas/${editing.id}`, { name }, { headers: headers() });
+            const idx = turmasList.value.findIndex((t) => t.id === editing.id);
+            if (idx >= 0) turmasList.value[idx] = { ...turmasList.value[idx], name };
         } else {
-            await axios.post(`${base.value}/turmas`, { name }, { headers: headers() });
+            const { data } = await axios.post(`${base.value}/turmas`, { name }, { headers: headers() });
+            if (data?.turma) {
+                turmasList.value = [...turmasList.value, { ...data.turma, users: data.turma.users ?? [] }];
+            } else {
+                reload();
+                return;
+            }
         }
         closeTurmaModal();
-        reload();
     } catch (_) {}
     finally {
         turmaModalSaving.value = false;
@@ -1666,7 +1686,7 @@ async function deleteTurma(turmaId) {
         confirmLabel: 'Remover',
         onConfirm: async () => {
             await axios.delete(`${base.value}/turmas/${turmaId}`, { headers: headers() });
-            reload();
+            turmasList.value = turmasList.value.filter((t) => t.id !== turmaId);
         },
     });
 }
@@ -1732,14 +1752,23 @@ async function createNewAluno() {
     addAlunoModalCreateSaving.value = true;
     try {
         const payload = { name, email, password };
-        if (addAlunoModalTurma?.id) payload.turma_id = addAlunoModalTurma.id;
+        const turmaId = addAlunoModalTurma.value?.id;
+        if (turmaId) payload.turma_id = turmaId;
         const res = await axios.post(`${base.value}/alunos`, payload, { headers: headers() });
         if (res.data?.errors) {
             Object.assign(newAlunoFormErrors, res.data.errors);
             return;
         }
+        const created = res.data?.user;
+        if (created && turmaId) {
+            const idx = turmasList.value.findIndex((t) => t.id === turmaId);
+            if (idx >= 0) {
+                const users = [...(turmasList.value[idx].users ?? []), created];
+                turmasList.value[idx] = { ...turmasList.value[idx], users };
+            }
+        }
         closeAddAlunoModal();
-        reload();
+        if (!created) reload();
     } catch (err) {
         const data = err.response?.data;
         if (data?.errors && typeof data.errors === 'object') {
@@ -1758,8 +1787,19 @@ async function attachTurmaUser(turmaId, userId) {
     if (!userId) return;
     addAlunoModalSaving.value = true;
     try {
-        await axios.post(`${base.value}/turmas/${turmaId}/users`, { user_id: userId }, { headers: headers() });
-        reload();
+        const { data } = await axios.post(`${base.value}/turmas/${turmaId}/users`, { user_id: userId }, { headers: headers() });
+        const user = data?.user ?? (props.produto.product_users ?? []).find((a) => a.id === userId);
+        if (user) {
+            const idx = turmasList.value.findIndex((t) => t.id === turmaId);
+            if (idx >= 0) {
+                const users = [...(turmasList.value[idx].users ?? [])];
+                if (!users.some((u) => u.id === user.id)) users.push({ id: user.id, name: user.name, email: user.email });
+                turmasList.value[idx] = { ...turmasList.value[idx], users };
+            }
+        } else {
+            reload();
+            return;
+        }
         closeAddAlunoModal();
     } catch (_) {}
     finally {
@@ -1769,7 +1809,11 @@ async function attachTurmaUser(turmaId, userId) {
 async function detachTurmaUser(turmaId, userId) {
     try {
         await axios.delete(`${base.value}/turmas/${turmaId}/users/${userId}`, { headers: headers() });
-        reload();
+        const idx = turmasList.value.findIndex((t) => t.id === turmaId);
+        if (idx >= 0) {
+            const users = (turmasList.value[idx].users ?? []).filter((u) => u.id !== userId);
+            turmasList.value[idx] = { ...turmasList.value[idx], users };
+        }
     } catch (_) {}
 }
 // Lista reativa de páginas da comunidade (sidebar + preview usam esta; atualizada ao criar/editar/remover)
@@ -2798,7 +2842,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             <div class="min-w-0 flex-1">
                                 <div class="space-y-4">
                                     <div
-                                        v-for="t in produto.turmas"
+                                        v-for="t in turmasList"
                                         :key="t.id"
                                         class="rounded-xl border border-zinc-200 bg-white shadow-sm transition dark:border-zinc-600 dark:bg-zinc-800/50 dark:shadow-none"
                                     >
@@ -2837,7 +2881,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         </div>
                                     </div>
                                 </div>
-                                <div v-if="!produto.turmas?.length" class="rounded-xl border border-dashed border-zinc-200 py-12 text-center dark:border-zinc-600">
+                                <div v-if="!turmasList?.length" class="rounded-xl border border-dashed border-zinc-200 py-12 text-center dark:border-zinc-600">
                                     <Users class="mx-auto h-12 w-12 text-zinc-300 dark:text-zinc-600" />
                                     <p class="mt-3 text-sm font-medium text-zinc-600 dark:text-zinc-400">Nenhuma turma ainda</p>
                                     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Crie uma turma para organizar os alunos.</p>

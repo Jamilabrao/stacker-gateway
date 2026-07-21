@@ -17,6 +17,7 @@ const props = defineProps({
     wallet_transactions: { type: Array, default: () => [] },
     effective_merchant_fees: { type: Array, default: () => [] },
     admin_notes: { type: Array, default: () => [] },
+    platform_referral_commission_percent: { type: Number, default: 20 },
     revenue_breakdown: {
         type: Object,
         default: () => ({
@@ -181,18 +182,21 @@ function formatFeePreview(percent, fixed) {
                     </div>
                     <div>
                         <dt class="text-xs uppercase text-zinc-500">WhatsApp</dt>
-                        <dd class="mt-0.5 font-medium text-zinc-900 dark:text-white">
+                        <dd class="mt-1 flex flex-wrap items-center gap-2 font-medium text-zinc-900 dark:text-white">
+                            <span :class="profile.whatsapp ? '' : 'text-zinc-500'">
+                                {{ snap(profile.whatsapp) }}
+                            </span>
                             <a
                                 v-if="profile.whatsapp_url"
                                 :href="profile.whatsapp_url"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                class="inline-flex items-center gap-1.5 text-emerald-700 hover:underline dark:text-emerald-300"
+                                class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500"
+                                title="Abrir conversa no WhatsApp"
                             >
-                                <MessageCircle class="h-4 w-4" />
-                                {{ profile.whatsapp }}
+                                <MessageCircle class="h-3.5 w-3.5" />
+                                WhatsApp
                             </a>
-                            <span v-else class="text-zinc-500">{{ snap(profile.whatsapp) }}</span>
                         </dd>
                     </div>
                     <div v-if="profile.username">
@@ -272,6 +276,58 @@ function formatFeePreview(percent, fixed) {
                     <div>
                         <dt class="text-xs uppercase text-zinc-500">Termos aceitos</dt>
                         <dd class="mt-0.5">{{ formatDate(profile.terms_accepted_at) }}</dd>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <dt class="text-xs uppercase text-zinc-500">Taxa de indicação</dt>
+                        <dd class="mt-0.5 font-medium">
+                            <template v-if="merchant.referral_commission_percent != null">
+                                {{ Number(merchant.referral_commission_percent).toLocaleString('pt-BR', { maximumFractionDigits: 4 }) }}%
+                                <span class="font-normal text-zinc-500"> (personalizada)</span>
+                            </template>
+                            <template v-else>
+                                {{ Number(merchant.referral_commission_percent_effective ?? platform_referral_commission_percent ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 }) }}%
+                                <span class="font-normal text-zinc-500"> (padrão da plataforma)</span>
+                            </template>
+                            <div class="mt-1">
+                                <Link
+                                    :href="`/plataforma/usuarios?edit=${merchant.id}`"
+                                    class="text-xs text-[var(--color-primary)] underline"
+                                >
+                                    Editar no cadastro
+                                </Link>
+                            </div>
+                        </dd>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <dt class="text-xs uppercase text-zinc-500">Indicado por</dt>
+                        <dd class="mt-0.5">
+                            <template v-if="merchant.referred_by">
+                                <Link
+                                    :href="`/plataforma/usuarios/${merchant.referred_by.id}`"
+                                    class="font-medium text-[var(--color-primary)] hover:underline"
+                                >
+                                    {{ merchant.referred_by.name }}
+                                </Link>
+                                <span class="text-zinc-500"> · desde {{ formatDate(merchant.referred_by.referred_at) }}</span>
+                                <div class="mt-1">
+                                    <Link
+                                        href="/plataforma/indique-e-ganhe?tab=indicacoes"
+                                        class="text-xs text-zinc-500 underline"
+                                    >
+                                        Gerenciar em Indique e Ganhe
+                                    </Link>
+                                </div>
+                            </template>
+                            <template v-else>
+                                —
+                                <Link
+                                    href="/plataforma/indique-e-ganhe?tab=indicacoes"
+                                    class="ml-2 text-xs text-[var(--color-primary)] underline"
+                                >
+                                    Atribuir
+                                </Link>
+                            </template>
+                        </dd>
                     </div>
                 </dl>
                 <p

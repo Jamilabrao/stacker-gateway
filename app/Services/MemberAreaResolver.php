@@ -4,7 +4,10 @@ namespace App\Services;
 
 use App\Models\MemberAreaDomain;
 use App\Models\Product;
+use App\Models\User;
+use App\Support\PublicAppUrl;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\URL;
 
 class MemberAreaResolver
 {
@@ -120,7 +123,7 @@ class MemberAreaResolver
     public function baseUrlForProduct(Product $product): string
     {
         $domain = $product->memberAreaDomain;
-        $appUrl = rtrim(config('app.url'), '/');
+        $appUrl = rtrim(PublicAppUrl::base(), '/');
         $protocol = str_starts_with($appUrl, 'https') ? 'https' : 'http';
 
         if ($domain) {
@@ -139,5 +142,64 @@ class MemberAreaResolver
         }
 
         return $appUrl.'/m/'.$product->checkout_slug;
+    }
+
+    /**
+     * Link mágico assinado para o e-mail/WhatsApp de acesso (sempre com host público).
+     */
+    public function signedMagicAccessUrl(Product $product, User $user, ?\DateTimeInterface $expiresAt = null): string
+    {
+        $base = $this->baseUrlForProduct($product);
+        $expiresAt = $expiresAt ?? now()->addDays(7);
+
+        $useHostAccess = true;
+        $path = parse_url($base, PHP_URL_PATH);
+        if (is_string($path) && str_starts_with(trim($path, '/'), 'm/')) {
+            $useHostAccess = false;
+        }
+
+        $slugForSignedPathAccess = null;
+        if (! $useHostAccess) {
+            $basePath = parse_url($base, PHP_URL_PATH);
+            if (is_string($basePath) && $basePath !== '') {
+                $segments = explode('/', trim($basePath, '/'));
+                if (($segments[0] ?? null) === 'm' && ! empty($segments[1])) {
+                    $slugForSignedPathAccess = (string) $segments[1];
+                }
+            }
+            if ($slugForSignedPathAccess === null || $slugForSignedPathAccess === '') {
+                $slugForSignedPathAccess = (string) ($product->checkout_slug ?? '');
+            }
+        }
+
+        $previousRoot = rtrim((string) config('app.url'), '/') ?: 'http://localhost';
+        $previousScheme = parse_url($previousRoot, PHP_URL_SCHEME) ?: null;
+
+        try {
+            if ($useHostAccess) {
+                PublicAppUrl::forceRoot($base);
+            } else {
+                // Path /m/{slug}: força origem pública (não o Host do request/queue).
+                PublicAppUrl::forceRoot(PublicAppUrl::origin($base));
+            }
+
+            if ($useHostAccess) {
+                return URL::temporarySignedRoute('member-area.magic-access.host', $expiresAt, [
+                    'u' => $user->id,
+                    'p' => $product->id,
+                ]);
+            }
+
+            return URL::temporarySignedRoute('member-area.magic-access', $expiresAt, [
+                'slug' => $slugForSignedPathAccess,
+                'u' => $user->id,
+                'p' => $product->id,
+            ]);
+        } finally {
+            URL::forceRootUrl($previousRoot);
+            if (is_string($previousScheme) && $previousScheme !== '') {
+                URL::forceScheme($previousScheme);
+            }
+        }
     }
 }

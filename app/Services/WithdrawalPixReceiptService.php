@@ -18,8 +18,16 @@ class WithdrawalPixReceiptService
 {
     public function isAvailable(Withdrawal $withdrawal): bool
     {
-        return (string) $withdrawal->status === MerchantWithdrawalService::STATUS_PAID
-            && (float) $withdrawal->net_amount > 0;
+        $status = strtolower(trim((string) $withdrawal->status));
+        if ($status !== MerchantWithdrawalService::STATUS_PAID) {
+            return false;
+        }
+
+        // Prefer net_amount; fall back to gross when net was not persisted (legacy rows).
+        $net = (float) ($withdrawal->net_amount ?? 0);
+        $gross = (float) ($withdrawal->amount ?? 0);
+
+        return $net > 0 || $gross > 0;
     }
 
     /**
@@ -123,7 +131,7 @@ class WithdrawalPixReceiptService
     public function viewData(Withdrawal $withdrawal, bool $includePayerSection = true): array
     {
         if (! $this->isAvailable($withdrawal)) {
-            abort(404);
+            abort(404, 'Comprovante disponível apenas para saques pagos.');
         }
 
         $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
@@ -147,7 +155,8 @@ class WithdrawalPixReceiptService
         }
 
         $paidAt = $this->resolvePaidAt($withdrawal, $receipt, $meta);
-        $amount = (float) $withdrawal->net_amount;
+        $net = (float) ($withdrawal->net_amount ?? 0);
+        $amount = $net > 0 ? $net : (float) ($withdrawal->amount ?? 0);
 
         $payerName = '—';
         $payerDocument = '—';

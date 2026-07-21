@@ -16,6 +16,7 @@ class ProductOffer extends Model
         'checkout_slug',
         'checkout_config',
         'position',
+        'affiliate_share_enabled',
     ];
 
     protected function casts(): array
@@ -23,6 +24,7 @@ class ProductOffer extends Model
         return [
             'price' => 'decimal:2',
             'checkout_config' => 'array',
+            'affiliate_share_enabled' => 'boolean',
         ];
     }
 

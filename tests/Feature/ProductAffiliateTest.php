@@ -481,4 +481,99 @@ class ProductAffiliateTest extends TestCase
 
         $this->assertSame('AFFILIATE_CHECKOUT', $pixels['meta']['entries'][0]['pixel_id'] ?? null);
     }
+
+    public function test_seller_can_share_offer_links_with_affiliates(): void
+    {
+        if (! Schema::hasColumn('products', 'affiliate_enabled')
+            || ! Schema::hasTable('product_offers')
+            || ! Schema::hasColumn('product_offers', 'affiliate_share_enabled')) {
+            $this->markTestSkipped('affiliate share offers');
+        }
+
+        $this->withoutMiddleware([
+            \App\Http\Middleware\EnsureInstalled::class,
+            \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+        ]);
+
+        $sellerAttrs = ['role' => User::ROLE_INFOPRODUTOR];
+        if (Schema::hasColumn('users', 'kyc_status')) {
+            $sellerAttrs['kyc_status'] = User::KYC_APPROVED;
+        }
+        if (Schema::hasColumn('users', 'account_status')) {
+            $sellerAttrs['account_status'] = 'approved';
+        }
+
+        $seller = User::factory()->create($sellerAttrs);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $affiliateAttrs = ['role' => User::ROLE_INFOPRODUTOR];
+        if (Schema::hasColumn('users', 'kyc_status')) {
+            $affiliateAttrs['kyc_status'] = User::KYC_APPROVED;
+        }
+        if (Schema::hasColumn('users', 'account_status')) {
+            $affiliateAttrs['account_status'] = 'approved';
+        }
+
+        $affiliate = User::factory()->create($affiliateAttrs);
+        $affiliate->forceFill(['tenant_id' => $affiliate->id])->save();
+
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'is_active' => true,
+            'checkout_slug' => 'mainchk'.substr(uniqid('', true), 0, 6),
+            'affiliate_enabled' => true,
+            'affiliate_commission_percent' => 10,
+        ]);
+
+        $shared = \App\Models\ProductOffer::query()->create([
+            'product_id' => $product->id,
+            'name' => 'Oferta compartilhada',
+            'price' => 97,
+            'currency' => 'BRL',
+            'checkout_slug' => 'sh'.substr(uniqid('', true), 0, 10),
+            'position' => 0,
+            'affiliate_share_enabled' => false,
+        ]);
+        $hidden = \App\Models\ProductOffer::query()->create([
+            'product_id' => $product->id,
+            'name' => 'Oferta oculta',
+            'price' => 47,
+            'currency' => 'BRL',
+            'checkout_slug' => 'hd'.substr(uniqid('', true), 0, 10),
+            'position' => 1,
+            'affiliate_share_enabled' => false,
+        ]);
+
+        $this->actingAs($seller)->put(route('produtos.affiliate-settings.update', $product), [
+            'affiliate_enabled' => true,
+            'affiliate_commission_percent' => 10,
+            'affiliate_manual_approval' => true,
+            'affiliate_show_in_showcase' => false,
+            'affiliate_hide_customer_data' => false,
+            'affiliate_shared_offer_ids' => [$shared->id],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertTrue((bool) $shared->fresh()->affiliate_share_enabled);
+        $this->assertFalse((bool) $hidden->fresh()->affiliate_share_enabled);
+
+        $ref = 'offref'.substr(uniqid('', true), 0, 8);
+        ProductAffiliateEnrollment::query()->create([
+            'product_id' => $product->id,
+            'affiliate_user_id' => $affiliate->id,
+            'status' => ProductAffiliateEnrollment::STATUS_APPROVED,
+            'public_ref' => $ref,
+        ]);
+
+        $this->actingAs($affiliate)->get(route('produtos.painel-afiliado.show', $product->id))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Produtos/PainelAfiliado')
+                ->has('enrollment.offer_links', 2)
+                ->where('enrollment.offer_links.0.type', 'main')
+                ->where('enrollment.offer_links.1.type', 'offer')
+                ->where('enrollment.offer_links.1.id', $shared->id)
+                ->where('enrollment.offer_links.1.url', fn ($url) => is_string($url)
+                    && str_contains($url, (string) $shared->checkout_slug)
+                    && str_contains($url, 'ref='.$ref)));
+    }
 }

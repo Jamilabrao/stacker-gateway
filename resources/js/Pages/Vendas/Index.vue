@@ -138,6 +138,7 @@ const filterOptions = [
 const periodOptions = [
     { value: 'all', label: t('sales.period.all', 'Todo período') },
     { value: 'today', label: t('period.today', 'Hoje') },
+    { value: 'yesterday', label: t('period.yesterday', 'Ontem') },
     { value: '7d', label: t('sales.period.last_7_days', 'Últimos 7 dias') },
     { value: '30d', label: t('sales.period.last_30_days', 'Últimos 30 dias') },
     { value: 'this_month', label: t('sales.period.this_month', 'Este mês') },
@@ -166,6 +167,17 @@ function initialProductIds(f) {
         return [...f.product_ids];
     }
     return [];
+}
+
+/** Exibe data e horário da venda: DD/MM/AAAA - HH:MM */
+function formatSaleDateTime(value) {
+    if (!value) return '–';
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return '–';
+    const pad = (n) => String(n).padStart(2, '0');
+    const date = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${date} - ${time}`;
 }
 
 const filterForm = ref({
@@ -932,7 +944,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                 <div class="flex items-center justify-between gap-3">
                     <div class="min-w-0">
                         <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                            {{ new Date(v.created_at).toLocaleDateString('pt-BR') }}
+                            {{ formatSaleDateTime(v.created_at) }}
                         </p>
                         <p class="mt-1 break-words text-sm font-semibold leading-snug text-zinc-900 dark:text-white">
                             {{ v.product_display_name ?? v.product?.name ?? '–' }}
@@ -1078,7 +1090,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                         @click="openRowDetail(v)"
                     >
                         <td class="whitespace-nowrap px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">
-                            {{ new Date(v.created_at).toLocaleDateString('pt-BR') }}
+                            {{ formatSaleDateTime(v.created_at) }}
                         </td>
                         <td class="px-4 py-3 text-sm text-zinc-900 dark:text-white">
                             {{ v.product_display_name ?? v.product?.name ?? '–' }}

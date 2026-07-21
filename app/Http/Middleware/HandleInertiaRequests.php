@@ -20,6 +20,7 @@ use App\Support\LoginTemplate;
 use App\Support\PanelColorScheme;
 use App\Support\SellerDashboardTemplate;
 use App\Support\SellerPanelSupportSettings;
+use App\Support\ReferralProgramSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
@@ -299,6 +300,9 @@ class HandleInertiaRequests extends Middleware
             'seller_panel_support' => $user && $user->canAccessSellerPanel()
                 ? SellerPanelSupportSettings::publicConfig()
                 : null,
+            'referral_program' => $user && $user->canAccessSellerPanel()
+                ? ReferralProgramSettings::publicConfig()
+                : ['enabled' => false],
             'pixgo_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? \App\Services\PixGoAccess::globalEnabled()
                 : false,

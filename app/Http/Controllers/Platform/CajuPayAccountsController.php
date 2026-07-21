@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Platform;
 
 use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\GatewayRegistry;
+use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Controller;
 use App\Models\CajuPayAccount;
 use App\Models\User;
@@ -16,6 +17,7 @@ use Illuminate\Validation\ValidationException;
 
 class CajuPayAccountsController extends Controller
 {
+    use RequiresPlatformStepUp;
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -97,6 +99,8 @@ class CajuPayAccountsController extends Controller
         if (! $gateway) {
             abort(404);
         }
+
+        $this->validatePlatformStepUp($request);
 
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:120'],

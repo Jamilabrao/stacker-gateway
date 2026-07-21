@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\OrderCancelled;
 use App\Events\OrderRefunded;
 use App\Models\Order;
+use App\Models\RefundRequest;
 use App\Models\TenantWallet;
 use App\Models\WalletTransaction;
 use App\Services\AffiliateCommissionRecorder;
@@ -73,6 +74,8 @@ class PlatformOrderAdminService
                 'metadata' => $meta,
             ]);
             AffiliateCommissionRecorder::markRefundedForOrder($order->fresh());
+            ReferralCommissionRecorder::reverseForOrder($order->fresh());
+            $order->fresh()?->revokePurchasedProductAccessFromBuyer();
             event(new OrderRefunded($order->fresh()));
         });
     }
@@ -429,6 +432,41 @@ class PlatformOrderAdminService
         }
 
         self::refundPaidOrDisputed($order);
+        self::ensureApprovedRefundRequestForGateway($order->fresh());
+    }
+
+    /**
+     * Histórico em Vendas → Reembolsos quando o estorno veio do gateway/webhook.
+     */
+    private static function ensureApprovedRefundRequestForGateway(?Order $order): void
+    {
+        if ($order === null || ! Schema::hasTable('refund_requests') || ! $order->user_id) {
+            return;
+        }
+
+        $exists = RefundRequest::query()->where('order_id', $order->id)->exists();
+        if ($exists) {
+            RefundRequest::query()
+                ->where('order_id', $order->id)
+                ->where('status', RefundRequest::STATUS_PENDING)
+                ->update([
+                    'status' => RefundRequest::STATUS_APPROVED,
+                    'resolved_at' => now(),
+                    'gateway_refund_status' => 'gateway_ok',
+                ]);
+
+            return;
+        }
+
+        RefundRequest::query()->create([
+            'order_id' => $order->id,
+            'user_id' => $order->user_id,
+            'tenant_id' => (int) $order->tenant_id,
+            'status' => RefundRequest::STATUS_APPROVED,
+            'customer_reason' => 'Reembolso confirmado pelo gateway de pagamento.',
+            'gateway_refund_status' => 'gateway_ok',
+            'resolved_at' => now(),
+        ]);
     }
 
     private static function recalcWalletAggregates(TenantWallet $wallet): void

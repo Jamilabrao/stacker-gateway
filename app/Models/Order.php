@@ -5,10 +5,12 @@ namespace App\Models;
 use App\Services\PlatformPaymentMethods;
 use App\Support\SaleOrigin;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class Order extends Model
 {
@@ -363,6 +365,80 @@ class Order extends Model
                 $item->product->users()->syncWithoutDetaching([$this->user_id]);
             }
         }
+    }
+
+    /**
+     * Remove acesso à área de membros concedido por este pedido (reembolso / chargeback).
+     * Mantém o vínculo se o comprador ainda tiver outro pedido pago/MED do mesmo produto.
+     */
+    public function revokePurchasedProductAccessFromBuyer(): void
+    {
+        if (! $this->user_id) {
+            return;
+        }
+
+        $this->loadMissing('orderItems.product', 'product');
+        $productIds = [];
+        if ($this->product && $this->product->type !== Product::TYPE_PRODUTO_FISICO) {
+            $productIds[] = (int) $this->product->id;
+        }
+        foreach ($this->orderItems as $item) {
+            if ($item->product && $item->product->type !== Product::TYPE_PRODUTO_FISICO) {
+                $productIds[] = (int) $item->product_id;
+            }
+        }
+        $productIds = array_values(array_unique(array_filter($productIds)));
+        if ($productIds === []) {
+            return;
+        }
+
+        $revoked = [];
+        foreach ($productIds as $productId) {
+            if ($this->buyerStillHasActivePurchaseForProduct($productId)) {
+                continue;
+            }
+            $product = Product::query()->find($productId);
+            if ($product === null) {
+                continue;
+            }
+            $product->users()->detach([$this->user_id]);
+            $revoked[] = $productId;
+        }
+
+        if ($revoked === []) {
+            return;
+        }
+
+        if (Schema::hasTable('member_turmas') && Schema::hasTable('member_turma_user')) {
+            $turmaIds = MemberTurma::query()->whereIn('product_id', $revoked)->pluck('id');
+            if ($turmaIds->isNotEmpty()) {
+                DB::table('member_turma_user')
+                    ->whereIn('member_turma_id', $turmaIds)
+                    ->where('user_id', $this->user_id)
+                    ->delete();
+            }
+        }
+
+        if (Schema::hasTable('subscriptions')) {
+            Subscription::query()
+                ->where('user_id', $this->user_id)
+                ->whereIn('product_id', $revoked)
+                ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PAST_DUE])
+                ->update(['status' => Subscription::STATUS_CANCELLED]);
+        }
+    }
+
+    private function buyerStillHasActivePurchaseForProduct(int $productId): bool
+    {
+        return self::query()
+            ->where('user_id', $this->user_id)
+            ->where('id', '!=', $this->id)
+            ->whereIn('status', ['completed', 'disputed'])
+            ->where(function ($q) use ($productId) {
+                $q->where('product_id', $productId)
+                    ->orWhereHas('orderItems', fn ($items) => $items->where('product_id', $productId));
+            })
+            ->exists();
     }
 
     public function shippingStore(): BelongsTo

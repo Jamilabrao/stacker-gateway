@@ -69,7 +69,7 @@ final class MerchantProfileSnapshot
         $pixOwnerDocument = PayoutUserSettings::cajuPixOwnerDocument($settings);
         $pixLabel = PayoutUserSettings::pixLabel($settings);
 
-        $whatsapp = self::whatsappFromPixKey($pixKeyType, $pixKey);
+        $whatsapp = self::resolveWhatsApp($user, $pixKeyType, $pixKey);
 
         $avatarUrl = null;
         if (! empty($user->avatar)) {
@@ -81,6 +81,7 @@ final class MerchantProfileSnapshot
             'person_type_label' => $personType === 'pj' ? 'Pessoa jurídica' : 'Pessoa física',
             'name' => (string) ($user->name ?? ''),
             'email' => (string) ($user->email ?? ''),
+            'phone' => $whatsapp['display'] ?? null,
             'username' => Schema::hasColumn('users', 'username') ? (trim((string) ($user->username ?? '')) ?: null) : null,
             'avatar_url' => $avatarUrl,
             'birth_date' => $birth,
@@ -134,15 +135,28 @@ final class MerchantProfileSnapshot
     }
 
     /**
+     * Contato WhatsApp: telefone cadastrado no usuário; fallback só se a chave PIX for telefone.
+     *
      * @return array{display?: string, url?: string}
      */
-    private static function whatsappFromPixKey(string $pixKeyType, string $pixKey): array
+    private static function resolveWhatsApp(User $user, string $pixKeyType, string $pixKey): array
     {
-        if ($pixKeyType !== 'phone' || trim($pixKey) === '') {
-            return [];
+        if (Schema::hasColumn('users', 'phone')) {
+            $fromUser = self::whatsappFromPhoneDigits((string) ($user->phone ?? ''));
+            if ($fromUser !== []) {
+                return $fromUser;
+            }
         }
 
-        $digits = preg_replace('/\D/', '', $pixKey) ?? '';
+        return self::whatsappFromPixKey($pixKeyType, $pixKey);
+    }
+
+    /**
+     * @return array{display?: string, url?: string}
+     */
+    private static function whatsappFromPhoneDigits(string $phone): array
+    {
+        $digits = preg_replace('/\D/', '', $phone) ?? '';
         if (strlen($digits) < 10) {
             return [];
         }
@@ -151,12 +165,22 @@ final class MerchantProfileSnapshot
             $digits = '55'.$digits;
         }
 
-        $display = self::formatPhoneBr($digits);
-
         return [
-            'display' => $display,
+            'display' => self::formatPhoneBr($digits),
             'url' => 'https://wa.me/'.$digits,
         ];
+    }
+
+    /**
+     * @return array{display?: string, url?: string}
+     */
+    private static function whatsappFromPixKey(string $pixKeyType, string $pixKey): array
+    {
+        if ($pixKeyType !== 'phone' || trim($pixKey) === '') {
+            return [];
+        }
+
+        return self::whatsappFromPhoneDigits($pixKey);
     }
 
     private static function formatAddressLine(User $user): ?string

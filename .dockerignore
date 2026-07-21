@@ -9,3 +9,5 @@
 /agent/node_modules
 /dist-releases
 .git
+# Symlink storage:link — no Windows o BuildKit falha com "invalid file request public/storage"
+/public/storage

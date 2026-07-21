@@ -16,6 +16,7 @@ const { isSpotlight, isImmersive, isModernLogin } = useLoginTemplate();
 const props = defineProps({
     revenue_ranges: { type: Array, default: () => [] },
     coproducer_invite: { type: String, default: '' },
+    referral_ref: { type: String, default: '' },
     upgrade_from_customer: { type: Boolean, default: false },
     registration_turnstile: { type: Object, default: () => ({ enabled: false, site_key: '' }) },
 });
@@ -115,6 +116,11 @@ async function validateCurrentStep() {
         }
         if (!isValidEmailFormat(form.email)) {
             wizardStepError.value = 'Informe um e-mail válido.';
+            return false;
+        }
+        const phoneDigits = digitsOnly(form.phone);
+        if (phoneDigits.length < 10 || phoneDigits.length > 11) {
+            wizardStepError.value = 'Informe um WhatsApp válido com DDD.';
             return false;
         }
         if (!form.birth_date) {
@@ -253,7 +259,9 @@ const form = useForm({
     person_type: 'pf',
     name: '',
     email: '',
+    phone: '',
     coproducer_invite: props.coproducer_invite || '',
+    ref: props.referral_ref || '',
     birth_date: '',
     document: '',
     company_name: '',
@@ -413,6 +421,14 @@ function maskCep(v) {
     return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
 }
 
+function maskPhone(v) {
+    const d = digitsOnly(v).slice(0, 11);
+    if (d.length <= 2) return d;
+    if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+    if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
 function prevStep() {
     if (step.value > 1) step.value -= 1;
 }
@@ -473,6 +489,7 @@ function submitRegistration() {
             ...data,
             turnstile_token: turnstileToken.value || data.turnstile_token || '',
             coproducer_invite: data.coproducer_invite || null,
+            ref: data.ref || null,
             document: String(data.document || '').replace(/\D/g, ''),
             legal_representative_cpf: data.person_type === 'pj' ? String(data.legal_representative_cpf || '').replace(/\D/g, '') : null,
             address_zip: String(data.address_zip || '').replace(/\D/g, ''),
@@ -578,6 +595,21 @@ function submitRegistration() {
                             <p class="mt-1 text-xs text-zinc-500">Ao continuar, verificamos se o e-mail já está em uso.</p>
                             <p v-if="emailCheckMsg" class="mt-1 text-sm text-amber-700 dark:text-amber-400">{{ emailCheckMsg }}</p>
                             <p v-if="form.errors.email" class="mt-1 text-sm text-red-600">{{ form.errors.email }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-zinc-500">WhatsApp</label>
+                            <input
+                                :value="form.phone"
+                                type="tel"
+                                inputmode="tel"
+                                required
+                                autocomplete="tel"
+                                placeholder="(11) 99999-9999"
+                                class="wl-input mt-1 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 dark:border-zinc-600 dark:bg-zinc-950 dark:text-white"
+                                @input="form.phone = maskPhone($event.target.value)"
+                            />
+                            <p class="mt-1 text-xs text-zinc-500">Usado para contato da plataforma com você.</p>
+                            <p v-if="form.errors.phone" class="mt-1 text-sm text-red-600">{{ form.errors.phone }}</p>
                         </div>
                         <div>
                             <label class="block text-xs font-semibold uppercase text-zinc-500">Data de nascimento</label>

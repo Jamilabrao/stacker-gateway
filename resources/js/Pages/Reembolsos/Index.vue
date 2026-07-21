@@ -103,13 +103,15 @@ function submitReject() {
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white">Vendas</h1>
             <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Solicitações de reembolso dos seus compradores.
+                Solicitações de compradores e reembolsos feitos por você na venda.
             </p>
         </div>
 
         <VendasTabs />
 
-        <p class="text-sm text-zinc-600 dark:text-zinc-400">Solicitações dos seus compradores.</p>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">
+            Pendentes = pedidos do cliente. Aprovados = reembolsos concluídos (incluindo os iniciados em Vendas).
+        </p>
 
         <div
             v-if="page.props.flash?.success"

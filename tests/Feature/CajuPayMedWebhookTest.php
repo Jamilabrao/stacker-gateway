@@ -145,6 +145,86 @@ class CajuPayMedWebhookTest extends TestCase
         ]);
     }
 
+    public function test_med_resolved_api_pix_closes_open_dispute(): void
+    {
+        $secret = 'cwhsec_med_api_resolve_secret_32c';
+        $cred = new GatewayCredential([
+            'tenant_id' => null,
+            'gateway_slug' => 'cajupay',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials([
+            'public_key' => 'pk',
+            'secret_key' => 'sk',
+            'checkout_webhook_signing_secret' => $secret,
+        ]);
+        $cred->save();
+
+        $user = User::factory()->create(['tenant_id' => 3]);
+        $product = $this->createTestProduct(['tenant_id' => 3]);
+        $apiApp = ApiApplication::create([
+            'tenant_id' => 3,
+            'name' => 'API',
+            'slug' => ApiApplication::generateUniqueSlug(3, 'API'),
+            'api_key_hash' => hash('sha256', 'k3'),
+            'public_key' => ApiApplication::generatePublicKey(),
+            'secret_key_hash' => hash('sha256', 's3'),
+            'payment_gateways' => ApiApplication::defaultPaymentGateways(),
+            'allowed_ips' => [],
+            'is_active' => true,
+            'is_legacy' => true,
+            'scopes' => [],
+        ]);
+
+        $paymentId = 'pay-med-api-resolve-001';
+        $order = Order::create([
+            'tenant_id' => 3,
+            'user_id' => $user->id,
+            'product_id' => $product->id,
+            'api_application_id' => $apiApp->id,
+            'status' => 'disputed',
+            'amount' => 55,
+            'email' => 'api-med-r@example.com',
+            'payment_method' => 'pix',
+            'gateway' => 'cajupay',
+            'gateway_id' => $paymentId,
+            'metadata' => ['source' => 'api', 'cajupay_payment_id' => $paymentId],
+        ]);
+
+        $disputeId = 'dispute-api-resolve-001';
+        MedDispute::query()->create([
+            'order_id' => $order->id,
+            'tenant_id' => 3,
+            'responsible_party' => MedDispute::PARTY_TENANT,
+            'cajupay_dispute_id' => $disputeId,
+            'cajupay_payment_id' => $paymentId,
+            'status' => MedDispute::STATUS_OPEN,
+            'amount_cents' => 5500,
+            'currency' => 'BRL',
+            'opened_at' => now(),
+        ]);
+
+        // Resolve só com med_dispute_id (sem payment id) — caso típico de falha na API PIX.
+        $this->postSignedWebhook([
+            'id' => 'evt-med-api-resolved',
+            'type' => 'pix.payment.med_resolved',
+            'data' => [
+                'object' => [
+                    'med_dispute_id' => $disputeId,
+                    'status' => 'resolved_won',
+                    'outcome' => 'won',
+                    'amount_cents' => 5500,
+                ],
+            ],
+        ], $secret)->assertOk();
+
+        $this->assertDatabaseHas('med_disputes', [
+            'cajupay_dispute_id' => $disputeId,
+            'status' => MedDispute::STATUS_RESOLVED_WON,
+            'outcome' => 'won',
+        ]);
+    }
+
     public function test_pix_refunded_webhook_marks_order_refunded(): void
     {
         $secret = 'cwhsec_refund_test_secret_32chars';

@@ -219,24 +219,57 @@ const showPixAutoRow = computed(() =>
 );
 
 const togglingGatewaySlug = ref(null);
+const gatewayToggleStepUpOpen = ref(false);
+const gatewayToggleStepUpLoading = ref(false);
+/** @type {import('vue').Ref<null | { slug: string, isEnabled: boolean }>} */
+const pendingGatewayToggle = ref(null);
+
+const platformTotpEnabled = computed(
+    () => Boolean(props.platform_totp_enabled) || Boolean(page.props.auth?.user?.totp_enabled)
+);
+
+function isTotpStepUpError(err) {
+    return Boolean(err?.response?.data?.errors?.totp_code);
+}
+
+function totpErrorMessage(err) {
+    const parts = err?.response?.data?.errors?.totp_code;
+    if (Array.isArray(parts) && parts.length) return String(parts[0]);
+    return err?.response?.data?.message || 'Informe o código 2FA para continuar.';
+}
+
+async function putGatewayEnabled(slug, isEnabled, totpCode = '') {
+    const payload = { is_enabled: isEnabled };
+    if (totpCode) payload.totp_code = totpCode;
+    await axios.put(`${GATEWAYS_API_BASE}/${slug}/enabled`, payload, {
+        headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+    });
+    router.reload({
+        only: [
+            'gateways',
+            'gateway_order',
+            'payout_gateway_preference',
+            'payout_gateway_active',
+        ],
+    });
+}
 
 async function toggleGatewayEnabled(gateway, isEnabled) {
+    if (platformTotpEnabled.value) {
+        pendingGatewayToggle.value = { slug: gateway.slug, isEnabled };
+        gatewayToggleStepUpOpen.value = true;
+        return;
+    }
+
     togglingGatewaySlug.value = gateway.slug;
     try {
-        await axios.put(
-            `${GATEWAYS_API_BASE}/${gateway.slug}/enabled`,
-            { is_enabled: isEnabled },
-            { headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' } }
-        );
-        router.reload({
-            only: [
-                'gateways',
-                'gateway_order',
-                'payout_gateway_preference',
-                'payout_gateway_active',
-            ],
-        });
+        await putGatewayEnabled(gateway.slug, isEnabled);
     } catch (err) {
+        if (isTotpStepUpError(err)) {
+            pendingGatewayToggle.value = { slug: gateway.slug, isEnabled };
+            gatewayToggleStepUpOpen.value = true;
+            return;
+        }
         window.alert(
             err.response?.data?.message ||
                 'Não foi possível alterar o status do adquirente.'
@@ -244,6 +277,32 @@ async function toggleGatewayEnabled(gateway, isEnabled) {
     } finally {
         togglingGatewaySlug.value = null;
     }
+}
+
+async function onGatewayToggleStepUpConfirm({ totp_code: totpCode }) {
+    const pending = pendingGatewayToggle.value;
+    if (!pending) {
+        gatewayToggleStepUpOpen.value = false;
+        return;
+    }
+    gatewayToggleStepUpLoading.value = true;
+    togglingGatewaySlug.value = pending.slug;
+    try {
+        await putGatewayEnabled(pending.slug, pending.isEnabled, totpCode || '');
+        gatewayToggleStepUpOpen.value = false;
+        pendingGatewayToggle.value = null;
+    } catch (err) {
+        window.alert(totpErrorMessage(err));
+    } finally {
+        gatewayToggleStepUpLoading.value = false;
+        togglingGatewaySlug.value = null;
+    }
+}
+
+function closeGatewayToggleStepUp() {
+    gatewayToggleStepUpOpen.value = false;
+    gatewayToggleStepUpLoading.value = false;
+    pendingGatewayToggle.value = null;
 }
 
 const payoutPref = ref('auto');
@@ -1609,6 +1668,7 @@ function submitSettlement() {
             :gateway="cajupayGateway"
             :accounts="props.cajupay_accounts"
             :credential-keys-prop="props.cajupay_credential_keys"
+            :platform-totp-enabled="platformTotpEnabled"
             @close="closeCajuPaySidebar"
             @saved="onCajuPayAccountSaved"
         />
@@ -1617,18 +1677,33 @@ function submitSettlement() {
             :open="gatewaySidebarOpen"
             :gateway-slug="selectedGatewaySlug"
             :api-base-path="GATEWAYS_API_BASE"
+            :platform-totp-enabled="platformTotpEnabled"
             @close="closeGatewaySidebar"
             @saved="onGatewaySaved"
         />
 
         <PlatformStepUpModal
+            :open="gatewayToggleStepUpOpen"
+            :loading="gatewayToggleStepUpLoading"
+            :require-totp="true"
+            title="Confirmar alteração do adquirente"
+            description="Informe o código 2FA para ativar ou desativar este adquirente."
+            confirm-label="Confirmar"
+            @close="closeGatewayToggleStepUp"
+            @confirm="onGatewayToggleStepUpConfirm"
+        />
+
+        <PlatformStepUpModal
             :open="pinStepUpOpen"
             :loading="pinStepUpLoading"
+            :require-totp="platformTotpEnabled"
             :title="pinStepUpAction === 'reset' ? 'Recuperar PIN' : 'Confirmar troca de PIN'"
             :description="
                 pinStepUpAction === 'reset'
                     ? 'Um novo PIN será gerado e enviado aos e-mails administrativos configurados em Configurações > E-mail.'
-                    : 'Confirme com 2FA (se ativo) para alterar o PIN de aprovação manual.'
+                    : platformTotpEnabled
+                      ? 'Confirme com 2FA para alterar o PIN de aprovação manual.'
+                      : 'Confirme para alterar o PIN de aprovação manual.'
             "
             :confirm-label="pinStepUpAction === 'reset' ? 'Enviar por e-mail' : 'Confirmar e salvar'"
             @close="closePinStepUp"

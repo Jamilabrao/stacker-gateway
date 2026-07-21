@@ -1082,7 +1082,7 @@ class MemberBuilderController extends Controller
     }
 
     // Turmas
-    public function storeTurma(Request $request, Product $produto): RedirectResponse
+    public function storeTurma(Request $request, Product $produto): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
         $validated = $request->validate([
@@ -1092,7 +1092,7 @@ class MemberBuilderController extends Controller
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
         ]);
         $max = MemberTurma::where('product_id', $produto->id)->max('position') ?? 0;
-        MemberTurma::create([
+        $turma = MemberTurma::create([
             'product_id' => $produto->id,
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
@@ -1100,10 +1100,24 @@ class MemberBuilderController extends Controller
             'end_date' => $validated['end_date'] ?? null,
             'position' => $max + 1,
         ]);
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Turma criada.',
+                'turma' => [
+                    'id' => $turma->id,
+                    'name' => $turma->name,
+                    'description' => $turma->description,
+                    'start_date' => $turma->start_date?->format('Y-m-d'),
+                    'end_date' => $turma->end_date?->format('Y-m-d'),
+                    'users' => [],
+                ],
+            ]);
+        }
+
         return back()->with('success', 'Turma criada.');
     }
 
-    public function updateTurma(Request $request, Product $produto, MemberTurma $turma): RedirectResponse
+    public function updateTurma(Request $request, Product $produto, MemberTurma $turma): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
         if ($turma->product_id !== $produto->id) {
@@ -1117,16 +1131,27 @@ class MemberBuilderController extends Controller
             'position' => ['sometimes', 'integer', 'min:0'],
         ]);
         $turma->update($validated);
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Turma atualizada.', 'turma' => [
+                'id' => $turma->id,
+                'name' => $turma->name,
+            ]]);
+        }
+
         return back()->with('success', 'Turma atualizada.');
     }
 
-    public function destroyTurma(Product $produto, MemberTurma $turma): RedirectResponse
+    public function destroyTurma(Request $request, Product $produto, MemberTurma $turma): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
         if ($turma->product_id !== $produto->id) {
             abort(404);
         }
         $turma->delete();
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Turma removida.']);
+        }
+
         return back()->with('success', 'Turma removida.');
     }
 
@@ -1139,21 +1164,28 @@ class MemberBuilderController extends Controller
         $validated = $request->validate(['user_id' => ['required', 'exists:users,id']]);
         $turma->users()->syncWithoutDetaching([$validated['user_id']]);
         if ($request->expectsJson()) {
-            return response()->json(['message' => 'Aluno adicionado à turma.']);
+            $user = User::query()->select('id', 'name', 'email')->find($validated['user_id']);
+
+            return response()->json([
+                'message' => 'Aluno adicionado à turma.',
+                'user' => $user ? ['id' => $user->id, 'name' => $user->name, 'email' => $user->email] : null,
+            ]);
         }
+
         return back()->with('success', 'Aluno adicionado à turma.');
     }
 
-    public function detachTurmaUser(Product $produto, MemberTurma $turma, int $userId): JsonResponse|RedirectResponse
+    public function detachTurmaUser(Request $request, Product $produto, MemberTurma $turma, int $user): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
         if ($turma->product_id !== $produto->id) {
             abort(404);
         }
-        $turma->users()->detach($userId);
+        $turma->users()->detach($user);
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Aluno removido da turma.']);
         }
+
         return back()->with('success', 'Aluno removido da turma.');
     }
 

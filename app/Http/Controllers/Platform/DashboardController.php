@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\Withdrawal;
+use App\Services\MerchantWithdrawalService;
 use App\Services\Platform\PlatformRevenueKpis;
 use App\Support\DemoMode;
 use App\Support\Demo\DemoPlatformData;
@@ -56,12 +57,19 @@ class DashboardController extends Controller
             $walletPending = (float) TenantWallet::query()->sum('pending_balance');
         }
         if (Schema::hasTable('withdrawals')) {
+            // Status real de saque pago é `paid` (não `completed`).
+            $paidAmountColumn = Schema::hasColumn('withdrawals', 'net_amount') ? 'net_amount' : 'amount';
             $withdrawalsTotal = (float) Withdrawal::query()
                 ->when($start && $end, fn ($q) => $q->whereBetween('created_at', [$start, $end]))
-                ->where('status', 'completed')
-                ->sum('amount');
+                ->where('status', MerchantWithdrawalService::STATUS_PAID)
+                ->sum($paidAmountColumn);
 
-            $withdrawalsPending = (float) Withdrawal::query()->where('status', 'pending')->sum('amount');
+            $withdrawalsPending = (float) Withdrawal::query()
+                ->whereIn('status', [
+                    MerchantWithdrawalService::STATUS_PENDING,
+                    MerchantWithdrawalService::STATUS_PROCESSING,
+                ])
+                ->sum('amount');
         }
 
         $infoprodutoresCount = User::query()->where('role', User::ROLE_INFOPRODUTOR)->count();

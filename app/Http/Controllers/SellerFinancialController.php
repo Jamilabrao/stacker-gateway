@@ -246,25 +246,46 @@ class SellerFinancialController extends Controller
                 'label' => ['required', 'string', 'max:120'],
                 'pix_key_type' => ['required', 'string', 'in:cpf,cnpj,email,phone,evp'],
                 'pix_key' => ['required', 'string', 'max:120'],
-                'key_owner_document' => ['required', 'string', 'max:20'],
+                // Opcional quando a chave já é CPF/CNPJ (o backend deriva o documento da própria chave).
+                'key_owner_document' => ['nullable', 'string', 'max:20'],
             ]);
 
-            $ownerDoc = BrazilianDocumentDigits::onlyDigits($validated['key_owner_document']);
-            if (! BrazilianDocumentDigits::isValidCpfOrCnpjLength($ownerDoc)) {
-                return redirect()->route('financeiro.seller.index')
-                    ->withErrors(['key_owner_document' => 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido do titular da chave PIX.'])
-                    ->onlyInput('key_owner_document');
+            $pixKeyType = $validated['pix_key_type'];
+            $pixKeyTrim = trim($validated['pix_key']);
+
+            if (in_array($pixKeyType, ['cpf', 'cnpj'], true)) {
+                $pixKeyTrim = BrazilianDocumentDigits::onlyDigits($pixKeyTrim);
+                $ownerDoc = $pixKeyTrim;
+                $expectedLen = $pixKeyType === 'cnpj' ? 14 : 11;
+                if (strlen($pixKeyTrim) !== $expectedLen) {
+                    return redirect()->route('financeiro.seller.index')
+                        ->withErrors([
+                            'pix_key' => $pixKeyType === 'cnpj'
+                                ? 'Informe um CNPJ válido (14 dígitos) como chave PIX.'
+                                : 'Informe um CPF válido (11 dígitos) como chave PIX.',
+                        ])
+                        ->onlyInput('pix_key');
+                }
+            } else {
+                $ownerDoc = BrazilianDocumentDigits::onlyDigits($validated['key_owner_document'] ?? '');
+                if (! BrazilianDocumentDigits::isValidCpfOrCnpjLength($ownerDoc)) {
+                    return redirect()->route('financeiro.seller.index')
+                        ->withErrors(['key_owner_document' => 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido do titular da chave PIX.'])
+                        ->onlyInput('key_owner_document');
+                }
             }
 
-            $pixKeyTrim = trim($validated['pix_key']);
+            if ($pixKeyType === 'phone') {
+                $pixKeyTrim = BrazilianDocumentDigits::onlyDigits($pixKeyTrim);
+            }
 
             $settings = is_array($user->payout_settings) ? $user->payout_settings : [];
             // Cadastro local: a validação de titularidade é feita no momento do saque (API do adquirente).
             $settings['cajupay_pix_key_id'] = null;
             $settings['cajupay_pix_key'] = $pixKeyTrim;
             $settings['payout_pix_key'] = $pixKeyTrim;
-            $settings['cajupay_pix_key_type'] = $validated['pix_key_type'];
-            $settings['payout_pix_key_type'] = $validated['pix_key_type'];
+            $settings['cajupay_pix_key_type'] = $pixKeyType;
+            $settings['payout_pix_key_type'] = $pixKeyType;
             $settings['cajupay_pix_label'] = $validated['label'];
             $settings['payout_pix_label'] = $validated['label'];
             $settings['cajupay_pix_key_owner_document'] = $ownerDoc;
@@ -285,14 +306,18 @@ class SellerFinancialController extends Controller
             ]);
 
             $settings = is_array($user->payout_settings) ? $user->payout_settings : [];
-            $pk = trim($validated['pix_key']);
             $pkt = $validated['pix_key_type'];
+            $pk = trim($validated['pix_key']);
+            if (in_array($pkt, ['cpf', 'cnpj', 'phone'], true)) {
+                $pk = BrazilianDocumentDigits::onlyDigits($pk);
+            }
+            $receiverDoc = BrazilianDocumentDigits::onlyDigits($validated['receiver_document']);
             $settings['payout_pix_key'] = $pk;
             $settings['payout_pix_key_type'] = $pkt;
             $settings['spacepag_pix_key'] = $pk;
             $settings['spacepag_pix_key_type'] = $pkt;
             $settings['receiver_name'] = trim($validated['receiver_name']);
-            $settings['receiver_document'] = trim($validated['receiver_document']);
+            $settings['receiver_document'] = $receiverDoc !== '' ? $receiverDoc : trim($validated['receiver_document']);
             $settings['receiver_email'] = trim($validated['receiver_email']);
             $user->payout_settings = $settings;
             $user->save();
@@ -307,8 +332,11 @@ class SellerFinancialController extends Controller
             ]);
 
             $settings = is_array($user->payout_settings) ? $user->payout_settings : [];
-            $pk = trim($validated['pix_key']);
             $pkt = $validated['pix_key_type'];
+            $pk = trim($validated['pix_key']);
+            if (in_array($pkt, ['cpf', 'cnpj', 'phone'], true)) {
+                $pk = BrazilianDocumentDigits::onlyDigits($pk);
+            }
             $settings['payout_pix_key'] = $pk;
             $settings['payout_pix_key_type'] = $pkt;
             $settings['woovi_pix_key'] = $pk;

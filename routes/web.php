@@ -347,6 +347,8 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
 
         Route::get('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'index'])->name('settings.index');
         Route::put('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'update'])->name('settings.update');
+        // POST aceito: Inertia/PUT falha em alguns proxies; front envia JSON no body.
+        Route::post('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'update'])->name('settings.update.post');
         Route::post('/configuracoes/email/test', [\App\Http\Controllers\EmailTestController::class, 'test'])->name('settings.email.test');
         Route::post('/configuracoes/email/connection-test', [\App\Http\Controllers\EmailTestController::class, 'connectionTest'])->name('settings.email.connection-test');
         Route::post('/configuracoes/email/send-test', [\App\Http\Controllers\EmailTestController::class, 'sendTest'])->name('settings.email.send-test');
@@ -448,6 +450,21 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/saques', [\App\Http\Controllers\Platform\WithdrawalsController::class, 'index'])->name('saques.index');
         Route::get('/saques/{withdrawal}/comprovante', [\App\Http\Controllers\WithdrawalReceiptController::class, 'platform'])
             ->name('saques.receipt');
+
+        Route::get('/indique-e-ganhe', [\App\Http\Controllers\Platform\ReferralProgramAdminController::class, 'index'])
+            ->name('indique-ganhe.index');
+        Route::put('/indique-e-ganhe', [\App\Http\Controllers\Platform\ReferralProgramAdminController::class, 'updateSettings'])
+            ->name('indique-ganhe.update');
+        Route::post('/indique-e-ganhe/atribuir', [\App\Http\Controllers\Platform\ReferralProgramAdminController::class, 'assign'])
+            ->middleware('throttle:30,1')
+            ->name('indique-ganhe.assign');
+        Route::post('/indique-e-ganhe/saques/{withdrawal}/aprovar', [\App\Http\Controllers\Platform\ReferralProgramAdminController::class, 'approveWithdrawal'])
+            ->middleware('throttle:20,1')
+            ->name('indique-ganhe.saques.approve');
+        Route::post('/indique-e-ganhe/saques/{withdrawal}/rejeitar', [\App\Http\Controllers\Platform\ReferralProgramAdminController::class, 'rejectWithdrawal'])
+            ->middleware('throttle:20,1')
+            ->name('indique-ganhe.saques.reject');
+
         Route::get('/transacoes', [\App\Http\Controllers\Platform\TransactionsController::class, 'index'])->name('transacoes.index');
         Route::get('/transacoes-api', [\App\Http\Controllers\Platform\TransactionsController::class, 'apiIndex'])->name('transacoes-api.index');
         Route::get('/clientes', [\App\Http\Controllers\Platform\CustomersController::class, 'index'])->name('clientes.index');
@@ -638,6 +655,15 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         Route::get('/financeiro/saques/{withdrawal}/comprovante', [\App\Http\Controllers\WithdrawalReceiptController::class, 'seller'])
             ->name('financeiro.seller.receipt');
     });
+
+    Route::get('/indique-e-ganhe', [\App\Http\Controllers\ReferralProgramController::class, 'index'])
+        ->name('indique-ganhe.index');
+    Route::post('/indique-e-ganhe/gerar-codigo', [\App\Http\Controllers\ReferralProgramController::class, 'ensureCode'])
+        ->middleware('throttle:10,1')
+        ->name('indique-ganhe.ensure-code');
+    Route::post('/indique-e-ganhe/saque', [\App\Http\Controllers\ReferralProgramController::class, 'storeWithdrawal'])
+        ->middleware('throttle:20,1')
+        ->name('indique-ganhe.saque');
 
     Route::middleware('team.permission:pixgo.view')->group(function () {
         Route::get('/pixgo', [\App\Http\Controllers\PixGoController::class, 'index'])->name('pixgo.index');
@@ -876,7 +902,8 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
 
 Route::get('/docs/api-pagamentos', [\App\Http\Controllers\ApiDocsController::class, '__invoke'])->name('api-docs.pagamentos');
 Route::get('/docs/api-pagamentos/ia', [\App\Http\Controllers\ApiDocsController::class, 'ia'])->name('api-docs.pagamentos.ia');
-Route::get('/docs/api-pagamentos/llm/full.md', [\App\Http\Controllers\ApiDocsController::class, 'llmBundle'])->name('api-docs.pagamentos.llm');
+Route::get('/docs/api-pagamentos/llm/download', [\App\Http\Controllers\ApiDocsController::class, 'llmBundle'])->name('api-docs.pagamentos.llm');
+Route::get('/docs/api-pagamentos/llm/full.md', [\App\Http\Controllers\ApiDocsController::class, 'llmBundle']);
 Route::get('/docs/api-pagamentos/testar', [\App\Http\Controllers\ApiDocsController::class, 'testar'])->name('api-docs.pagamentos.testar');
 
 // URLs antigas do painel do vendedor → painel da plataforma (operador)

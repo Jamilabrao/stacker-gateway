@@ -1,9 +1,10 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useForm, Link, router } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
 import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
+import { Download, Eye, X } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -20,6 +21,35 @@ const rejectForm = useForm({
 const stepUpOpen = ref(false);
 const stepUpLoading = ref(false);
 const pendingAction = ref(null);
+
+const previewOpen = ref(false);
+const previewDoc = ref(null);
+
+const previewMime = computed(() => String(previewDoc.value?.mime || '').toLowerCase());
+const previewIsImage = computed(() => previewMime.value.startsWith('image/'));
+const previewIsPdf = computed(() => previewMime.value === 'application/pdf' || previewMime.value.includes('pdf'));
+
+function documentViewUrl(d) {
+    return d.view_url || String(d.download_url || '').replace(/\?download=1$/, '') || d.download_url;
+}
+
+function documentDownloadUrl(d) {
+    if (d.download_url && String(d.download_url).includes('download=1')) {
+        return d.download_url;
+    }
+    const base = documentViewUrl(d);
+    return base ? `${base}${base.includes('?') ? '&' : '?'}download=1` : '#';
+}
+
+function openPreview(d) {
+    previewDoc.value = d;
+    previewOpen.value = true;
+}
+
+function closePreview() {
+    previewOpen.value = false;
+    previewDoc.value = null;
+}
 
 function kindLabel(k) {
     const m = {
@@ -182,14 +212,23 @@ function onStepUpConfirm(payload) {
                     class="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800 dark:bg-zinc-800/40"
                 >
                     <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ kindLabel(d.kind) }}</span>
-                    <a
-                        :href="d.download_url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="inline-flex w-full items-center justify-center rounded-lg bg-[var(--color-primary)] px-3 py-2 text-center text-sm font-medium text-white hover:opacity-90 sm:w-auto sm:bg-transparent sm:px-0 sm:py-0 sm:text-[var(--color-primary)] sm:hover:underline"
-                    >
-                        Abrir / baixar
-                    </a>
+                    <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                        <button
+                            type="button"
+                            class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                            @click="openPreview(d)"
+                        >
+                            <Eye class="h-4 w-4" />
+                            Abrir
+                        </button>
+                        <a
+                            :href="documentDownloadUrl(d)"
+                            class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        >
+                            <Download class="h-4 w-4" />
+                            Baixar
+                        </a>
+                    </div>
                 </li>
             </ul>
             <p v-if="!documents.length" class="mt-2 text-sm text-zinc-500">Nenhum arquivo enviado.</p>
@@ -238,5 +277,85 @@ function onStepUpConfirm(payload) {
             @close="closeStepUp"
             @confirm="onStepUpConfirm"
         />
+
+        <div
+            v-if="previewOpen && previewDoc"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+            @click.self="closePreview"
+        >
+            <div
+                class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                role="dialog"
+                aria-modal="true"
+            >
+                <div class="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+                    <div class="min-w-0">
+                        <h3 class="truncate text-sm font-semibold text-zinc-900 dark:text-white">
+                            {{ kindLabel(previewDoc.kind) }}
+                        </h3>
+                        <p class="truncate text-xs text-zinc-500">{{ previewDoc.mime || 'arquivo' }}</p>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-2">
+                        <a
+                            :href="documentViewUrl(previewDoc)"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="hidden rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 sm:inline-flex dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        >
+                            Nova aba
+                        </a>
+                        <a
+                            :href="documentDownloadUrl(previewDoc)"
+                            class="inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        >
+                            <Download class="h-3.5 w-3.5" />
+                            Baixar
+                        </a>
+                        <button
+                            type="button"
+                            class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                            aria-label="Fechar"
+                            @click="closePreview"
+                        >
+                            <X class="h-5 w-5" />
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex min-h-[50vh] flex-1 items-center justify-center overflow-auto bg-zinc-100 p-3 dark:bg-zinc-950">
+                    <img
+                        v-if="previewIsImage"
+                        :src="documentViewUrl(previewDoc)"
+                        :alt="kindLabel(previewDoc.kind)"
+                        class="max-h-[75vh] max-w-full rounded-lg object-contain shadow"
+                    />
+                    <iframe
+                        v-else-if="previewIsPdf"
+                        :src="documentViewUrl(previewDoc)"
+                        title="Pré-visualização do documento"
+                        class="h-[75vh] w-full rounded-lg border-0 bg-white"
+                    />
+                    <div v-else class="max-w-md space-y-3 text-center text-sm text-zinc-600 dark:text-zinc-300">
+                        <p>Este tipo de arquivo não tem pré-visualização neste navegador.</p>
+                        <div class="flex flex-wrap justify-center gap-2">
+                            <a
+                                :href="documentViewUrl(previewDoc)"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="rounded-lg bg-[var(--color-primary)] px-3 py-2 font-medium text-white"
+                            >
+                                Abrir em nova aba
+                            </a>
+                            <a
+                                :href="documentDownloadUrl(previewDoc)"
+                                class="rounded-lg border border-zinc-300 px-3 py-2 font-medium dark:border-zinc-600"
+                            >
+                                Baixar arquivo
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </template>

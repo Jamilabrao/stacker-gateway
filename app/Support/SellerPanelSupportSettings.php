@@ -77,7 +77,8 @@ final class SellerPanelSupportSettings
             return '';
         }
 
-        return app(\App\Services\StorageService::class)->resolvePublicUrl($stored);
+        // Asset global da plataforma: não usar o storage do tenant logado (infoprodutor).
+        return (new \App\Services\StorageService(null))->resolvePublicUrl($stored);
     }
 
     public static function color(): string
@@ -131,9 +132,10 @@ final class SellerPanelSupportSettings
         $icon = self::icon();
         $iconUrl = null;
         if ($icon === self::ICON_CUSTOM) {
-            $iconUrl = SafeUrl::normalizeAppImageUrl(self::iconImageUrl());
-            if ($iconUrl === null) {
+            $iconUrl = self::resolveCustomIconUrlForPanel();
+            if ($iconUrl === null || $iconUrl === '') {
                 $icon = self::ICON_WHATSAPP;
+                $iconUrl = null;
             }
         }
 
@@ -144,6 +146,48 @@ final class SellerPanelSupportSettings
             'icon_url' => $iconUrl,
             'color' => self::color(),
         ];
+    }
+
+    /**
+     * URL do avatar customizado para o painel do info.
+     * Usa storage global da plataforma e evita re-resolver com o disco do tenant.
+     */
+    public static function resolveCustomIconUrlForPanel(): ?string
+    {
+        $stored = trim((string) Setting::get('seller_panel_support_icon_image', '', null));
+        if ($stored === '') {
+            return null;
+        }
+
+        $platformStorage = new \App\Services\StorageService(null);
+
+        // Disco local: path same-origin — o browser carrega do host atual do painel.
+        if ($platformStorage->isLocal()) {
+            $relative = ltrim($stored, '/');
+            if (preg_match('#^https?://#i', $relative)) {
+                $path = parse_url($relative, PHP_URL_PATH);
+                if (is_string($path) && str_starts_with($path, '/storage/')) {
+                    return $path;
+                }
+            } else {
+                if (str_starts_with($relative, 'storage/')) {
+                    $relative = substr($relative, strlen('storage/'));
+                }
+
+                return '/storage/'.$relative;
+            }
+        }
+
+        $resolved = $platformStorage->resolvePublicUrl($stored);
+        if ($resolved === '') {
+            return null;
+        }
+
+        if (SafeUrl::isAllowedHttpUrl($resolved) || str_starts_with($resolved, '/storage/')) {
+            return $resolved;
+        }
+
+        return SafeUrl::normalizeAppImageUrl($resolved);
     }
 
     public static function normalizeWhatsappNumber(?string $phone): string

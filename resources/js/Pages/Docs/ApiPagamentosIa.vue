@@ -1,20 +1,17 @@
 <script setup>
-import { computed } from 'vue';
-import { Link } from '@inertiajs/vue3';
 import LayoutDoc from '@/Layouts/LayoutDoc.vue';
 import { ArrowLeft, Download, Sparkles } from 'lucide-vue-next';
+import { Link } from '@inertiajs/vue3';
 
 defineOptions({ layout: LayoutDoc });
 
-const props = defineProps({
+defineProps({
     baseUrl: { type: String, default: '' },
     llmBundleFilename: { type: String, default: 'plataforma-api-integracao-llm.md' },
 });
 
-const downloadUrl = computed(() => {
-    const base = props.baseUrl ? props.baseUrl.replace(/\/$/, '') : '';
-    return `${base}/docs/api-pagamentos/llm/full.md`;
-});
+/** Sempre relativo ao host atual — evita APP_URL/localhost apontando para outro endereço. */
+const downloadUrl = '/docs/api-pagamentos/llm/download';
 </script>
 
 <template>

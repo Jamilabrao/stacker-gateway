@@ -28,6 +28,7 @@ const props = defineProps({
         default: () => ({ pix: [], card: [], boleto: [], pix_auto: [] }),
     },
     platform_merchant_fees: { type: Array, default: () => [] },
+    platform_referral_commission_percent: { type: Number, default: 20 },
     platform_charge_limits: {
         type: Object,
         default: () => ({ api_pix_minimum_charge_brl: 0.01, platform_minimum_charge_brl: 0 }),
@@ -351,6 +352,7 @@ function syncMerchantPrimaryFromUser(u) {
 const editForm = useForm({
     name: '',
     email: '',
+    phone: '',
     password: '',
     password_confirmation: '',
     account_status: 'approved',
@@ -360,6 +362,7 @@ const editForm = useForm({
     admin_block_note: '',
     merchant_fees: defaultFeeOverrides(),
     merchant_settlement_overrides: defaultSettlementOverrides(),
+    referral_commission_percent: '',
     api_pix_mode: 'inherit',
     med_zero_enabled: false,
     api_pix_minimum_charge_brl: '',
@@ -447,6 +450,7 @@ function openEditModal(u) {
     editForm.defaults({
         name: u.name,
         email: u.email,
+        phone: u.phone || '',
         password: '',
         password_confirmation: '',
         account_status: u.account_status || 'approved',
@@ -457,6 +461,10 @@ function openEditModal(u) {
         admin_block_note: wa?.admin_block_note || '',
         merchant_fees: mergeFeeOverrides(u.merchant_fees),
         merchant_settlement_overrides: mergeSettlementOverrides(u.merchant_settlement_overrides),
+        referral_commission_percent:
+            u.referral_commission_percent != null && u.referral_commission_percent !== ''
+                ? String(u.referral_commission_percent)
+                : '',
         api_pix_mode: u.api_pix_mode || 'inherit',
         med_zero_enabled: !!u.med_zero_enabled,
         api_pix_minimum_charge_brl:
@@ -552,6 +560,9 @@ function submitEdit() {
             }
 
             const payload = { ...data };
+            const refPct = String(data.referral_commission_percent ?? '').trim();
+            payload.referral_commission_percent = refPct === '' ? null : Number(refPct.replace(',', '.'));
+
             if (gatewayOrderDirty.value) {
                 payload.merchant_gateway_order = Object.keys(order).length ? order : null;
             } else {
@@ -999,6 +1010,18 @@ function formatBlockUntilForInput(iso) {
                         <p v-if="editForm.errors.email" class="mt-1 text-sm text-red-600">{{ editForm.errors.email }}</p>
                     </div>
                     <div>
+                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">WhatsApp / telefone</label>
+                        <input
+                            v-model="editForm.phone"
+                            type="tel"
+                            inputmode="tel"
+                            placeholder="(11) 99999-9999"
+                            class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
+                        />
+                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Exibido no contato do infoprodutor com link para o WhatsApp.</p>
+                        <p v-if="editForm.errors.phone" class="mt-1 text-sm text-red-600">{{ editForm.errors.phone }}</p>
+                    </div>
+                    <div>
                         <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nova senha (opcional)</label>
                         <input v-model="editForm.password" type="password" minlength="8" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" />
                         <p v-if="editForm.errors.password" class="mt-1 text-sm text-red-600">{{ editForm.errors.password }}</p>
@@ -1068,6 +1091,27 @@ function formatBlockUntilForInput(iso) {
                                 class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
                             />
                         </div>
+                    </div>
+                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Indique e Ganhe</p>
+                        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                            Percentual da taxa da plataforma que este infoprodutor recebe quando um indicado dele vende.
+                            Deixe em branco para usar o padrão da plataforma
+                            ({{ Number(platform_referral_commission_percent || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 }) }}%).
+                        </p>
+                        <label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                            Taxa de indicação (%)
+                        </label>
+                        <input
+                            v-model="editForm.referral_commission_percent"
+                            type="text"
+                            inputmode="decimal"
+                            placeholder="Herdar padrão"
+                            class="mt-1 w-full max-w-xs rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
+                        />
+                        <p v-if="editForm.errors.referral_commission_percent" class="mt-1 text-xs text-red-500">
+                            {{ editForm.errors.referral_commission_percent }}
+                        </p>
                     </div>
                     <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
                         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">

@@ -293,7 +293,7 @@ class ProductCoproducer extends Model
             return null;
         }
 
-        $product = $order->relationLoaded('product') ? $order->product : Product::query()->find($productId);
+        $product = Product::query()->find($productId);
         if ($product === null || ! $product->affiliate_enabled) {
             return null;
         }
@@ -308,6 +308,7 @@ class ProductCoproducer extends Model
             ? $enrollment->affiliate
             : $enrollment->affiliate()->first();
         $affiliateTenantId = (int) ($affiliateUser?->tenant_id ?? $enrollment->affiliate_user_id);
+        // Mesmo tenant = auto-afiliação / conta própria: não paga comissão (evita “transferir” saldo para si).
         if ($affiliateTenantId === $sellerTenantId) {
             return null;
         }

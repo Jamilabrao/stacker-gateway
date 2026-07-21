@@ -1,7 +1,9 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
 import axios from 'axios';
+import { usePage } from '@inertiajs/vue3';
 import Button from '@/components/ui/Button.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import PixInOutBadges from '@/components/settings/PixInOutBadges.vue';
 import { X, Copy, Check, RefreshCw, ChevronLeft, Plus, ExternalLink } from 'lucide-vue-next';
 
@@ -10,9 +12,14 @@ const props = defineProps({
     gateway: { type: Object, default: null },
     accounts: { type: Array, default: () => [] },
     credentialKeysProp: { type: Array, default: () => [] },
+    platformTotpEnabled: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['close', 'saved']);
+const page = usePage();
+const totpEnabled = computed(
+    () => Boolean(props.platformTotpEnabled) || Boolean(page.props.auth?.user?.totp_enabled)
+);
 
 const API_BASE = '/plataforma/financeiro/cajupay-contas';
 
@@ -43,6 +50,19 @@ const testSuccess = ref(null);
 const webhookCopied = ref(false);
 const accountName = ref('');
 const isEnabled = ref(true);
+
+const stepUpOpen = ref(false);
+const stepUpLoading = ref(false);
+
+function isTotpStepUpError(err) {
+    return Boolean(err?.response?.data?.errors?.totp_code);
+}
+
+function totpErrorMessage(err) {
+    const parts = err?.response?.data?.errors?.totp_code;
+    if (Array.isArray(parts) && parts.length) return String(parts[0]);
+    return err?.response?.data?.message || 'Informe o código 2FA para continuar.';
+}
 
 const gatewayName = computed(() => props.gateway?.name || 'CajuPay');
 
@@ -147,31 +167,67 @@ async function ensureAccountExists() {
     return data.account?.id;
 }
 
-async function saveAccount() {
+async function persistAccount(totpCode = '') {
+    const id = await ensureAccountExists();
+    const payload = {
+        name: accountName.value,
+        is_enabled: isEnabled.value,
+        ...credentialValues.value,
+    };
+    if (totpCode) {
+        payload.totp_code = totpCode;
+    }
+    const { data } = await axios.put(`${API_BASE}/${id}`, payload, {
+        headers: { 'X-CSRF-TOKEN': getCsrfToken(), Accept: 'application/json' },
+    });
+    account.value = data.account;
+    if (data.webhook_warning) {
+        testMessage.value = data.webhook_warning;
+        testSuccess.value = false;
+    } else {
+        testSuccess.value = true;
+        testMessage.value = data.message || 'Conta salva.';
+    }
+    emit('saved');
+}
+
+async function saveAccount(totpCode = '') {
+    if (typeof totpCode !== 'string') {
+        totpCode = '';
+    }
+    if (totpEnabled.value && !totpCode) {
+        stepUpOpen.value = true;
+        return;
+    }
+
     saving.value = true;
     testMessage.value = null;
     try {
-        const id = await ensureAccountExists();
-        const payload = {
-            name: accountName.value,
-            is_enabled: isEnabled.value,
-            ...credentialValues.value,
-        };
-        const { data } = await axios.put(`${API_BASE}/${id}`, payload, {
-            headers: { 'X-CSRF-TOKEN': getCsrfToken() },
-        });
-        account.value = data.account;
-        if (data.webhook_warning) {
-            testMessage.value = data.webhook_warning;
-            testSuccess.value = false;
-        }
-        emit('saved');
+        await persistAccount(totpCode);
+        stepUpOpen.value = false;
     } catch (e) {
+        if (isTotpStepUpError(e)) {
+            testMessage.value = totpErrorMessage(e);
+            testSuccess.value = false;
+            stepUpOpen.value = true;
+            return;
+        }
         testMessage.value = e.response?.data?.message || e.message || 'Erro ao salvar.';
         testSuccess.value = false;
     } finally {
         saving.value = false;
+        stepUpLoading.value = false;
     }
+}
+
+async function onStepUpConfirm({ totp_code: totpCode }) {
+    stepUpLoading.value = true;
+    await saveAccount(totpCode || '');
+}
+
+function closeStepUp() {
+    stepUpOpen.value = false;
+    stepUpLoading.value = false;
 }
 
 async function testConnection() {
@@ -235,6 +291,7 @@ async function deleteAccount(accountId) {
 }
 
 function close() {
+    closeStepUp();
     emit('close');
 }
 </script>
@@ -455,12 +512,23 @@ function close() {
                         <Button type="button" variant="outline" :disabled="testing || saving" @click="testConnection">
                             {{ testing ? 'Testando…' : 'Testar conexão' }}
                         </Button>
-                        <Button type="button" class="flex-1" :disabled="saving" @click="saveAccount">
-                            {{ saving ? 'Salvando…' : 'Salvar' }}
+                        <Button type="button" class="flex-1" :disabled="saving || stepUpLoading" @click="() => saveAccount()">
+                            {{ saving || stepUpLoading ? 'Salvando…' : 'Salvar' }}
                         </Button>
                     </div>
                 </template>
             </aside>
         </div>
+
+        <PlatformStepUpModal
+            :open="stepUpOpen"
+            :loading="stepUpLoading || saving"
+            :require-totp="true"
+            title="Confirmar alteração CajuPay"
+            description="Informe o código 2FA para salvar as credenciais desta conta."
+            confirm-label="Salvar"
+            @close="closeStepUp"
+            @confirm="onStepUpConfirm"
+        />
     </Teleport>
 </template>

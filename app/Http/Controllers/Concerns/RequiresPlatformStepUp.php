@@ -22,7 +22,10 @@ trait RequiresPlatformStepUp
         }
 
         if (PlatformTotpService::isRequiredFor($user)) {
-            $code = (string) $request->input('totp_code', '');
+            $code = preg_replace('/\D/', '', (string) $request->input('totp_code', '')) ?? '';
+            if ($code === '') {
+                $this->throwStepUpError('Informe o código 2FA para continuar.', $redirectRoute);
+            }
             if (! PlatformTotpService::verifyCodeForUser($user, $code)) {
                 $this->throwStepUpError('Código 2FA inválido ou expirado.', $redirectRoute);
             }

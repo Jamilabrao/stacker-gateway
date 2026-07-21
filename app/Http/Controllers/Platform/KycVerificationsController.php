@@ -67,13 +67,16 @@ class KycVerificationsController extends Controller
         abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
 
         $documents = $user->kycDocuments()->orderBy('kind')->get()->map(function (KycDocument $d) {
+            $base = route('plataforma.kyc.document', ['document' => $d]);
+
             return [
                 'id' => $d->id,
                 'public_token' => $d->public_token,
                 'kind' => $d->kind,
                 'mime' => $d->original_mime,
                 'size_bytes' => $d->size_bytes,
-                'download_url' => route('plataforma.kyc.document', ['document' => $d]),
+                'view_url' => $base,
+                'download_url' => $base.'?download=1',
             ];
         });
 
@@ -176,10 +179,17 @@ class KycVerificationsController extends Controller
             $ext = pathinfo($document->disk_path, PATHINFO_EXTENSION) ?: 'bin';
         }
 
-        return $disk->response($document->disk_path, 'kyc-document.'.$ext, [
+        $filename = 'kyc-document.'.$ext;
+        $forceDownload = $request->boolean('download');
+
+        // Inline = abrir no navegador / modal; attachment = baixar arquivo.
+        $disposition = $forceDownload ? 'attachment' : 'inline';
+
+        return $disk->response($document->disk_path, $filename, [
             'Content-Type' => $mime,
-            'Content-Disposition' => 'attachment; filename="kyc-document.'.$ext.'"',
+            'Content-Disposition' => $disposition.'; filename="'.$filename.'"',
             'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
         ]);
     }
 }

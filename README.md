@@ -183,3 +183,8 @@ Se você deseja apoiar o desenvolvimento diretamente:
 |---|---|
 | Aleatória | `ce05f7d1-27db-4d46-bca5-0a80c621349a` |
 
+
+docker compose -f docker-compose.local-db.yml -f docker-compose.dev.yml up --build -d
+
+docker compose -f docker-compose.local-db.yml -f docker-compose.dev.yml build app
+docker compose -f docker-compose.local-db.yml -f docker-compose.dev.yml up -d

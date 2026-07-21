@@ -2,13 +2,25 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
+use App\Http\Middleware\EnsureInstalled;
 use App\Models\Setting;
+use App\Models\User;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class EmailSettingsTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->withoutMiddleware([
+            EnsureInstalled::class,
+            ValidateCsrfToken::class,
+        ]);
+    }
+
     public function test_platform_settings_persist_hostinger_email_provider(): void
     {
         $user = User::factory()->create(['role' => User::ROLE_ADMIN]);
@@ -33,6 +45,48 @@ class EmailSettingsTest extends TestCase
         $page->assertInertia(fn ($assert) => $assert
             ->component('Settings/Index')
             ->where('settings.email_provider', 'hostinger'));
+    }
+
+    public function test_platform_settings_can_switch_email_provider_via_post(): void
+    {
+        $user = User::factory()->create(['role' => User::ROLE_ADMIN]);
+
+        Setting::set('email_provider', 'hostinger', null);
+        Setting::set('hostinger_smtp_username', 'old@meudominio.com', null);
+
+        $response = $this->actingAs($user)->post('/plataforma/configuracoes', [
+            'email_provider' => 'sendgrid',
+            'sendgrid_mail_from_address' => 'noreply@meudominio.com',
+            'sendgrid_mail_from_name' => 'Loja',
+            'kyc_notification_emails' => 'ops@meudominio.com',
+        ]);
+
+        $response->assertRedirect();
+        $this->assertSame('sendgrid', Setting::get('email_provider', 'smtp', null));
+        $this->assertSame('noreply@meudominio.com', Setting::get('sendgrid_mail_from_address', '', null));
+        $this->assertSame('ops@meudominio.com', Setting::get('kyc_notification_emails', '', null));
+        // Credenciais do provedor anterior permanecem (troca só ativa o novo).
+        $this->assertSame('old@meudominio.com', Setting::get('hostinger_smtp_username', '', null));
+    }
+
+    public function test_platform_email_settings_require_totp_when_enabled(): void
+    {
+        $user = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $user->forceFill([
+            'totp_secret' => Crypt::encryptString('JBSWY3DPEHPK3PXP'),
+            'totp_enabled_at' => now(),
+        ])->save();
+
+        Setting::set('email_provider', 'smtp', null);
+
+        $response = $this->actingAs($user)->from('/plataforma/configuracoes?tab=email')->post('/plataforma/configuracoes', [
+            'email_provider' => 'hostinger',
+            'hostinger_smtp_username' => 'contato@meudominio.com',
+        ]);
+
+        $response->assertRedirect('/plataforma/configuracoes?tab=email');
+        $response->assertSessionHasErrors('totp_code');
+        $this->assertSame('smtp', Setting::get('email_provider', 'smtp', null));
     }
 
     public function test_email_test_endpoint_returns_success()
@@ -78,4 +132,3 @@ class EmailSettingsTest extends TestCase
         $response->assertStatus(200)->assertJson(['success' => true]);
     }
 }
-

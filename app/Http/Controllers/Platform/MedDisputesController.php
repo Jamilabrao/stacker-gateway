@@ -52,6 +52,17 @@ class MedDisputesController extends Controller
 
         $rows = $q->paginate(30)->withQueryString();
 
+        // API PIX: se a Caju já encerrou e o webhook falhou, concilia ao listar "Abertas".
+        if ($status === 'open' && $party === 'tenant') {
+            $this->medService->reconcileOpenDisputesFromRemote($rows->getCollection());
+            $rows->setCollection(
+                $rows->getCollection()
+                    ->map(fn (MedDispute $d) => $d->fresh() ?? $d)
+                    ->filter(fn (MedDispute $d) => $d->isOpen())
+                    ->values()
+            );
+        }
+
         return Inertia::render('Platform/MedDisputes/Index', [
             'disputes' => $rows->through(fn (MedDispute $d) => $this->serialize($d)),
             'filters' => [
@@ -66,6 +77,10 @@ class MedDisputesController extends Controller
     public function show(MedDispute $dispute): Response
     {
         $dispute->load(['order.product', 'order.user', 'tenantOwner', 'resolvedBy']);
+        if ($dispute->isTenantManaged() && $dispute->isOpen()) {
+            $dispute = $this->medService->reconcileFromRemoteIfNeeded($dispute);
+            $dispute->load(['order.product', 'order.user', 'tenantOwner', 'resolvedBy']);
+        }
 
         return Inertia::render('Platform/MedDisputes/Show', [
             'dispute' => $this->serialize($dispute, true),

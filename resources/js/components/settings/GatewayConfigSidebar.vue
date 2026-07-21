@@ -1,7 +1,9 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
 import axios from 'axios';
+import { usePage } from '@inertiajs/vue3';
 import Button from '@/components/ui/Button.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import { X, ExternalLink, Copy, Check } from 'lucide-vue-next';
 import PixInOutBadges from '@/components/settings/PixInOutBadges.vue';
 
@@ -10,9 +12,14 @@ const props = defineProps({
     gatewaySlug: { type: String, default: null },
     /** Base path sem barra final, ex.: /plataforma/financeiro/gateways */
     apiBasePath: { type: String, default: '/plataforma/configuracoes/gateways' },
+    platformTotpEnabled: { type: Boolean, default: false },
 });
 
+const page = usePage();
 const apiBase = computed(() => String(props.apiBasePath || '/plataforma/configuracoes/gateways').replace(/\/$/, ''));
+const totpEnabled = computed(
+    () => Boolean(props.platformTotpEnabled) || Boolean(page.props.auth?.user?.totp_enabled)
+);
 
 const emit = defineEmits(['close', 'saved']);
 
@@ -36,6 +43,21 @@ const certificateFile = ref(null);
 const extraFileUploads = ref({});
 const webhookCopied = ref(false);
 const disconnecting = ref(false);
+
+const stepUpOpen = ref(false);
+const stepUpLoading = ref(false);
+
+function isTotpStepUpError(err) {
+    const errors = err?.response?.data?.errors;
+    return Boolean(errors?.totp_code);
+}
+
+function totpErrorMessage(err) {
+    const errors = err?.response?.data?.errors;
+    const parts = errors?.totp_code;
+    if (Array.isArray(parts) && parts.length) return String(parts[0]);
+    return err?.response?.data?.message || 'Informe o código 2FA para continuar.';
+}
 
 async function copyWebhookUrl() {
     const url = gateway.value?.webhook_url;
@@ -183,82 +205,103 @@ async function testConnection() {
     }
 }
 
-async function save() {
+async function persistCredentials(totpCode = '') {
     if (!gateway.value?.slug) return;
+    const keys = gateway.value.credential_keys || [];
+    const certificateKey = gateway.value.certificate_key;
+    const headersBase = {
+        'X-XSRF-TOKEN': getCsrfToken(),
+        Accept: 'application/json',
+    };
+
+    if (gatewayUsesMultipartCredentialSave()) {
+        const form = new FormData();
+        for (const k of keys) {
+            if (k.key === certificateKey || (k.type || 'text') === 'file') continue;
+            const v = credentialValues.value[k.key];
+            if (k.type === 'boolean') {
+                form.append(k.key, v === true || v === '1' || v === 'true' ? '1' : '0');
+            } else {
+                form.append(k.key, v != null ? String(v).trim() : '');
+            }
+        }
+        for (const fk of extraFileFieldDefs()) {
+            const f = extraFileUploads.value[fk.key];
+            if (f) form.append(fk.key, f);
+        }
+        if (totpCode) {
+            form.append('totp_code', totpCode);
+        }
+        const { data } = await axios.put(
+            `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
+            form,
+            { headers: headersBase }
+        );
+        testSuccess.value = true;
+        testMessage.value = data?.message || 'Credenciais salvas.';
+        extraFileUploads.value = {};
+        emit('saved');
+        setTimeout(() => emit('close'), 1500);
+        return;
+    }
+
+    const payload = {};
+    for (const k of keys) {
+        if (k.key === certificateKey) continue;
+        const v = credentialValues.value[k.key];
+        if (k.type === 'boolean') {
+            payload[k.key] = v === true || v === '1' || v === 'true';
+        } else {
+            payload[k.key] = v != null ? String(v).trim() : '';
+        }
+    }
+    if (totpCode) {
+        payload.totp_code = totpCode;
+    }
+    const { data } = await axios.put(
+        `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
+        payload,
+        { headers: { ...headersBase, 'Content-Type': 'application/json' } }
+    );
+
+    if (certificateKey && certificateFile.value) {
+        const form = new FormData();
+        form.append(certificateKey, certificateFile.value);
+        await axios.post(
+            `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}/certificate`,
+            form,
+            { headers: headersBase }
+        );
+    }
+
+    certificateFile.value = null;
+    testSuccess.value = true;
+    testMessage.value = data?.message || 'Credenciais salvas.';
+    emit('saved');
+    setTimeout(() => {
+        emit('close');
+    }, 1500);
+}
+
+async function save(totpCode = '') {
+    if (!gateway.value?.slug) return;
+    if (totpEnabled.value && !totpCode) {
+        stepUpOpen.value = true;
+        return;
+    }
+
     saving.value = true;
     testMessage.value = null;
     try {
-        const keys = gateway.value.credential_keys || [];
-        const certificateKey = gateway.value.certificate_key;
-
-        if (gatewayUsesMultipartCredentialSave()) {
-            const form = new FormData();
-            for (const k of keys) {
-                if (k.key === certificateKey || (k.type || 'text') === 'file') continue;
-                const v = credentialValues.value[k.key];
-                if (k.type === 'boolean') {
-                    form.append(k.key, v === true || v === '1' || v === 'true' ? '1' : '0');
-                } else {
-                    form.append(k.key, v != null ? String(v).trim() : '');
-                }
-            }
-            for (const fk of extraFileFieldDefs()) {
-                const f = extraFileUploads.value[fk.key];
-                if (f) form.append(fk.key, f);
-            }
-            const { data } = await axios.put(
-                `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
-                form,
-                {
-                    headers: {
-                        'X-XSRF-TOKEN': getCsrfToken(),
-                        Accept: 'application/json',
-                    },
-                }
-            );
-            testSuccess.value = true;
-            testMessage.value = data?.message || 'Credenciais salvas.';
-            extraFileUploads.value = {};
-            emit('saved');
-            setTimeout(() => emit('close'), 1500);
-        } else {
-            // 1) Salva sempre as credenciais (sem arquivo) em JSON
-            const payload = {};
-            for (const k of keys) {
-                if (k.key === certificateKey) continue;
-                const v = credentialValues.value[k.key];
-                if (k.type === 'boolean') {
-                    payload[k.key] = v === true || v === '1' || v === 'true';
-                } else {
-                    payload[k.key] = v != null ? String(v).trim() : '';
-                }
-            }
-            const { data } = await axios.put(
-                `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
-                payload,
-                { headers: { 'X-XSRF-TOKEN': getCsrfToken(), 'Content-Type': 'application/json', Accept: 'application/json' } }
-            );
-
-            // 2) Se tiver certificado, envia em chamada separada
-            if (certificateKey && certificateFile.value) {
-                const form = new FormData();
-                form.append(certificateKey, certificateFile.value);
-                await axios.post(
-                    `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}/certificate`,
-                    form,
-                    { headers: { 'X-XSRF-TOKEN': getCsrfToken(), Accept: 'application/json' } }
-                );
-            }
-
-            certificateFile.value = null;
-            testSuccess.value = true;
-            testMessage.value = data?.message || 'Credenciais salvas.';
-            emit('saved');
-            setTimeout(() => {
-                emit('close');
-            }, 1500);
-        }
+        await persistCredentials(totpCode);
+        stepUpOpen.value = false;
     } catch (err) {
+        if (isTotpStepUpError(err)) {
+            testSuccess.value = false;
+            testMessage.value = totpErrorMessage(err);
+            stepUpOpen.value = true;
+            return;
+        }
         testSuccess.value = false;
         const res = err.response?.data;
         let msg = res?.message || 'Erro ao salvar.';
@@ -269,10 +312,22 @@ async function save() {
         testMessage.value = msg;
     } finally {
         saving.value = false;
+        stepUpLoading.value = false;
     }
 }
 
+async function onStepUpConfirm({ totp_code: totpCode }) {
+    stepUpLoading.value = true;
+    await save(totpCode || '');
+}
+
+function closeStepUp() {
+    stepUpOpen.value = false;
+    stepUpLoading.value = false;
+}
+
 function close() {
+    closeStepUp();
     emit('close');
 }
 
@@ -569,14 +624,25 @@ const canTestConnection = computed(() => {
                         </Button>
                         <Button
                             v-if="hasManualCredentialFields"
-                            :disabled="saving"
-                            @click="save"
+                            :disabled="saving || stepUpLoading"
+                            @click="() => save()"
                         >
-                            {{ saving ? 'Salvando...' : 'Salvar' }}
+                            {{ saving || stepUpLoading ? 'Salvando...' : 'Salvar' }}
                         </Button>
                     </div>
                 </div>
             </aside>
         </div>
+
+        <PlatformStepUpModal
+            :open="stepUpOpen"
+            :loading="stepUpLoading || saving"
+            :require-totp="true"
+            title="Confirmar alteração do adquirente"
+            description="Informe o código 2FA para salvar as credenciais deste adquirente."
+            confirm-label="Salvar"
+            @close="closeStepUp"
+            @confirm="onStepUpConfirm"
+        />
     </Teleport>
 </template>

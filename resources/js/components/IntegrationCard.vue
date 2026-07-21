@@ -21,8 +21,7 @@ const ariaPressed = computed(() => (props.selected ? 'true' : 'false'));
   >
     <button
       type="button"
-      class="flex-1 flex flex-col items-center justify-center gap-2 rounded-xl py-5 text-center transition-all hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[var(--color-primary)]/30 min-w-0"
-      :class="selected ? 'px-10' : 'px-4'"
+      class="flex-1 flex flex-col items-center justify-center gap-2 rounded-xl py-5 px-10 text-center transition-all hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[var(--color-primary)]/30 min-w-0"
       :aria-pressed="ariaPressed"
       @click="$emit('select')"
     >
@@ -41,10 +40,7 @@ const ariaPressed = computed(() => (props.selected ? 'true' : 'false'));
       </div>
     </button>
 
-    <div
-      v-if="selected"
-      class="absolute right-2 top-2 z-10 flex items-center justify-center"
-    >
+    <div class="absolute right-2 top-2 z-10 flex items-center justify-center">
       <button
         type="button"
         class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 transition-colors"

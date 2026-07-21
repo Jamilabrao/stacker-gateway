@@ -128,7 +128,42 @@ class WithdrawalPixReceiptTest extends TestCase
             'status' => MerchantWithdrawalService::STATUS_PENDING,
         ]);
 
-        $this->actingAs($merchant)->get(route('financeiro.seller.receipt', $withdrawal))->assertNotFound();
+        $response = $this->actingAs($merchant)->get(route('financeiro.seller.receipt', $withdrawal));
+
+        $response->assertNotFound();
+        $response->assertSee('Comprovante indisponível', false);
+        $response->assertDontSee('Ignition', false);
+    }
+
+    public function test_paid_withdrawal_with_zero_net_uses_gross_amount(): void
+    {
+        $merchant = $this->createMerchant();
+        $withdrawal = $this->createPaidWithdrawal($merchant, [
+            'amount' => 80.0,
+            'fee_amount' => 0,
+            'net_amount' => 0,
+            'payout_meta' => [
+                'destination_snapshot' => [
+                    'receiver_name' => $merchant->name,
+                    'pix_key' => 'seller@example.com',
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs($merchant)->get(route('financeiro.seller.receipt', $withdrawal));
+
+        $response->assertOk();
+        $response->assertSee('R$ 80,00', false);
+    }
+
+    public function test_paid_status_with_whitespace_still_allows_receipt(): void
+    {
+        $merchant = $this->createMerchant();
+        $withdrawal = $this->createPaidWithdrawal($merchant, [
+            'status' => ' paid ',
+        ]);
+
+        $this->actingAs($merchant)->get(route('financeiro.seller.receipt', $withdrawal))->assertOk();
     }
 
     public function test_platform_admin_can_view_api_cashout_receipt(): void

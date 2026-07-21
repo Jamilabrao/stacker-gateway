@@ -122,11 +122,12 @@ class MerchantWithdrawalService
 
             $available = MerchantWalletAdminBlockService::effectiveAvailableForWithdrawal($wallet, $bucket);
             if ($available + 0.0001 < $amount) {
-                $msg = 'Saldo disponível insuficiente nesta carteira.';
                 if (Schema::hasColumn('tenant_wallets', 'admin_withdrawal_blocked') && filter_var($wallet->admin_withdrawal_blocked ?? false, FILTER_VALIDATE_BOOLEAN)) {
                     $msg = 'Saques bloqueados pela plataforma. Contate o suporte.';
                 } elseif (Schema::hasColumn('tenant_wallets', 'admin_blocked_amount') && (float) ($wallet->admin_blocked_amount ?? 0) > 0) {
                     $msg = 'Saldo disponível insuficiente após reserva administrativa nesta carteira.';
+                } else {
+                    $msg = self::insufficientBucketBalanceMessage($wallet, $bucket, $available);
                 }
                 throw ValidationException::withMessages(['amount' => $msg]);
             }
@@ -406,6 +407,40 @@ class MerchantWithdrawalService
             + (float) ($wallet->available_card ?? 0)
             + (float) ($wallet->available_boleto ?? 0),
             2
+        );
+    }
+
+    /**
+     * Mensagem clara quando o seller tenta sacar de uma carteira (método) sem saldo,
+     * enquanto outra (ex.: cartão) ainda tem fundos.
+     */
+    private static function insufficientBucketBalanceMessage(TenantWallet $wallet, string $bucket, float $available): string
+    {
+        $labels = ['pix' => 'PIX', 'card' => 'Cartão', 'boleto' => 'Boleto'];
+        $bucketLabel = $labels[$bucket] ?? $bucket;
+
+        $pix = round((float) ($wallet->available_pix ?? 0), 2);
+        $card = round((float) ($wallet->available_card ?? 0), 2);
+        $boleto = round((float) ($wallet->available_boleto ?? 0), 2);
+
+        // Usa o saldo efetivo já calculado para a carteira selecionada.
+        if ($bucket === 'pix') {
+            $pix = $available;
+        } elseif ($bucket === 'card') {
+            $card = $available;
+        } elseif ($bucket === 'boleto') {
+            $boleto = $available;
+        }
+
+        $fmt = static fn (float $v): string => 'R$ '.number_format($v, 2, ',', '.');
+
+        return sprintf(
+            'Saldo insuficiente na carteira %s (disponível: %s). PIX: %s · Cartão: %s · Boleto: %s. Escolha a carteira correta ou um valor menor.',
+            $bucketLabel,
+            $fmt($available),
+            $fmt($pix),
+            $fmt($card),
+            $fmt($boleto)
         );
     }
 

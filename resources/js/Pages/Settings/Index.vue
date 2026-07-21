@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, defineAsyncComponent } from 'vue';
+import { ref, computed, defineAsyncComponent, watch } from 'vue';
 import { useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
@@ -22,9 +22,11 @@ import {
     Scale,
     PlayCircle,
     Headset,
+    Puzzle,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import BrandingTab from '@/Pages/Settings/Tabs/BrandingTab.vue';
 import DashboardBannersTab from '@/Pages/Settings/Tabs/DashboardBannersTab.vue';
 import DashboardTemplateTab from '@/Pages/Settings/Tabs/DashboardTemplateTab.vue';
@@ -189,30 +191,81 @@ const connectionTesting = vueRef(false);
 const sendTestSending = vueRef(false);
 
 const coreTabsStatic = [
-    { id: 'email', label: 'E‑MAIL', icon: Mail },
-    { id: 'storage', label: 'Storage', icon: HardDrive },
-    { id: 'personalizacao', label: 'Personalização', icon: Palette },
-    { id: 'banners_dashboard', label: 'Banners Dashboard', icon: Images },
-    { id: 'template_dashboard', label: 'Template dashboard', icon: LayoutGrid },
-    { id: 'idiomas', label: 'Idiomas', icon: Languages },
-    { id: 'traducoes', label: 'Traduções', icon: Languages },
-    { id: 'moedas', label: 'Moedas', icon: Banknote },
-    { id: 'recursos', label: 'Recursos', icon: Truck },
-    { id: 'suporte_painel', label: 'Suporte do painel', icon: Headset },
-    { id: 'seguranca', label: 'Segurança', icon: Shield },
-    { id: 'lgpd', label: 'LGPD', icon: Scale },
-    { id: 'cron', label: 'Cron', icon: Clock },
-    { id: 'update', label: 'Versão', icon: Tag },
-    { id: 'demo', label: 'Demo', icon: PlayCircle },
+    { id: 'email', label: 'E-mail', icon: Mail, group: 'comunicacao' },
+    { id: 'storage', label: 'Storage', icon: HardDrive, group: 'operacao' },
+    { id: 'personalizacao', label: 'Personalização', icon: Palette, group: 'aparencia' },
+    { id: 'banners_dashboard', label: 'Banners do dashboard', icon: Images, group: 'aparencia' },
+    { id: 'template_dashboard', label: 'Template do dashboard', icon: LayoutGrid, group: 'aparencia' },
+    { id: 'idiomas', label: 'Idiomas', icon: Languages, group: 'internacional' },
+    { id: 'traducoes', label: 'Traduções', icon: Languages, group: 'internacional', hideOnMobile: true },
+    { id: 'moedas', label: 'Moedas', icon: Banknote, group: 'internacional' },
+    { id: 'recursos', label: 'Recursos', icon: Truck, group: 'operacao' },
+    { id: 'suporte_painel', label: 'Suporte do painel', icon: Headset, group: 'operacao' },
+    { id: 'seguranca', label: 'Segurança', icon: Shield, group: 'seguranca' },
+    { id: 'lgpd', label: 'LGPD', icon: Scale, group: 'seguranca' },
+    { id: 'cron', label: 'Cron', icon: Clock, group: 'sistema' },
+    { id: 'update', label: 'Versão', icon: Tag, group: 'sistema' },
+    { id: 'demo', label: 'Demo', icon: PlayCircle, group: 'sistema' },
+];
+
+const tabGroups = [
+    { id: 'comunicacao', label: 'Comunicação' },
+    { id: 'aparencia', label: 'Aparência' },
+    { id: 'internacional', label: 'Idiomas e moedas' },
+    { id: 'operacao', label: 'Operação' },
+    { id: 'seguranca', label: 'Segurança e legal' },
+    { id: 'sistema', label: 'Sistema' },
+    { id: 'plugins', label: 'Plugins' },
 ];
 
 const tabs = computed(() => {
     const plug = (props.settings_plugin_tabs || []).map((t) => ({
         id: t.id,
         label: t.label,
-        icon: Palette,
+        icon: Puzzle,
+        group: 'plugins',
     }));
     return [...coreTabsStatic, ...plug];
+});
+
+const tabsByGroup = computed(() => {
+    return tabGroups
+        .map((group) => ({
+            ...group,
+            items: tabs.value.filter((tab) => tab.group === group.id),
+        }))
+        .filter((group) => group.items.length > 0);
+});
+
+const mobileTabsByGroup = computed(() => {
+    return tabsByGroup.value
+        .map((group) => ({
+            ...group,
+            items: group.items.filter((tab) => !tab.hideOnMobile),
+        }))
+        .filter((group) => group.items.length > 0);
+});
+
+const activeTabMeta = computed(() => tabs.value.find((t) => t.id === activeTab.value) || null);
+
+function setActiveTab(tabId) {
+    if (!allAllowedTabIds().includes(tabId)) return;
+    const isMobile = typeof window !== 'undefined'
+        && window.matchMedia
+        && window.matchMedia('(max-width: 639px)').matches;
+    if (isMobile && tabId === 'traducoes') {
+        activeTab.value = 'email';
+        return;
+    }
+    activeTab.value = tabId;
+}
+
+watch(activeTab, (id) => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === id) return;
+    url.searchParams.set('tab', id);
+    window.history.replaceState({}, '', url.toString());
 });
 
 const translationKeys = computed(() => {
@@ -663,6 +716,26 @@ function buildEmailSettingsPayload() {
     return payload;
 }
 
+function payloadTouchesEmailSettings(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    const keys = [
+        'email_provider',
+        'smtp_password', 'smtp_host', 'smtp_port', 'smtp_username', 'smtp_encryption',
+        'mail_from_address', 'mail_from_name', 'reply_to',
+        'hostinger_smtp_password', 'hostinger_smtp_username', 'hostinger_mail_from_address',
+        'hostinger_mail_from_name', 'hostinger_reply_to',
+        'sendgrid_api_key', 'sendgrid_mail_from_address', 'sendgrid_mail_from_name',
+        'kyc_notification_emails',
+    ];
+    return keys.some((k) => Object.prototype.hasOwnProperty.call(payload, k));
+}
+
+const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
+const stepUpOpen = ref(false);
+const stepUpLoading = ref(false);
+/** @type {import('vue').Ref<null | { kind: 'sidebar' | 'settings' | 'provider', payload: Record<string, unknown> }>} */
+const pendingEmailSave = ref(null);
+
 function selectProvider(provider) {
     activeEmailProvider.value = provider.id;
 }
@@ -677,28 +750,13 @@ function closeSidebar() {
     sidebarOpen.value = false;
 }
 
-function saveFromSidebar() {
+function putSettings(payload, { onSuccess } = {}) {
     form
-        .transform(() => buildEmailSettingsPayload())
-        .put('/plataforma/configuracoes', {
+        .transform(() => payload)
+        .post('/plataforma/configuracoes', {
             preserveScroll: true,
             onSuccess: () => {
-                closeSidebar();
-                syncEmailSettingsFromProps();
-            },
-            onFinish: () => {
-                form.transform((data) => data);
-            },
-        });
-}
-
-function submitSettings() {
-    form.email_provider = activeEmailProvider.value;
-    form
-        .transform(() => buildSettingsPayload())
-        .put('/plataforma/configuracoes', {
-            preserveScroll: true,
-            onSuccess: () => {
+                onSuccess?.();
                 syncEmailSettingsFromProps();
                 syncLegalSettingsFromProps();
                 syncSecuritySettingsFromProps();
@@ -706,8 +764,60 @@ function submitSettings() {
             },
             onFinish: () => {
                 form.transform((data) => data);
+                stepUpLoading.value = false;
+                stepUpOpen.value = false;
+                pendingEmailSave.value = null;
             },
         });
+}
+
+function requestSettingsSave(payload, kind, { onSuccess } = {}) {
+    if (platformTotpEnabled.value && payloadTouchesEmailSettings(payload)) {
+        pendingEmailSave.value = { kind, payload, onSuccess };
+        stepUpOpen.value = true;
+        return;
+    }
+    putSettings(payload, { onSuccess });
+}
+
+function saveFromSidebar() {
+    requestSettingsSave(buildEmailSettingsPayload(), 'sidebar', {
+        onSuccess: () => closeSidebar(),
+    });
+}
+
+function submitSettings() {
+    form.email_provider = activeEmailProvider.value;
+    requestSettingsSave(buildSettingsPayload(), 'settings');
+}
+
+function persistSelectedProvider() {
+    requestSettingsSave(
+        {
+            email_provider: activeEmailProvider.value,
+            kyc_notification_emails: form.kyc_notification_emails ?? '',
+        },
+        'provider'
+    );
+}
+
+function onStepUpConfirm({ totp_code: totpCode }) {
+    const pending = pendingEmailSave.value;
+    if (!pending) {
+        stepUpOpen.value = false;
+        return;
+    }
+    stepUpLoading.value = true;
+    putSettings(
+        { ...pending.payload, totp_code: totpCode || undefined },
+        { onSuccess: pending.onSuccess }
+    );
+}
+
+function closeStepUp() {
+    stepUpOpen.value = false;
+    stepUpLoading.value = false;
+    pendingEmailSave.value = null;
 }
 
 function isProviderConfigured(providerId) {
@@ -747,39 +857,74 @@ const selectClass =
 
 <template>
     <div class="space-y-6">
-        <!-- Header -->
         <div>
             <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">Configurações</h1>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Gerencie e-mail, traduções do checkout e moedas disponíveis.
+                Gerencie e-mail, aparência, segurança e demais opções da plataforma.
             </p>
         </div>
 
-        <!-- Tabs pill style -->
-        <div class="w-full overflow-x-auto [-webkit-overflow-scrolling:touch]">
-            <nav
-                class="inline-flex w-max rounded-xl bg-zinc-100/80 p-1 dark:bg-zinc-800/80"
-                aria-label="Abas de configurações"
+        <!-- Mobile: seletor de seção -->
+        <div class="lg:hidden">
+            <label class="mb-1.5 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Seção
+            </label>
+            <select
+                :value="activeTab"
+                class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                @change="setActiveTab($event.target.value)"
             >
-                <button
-                    v-for="tab in tabs"
-                    :key="tab.id"
-                    type="button"
-                    :aria-current="activeTab === tab.id ? 'page' : undefined"
-                    :class="[
-                        'items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
-                        tab.id === 'traducoes' ? 'hidden sm:flex' : 'flex',
-                        activeTab === tab.id
-                            ? 'bg-white text-[var(--color-primary)] shadow-sm dark:bg-zinc-700 dark:text-[var(--color-primary)]'
-                            : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white',
-                    ]"
-                    @click="activeTab = tab.id"
-                >
-                    <component :is="tab.icon" class="h-4 w-4 shrink-0" aria-hidden="true" />
-                    {{ tab.label }}
-                </button>
-            </nav>
+                <optgroup v-for="group in mobileTabsByGroup" :key="group.id" :label="group.label">
+                    <option v-for="tab in group.items" :key="tab.id" :value="tab.id">
+                        {{ tab.label }}
+                    </option>
+                </optgroup>
+            </select>
         </div>
+
+        <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
+            <!-- Sidebar interno (desktop) -->
+            <aside
+                class="hidden w-56 shrink-0 lg:block xl:w-60"
+                aria-label="Navegação das configurações"
+            >
+                <nav class="sticky top-20 space-y-5">
+                    <div v-for="group in tabsByGroup" :key="group.id">
+                        <p class="mb-1.5 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                            {{ group.label }}
+                        </p>
+                        <ul class="space-y-0.5">
+                            <li v-for="tab in group.items" :key="tab.id">
+                                <button
+                                    type="button"
+                                    :aria-current="activeTab === tab.id ? 'page' : undefined"
+                                    class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm font-medium transition-colors"
+                                    :class="
+                                        activeTab === tab.id
+                                            ? 'bg-[var(--color-primary)]/15 text-zinc-900 dark:text-white'
+                                            : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/80'
+                                    "
+                                    @click="setActiveTab(tab.id)"
+                                >
+                                    <component
+                                        :is="tab.icon"
+                                        class="h-4 w-4 shrink-0"
+                                        :class="activeTab === tab.id ? 'text-[var(--color-primary)]' : 'text-zinc-400'"
+                                        aria-hidden="true"
+                                    />
+                                    <span class="truncate">{{ tab.label }}</span>
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                </nav>
+            </aside>
+
+            <!-- Conteúdo -->
+            <div class="min-w-0 flex-1">
+                <div v-if="activeTabMeta" class="mb-4 lg:hidden">
+                    <h2 class="text-base font-semibold text-zinc-900 dark:text-white">{{ activeTabMeta.label }}</h2>
+                </div>
 
         <form
             v-show="activeTab !== 'update' && activeTab !== 'cron' && activeTab !== 'banners_dashboard' && activeTab !== 'template_dashboard' && activeTab !== 'idiomas' && activeTab !== 'demo' && !isPluginTab(activeTab)"
@@ -815,13 +960,27 @@ const selectClass =
                                 @configure="openProviderConfig(prov)"
                             />
                         </div>
+                        <p
+                            v-if="form.errors.totp_code || form.errors.email_provider"
+                            class="mt-4 text-sm text-red-600 dark:text-red-400"
+                        >
+                            {{ form.errors.totp_code || form.errors.email_provider }}
+                        </p>
                         <div
                             v-if="activeEmailProvider && !isProviderConfigured(activeEmailProvider)"
                             class="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20"
                         >
                             <AlertCircle class="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
                             <p class="text-sm text-amber-800 dark:text-amber-200">
-                                Clique no ícone de engrenagem para configurar o provedor selecionado.
+                                Clique no ícone de engrenagem para configurar o provedor selecionado e depois em Salvar.
+                            </p>
+                        </div>
+                        <div class="mt-5 flex flex-wrap items-center gap-3">
+                            <Button type="button" size="sm" :disabled="form.processing" @click="persistSelectedProvider">
+                                Salvar provedor selecionado
+                            </Button>
+                            <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                A seleção só vale após salvar. Com 2FA ativo, será pedido o código do autenticador.
                             </p>
                         </div>
                     </section>
@@ -1344,9 +1503,23 @@ const selectClass =
             </Transition>
 
             <div
-                class="flex items-center gap-3 pt-4 sm:pt-2 md:pt-4 sticky bottom-4 z-10 -mx-2 rounded-xl border border-zinc-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur sm:static sm:mx-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:shadow-none dark:border-zinc-700 dark:bg-zinc-800/95 sm:dark:bg-transparent sm:dark:border-0"
+                class="flex flex-col gap-2 pt-4 sm:pt-2 md:pt-4 sticky bottom-4 z-10 -mx-2 rounded-xl border border-zinc-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur sm:static sm:mx-0 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:shadow-none dark:border-zinc-700 dark:bg-zinc-800/95 sm:dark:bg-transparent sm:dark:border-0"
             >
-                <Button type="button" :disabled="form.processing" @click="submitSettings">Salvar alterações</Button>
+                <p
+                    v-if="form.errors.totp_code"
+                    class="text-sm text-red-600 dark:text-red-400"
+                >
+                    {{ form.errors.totp_code }}
+                </p>
+                <p
+                    v-else-if="Object.keys(form.errors || {}).length"
+                    class="text-sm text-red-600 dark:text-red-400"
+                >
+                    Não foi possível salvar. Verifique os campos e tente novamente.
+                </p>
+                <div class="flex items-center gap-3">
+                    <Button type="button" :disabled="form.processing" @click="submitSettings">Salvar alterações</Button>
+                </div>
             </div>
         </form>
 
@@ -1536,6 +1709,9 @@ const selectClass =
             </div>
         </Transition>
 
+            </div>
+        </div>
+
         <Teleport to="body">
             <EmailProviderSidebar
                 :open="sidebarOpen"
@@ -1551,5 +1727,15 @@ const selectClass =
                 @save="saveFromSidebar"
             />
         </Teleport>
+
+        <PlatformStepUpModal
+            :open="stepUpOpen"
+            title="Confirmar alteração de e-mail"
+            description="Informe o código 2FA para salvar o provedor ou as credenciais de e-mail da plataforma."
+            confirm-label="Salvar"
+            :loading="stepUpLoading"
+            @close="closeStepUp"
+            @confirm="onStepUpConfirm"
+        />
     </div>
 </template>

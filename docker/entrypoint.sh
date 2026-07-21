@@ -63,6 +63,57 @@ fi
 # Se houver cache de config, pode "prender" env antigo. Limpa de forma segura (sem falhar o boot).
 rm -f bootstrap/cache/config.php 2>/dev/null || true
 
+# vendor/ pode estar ausente no volume nomeado de dev (getfy_dev_vendor) ou em workers
+# que sobem em paralelo com o app. Lock em .docker (bind mount compartilhado).
+ensure_vendor() {
+  if [ -f vendor/autoload.php ]; then
+    return 0
+  fi
+
+  mkdir -p .docker
+  waited=0
+  while [ -f .docker/composer.installing ] && [ "$waited" -lt 180 ]; do
+    sleep 1
+    waited=$((waited + 1))
+    if [ -f vendor/autoload.php ]; then
+      return 0
+    fi
+  done
+
+  if [ -f vendor/autoload.php ]; then
+    return 0
+  fi
+
+  echo "vendor/ ausente — instalando dependências Composer..."
+  printf '%s' "$$" > .docker/composer.installing
+  # shellcheck disable=SC2064
+  trap 'rm -f .docker/composer.installing' EXIT INT TERM
+  git config --global --add safe.directory /var/www/html 2>/dev/null || true
+
+  composer_ok=0
+  if [ "${APP_ENV:-production}" = "local" ]; then
+    if composer install --no-interaction --prefer-dist --optimize-autoloader --no-scripts; then
+      composer_ok=1
+    fi
+  else
+    if composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts; then
+      composer_ok=1
+    fi
+  fi
+  rm -f .docker/composer.installing
+  trap - EXIT INT TERM
+
+  if [ "$composer_ok" -ne 1 ]; then
+    echo "composer install falhou. A imagem Docker deve usar PHP 8.3+ (rebuild: docker compose build --no-cache app)." >&2
+    return 1
+  fi
+
+  php artisan package:discover --ansi 2>/dev/null || true
+  return 0
+}
+
+ensure_vendor || exit 1
+
 # Worker/scheduler: .env NÃO é volume compartilhado (só storage + .docker). Sem sync do
 # APP_KEY, decrypt de GatewayCredential falha e reconciliação/webhooks inbound viram no-op
 # silencioso — enquanto "Reconciliar agora" no container app continua funcionando.

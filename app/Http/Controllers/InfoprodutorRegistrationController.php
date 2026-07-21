@@ -16,6 +16,8 @@ use App\Support\NormalizedEmail;
 use App\Support\RegistrationEmailVerificationSettings;
 use App\Services\PlatformAuditService;
 use App\Support\RegistrationTurnstileSettings;
+use App\Services\ReferralAttributionService;
+use App\Support\ReferralProgramSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -44,11 +46,14 @@ class InfoprodutorRegistrationController extends Controller
             return redirect()->route('criar-admin');
         }
 
-        return Inertia::render('Auth/RegisterWizard', array_merge([
+        $response = Inertia::render('Auth/RegisterWizard', array_merge([
             'revenue_ranges' => self::revenueRangeOptions(),
             'coproducer_invite' => $request->query('coproducer_invite'),
+            'referral_ref' => ReferralAttributionService::resolveCodeFromRequest($request),
             'upgrade_from_customer' => false,
         ], self::registrationWizardProps()));
+
+        return $this->withReferralCookie($request, $response);
     }
 
     public function createUpgrade(Request $request): Response|RedirectResponse
@@ -64,11 +69,14 @@ class InfoprodutorRegistrationController extends Controller
             return redirect($user->defaultAuthenticatedHomeUrl());
         }
 
-        return Inertia::render('Auth/RegisterWizard', array_merge([
+        $response = Inertia::render('Auth/RegisterWizard', array_merge([
             'revenue_ranges' => self::revenueRangeOptions(),
             'coproducer_invite' => $request->query('coproducer_invite'),
+            'referral_ref' => ReferralAttributionService::resolveCodeFromRequest($request),
             'upgrade_from_customer' => true,
         ], self::registrationWizardProps()));
+
+        return $this->withReferralCookie($request, $response);
     }
 
     /**
@@ -226,6 +234,7 @@ class InfoprodutorRegistrationController extends Controller
             'person_type' => ['required', 'string', Rule::in(['pf', 'pj'])],
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'phone' => ['required', 'string', 'max:32'],
             'birth_date' => ['required', 'date', 'before:'.now()->subYears(18)->format('Y-m-d')],
             'document' => ['required', 'string', 'max:20'],
             'company_name' => ['nullable', 'string', 'max:255'],
@@ -240,6 +249,7 @@ class InfoprodutorRegistrationController extends Controller
             'monthly_revenue_range' => ['required', 'string', Rule::in(User::MONTHLY_REVENUE_RANGES)],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
             'coproducer_invite' => ['nullable', 'string', 'max:64'],
+            'ref' => ['nullable', 'string', 'max:32'],
             'accept_terms_privacy' => ['accepted'],
         ];
 
@@ -311,9 +321,15 @@ class InfoprodutorRegistrationController extends Controller
             }
         }
 
+        $phoneDigits = $this->normalizePhoneDigits((string) ($validated['phone'] ?? ''));
+        if ($phoneDigits === null) {
+            return back()->withErrors(['phone' => 'Informe um WhatsApp válido com DDD (10 ou 11 dígitos).'])->withInput();
+        }
+
         $user = User::create([
             'name' => (string) ($validated['name'] ?? ''),
             'email' => $validated['email'],
+            'phone' => $phoneDigits,
             'password' => Hash::make($validated['password']),
             'role' => User::ROLE_INFOPRODUTOR,
             'person_type' => $validated['person_type'],
@@ -338,6 +354,8 @@ class InfoprodutorRegistrationController extends Controller
         ]);
 
         $user->update(['tenant_id' => $user->id]);
+
+        $this->attachReferralIfPresent($request, $user, $validated['ref'] ?? null);
 
         $this->recordLegalConsent($user);
 
@@ -408,6 +426,7 @@ class InfoprodutorRegistrationController extends Controller
             'person_type' => ['required', 'string', Rule::in(['pf', 'pj'])],
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'phone' => ['required', 'string', 'max:32'],
             'birth_date' => ['required', 'date', 'before:'.now()->subYears(18)->format('Y-m-d')],
             'document' => ['required', 'string', 'max:20'],
             'company_name' => ['nullable', 'string', 'max:255'],
@@ -422,6 +441,7 @@ class InfoprodutorRegistrationController extends Controller
             'monthly_revenue_range' => ['required', 'string', Rule::in(User::MONTHLY_REVENUE_RANGES)],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
             'coproducer_invite' => ['nullable', 'string', 'max:64'],
+            'ref' => ['nullable', 'string', 'max:32'],
             'accept_terms_privacy' => ['accepted'],
         ];
 
@@ -496,9 +516,15 @@ class InfoprodutorRegistrationController extends Controller
         $needsEmailVerification = RegistrationEmailVerificationSettings::isEnabled()
             && ($emailChanged || $user->email_verified_at === null);
 
+        $phoneDigits = $this->normalizePhoneDigits((string) ($validated['phone'] ?? ''));
+        if ($phoneDigits === null) {
+            return back()->withErrors(['phone' => 'Informe um WhatsApp válido com DDD (10 ou 11 dígitos).'])->withInput();
+        }
+
         $user->update([
             'name' => (string) ($validated['name'] ?? ''),
             'email' => $validated['email'],
+            'phone' => $phoneDigits,
             'password' => Hash::make($validated['password']),
             'role' => User::ROLE_INFOPRODUTOR,
             'person_type' => $validated['person_type'],
@@ -523,6 +549,8 @@ class InfoprodutorRegistrationController extends Controller
         ]);
 
         $user->update(['tenant_id' => $user->id]);
+
+        $this->attachReferralIfPresent($request, $user, $validated['ref'] ?? null);
 
         $this->recordLegalConsent($user);
 
@@ -645,6 +673,53 @@ class InfoprodutorRegistrationController extends Controller
             'terms_accepted_at' => $now,
             'legal_consent_version' => $version,
         ])->save();
+    }
+
+    /**
+     * Normaliza WhatsApp BR para dígitos (com 55 se vier só DDD+número).
+     */
+    private function normalizePhoneDigits(string $phone): ?string
+    {
+        $digits = preg_replace('/\D/', '', $phone) ?? '';
+        if (strlen($digits) < 10) {
+            return null;
+        }
+        if (strlen($digits) <= 11 && ! str_starts_with($digits, '55')) {
+            $digits = '55'.$digits;
+        }
+        if (strlen($digits) < 12 || strlen($digits) > 13) {
+            return null;
+        }
+
+        return $digits;
+    }
+
+    private function withReferralCookie(Request $request, Response $response): Response
+    {
+        if (! ReferralProgramSettings::isEnabled()) {
+            return $response;
+        }
+
+        $code = ReferralAttributionService::normalizeCode((string) $request->query('ref', ''));
+        if ($code === null || ReferralAttributionService::findReferrerByCode($code) === null) {
+            return $response;
+        }
+
+        cookie()->queue(ReferralAttributionService::makeReferralCookie($code));
+
+        return $response;
+    }
+
+    private function attachReferralIfPresent(Request $request, User $user, ?string $refFromBody): void
+    {
+        $code = ReferralAttributionService::normalizeCode($refFromBody)
+            ?? ReferralAttributionService::resolveCodeFromRequest($request);
+
+        if ($code === null) {
+            return;
+        }
+
+        ReferralAttributionService::attachOnRegistration($user->fresh(), $code);
     }
 }
 

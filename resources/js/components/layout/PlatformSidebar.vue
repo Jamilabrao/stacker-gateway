@@ -24,6 +24,7 @@ import {
     Package,
     Puzzle,
     Plug,
+    Gift,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 
@@ -66,25 +67,66 @@ function badgeLabel(count) {
     return count > 99 ? '99+' : String(count);
 }
 
-const navItemsCore = [
-    { name: 'Dashboard', href: '/plataforma/dashboard', icon: LayoutDashboard },
-    { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
-    { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
-    { name: 'Transações', href: '/plataforma/transacoes', icon: ArrowLeftRight, badgeKey: 'transacoes' },
-    { name: 'Transações API', href: '/plataforma/transacoes-api', icon: Code2 },
-    { name: 'Disputas MED', href: '/plataforma/disputas', icon: AlertTriangle, badgeKey: 'disputas' },
-    { name: 'Produtos', href: '/plataforma/produtos', icon: Package },
-    { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck, badgeKey: 'kyc' },
-    { name: 'Saques', href: '/plataforma/saques', icon: Banknote, badgeKey: 'saques' },
-    { name: 'Saldo', href: '/plataforma/saldo', icon: CircleDollarSign },
-    { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet, badgeKey: 'financeiro' },
-    { name: 'Saúde de Pagamentos', href: '/plataforma/ops/saude-pagamentos', icon: Activity },
-    { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
-    { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
-    { name: 'App', href: '/plataforma/app', icon: Smartphone },
-    { name: 'Conquistas', href: '/plataforma/conquistas', icon: Trophy },
-    { name: 'E-mail Marketing', href: '/plataforma/email-marketing', icon: Mail },
-    { name: 'IntegraX SMS', href: '/plataforma/integrax', icon: MessageSquare },
+/**
+ * Ordem pensada no fluxo do operador:
+ * visão geral → pessoas → vendas/risco → dinheiro → crescimento → sistema.
+ */
+const navGroupsCore = [
+    {
+        id: 'geral',
+        label: null,
+        items: [
+            { name: 'Dashboard', href: '/plataforma/dashboard', icon: LayoutDashboard },
+        ],
+    },
+    {
+        id: 'pessoas',
+        label: 'Pessoas',
+        items: [
+            { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
+            { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
+            { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck, badgeKey: 'kyc' },
+        ],
+    },
+    {
+        id: 'operacoes',
+        label: 'Operações',
+        items: [
+            { name: 'Transações', href: '/plataforma/transacoes', icon: ArrowLeftRight, badgeKey: 'transacoes' },
+            { name: 'Transações API', href: '/plataforma/transacoes-api', icon: Code2 },
+            { name: 'Disputas MED', href: '/plataforma/disputas', icon: AlertTriangle, badgeKey: 'disputas' },
+            { name: 'Produtos', href: '/plataforma/produtos', icon: Package },
+        ],
+    },
+    {
+        id: 'financeiro',
+        label: 'Financeiro',
+        items: [
+            { name: 'Saques', href: '/plataforma/saques', icon: Banknote, badgeKey: 'saques' },
+            { name: 'Saldo', href: '/plataforma/saldo', icon: CircleDollarSign },
+            { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet, badgeKey: 'financeiro' },
+            { name: 'Indique e Ganhe', href: '/plataforma/indique-e-ganhe', icon: Gift },
+            { name: 'Saúde de Pagamentos', href: '/plataforma/ops/saude-pagamentos', icon: Activity },
+        ],
+    },
+    {
+        id: 'crescimento',
+        label: 'Crescimento',
+        items: [
+            { name: 'Conquistas', href: '/plataforma/conquistas', icon: Trophy },
+            { name: 'E-mail Marketing', href: '/plataforma/email-marketing', icon: Mail },
+            { name: 'IntegraX SMS', href: '/plataforma/integrax', icon: MessageSquare },
+            { name: 'App', href: '/plataforma/app', icon: Smartphone },
+        ],
+    },
+    {
+        id: 'sistema',
+        label: 'Sistema',
+        items: [
+            { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
+            { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
+        ],
+    },
 ];
 
 const pluginNavItems = computed(() => {
@@ -96,7 +138,19 @@ const pluginNavItems = computed(() => {
     }));
 });
 
-const navItems = computed(() => [...navItemsCore, ...pluginNavItems.value]);
+const navGroups = computed(() => {
+    const groups = navGroupsCore.map((g) => ({ ...g, items: [...g.items] }));
+    const plugins = pluginNavItems.value;
+    if (plugins.length) {
+        const sistema = groups.find((g) => g.id === 'sistema');
+        if (sistema) {
+            sistema.items = [...sistema.items, ...plugins];
+        } else {
+            groups.push({ id: 'plugins', label: 'Plugins', items: plugins });
+        }
+    }
+    return groups;
+});
 
 function isNavItemActive(href) {
     if (href.includes('?')) {
@@ -144,25 +198,42 @@ function isActive(href) {
     if (href === '/plataforma/financeiro') {
         return url === '/plataforma/financeiro' || url.startsWith('/plataforma/financeiro/');
     }
+    if (href === '/plataforma/indique-e-ganhe') {
+        return url === '/plataforma/indique-e-ganhe' || url.startsWith('/plataforma/indique-e-ganhe/');
+    }
     if (href === '/plataforma/ops/saude-pagamentos') {
         return url === '/plataforma/ops/saude-pagamentos' || url.startsWith('/plataforma/ops/saude-pagamentos/');
     }
     if (href === '/plataforma/configuracoes') {
         return url === '/plataforma/configuracoes' || url.startsWith('/plataforma/configuracoes/');
     }
+    if (href === '/plataforma/gerenciar-plugins') {
+        return url === '/plataforma/gerenciar-plugins' || url.startsWith('/plataforma/gerenciar-plugins/');
+    }
+    if (href === '/plataforma/app') {
+        return url === '/plataforma/app' || url.startsWith('/plataforma/app/');
+    }
+    if (href === '/plataforma/conquistas') {
+        return url === '/plataforma/conquistas' || url.startsWith('/plataforma/conquistas/');
+    }
+    if (href === '/plataforma/email-marketing') {
+        return url === '/plataforma/email-marketing' || url.startsWith('/plataforma/email-marketing/');
+    }
+    if (href === '/plataforma/integrax') {
+        return url === '/plataforma/integrax' || url.startsWith('/plataforma/integrax/');
+    }
     return url === href || url.startsWith(`${href}/`);
 }
 
 const linkActive =
-    'bg-[var(--color-primary)]/15 text-zinc-900 dark:text-white';
-/** Mesma base do AppSidebar (fundo zinc-100): hover visível em claro */
+    'bg-[var(--color-primary)]/10 text-zinc-900 dark:text-white';
 const linkInactive =
-    'text-zinc-600 hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:bg-zinc-800/80';
+    'text-zinc-600 hover:bg-zinc-200/60 dark:text-zinc-400 dark:hover:bg-zinc-800/70';
 </script>
 
 <template>
     <aside
-        class="fixed inset-y-0 left-0 z-[99999] flex h-screen w-[260px] flex-col rounded-r-2xl border-r border-zinc-200/60 bg-zinc-100 transition-all duration-300 ease-in-out dark:border-zinc-700/60 dark:bg-zinc-900"
+        class="fixed inset-y-0 left-0 z-[99999] flex h-screen w-[260px] flex-col border-r border-zinc-200 bg-zinc-100 transition-all duration-300 ease-in-out dark:border-zinc-800 dark:bg-zinc-900"
         :class="[
             {
                 'translate-x-0 shadow-xl': isMobileOpen,
@@ -174,11 +245,11 @@ const linkInactive =
             },
         ]"
     >
-        <div class="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-zinc-200/60 px-3 dark:border-zinc-700/60">
+        <div class="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
             <Link
                 href="/plataforma/dashboard"
                 :class="[
-                    'flex min-w-0 flex-1 items-center overflow-hidden rounded-lg py-1.5',
+                    'flex min-w-0 flex-1 items-center overflow-hidden py-1.5',
                     showText() ? 'justify-start gap-2' : 'justify-center',
                 ]"
             >
@@ -215,7 +286,7 @@ const linkInactive =
             <button
                 v-if="isMobile"
                 type="button"
-                class="flex h-9 w-9 shrink-0 touch-manipulation cursor-pointer select-none items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200/80 dark:hover:bg-zinc-800"
+                class="flex h-9 w-9 shrink-0 touch-manipulation cursor-pointer select-none items-center justify-center text-zinc-500 hover:bg-zinc-200/80 dark:hover:bg-zinc-800"
                 aria-label="Fechar menu"
                 @click="toggleSidebar"
             >
@@ -224,7 +295,7 @@ const linkInactive =
             <button
                 v-else
                 type="button"
-                class="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-200/80 lg:flex dark:hover:bg-zinc-800"
+                class="hidden h-9 w-9 shrink-0 items-center justify-center text-zinc-500 hover:bg-zinc-200/80 lg:flex dark:hover:bg-zinc-800"
                 :title="isExpanded ? 'Recolher' : 'Expandir'"
                 aria-label="Alternar largura do menu"
                 @click="toggleSidebar"
@@ -233,37 +304,68 @@ const linkInactive =
             </button>
         </div>
 
-        <nav class="flex-1 space-y-1 overflow-y-auto p-2">
-            <Link
-                v-for="item in navItems"
-                :key="item.href"
-                :href="item.href"
-                class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
-                :class="isNavItemActive(item.href) ? linkActive : linkInactive"
-                @click="isMobile ? toggleSidebar() : null"
-            >
-                <span class="relative shrink-0">
-                    <component :is="item.icon" class="h-5 w-5" />
-                    <span
-                        v-if="item.badgeKey && badgeCount(item.badgeKey) > 0 && !showText()"
-                        class="absolute -right-1.5 -top-1.5 inline-flex min-h-[1rem] min-w-[1rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold leading-none text-white"
-                        :aria-label="`${badgeCount(item.badgeKey)} pendente(s)`"
-                    >
-                        {{ badgeCount(item.badgeKey) > 9 ? '9+' : badgeLabel(badgeCount(item.badgeKey)) }}
-                    </span>
-                </span>
-                <span v-show="showText()" class="min-w-0 flex-1 truncate">{{ item.name }}</span>
-                <span
-                    v-if="item.badgeKey && badgeCount(item.badgeKey) > 0 && showText()"
-                    class="ml-auto inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
-                    :aria-label="`${badgeCount(item.badgeKey)} pendente(s)`"
+        <nav class="flex-1 space-y-5 overflow-y-auto px-0 py-3">
+            <div v-for="group in navGroups" :key="group.id">
+                <p
+                    v-if="group.label && showText()"
+                    class="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500"
                 >
-                    {{ badgeLabel(badgeCount(item.badgeKey)) }}
-                </span>
-            </Link>
+                    {{ group.label }}
+                </p>
+                <div
+                    v-else-if="group.label && !showText()"
+                    class="mx-auto mb-1.5 h-px w-6 bg-zinc-300 dark:bg-zinc-700"
+                    aria-hidden="true"
+                />
+                <div>
+                    <Link
+                        v-for="item in group.items"
+                        :key="item.href"
+                        :href="item.href"
+                        class="relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors"
+                        :class="[
+                            isNavItemActive(item.href) ? linkActive : linkInactive,
+                            showText() ? '' : 'justify-center px-0',
+                        ]"
+                        :title="!showText() ? item.name : undefined"
+                        @click="isMobile ? toggleSidebar() : null"
+                    >
+                        <span
+                            v-if="isNavItemActive(item.href)"
+                            class="absolute inset-y-0 left-0 w-0.5 bg-[var(--color-primary)]"
+                            aria-hidden="true"
+                        />
+                        <span class="relative shrink-0">
+                            <component
+                                :is="item.icon"
+                                class="h-5 w-5"
+                                :class="isNavItemActive(item.href) ? 'text-[var(--color-primary)]' : ''"
+                            />
+                            <span
+                                v-if="item.badgeKey && badgeCount(item.badgeKey) > 0 && !showText()"
+                                class="absolute -right-1.5 -top-1.5 inline-flex min-h-[1rem] min-w-[1rem] items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold leading-none text-white"
+                                :aria-label="`${badgeCount(item.badgeKey)} pendente(s)`"
+                            >
+                                {{ badgeCount(item.badgeKey) > 9 ? '9+' : badgeLabel(badgeCount(item.badgeKey)) }}
+                            </span>
+                        </span>
+                        <span v-show="showText()" class="min-w-0 flex-1 truncate">{{ item.name }}</span>
+                        <span
+                            v-if="item.badgeKey && badgeCount(item.badgeKey) > 0 && showText()"
+                            class="ml-auto inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                            :aria-label="`${badgeCount(item.badgeKey)} pendente(s)`"
+                        >
+                            {{ badgeLabel(badgeCount(item.badgeKey)) }}
+                        </span>
+                    </Link>
+                </div>
+            </div>
         </nav>
 
-        <div v-show="showText()" class="border-t border-zinc-200/60 p-3 text-xs text-zinc-500 dark:border-zinc-700/60 dark:text-zinc-500">
+        <div
+            v-show="showText()"
+            class="border-t border-zinc-200 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-500"
+        >
             Operador do gateway
         </div>
     </aside>

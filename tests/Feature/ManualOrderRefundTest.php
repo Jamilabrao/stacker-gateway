@@ -197,4 +197,128 @@ class ManualOrderRefundTest extends TestCase
         $response->assertStatus(422)->assertJson(['success' => false]);
         $this->assertSame('pending', $order->fresh()->status);
     }
+
+    public function test_manual_refund_revokes_member_access_and_appears_in_reembolsos(): void
+    {
+        if (! Schema::hasTable('product_user') || ! Schema::hasTable('refund_requests')) {
+            $this->markTestSkipped('product_user/refund_requests');
+        }
+
+        $merchant = $this->createMerchantWithWallet(95.0);
+        $buyer = User::factory()->create([
+            'role' => User::ROLE_ALUNO,
+            'email' => 'aluno-refund@test.com',
+        ]);
+        $product = $this->createTestProduct(['tenant_id' => $merchant->id]);
+
+        $order = Order::create([
+            'tenant_id' => $merchant->id,
+            'user_id' => $buyer->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 100.0,
+            'gateway' => 'stripe',
+            'payment_method' => 'pix',
+            'approved_manually' => false,
+            'email' => $buyer->email,
+        ]);
+        $order->grantPurchasedProductAccessToBuyer();
+        $this->assertTrue($product->fresh()->hasMemberAreaAccess($buyer));
+
+        if (Schema::hasTable('tenant_wallets') && Schema::hasTable('wallet_transactions')) {
+            WalletTransaction::create([
+                'tenant_id' => $merchant->id,
+                'order_id' => $order->id,
+                'bucket' => 'pix',
+                'type' => WalletTransaction::TYPE_CREDIT_SALE,
+                'amount_gross' => 100.00,
+                'amount_fee' => 5.00,
+                'amount_net' => 95.00,
+            ]);
+        }
+
+        $response = $this->actingAs($merchant)->postJson(route('vendas.refund-manually', $order), [
+            'reason' => 'Cliente pediu cancelamento',
+        ]);
+        $response->assertOk()->assertJson(['success' => true]);
+
+        $this->assertSame('refunded', $order->fresh()->status);
+        $this->assertFalse($product->fresh()->hasMemberAreaAccess($buyer->fresh()));
+        $this->assertFalse(
+            $product->users()->where('user_id', $buyer->id)->exists()
+        );
+
+        $this->assertDatabaseHas('refund_requests', [
+            'order_id' => $order->id,
+            'user_id' => $buyer->id,
+            'tenant_id' => $merchant->id,
+            'status' => 'approved',
+        ]);
+
+        $page = $this->actingAs($merchant)->get(route('reembolsos.index', ['status' => 'approved']));
+        $page->assertOk()->assertInertia(fn ($assert) => $assert
+            ->component('Reembolsos/Index')
+            ->has('requests.data', 1)
+            ->where('requests.data.0.order_id', $order->id)
+        );
+    }
+
+    public function test_refund_keeps_access_when_buyer_has_another_paid_order(): void
+    {
+        if (! Schema::hasTable('product_user')) {
+            $this->markTestSkipped('product_user');
+        }
+
+        $merchant = $this->createMerchantWithWallet(200.0);
+        $buyer = User::factory()->create([
+            'role' => User::ROLE_ALUNO,
+            'email' => 'aluno-keep@test.com',
+        ]);
+        $product = $this->createTestProduct(['tenant_id' => $merchant->id]);
+
+        $keep = Order::create([
+            'tenant_id' => $merchant->id,
+            'user_id' => $buyer->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 100.0,
+            'gateway' => 'stripe',
+            'payment_method' => 'pix',
+            'approved_manually' => false,
+            'email' => $buyer->email,
+        ]);
+        $keep->grantPurchasedProductAccessToBuyer();
+
+        $refund = Order::create([
+            'tenant_id' => $merchant->id,
+            'user_id' => $buyer->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 100.0,
+            'gateway' => 'stripe',
+            'payment_method' => 'pix',
+            'approved_manually' => false,
+            'email' => $buyer->email,
+        ]);
+        $refund->grantPurchasedProductAccessToBuyer();
+
+        if (Schema::hasTable('wallet_transactions')) {
+            WalletTransaction::create([
+                'tenant_id' => $merchant->id,
+                'order_id' => $refund->id,
+                'bucket' => 'pix',
+                'type' => WalletTransaction::TYPE_CREDIT_SALE,
+                'amount_gross' => 100.00,
+                'amount_fee' => 5.00,
+                'amount_net' => 95.00,
+            ]);
+        }
+
+        $this->actingAs($merchant)->postJson(route('vendas.refund-manually', $refund), [
+            'reason' => 'Duplicidade',
+        ])->assertOk();
+
+        $this->assertTrue($product->fresh()->hasMemberAreaAccess($buyer->fresh()));
+        $this->assertTrue($product->users()->where('user_id', $buyer->id)->exists());
+    }
 }

@@ -11,8 +11,15 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install gd pdo_pgsql zip exif intl opcache pcntl bcmath
 
 COPY docker/php/uploads.ini /usr/local/etc/php/conf.d/99-uploads.ini
+# OPcache no CLI: php artisan serve usa SAPI CLI (enable_cli=0 por padrão = lento).
+COPY docker/php/opcache.ini /usr/local/etc/php/conf.d/90-opcache.ini
 
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Composer via PHAR (evita COPY --from=composer:2, que falha com tls: bad record MAC em alguns Docker Desktop).
+RUN apk add --no-cache curl \
+    && curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php \
+    && php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer \
+    && rm -f /tmp/composer-setup.php \
+    && composer --version
 
 WORKDIR /var/www/html
 

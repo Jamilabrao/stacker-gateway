@@ -7,6 +7,7 @@ use App\Models\PanelNotification;
 use App\Models\PanelPushSubscription;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
+use App\Support\AffiliateCheckoutLinks;
 use Illuminate\Support\Collection;
 
 class AffiliateEnrollmentNotifier
@@ -58,12 +59,6 @@ class AffiliateEnrollmentNotifier
 
     public static function affiliateCheckoutLink(Product $product, ProductAffiliateEnrollment $enrollment): ?string
     {
-        if (! $enrollment->public_ref || ! $product->checkout_slug) {
-            return null;
-        }
-
-        $checkoutUrl = url('/c/'.$product->checkout_slug);
-
-        return $checkoutUrl.(str_contains($checkoutUrl, '?') ? '&' : '?').'ref='.urlencode($enrollment->public_ref);
+        return AffiliateCheckoutLinks::mainLink($product, (string) ($enrollment->public_ref ?? ''));
     }
 }

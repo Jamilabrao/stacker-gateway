@@ -47,13 +47,13 @@ class AffiliateCommissionRecorder
             return null;
         }
 
-        $product = $order->product ?? Product::query()->find($order->product_id);
+        $product = Product::query()->find($order->product_id);
         if ($product === null) {
             return null;
         }
 
         $grossTotal = (float) $order->lineItemsTotalAmount();
-        $slice = ProductCoproducer::affiliateGrossSliceFromOrder($order, $grossTotal);
+        $slice = ProductCoproducer::affiliateGrossSliceFromOrder($order->setRelation('product', $product), $grossTotal);
         if ($slice === null || (float) ($slice['gross'] ?? 0) <= 0) {
             return null;
         }

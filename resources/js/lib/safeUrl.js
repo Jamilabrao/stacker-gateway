@@ -35,7 +35,8 @@ export function safeHttpSrc(url) {
     if (isAllowedHttpUrl(trimmed)) {
         return trimmed;
     }
-    if (trimmed.startsWith('/storage/')) {
+    // Paths públicos do app (mesmo origin) — avatar de suporte, branding, etc.
+    if (trimmed.startsWith('/storage/') || trimmed.startsWith('/images/')) {
         return trimmed;
     }
 

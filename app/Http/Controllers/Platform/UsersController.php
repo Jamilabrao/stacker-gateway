@@ -133,6 +133,7 @@ class UsersController extends Controller
                 'id' => $u->id,
                 'name' => $u->name,
                 'email' => $u->email,
+                'phone' => Schema::hasColumn('users', 'phone') ? ($u->phone ?? null) : null,
                 'avatar_url' => $u->avatar ? app(\App\Services\StorageService::class)->url($u->avatar) : null,
                 'tenant_id' => $u->tenant_id,
                 'person_type' => $u->person_type,
@@ -153,6 +154,9 @@ class UsersController extends Controller
                 'wallet_admin' => $walletAdmin,
                 'admin_notes_count' => (int) ($adminNotesCounts[$u->id] ?? 0),
                 'totp_enabled' => PlatformTotpService::isEnabledFor($u),
+                'referral_commission_percent' => Schema::hasColumn('users', 'referral_commission_percent')
+                    ? ($u->referral_commission_percent !== null ? (float) $u->referral_commission_percent : null)
+                    : null,
                 'created_at' => $u->created_at?->toIso8601String(),
             ];
         });
@@ -176,6 +180,7 @@ class UsersController extends Controller
             'gateways' => $this->buildGatewaysListForMerchantPicker(),
             'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
             'platform_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::platformDefaults()),
+            'platform_referral_commission_percent' => \App\Support\ReferralProgramSettings::commissionPercent(),
             'platform_charge_limits' => [
                 'api_pix_minimum_charge_brl' => $this->minimumChargeService->apiPixMinimumBrl(),
                 'platform_minimum_charge_brl' => $this->minimumChargeService->platformMinimumBrl(),
@@ -223,6 +228,19 @@ class UsersController extends Controller
 
         $revenueBreakdown = $this->merchantRevenueBreakdown->forTenant($tenantId);
 
+        $referredBy = null;
+        if (Schema::hasColumn('users', 'referred_by_user_id') && $user->referred_by_user_id) {
+            $referrer = User::query()->find($user->referred_by_user_id);
+            if ($referrer) {
+                $referredBy = [
+                    'id' => $referrer->id,
+                    'name' => $referrer->name,
+                    'email' => $referrer->email,
+                    'referred_at' => $user->referred_at?->toIso8601String(),
+                ];
+            }
+        }
+
         return Inertia::render('Platform/Users/Show', [
             'merchant' => [
                 'id' => $user->id,
@@ -236,7 +254,14 @@ class UsersController extends Controller
                 'tenant_id' => $tenantId,
                 'vendas_totais' => $revenueBreakdown['total']['gross'],
                 'totp_enabled' => PlatformTotpService::isEnabledFor($user),
+                'referral_code' => $user->referral_code,
+                'referred_by' => $referredBy,
+                'referral_commission_percent' => Schema::hasColumn('users', 'referral_commission_percent')
+                    ? ($user->referral_commission_percent !== null ? (float) $user->referral_commission_percent : null)
+                    : null,
+                'referral_commission_percent_effective' => \App\Support\ReferralProgramSettings::commissionPercentForReferrer($user),
             ],
+            'platform_referral_commission_percent' => \App\Support\ReferralProgramSettings::commissionPercent(),
             'revenue_breakdown' => $revenueBreakdown,
             'profile' => MerchantProfileSnapshot::forUser($user, maskDocuments: false),
             'wallet' => $this->walletPayloadForTenant($tenantId),
@@ -453,6 +478,7 @@ class UsersController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,'.$user->id],
+            'phone' => ['nullable', 'string', 'max:32'],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
             'account_status' => ['nullable', 'string', 'in:approved,pending,rejected,suspended,blocked'],
             'admin_withdrawal_blocked' => ['nullable', 'boolean'],
@@ -466,6 +492,7 @@ class UsersController extends Controller
             'use_platform_api_pix_minimum' => ['nullable', 'boolean'],
             'use_platform_platform_minimum' => ['nullable', 'boolean'],
             'cajupay_account_id' => ['nullable', 'integer', 'exists:cajupay_accounts,id'],
+            'referral_commission_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ], [
             'email.unique' => 'Este e-mail já está em uso.',
             'password.confirmed' => 'A confirmação da senha não confere.',
@@ -473,6 +500,23 @@ class UsersController extends Controller
 
         $user->name = $validated['name'];
         $user->email = $validated['email'];
+        if (Schema::hasColumn('users', 'phone') && array_key_exists('phone', $validated)) {
+            $rawPhone = trim((string) ($validated['phone'] ?? ''));
+            if ($rawPhone === '') {
+                $user->phone = null;
+            } else {
+                $digits = preg_replace('/\D/', '', $rawPhone) ?? '';
+                if (strlen($digits) <= 11 && strlen($digits) >= 10 && ! str_starts_with($digits, '55')) {
+                    $digits = '55'.$digits;
+                }
+                if (strlen($digits) < 12 || strlen($digits) > 13) {
+                    throw ValidationException::withMessages([
+                        'phone' => 'Informe um WhatsApp válido com DDD (10 ou 11 dígitos).',
+                    ]);
+                }
+                $user->phone = $digits;
+            }
+        }
         if (! empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);
         }
@@ -494,6 +538,16 @@ class UsersController extends Controller
             $user->merchant_fees = $this->normalizeMerchantFeesOverrides(
                 is_array($request->input('merchant_fees')) ? $request->input('merchant_fees') : null
             );
+        }
+
+        if (Schema::hasColumn('users', 'referral_commission_percent')
+            && array_key_exists('referral_commission_percent', $all)) {
+            $raw = $request->input('referral_commission_percent');
+            if ($raw === null || $raw === '') {
+                $user->referral_commission_percent = null;
+            } else {
+                $user->referral_commission_percent = max(0, min(100, round((float) $raw, 4)));
+            }
         }
 
         if (array_key_exists('merchant_settlement_overrides', $all)) {

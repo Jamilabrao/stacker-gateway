@@ -42,11 +42,16 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'phone',
         'username',
         'avatar',
         'password',
         'role',
         'tenant_id',
+        'referral_code',
+        'referred_by_user_id',
+        'referred_at',
+        'referral_commission_percent',
         'team_role_id',
         'person_type',
         'document',
@@ -269,6 +274,21 @@ class User extends Authenticatable
         return $this->belongsTo(User::class, 'kyc_reviewed_by');
     }
 
+    public function referredBy(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'referred_by_user_id');
+    }
+
+    public function referrals(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(User::class, 'referred_by_user_id');
+    }
+
+    public function referralWallet(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ReferralWallet::class);
+    }
+
     /**
      * Usuário dono do tenant para checagem de KYC (infoprodutor ou dono quando equipe).
      */
@@ -470,6 +490,8 @@ class User extends Authenticatable
             'kyc_reviewed_at' => 'datetime',
             'kyc_needs_document_review' => 'boolean',
             'seller_onboarded_at' => 'datetime',
+            'referred_at' => 'datetime',
+            'referral_commission_percent' => 'decimal:4',
             'privacy_policy_accepted_at' => 'datetime',
             'terms_accepted_at' => 'datetime',
         ];

@@ -267,6 +267,7 @@ class ProdutosController extends Controller
             'currency' => $o->currency ?? $produto->currency ?? 'BRL',
             'checkout_slug' => $o->checkout_slug,
             'position' => $o->position,
+            'affiliate_share_enabled' => (bool) ($o->affiliate_share_enabled ?? false),
         ])->values()->all();
         $produtoArray['subscription_plans'] = $produto->subscriptionPlans->map(fn ($p) => [
             'id' => $p->id,

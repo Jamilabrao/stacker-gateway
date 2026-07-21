@@ -49,6 +49,47 @@ function utmStorageKey() {
     return `getfy_checkout_utm_${String(props.productId)}`;
 }
 
+function affiliateRefStorageKey() {
+    return `getfy_checkout_aff_ref_${String(props.productId)}`;
+}
+
+function readStoredAffiliateRef() {
+    if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+        return '';
+    }
+    try {
+        return String(sessionStorage.getItem(affiliateRefStorageKey()) || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function persistAffiliateRef(value) {
+    const next = String(value || '').trim();
+    if (!next || typeof sessionStorage === 'undefined') {
+        return;
+    }
+    try {
+        sessionStorage.setItem(affiliateRefStorageKey(), next);
+    } catch (_) {
+        /* ignore quota / private mode */
+    }
+}
+
+function resolveAffiliateRef() {
+    const fromProp = String(props.affiliateRef || '').trim();
+    if (fromProp) {
+        return fromProp;
+    }
+    if (typeof window !== 'undefined') {
+        const fromUrl = String(new URLSearchParams(window.location.search).get('ref') || '').trim();
+        if (fromUrl) {
+            return fromUrl;
+        }
+    }
+    return readStoredAffiliateRef();
+}
+
 function readUtmsFromUrl() {
     if (typeof window === 'undefined') return {};
     const p = new URLSearchParams(window.location.search);
@@ -216,18 +257,33 @@ function tf(key, fallback = '') {
     return v;
 }
 
-const affiliateRefEffective = ref(String(props.affiliateRef || '').trim());
+const affiliateRefEffective = ref(resolveAffiliateRef());
 onMounted(() => {
-    if (!affiliateRefEffective.value && typeof window !== 'undefined') {
-        const r = new URLSearchParams(window.location.search).get('ref');
-        if (r) affiliateRefEffective.value = String(r).trim();
+    const resolved = resolveAffiliateRef();
+    if (resolved) {
+        affiliateRefEffective.value = resolved;
+        persistAffiliateRef(resolved);
     }
 });
 
+watch(
+    () => props.affiliateRef,
+    (value) => {
+        const next = String(value || '').trim();
+        if (next) {
+            affiliateRefEffective.value = next;
+            persistAffiliateRef(next);
+        }
+    }
+);
+
 function appendUtmsAndAffiliate(payload) {
     appendUtms(payload);
-    if (affiliateRefEffective.value) {
-        payload.affiliate_ref = affiliateRefEffective.value;
+    const ref = String(affiliateRefEffective.value || resolveAffiliateRef() || '').trim();
+    if (ref) {
+        affiliateRefEffective.value = ref;
+        persistAffiliateRef(ref);
+        payload.affiliate_ref = ref;
     }
     Object.assign(payload, getMetaCookiePayload());
     return payload;
