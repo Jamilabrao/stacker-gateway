@@ -238,25 +238,30 @@ class TenantMailConfigService
         config(['mail.mailers.smtp.encryption' => $encryption]);
         config(['mail.mailers.smtp.password' => $config['password']]);
 
-        $fromAddress = $config['username'] ?: config('mail.from.address');
+        // SMTP/Hostinger exigem From = mailbox autenticada (evita 553 "not owned by user").
+        // SendGrid usa username "apikey" — aí o From verificado no painel é obrigatório.
+        $username = trim((string) ($config['username'] ?? ''));
+        $fromAddress = config('mail.from.address');
+        $fromName = config('mail.from.name', 'Getfy');
         $replyTo = null;
+
         if ($provider === 'sendgrid') {
             $fromAddress = $overrides['sendgrid_mail_from_address'] ?? Setting::get('sendgrid_mail_from_address', config('mail.from.address'), $tenantId);
             $fromName = $overrides['sendgrid_mail_from_name'] ?? Setting::get('sendgrid_mail_from_name', config('mail.from.name'), $tenantId);
         } elseif ($provider === 'hostinger') {
-            $hostingerFrom = Setting::get('hostinger_mail_from_address', '', $tenantId);
-            if ($hostingerFrom !== null && $hostingerFrom !== '') {
-                $fromAddress = $hostingerFrom;
-            }
             $fromName = Setting::get('hostinger_mail_from_name', config('mail.from.name'), $tenantId);
             $replyTo = Setting::get('hostinger_reply_to', null, $tenantId);
+            $fromAddress = $this->resolveOwnedSmtpFromAddress(
+                $username,
+                Setting::get('hostinger_mail_from_address', '', $tenantId)
+            );
         } else {
-            $configuredFrom = Setting::get('mail_from_address', '', $tenantId);
-            if (is_string($configuredFrom) && $configuredFrom !== '' && filter_var($configuredFrom, FILTER_VALIDATE_EMAIL)) {
-                $fromAddress = $configuredFrom;
-            }
             $fromName = Setting::get('mail_from_name', config('mail.from.name'), $tenantId);
             $replyTo = Setting::get('reply_to', null, $tenantId);
+            $fromAddress = $this->resolveOwnedSmtpFromAddress(
+                $username,
+                Setting::get('mail_from_address', '', $tenantId)
+            );
         }
 
         config(['mail.from' => [
@@ -266,5 +271,29 @@ class TenantMailConfigService
         if ($replyTo) {
             config(['mail.reply_to' => ['address' => $replyTo, 'name' => null]]);
         }
+    }
+
+    /**
+     * From permitido pelo SMTP autenticado: se o username é e-mail, ele vence.
+     * mail_from_address só entra se for exatamente o mesmo endereço (ou se username não for e-mail).
+     */
+    private function resolveOwnedSmtpFromAddress(string $smtpUsername, mixed $configuredFrom): string
+    {
+        $configured = is_string($configuredFrom) ? trim($configuredFrom) : '';
+        $configuredOk = $configured !== '' && filter_var($configured, FILTER_VALIDATE_EMAIL);
+
+        if ($smtpUsername !== '' && filter_var($smtpUsername, FILTER_VALIDATE_EMAIL)) {
+            if ($configuredOk && strcasecmp($configured, $smtpUsername) === 0) {
+                return $configured;
+            }
+
+            return $smtpUsername;
+        }
+
+        if ($configuredOk) {
+            return $configured;
+        }
+
+        return (string) config('mail.from.address');
     }
 }

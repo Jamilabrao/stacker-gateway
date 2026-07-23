@@ -367,29 +367,37 @@ class AccessEmailService
      */
     private function resolveBuyerFacingFrom(array $template, ?int $tenantSmtpScope): array
     {
-        // From autenticado do SMTP já aplicado (plataforma ou tenant).
+        // From já aplicado pelo TenantMailConfigService (mailbox autenticada no SMTP/Hostinger).
         $smtpFromAddress = trim((string) (config('mail.from.address') ?? ''));
         $smtpFromName = trim((string) (config('mail.from.name') ?? ''));
+        $smtpUsername = trim((string) (config('mail.mailers.smtp.username') ?? ''));
 
         $fromName = ! empty($template['from_name'])
             ? (string) $template['from_name']
             : ($smtpFromName !== '' ? $smtpFromName : 'Suporte');
 
-        // From explícito do painel (tenant ou plataforma), senão o já aplicado pelo SMTP.
-        $configuredFrom = null;
-        foreach (['mail_from_address', 'hostinger_mail_from_address', 'sendgrid_mail_from_address'] as $key) {
-            $v = trim((string) Setting::get($key, '', $tenantSmtpScope));
-            if ($v !== '' && filter_var($v, FILTER_VALIDATE_EMAIL)) {
-                $configuredFrom = $v;
-                break;
+        // SMTP/Hostinger: username e-mail sempre vence settings tipo noreply@getfy.com (erro 553).
+        $provider = (string) Setting::get('email_provider', 'smtp', $tenantSmtpScope);
+        if (in_array($provider, ['smtp', 'hostinger', ''], true)
+            && $smtpUsername !== ''
+            && filter_var($smtpUsername, FILTER_VALIDATE_EMAIL)
+        ) {
+            return [$smtpUsername, $fromName !== '' ? $fromName : 'Suporte'];
+        }
+
+        $fromAddress = $smtpFromAddress;
+        if ($fromAddress === '' || ! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
+            foreach (['sendgrid_mail_from_address', 'mail_from_address', 'hostinger_mail_from_address'] as $key) {
+                $v = trim((string) Setting::get($key, '', $tenantSmtpScope));
+                if ($v !== '' && filter_var($v, FILTER_VALIDATE_EMAIL)) {
+                    $fromAddress = $v;
+                    break;
+                }
             }
         }
 
-        // Nunca usar Gmail/e-mail externo do seller como From no SMTP da plataforma.
-        $fromAddress = $configuredFrom ?: $smtpFromAddress;
-
         if ($fromAddress === '' || ! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
-            $fromAddress = $smtpFromAddress !== '' ? $smtpFromAddress : (string) config('mail.from.address');
+            $fromAddress = (string) config('mail.from.address');
         }
 
         return [$fromAddress, $fromName !== '' ? $fromName : 'Suporte'];

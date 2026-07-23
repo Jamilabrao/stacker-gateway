@@ -299,7 +299,7 @@ class SettingsController extends Controller
         $activeProvider = $this->normalizeEmailProvider(
             $request->input('email_provider') ?? Setting::get('email_provider', 'smtp', $tenantId)
         );
-        $this->maybeSyncHostingerFromAddress($validated, $tenantId, $activeProvider);
+        $validated = $this->syncOwnedSmtpFromAddresses($validated, $tenantId, $activeProvider);
 
         foreach ($validated as $key => $value) {
             if (in_array($key, ['smtp_password', 'hostinger_smtp_password', 'sendgrid_api_key', 'storage_s3_secret'], true)) {
@@ -435,21 +435,30 @@ class SettingsController extends Controller
     }
 
     /**
+     * SMTP/Hostinger: From deve ser a mailbox autenticada (evita 553 "not owned by user").
+     *
      * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
      */
-    private function maybeSyncHostingerFromAddress(array $validated, ?int $tenantId, string $provider): void
+    private function syncOwnedSmtpFromAddresses(array $validated, ?int $tenantId, string $provider): array
     {
-        if ($provider !== 'hostinger') {
-            return;
+        if ($provider === 'hostinger') {
+            $user = trim((string) ($validated['hostinger_smtp_username'] ?? Setting::get('hostinger_smtp_username', '', $tenantId)));
+            if ($user !== '' && filter_var($user, FILTER_VALIDATE_EMAIL)) {
+                $validated['hostinger_mail_from_address'] = $user;
+            }
+
+            return $validated;
         }
 
-        $from = trim((string) ($validated['hostinger_mail_from_address'] ?? ''));
-        $user = trim((string) ($validated['hostinger_smtp_username'] ?? ''));
-        if ($from !== '' || $user === '' || filter_var($user, FILTER_VALIDATE_EMAIL) === false) {
-            return;
+        if ($provider === 'smtp') {
+            $user = trim((string) ($validated['smtp_username'] ?? Setting::get('smtp_username', '', $tenantId)));
+            if ($user !== '' && filter_var($user, FILTER_VALIDATE_EMAIL)) {
+                $validated['mail_from_address'] = $user;
+            }
         }
 
-        Setting::set('hostinger_mail_from_address', $user, $tenantId);
+        return $validated;
     }
 
     private function requestTouchesEmailSettings(Request $request): bool
