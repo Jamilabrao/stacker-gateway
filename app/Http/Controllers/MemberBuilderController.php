@@ -31,6 +31,7 @@ use App\Services\GamificationService;
 use App\Services\MemberProgressService;
 use App\Services\TeamAccessService;
 use App\Support\MemberAreaPwaIconUrls;
+use App\Support\PublicAppUrl;
 use App\Support\UploadLimits;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -291,7 +292,7 @@ class MemberBuilderController extends Controller
         return view('member-builder', [
             'produto' => $produtoPayload,
             'tenant_products' => $tenant_products,
-            'app_url' => rtrim(config('app.url'), '/'),
+            'app_url' => rtrim(PublicAppUrl::base(), '/'),
             'dns_target_host' => $dnsTargetHost,
             'dns_target_ip' => $dnsTargetIp,
             'upload_limits' => UploadLimits::memberBuilderForFrontend(),

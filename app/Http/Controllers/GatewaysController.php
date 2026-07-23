@@ -83,14 +83,13 @@ class GatewaysController extends Controller
         $webhookUrl = null;
         $webhookHelp = null;
         if ($slug === 'pushinpay') {
-            $webhookRoute = $gateway['webhook_route'] ?? 'webhooks.' . $slug;
-            $webhookUrl = Route::has($webhookRoute) ? route($webhookRoute) : null;
-        } elseif ($slug === 'onlyup' && Route::has('webhooks.gateway')) {
-            $webhookUrl = route('webhooks.gateway', ['slug' => 'onlyup']);
-        } elseif ($slug === 'cajupay' && Route::has('webhooks.cajupay')) {
+            $webhookUrl = GatewayWebhookUrl::forGateway('pushinpay');
+        } elseif ($slug === 'onlyup') {
+            $webhookUrl = GatewayWebhookUrl::forGateway('onlyup');
+        } elseif ($slug === 'cajupay') {
             $webhookUrl = GatewayWebhookUrl::forGateway('cajupay');
             $webhookHelp = 'Cadastre esta URL HTTPS no painel CajuPay (Webhooks) ou use “Testar conexão” para registro automático. Eventos: payment.paid, payment.failed, payment.refunded, checkout.payment.paid/failed/refunded/disputed, card.payment.*. Cole o signing secret (cwhsec_…) no campo abaixo.';
-        } elseif ($slug === 'mercadopago' && Route::has('webhooks.mercadopago')) {
+        } elseif ($slug === 'mercadopago') {
             $webhookUrl = GatewayWebhookUrl::forGateway('mercadopago');
             $webhookHelp = 'Cadastre esta URL HTTPS em Suas integrações → Webhooks → modo Produção → evento Payments (payment). O Mercado Pago também recebe notificações via notification_url em cada cobrança PIX. Após o pagamento, o sistema consulta GET /v1/payments/{id} para confirmar aprovação.';
         }

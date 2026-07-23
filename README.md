@@ -177,6 +177,7 @@ Hospedagem compartilhada:
 - Instalador não conclui “Composer”: algumas hospedagens bloqueiam `proc_open`. Nesses casos, suba o projeto já com `vendor/` (rode `composer install` no seu PC antes de enviar) e tente novamente.
 - Arquivos em `public/storage` não aparecem: `storage:link` pode falhar em hospedagens sem symlink. Se acontecer, crie manualmente um link/symlink de `public/storage` → `storage/app/public` (ou use um painel que suporte isso).
 - Rotinas automáticas não rodam: configure o cron pela URL `/cron?token=...` a cada minuto.
+- Login só atualiza a página / logout só funciona em aba anônima: revise sessão/CSRF — `SESSION_DOMAIN=null` (não use `.dominio.com` com áreas de membros em domínio custom), `SESSION_SECURE_COOKIE=true` só com HTTPS real, `TRUSTED_PROXIES` atrás de Caddy/Cloudflare, e um `SESSION_COOKIE` estável (não mudar com `APP_NAME`).
 
 Se você deseja apoiar o desenvolvimento diretamente:
 | Pix | Chave |

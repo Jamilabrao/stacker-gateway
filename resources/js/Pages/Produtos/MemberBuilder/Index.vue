@@ -253,7 +253,8 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
             </nav>
             <div class="flex shrink-0 items-center gap-2">
                 <a
-                    :href="produto.member_area_url"
+                    v-if="memberAreaFullLink"
+                    :href="memberAreaFullLink"
                     target="_blank"
                     rel="noopener"
                     class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 sm:flex"

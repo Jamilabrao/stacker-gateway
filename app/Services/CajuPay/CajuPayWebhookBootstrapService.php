@@ -3,8 +3,8 @@
 namespace App\Services\CajuPay;
 
 use App\Gateways\CajuPay\CajuPayDriver;
+use App\Support\GatewayWebhookUrl;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Route;
 
 class CajuPayWebhookBootstrapService
 {
@@ -94,16 +94,7 @@ class CajuPayWebhookBootstrapService
 
     public function webhookUrl(): string
     {
-        if (! Route::has('webhooks.cajupay')) {
-            throw new \RuntimeException('Rota webhooks.cajupay indisponível.');
-        }
-
-        $publicBase = trim((string) (config('getfy.webhook_public_url') ?? ''));
-        if ($publicBase !== '') {
-            return rtrim($publicBase, '/').'/webhooks/gateways/cajupay';
-        }
-
-        return route('webhooks.cajupay');
+        return GatewayWebhookUrl::forGateway('cajupay');
     }
 
     /**

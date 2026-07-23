@@ -128,13 +128,20 @@ class MemberAreaResolver
 
         if ($domain) {
             if ($domain->type === MemberAreaDomain::TYPE_CUSTOM && $domain->value) {
-                return $protocol.'://'.$domain->value;
+                return $protocol.'://'.self::hostOnly((string) $domain->value);
             }
-            if ($domain->type === MemberAreaDomain::TYPE_SUBDOMAIN && config('members.subdomain_enabled')) {
-                $base = config('members.subdomain_base');
-                $slug = $domain->value ?: $product->checkout_slug;
-
-                return $protocol.'://'.$slug.'.'.$base;
+            if ($domain->type === MemberAreaDomain::TYPE_SUBDOMAIN) {
+                $raw = trim((string) ($domain->value ?: $product->checkout_slug));
+                // Valor já é host completo (ex.: area.loja.com) — comum quando o front trata subdomain como "custom".
+                if ($raw !== '' && str_contains($raw, '.')) {
+                    return $protocol.'://'.self::hostOnly($raw);
+                }
+                if (config('members.subdomain_enabled')) {
+                    $base = trim((string) config('members.subdomain_base', ''));
+                    if ($base !== '') {
+                        return $protocol.'://'.$raw.'.'.$base;
+                    }
+                }
             }
             if ($domain->type === MemberAreaDomain::TYPE_PATH && $domain->value !== null && $domain->value !== '') {
                 return $appUrl.'/m/'.$domain->value;
@@ -142,6 +149,14 @@ class MemberAreaResolver
         }
 
         return $appUrl.'/m/'.$product->checkout_slug;
+    }
+
+    private static function hostOnly(string $value): string
+    {
+        $value = preg_replace('#^https?://#i', '', trim($value)) ?? '';
+        $value = explode('/', $value)[0] ?? $value;
+
+        return rtrim(strtolower($value), '.');
     }
 
     /**

@@ -51,12 +51,7 @@ class PaymentService
             }
             try {
                 $startedAt = microtime(true);
-                $postbackUrl = route('webhooks.spacepag');
-                if ($gatewaySlug === 'efi') {
-                    $postbackUrl = route('webhooks.efi.pix');
-                } elseif ($gatewaySlug !== 'spacepag') {
-                    $postbackUrl = $this->webhookUrlForGateway($gatewaySlug);
-                }
+                $postbackUrl = $this->webhookUrlForGateway($gatewaySlug);
                 $pixOptions = [];
                 $meta = is_array($order->metadata) ? $order->metadata : [];
                 $partnerUrl = trim((string) ($meta['partner_checkout_url'] ?? ''));
@@ -220,7 +215,7 @@ class PaymentService
             try {
                 $startedAt = microtime(true);
                 $notificationUrl = $gatewaySlug === 'efi'
-                    ? url('/webhooks/gateways/efi/notification')
+                    ? GatewayWebhookUrl::forGateway('efi.notification')
                     : $this->webhookUrlForGateway($gatewaySlug);
                 $result = $driver->createBoletoPayment(
                     $credentials,

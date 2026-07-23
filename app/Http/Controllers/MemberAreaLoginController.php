@@ -26,10 +26,12 @@ class MemberAreaLoginController extends Controller
         }
         $slug = $request->route('slug') ?? $request->attributes->get('member_area_slug') ?? $slug;
         if (Auth::check() && $product->hasMemberAreaAccess(Auth::user())) {
-            return redirect()->route('member-area-app.show', ['slug' => $slug]);
+            return redirect()->to($this->memberAreaHomePath($request, $slug));
         }
         $config = (new StorageService($product->tenant_id))->resolveMediaUrlsInConfig($product->member_area_config ?? []) ?? [];
         $loginConfig = $config['login'] ?? [];
+        $usesPathPrefix = $this->usesPathSlugPrefix($request);
+
         return Inertia::render('MemberAreaApp/Login', [
             'slug' => $slug,
             'product' => [
@@ -43,7 +45,7 @@ class MemberAreaLoginController extends Controller
                 'primary_color' => $loginConfig['primary_color'] ?? '#0ea5e9',
                 'login_without_password' => (bool) ($loginConfig['login_without_password'] ?? false),
                 'login_without_password_url' => ! empty($loginConfig['login_without_password'])
-                    ? ($request->route('slug') !== null ? url('/m/' . $slug . '/login-without-password') : url('/login-without-password'))
+                    ? ($usesPathPrefix ? url('/m/'.$slug.'/login-without-password') : url('/login-without-password'))
                     : null,
             ],
         ]);
@@ -68,9 +70,11 @@ class MemberAreaLoginController extends Controller
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
+
             return back()->withErrors(['email' => 'Você não tem acesso a esta área.'])->onlyInput('email');
         }
-        return redirect()->intended(route('member-area-app.show', ['slug' => $slug]));
+
+        return redirect()->intended($this->memberAreaHomePath($request, $slug));
     }
 
     public function loginWithoutPassword(Request $request, string $slug): RedirectResponse
@@ -95,7 +99,7 @@ class MemberAreaLoginController extends Controller
         Auth::login($user, $request->boolean('remember'));
         $request->session()->regenerate();
 
-        return redirect()->intended(route('member-area-app.show', ['slug' => $slug]));
+        return redirect()->intended($this->memberAreaHomePath($request, $slug));
     }
 
     public function magicAccess(Request $request, string $slug): RedirectResponse
@@ -113,7 +117,7 @@ class MemberAreaLoginController extends Controller
         }
         $user = $userId > 0 ? User::find($userId) : null;
         if (! $user || ! $product->hasMemberAreaAccess($user)) {
-            return redirect()->route('member-area.login', ['slug' => $slug])->with('error', 'Link inválido ou expirado.');
+            return redirect()->to($this->memberAreaLoginPath($request, $slug))->with('error', 'Link inválido ou expirado.');
         }
         Auth::login($user);
         $request->session()->regenerate();
@@ -122,7 +126,7 @@ class MemberAreaLoginController extends Controller
             $this->magicTokens->consume($magicToken, $product);
         }
 
-        return redirect()->intended(route('member-area-app.show', ['slug' => $slug]));
+        return redirect()->intended($this->memberAreaHomePath($request, $slug));
     }
 
     public function magicAccessHost(Request $request): RedirectResponse
@@ -149,5 +153,32 @@ class MemberAreaLoginController extends Controller
         }
 
         return redirect()->to('/');
+    }
+
+    /**
+     * Path relativo da home da área no host atual (evita route() absoluto via APP_URL).
+     */
+    private function memberAreaHomePath(Request $request, string $slug): string
+    {
+        return $this->usesPathSlugPrefix($request) ? '/m/'.$slug : '/';
+    }
+
+    private function memberAreaLoginPath(Request $request, string $slug): string
+    {
+        return $this->usesPathSlugPrefix($request) ? '/m/'.$slug.'/login' : '/login';
+    }
+
+    private function usesPathSlugPrefix(Request $request): bool
+    {
+        if ($request->route('slug') !== null) {
+            return true;
+        }
+
+        $accessType = $request->attributes->get('member_area_access_type');
+        if (in_array($accessType, ['subdomain', 'custom'], true)) {
+            return false;
+        }
+
+        return str_starts_with('/'.$request->path(), '/m/');
     }
 }

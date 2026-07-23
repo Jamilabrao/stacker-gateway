@@ -9,7 +9,7 @@ use App\Models\Withdrawal;
 use App\Services\EffectiveMerchantFees;
 use App\Services\Payout\GatewayPayoutEconomics;
 use App\Services\Payout\PayoutUserSettings;
-use Illuminate\Support\Facades\URL;
+use App\Support\GatewayWebhookUrl;
 
 class SpacepagPayoutService
 {
@@ -107,21 +107,13 @@ class SpacepagPayoutService
      */
     private static function resolveWebhookPostbackUrl(array $credentials): string
     {
-        $path = route('webhooks.spacepag', [], false);
-        if (! is_string($path) || $path === '') {
-            $path = '/webhooks/gateways/spacepag';
-        }
-
-        $base = trim((string) (config('getfy.webhook_public_url') ?? ''));
-        if ($base !== '') {
-            return $base.$path;
-        }
+        $path = GatewayWebhookUrl::pathForGateway('spacepag');
 
         $credBase = trim((string) ($credentials['webhook_postback_base_url'] ?? $credentials['postback_base_url'] ?? ''));
         if ($credBase !== '') {
             return rtrim($credBase, '/').$path;
         }
 
-        return URL::to(route('webhooks.spacepag', [], true));
+        return GatewayWebhookUrl::forGateway('spacepag');
     }
 }

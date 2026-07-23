@@ -251,6 +251,10 @@ class TenantMailConfigService
             $fromName = Setting::get('hostinger_mail_from_name', config('mail.from.name'), $tenantId);
             $replyTo = Setting::get('hostinger_reply_to', null, $tenantId);
         } else {
+            $configuredFrom = Setting::get('mail_from_address', '', $tenantId);
+            if (is_string($configuredFrom) && $configuredFrom !== '' && filter_var($configuredFrom, FILTER_VALIDATE_EMAIL)) {
+                $fromAddress = $configuredFrom;
+            }
             $fromName = Setting::get('mail_from_name', config('mail.from.name'), $tenantId);
             $replyTo = Setting::get('reply_to', null, $tenantId);
         }

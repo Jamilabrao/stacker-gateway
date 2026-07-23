@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Platform;
 
+use App\Http\Controllers\Concerns\ClearsAuthSessionCookies;
 use App\Http\Controllers\Concerns\HandlesLoginTotpChallenge;
 use App\Http\Controllers\Concerns\ValidatesAuthTurnstile;
 use App\Http\Controllers\Controller;
@@ -18,6 +19,7 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class LoginController extends Controller
 {
+    use ClearsAuthSessionCookies;
     use HandlesLoginTotpChallenge;
     use ValidatesAuthTurnstile;
 
@@ -87,7 +89,8 @@ class LoginController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        $this->clearAuthSessionCookies();
 
-        return redirect()->route('plataforma.login');
+        return redirect()->to('/plataforma/login');
     }
 }

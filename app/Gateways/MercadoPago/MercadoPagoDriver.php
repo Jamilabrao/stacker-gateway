@@ -3,6 +3,7 @@
 namespace App\Gateways\MercadoPago;
 
 use App\Gateways\Contracts\GatewayDriver;
+use App\Support\GatewayWebhookUrl;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use MercadoPago\Client\Common\RequestOptions;
@@ -307,7 +308,7 @@ class MercadoPagoDriver implements GatewayDriver
             'description' => 'Pedido #' . $externalId,
             'external_reference' => (string) $externalId,
         ];
-        $notificationUrl = $this->validNotificationUrl(rtrim((string) config('app.url'), '/') . '/webhooks/gateways/mercadopago');
+        $notificationUrl = $this->validNotificationUrl(GatewayWebhookUrl::forGateway('mercadopago'));
         if ($notificationUrl !== '') {
             $body['notification_url'] = $notificationUrl;
         }

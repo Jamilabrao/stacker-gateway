@@ -721,6 +721,7 @@ watch(
                             as="button"
                             class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                             role="menuitem"
+                            :on-finish="() => { window.location.href = memberAreaLoginPath; }"
                             @click="accountMenuOpen = false"
                         >
                             Sair
@@ -852,6 +853,7 @@ watch(
                                 method="post"
                                 as="button"
                                 class="flex w-full items-center gap-2 rounded-lg px-4 py-3 text-left text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+                                :on-finish="() => { window.location.href = memberAreaLoginPath; }"
                                 @click="closeMobileMenu"
                             >
                                 Sair

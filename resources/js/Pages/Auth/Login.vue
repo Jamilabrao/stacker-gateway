@@ -15,6 +15,10 @@ import { useLoginTemplate } from '@/composables/useLoginTemplate';
 const showPassword = ref(false);
 const page = usePage();
 const flashError = computed(() => page.props.flash?.error ?? null);
+const sessionExpired = computed(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('expired') === '1';
+});
 const demoMode = computed(() => page.props.demo_mode ?? {});
 
 const {
@@ -88,6 +92,9 @@ function loginDemo(role) {
     >
         <p v-if="flashError" :class="alertErrorClass">
             {{ flashError }}
+        </p>
+        <p v-else-if="sessionExpired" :class="alertErrorClass" role="alert">
+            Sessão expirada. Tente entrar novamente.
         </p>
 
         <form v-if="isImmersive" class="space-y-5" @submit.prevent="submit">

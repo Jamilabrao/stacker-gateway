@@ -45,6 +45,7 @@ use App\Support\CheckoutPaymentConsumer;
 use App\Support\CheckoutTranslations;
 use App\Support\CheckoutTurnstileSettings;
 use App\Support\SafeUrl;
+use App\Support\GatewayWebhookUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -1002,7 +1003,7 @@ class CheckoutController extends Controller
                 $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
 
                 try {
-                    $webhookUrl = route('webhooks.pushinpay');
+                    $webhookUrl = GatewayWebhookUrl::forGateway('pushinpay');
                     $frequency = PushinPayPixRecorrenteService::intervalToFrequency($plan->interval ?? SubscriptionPlan::INTERVAL_MONTHLY);
                     $subscriptionName = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
                     $pushinpayService = new PushinPayPixRecorrenteService($credentials);

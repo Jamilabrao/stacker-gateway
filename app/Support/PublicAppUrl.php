@@ -15,6 +15,7 @@ final class PublicAppUrl
         foreach ([
             config('getfy.webhook_public_url'),
             config('app.url'),
+            self::dockerAppUrlOrNull(),
             self::requestRootOrNull(),
         ] as $candidate) {
             $normalized = self::normalize((string) ($candidate ?? ''));
@@ -23,7 +24,9 @@ final class PublicAppUrl
             }
         }
 
-        return self::normalize((string) config('app.url')) ?? 'http://localhost';
+        return self::normalize((string) config('app.url'))
+            ?? self::normalize((string) (self::dockerAppUrlOrNull() ?? ''))
+            ?? 'http://localhost';
     }
 
     /**
@@ -99,6 +102,21 @@ final class PublicAppUrl
             }
 
             return $request->getSchemeAndHttpHost();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private static function dockerAppUrlOrNull(): ?string
+    {
+        try {
+            $path = base_path('.docker/app.url');
+            if (! is_file($path)) {
+                return null;
+            }
+            $url = trim((string) @file_get_contents($path));
+
+            return $url !== '' ? $url : null;
         } catch (\Throwable) {
             return null;
         }

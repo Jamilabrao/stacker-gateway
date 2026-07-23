@@ -35,6 +35,7 @@ import { createApp as createVueApp, h } from 'vue';
 import { watchEffect } from 'vue';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createPinia } from 'pinia';
+import { resolveLoginPathForExpiredSession } from './lib/sessionExpired';
 
 // Envia o CSRF da meta em toda visita Inertia (evita 419 após sessão longa ou abas antigas)
 router.on('before', (event) => {
@@ -50,7 +51,11 @@ router.on('before', (event) => {
 router.on('invalid', (event) => {
     if (event.detail.response?.status === 419) {
         event.preventDefault();
-        window.location.reload();
+        // Hard navigate para login com ?expired=1 (token fresco) — sem reload silencioso
+        window.location.href = resolveLoginPathForExpiredSession(
+            window.location.pathname,
+            window.location.search,
+        );
     }
 });
 

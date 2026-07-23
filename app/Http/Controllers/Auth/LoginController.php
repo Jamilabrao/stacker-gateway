@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Http\Controllers\Concerns\ClearsAuthSessionCookies;
 use App\Http\Controllers\Concerns\HandlesLoginTotpChallenge;
 use App\Http\Controllers\Concerns\ValidatesAuthTurnstile;
 use App\Http\Controllers\Controller;
@@ -20,6 +21,7 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class LoginController extends Controller
 {
+    use ClearsAuthSessionCookies;
     use HandlesLoginTotpChallenge;
     use ValidatesAuthTurnstile;
 
@@ -171,6 +173,7 @@ class LoginController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        $this->clearAuthSessionCookies();
 
         $to = $request->query('redirect');
         if (is_string($to) && $this->isSafeMemberAreaLoginRedirect($to)) {

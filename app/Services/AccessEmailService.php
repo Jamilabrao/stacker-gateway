@@ -192,7 +192,7 @@ class AccessEmailService
 
     /**
      * Tenta SMTP do tenant (se configurado) e depois SMTP global da plataforma.
-     * Remetente/Reply-To preferem o e-mail do seller (ou suporte do checkout), não o From global.
+     * From = endereço autenticado do SMTP. O e-mail do seller entra só no corpo (contato de suporte).
      */
     private function sendAccessMailableWithFallback(
         string $subject,
@@ -234,6 +234,7 @@ class AccessEmailService
         }
 
         $sellerSender = $this->resolveSellerSenderIdentity($tenantIdForMail, $product);
+        $bodyHtml = $this->injectSellerSupportContact($bodyHtml, $sellerSender);
 
         $lastError = null;
 
@@ -243,16 +244,13 @@ class AccessEmailService
                 $this->mailConfig->assertSmtpHostIsConfigured();
                 Mail::purge('smtp');
 
-                [$fromAddress, $fromName, $replyTo] = $this->resolveBuyerFacingFrom(
+                [$fromAddress, $fromName] = $this->resolveBuyerFacingFrom(
                     $template,
-                    $sellerSender,
                     $attempt['label'] === 'smtp_tenant' ? $tenantIdForMail : null
                 );
 
-                // Evita Reply-To global da plataforma sobrescrever o do seller.
-                config(['mail.reply_to' => $replyTo
-                    ? ['address' => $replyTo['address'], 'name' => $replyTo['name']]
-                    : null]);
+                // Não forçar Reply-To do seller: o contato dele fica só no corpo do e-mail.
+                config(['mail.reply_to' => null]);
 
                 Log::info('AccessEmailService: enviando.', [
                     'via' => $attempt['label'],
@@ -263,13 +261,10 @@ class AccessEmailService
                     'host' => config('mail.mailers.smtp.host'),
                     'from' => $fromAddress,
                     'from_name' => $fromName,
-                    'reply_to' => $replyTo['address'] ?? null,
+                    'seller_support' => $sellerSender['email'] ?? null,
                 ]);
                 $mailable = new AccessGrantedMail($subject, $bodyHtml);
                 $mailable->from($fromAddress, $fromName);
-                if ($replyTo !== null) {
-                    $mailable->replyTo($replyTo['address'], $replyTo['name'] ?? null);
-                }
                 Mail::mailer('smtp')->to($customerEmail)->send($mailable);
 
                 return AccessEmailSendResult::ok();
@@ -329,49 +324,75 @@ class AccessEmailService
     }
 
     /**
+     * Insere o e-mail do seller apenas como texto de contato de suporte no HTML.
+     *
      * @param  array{email: ?string, name: ?string}  $sellerSender
-     * @return array{0: string, 1: string, 2: ?array{address: string, name: ?string}}
      */
-    private function resolveBuyerFacingFrom(array $template, array $sellerSender, ?int $tenantSmtpScope): array
+    private function injectSellerSupportContact(string $bodyHtml, array $sellerSender): string
     {
-        $smtpFromAddress = (string) (config('mail.from.address') ?? '');
-        $smtpFromName = (string) (config('mail.from.name') ?? '');
+        $sellerEmail = $sellerSender['email'] ?? null;
+        if (! is_string($sellerEmail) || $sellerEmail === '' || ! filter_var($sellerEmail, FILTER_VALIDATE_EMAIL)) {
+            return $bodyHtml;
+        }
+
+        if (str_contains($bodyHtml, 'data-seller-support="1"')) {
+            return $bodyHtml;
+        }
+
+        $sellerName = trim((string) ($sellerSender['name'] ?? ''));
+        $label = $sellerName !== '' ? e($sellerName) : 'suporte do vendedor';
+        $mailto = 'mailto:'.e($sellerEmail);
+        $supportLine = 'Qualquer dúvida, fale com o '.$label.': <a href="'.$mailto.'" style="color:#0ea5e9;text-decoration:underline;">'.e($sellerEmail).'</a>';
+
+        if (str_contains($bodyHtml, '{email_suporte}')) {
+            $bodyHtml = str_replace('{email_suporte}', e($sellerEmail), $bodyHtml);
+        }
+
+        $genericPhrase = 'Qualquer dúvida, responda este e-mail.';
+        if (str_contains($bodyHtml, $genericPhrase)) {
+            return str_replace(
+                $genericPhrase,
+                '<span data-seller-support="1">'.$supportLine.'</span>',
+                $bodyHtml
+            );
+        }
+
+        return $bodyHtml.'<div data-seller-support="1" style="margin:24px 0 0;padding:16px 20px;background:#f1f5f9;border-radius:8px;">'
+            .'<p style="margin:0;font-size:13px;line-height:1.5;color:#64748b;">'.$supportLine.'</p>'
+            .'</div>';
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function resolveBuyerFacingFrom(array $template, ?int $tenantSmtpScope): array
+    {
+        // From autenticado do SMTP já aplicado (plataforma ou tenant).
+        $smtpFromAddress = trim((string) (config('mail.from.address') ?? ''));
+        $smtpFromName = trim((string) (config('mail.from.name') ?? ''));
 
         $fromName = ! empty($template['from_name'])
             ? (string) $template['from_name']
-            : ($sellerSender['name'] ?: $smtpFromName);
+            : ($smtpFromName !== '' ? $smtpFromName : 'Suporte');
 
-        $sellerEmail = $sellerSender['email'] ?? null;
-
-        // Preferência: e-mail From configurado no SMTP do tenant (mail_from_address / Hostinger / SendGrid).
-        $tenantConfiguredFrom = null;
-        if ($tenantSmtpScope !== null) {
-            foreach (['mail_from_address', 'hostinger_mail_from_address', 'sendgrid_mail_from_address'] as $key) {
-                $v = trim((string) Setting::get($key, '', $tenantSmtpScope));
-                if ($v !== '' && filter_var($v, FILTER_VALIDATE_EMAIL)) {
-                    $tenantConfiguredFrom = $v;
-                    break;
-                }
+        // From explícito do painel (tenant ou plataforma), senão o já aplicado pelo SMTP.
+        $configuredFrom = null;
+        foreach (['mail_from_address', 'hostinger_mail_from_address', 'sendgrid_mail_from_address'] as $key) {
+            $v = trim((string) Setting::get($key, '', $tenantSmtpScope));
+            if ($v !== '' && filter_var($v, FILTER_VALIDATE_EMAIL)) {
+                $configuredFrom = $v;
+                break;
             }
         }
 
-        // E-mails ao comprador devem aparecer como do seller (não o From global da plataforma).
-        $fromAddress = $tenantConfiguredFrom
-            ?: ($sellerEmail ?: $smtpFromAddress);
-
-        $replyTo = null;
-        if (is_string($sellerEmail) && $sellerEmail !== '') {
-            $replyTo = [
-                'address' => $sellerEmail,
-                'name' => $sellerSender['name'],
-            ];
-        }
+        // Nunca usar Gmail/e-mail externo do seller como From no SMTP da plataforma.
+        $fromAddress = $configuredFrom ?: $smtpFromAddress;
 
         if ($fromAddress === '' || ! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
             $fromAddress = $smtpFromAddress !== '' ? $smtpFromAddress : (string) config('mail.from.address');
         }
 
-        return [$fromAddress, $fromName !== '' ? $fromName : 'Suporte', $replyTo];
+        return [$fromAddress, $fromName !== '' ? $fromName : 'Suporte'];
     }
 
     /**

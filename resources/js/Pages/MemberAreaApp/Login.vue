@@ -14,6 +14,28 @@ const { canShowInstallButton, triggerInstall } = usePwaInstall(props.slug);
 
 const showPassword = ref(false);
 
+const usesPathPrefix = computed(() => {
+    if (typeof window === 'undefined') return true;
+    return window.location.pathname.startsWith('/m/');
+});
+
+const loginAction = computed(() => {
+    if (props.product.login_without_password) {
+        return props.product.login_without_password_url
+            || (usesPathPrefix.value
+                ? `/m/${props.slug}/login-without-password`
+                : '/login-without-password');
+    }
+    return usesPathPrefix.value ? `/m/${props.slug}/login` : '/login';
+});
+
+const forgotPasswordHref = computed(() => `/m/${props.slug}/esqueci-senha`);
+
+const sessionExpired = computed(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('expired') === '1';
+});
+
 const manifestUrl = computed(() => {
     if (typeof window === 'undefined') return null;
     return `${window.location.origin}/m/${props.slug}/manifest.json`;
@@ -65,13 +87,16 @@ const backgroundStyle = () => {
                     {{ product.subtitle || (product.login_without_password ? 'Entre com seu e-mail' : 'Entre com seu e-mail e senha') }}
                 </p>
             </div>
+            <p
+                v-if="sessionExpired"
+                class="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200"
+                role="alert"
+            >
+                Sessão expirada. Tente entrar novamente.
+            </p>
             <form
                 class="mt-8 space-y-5"
-                @submit.prevent="
-                    product.login_without_password
-                        ? form.post(product.login_without_password_url || `/m/${slug}/login-without-password`)
-                        : form.post(`/m/${slug}/login`)
-                "
+                @submit.prevent="form.post(loginAction)"
             >
                 <div>
                     <label for="email" class="mb-1.5 block text-sm font-medium text-zinc-300">E-mail</label>
@@ -90,7 +115,7 @@ const backgroundStyle = () => {
                     <div class="mb-1.5 flex items-center justify-between">
                         <label for="password" class="text-sm font-medium text-zinc-300">Senha</label>
                         <a
-                            :href="`/m/${slug}/esqueci-senha`"
+                            :href="forgotPasswordHref"
                             class="text-sm font-medium transition hover:underline"
                             :style="{ color: product.primary_color || '#0ea5e9' }"
                         >

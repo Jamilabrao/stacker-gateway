@@ -283,8 +283,11 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/login/2fa', [TwoFactorLoginController::class, 'verifyPlatform'])->name('login.two-factor.verify')->middleware('throttle:login');
         Route::post('/login/2fa/cancelar', [TwoFactorLoginController::class, 'cancelPlatform'])->name('login.two-factor.cancel');
     });
-    Route::middleware(['auth', 'platform.admin', 'stacker.license'])->group(function () {
+    // Logout fora de stacker.license: licença inválida não deve impedir sair (evita 404 com sessão presa).
+    Route::middleware(['auth', 'platform.admin'])->group(function () {
         Route::post('/logout', [\App\Http\Controllers\Platform\LoginController::class, 'logout'])->name('logout');
+    });
+    Route::middleware(['auth', 'platform.admin', 'stacker.license'])->group(function () {
         Route::get('/dashboard', [\App\Http\Controllers\Platform\DashboardController::class, '__invoke'])->name('dashboard');
         Route::get('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'index'])->name('profile.index');
         Route::post('/meu-perfil', [\App\Http\Controllers\Platform\ProfileController::class, 'update'])->name('profile.update');

@@ -203,6 +203,7 @@ function cycleTheme() {
                 method="post"
                 as="button"
                 class="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                :on-finish="() => { window.location.href = '/plataforma/login'; }"
                 @click="closeDropdown"
             >
                 Sair
@@ -213,6 +214,7 @@ function cycleTheme() {
                 method="post"
                 as="button"
                 class="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                :on-finish="() => { window.location.href = '/'; }"
                 @click="closeDropdown"
             >
                 Sair

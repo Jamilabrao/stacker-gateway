@@ -25,6 +25,7 @@ use App\Services\Checkout\CheckoutAbuseGuard;
 use App\Services\MinimumChargeService;
 use App\Support\CheckoutTurnstileSettings;
 use App\Support\FakeConsumerData;
+use App\Support\GatewayWebhookUrl;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -467,7 +468,7 @@ class ApiCheckoutController extends Controller
                         throw new \RuntimeException('Pushin Pay: API Token não configurado.');
                     }
 
-                    $webhookUrl = route('webhooks.pushinpay');
+                    $webhookUrl = GatewayWebhookUrl::forGateway('pushinpay');
                     $frequency = PushinPayPixRecorrenteService::intervalToFrequency($plan?->interval ?? SubscriptionPlan::INTERVAL_MONTHLY);
                     $subscriptionName = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product?->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
                     $pushinpayService = new PushinPayPixRecorrenteService($credentials);
