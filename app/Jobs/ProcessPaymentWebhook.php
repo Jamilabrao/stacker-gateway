@@ -30,7 +30,8 @@ class ProcessPaymentWebhook implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
+    /** Tentativas extras cobrem race payment.created → payment.updated no Mercado Pago PIX. */
+    public int $tries = 5;
 
     public int $backoff = 10;
 
@@ -242,7 +243,11 @@ class ProcessPaymentWebhook implements ShouldQueue
                 'gateway' => $this->gatewaySlug,
                 'transaction_id' => $this->transactionId,
                 'event' => $this->event,
+                'attempt' => $this->attempts(),
             ]);
+
+            // Outro job (ex.: payment.created) segura o lock — reenfileira em vez de descartar o approval.
+            $this->releasePaidBranchForRetry(5, 'concurrent_lock', $order);
 
             return;
         }
@@ -272,6 +277,7 @@ class ProcessPaymentWebhook implements ShouldQueue
                 $apiStatus = 'paid';
             }
             if ($apiStatus !== 'paid' && $this->gatewaySlug === 'mercadopago' && $this->isTrustedMercadoPagoSource()) {
+                // Só força paid quando a API não respondeu (null). pending/in_process = race → retry.
                 if ($apiStatus === null && ($this->status === 'paid' || in_array($this->event, ['payment.updated', 'payment.created', 'order.paid'], true))) {
                     $apiStatus = 'paid';
                 }
@@ -283,7 +289,17 @@ class ProcessPaymentWebhook implements ShouldQueue
                     'transaction_id' => $this->transactionId,
                     'event' => $this->event,
                     'api_status' => $apiStatus,
+                    'attempt' => $this->attempts(),
                 ]);
+
+                if ($this->shouldRetryMercadoPagoReconfirm($apiStatus)) {
+                    $this->releasePaidBranchForRetry(
+                        $this->mercadoPagoReconfirmDelaySeconds(),
+                        'reconfirm_pending',
+                        $order,
+                        $apiStatus
+                    );
+                }
 
                 return;
             }
@@ -346,6 +362,70 @@ class ProcessPaymentWebhook implements ShouldQueue
         } finally {
             Cache::forget($lockKey);
         }
+    }
+
+    /**
+     * Mercado Pago PIX: payment.created costuma chegar com status ainda pending na API.
+     * Sem retry o pedido fica pendente até aprovação manual / reconcile.
+     */
+    private function shouldRetryMercadoPagoReconfirm(?string $apiStatus): bool
+    {
+        if ($this->gatewaySlug !== 'mercadopago') {
+            return false;
+        }
+
+        if (! $this->isTrustedMercadoPagoSource()) {
+            return false;
+        }
+
+        return in_array($apiStatus, ['pending', 'in_process', 'in_mediation'], true);
+    }
+
+    private function mercadoPagoReconfirmDelaySeconds(): int
+    {
+        $attempt = max(1, $this->attempts());
+
+        return match (true) {
+            $attempt <= 1 => 5,
+            $attempt === 2 => 15,
+            $attempt === 3 => 30,
+            default => 60,
+        };
+    }
+
+    private function releasePaidBranchForRetry(
+        int $delaySeconds,
+        string $reason,
+        Order $order,
+        ?string $apiStatus = null
+    ): void {
+        if ($this->attempts() >= $this->tries) {
+            Log::warning('ProcessPaymentWebhook: paid branch retries exhausted', [
+                'order_id' => $order->id,
+                'gateway' => $this->gatewaySlug,
+                'transaction_id' => $this->transactionId,
+                'event' => $this->event,
+                'reason' => $reason,
+                'api_status' => $apiStatus,
+                'attempt' => $this->attempts(),
+                'tries' => $this->tries,
+            ]);
+
+            return;
+        }
+
+        Log::info('ProcessPaymentWebhook: releasing paid branch for retry', [
+            'order_id' => $order->id,
+            'gateway' => $this->gatewaySlug,
+            'transaction_id' => $this->transactionId,
+            'event' => $this->event,
+            'reason' => $reason,
+            'api_status' => $apiStatus,
+            'delay' => $delaySeconds,
+            'attempt' => $this->attempts(),
+        ]);
+
+        $this->release($delaySeconds);
     }
 
     private function isTrustedMercadoPagoSource(): bool

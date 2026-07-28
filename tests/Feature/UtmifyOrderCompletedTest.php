@@ -15,6 +15,7 @@ class UtmifyOrderCompletedTest extends TestCase
 {
     public function test_order_completed_dispatches_utmify_paid_job(): void
     {
+        config(['queue.default' => 'redis']);
         Queue::fake();
 
         User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);

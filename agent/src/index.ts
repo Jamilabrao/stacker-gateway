@@ -3,10 +3,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { collectMetrics, readInstalledVersion, readRuntimeVersion } from './metrics.js';
 import { applyUpdate, reapplyUpdate, StackerClient } from './stacker-client.js';
+import { processPendingContainerRestart } from './container-restart.js';
 
 const AGENT_VERSION = '1.0.0';
 const HEARTBEAT_MS = Number(process.env.STACKER_HEARTBEAT_INTERVAL_MS || 30_000);
 const METRICS_MS = Number(process.env.STACKER_METRICS_INTERVAL_MS || 10_000);
+const CONTAINER_RESTART_MS = Number(process.env.STACKER_CONTAINER_RESTART_POLL_MS || 5_000);
 
 function env(name: string, fallback = ''): string {
   return (process.env[name] || fallback).trim();
@@ -17,6 +19,33 @@ function resolveGatewayRoot(): string {
 }
 
 function resolveAppUrl(): string {
+  const gatewayRoot = resolveGatewayRoot();
+  try {
+    const appUrlFile = path.join(gatewayRoot, '.docker', 'app.url');
+    if (fs.existsSync(appUrlFile)) {
+      const fromFile = fs.readFileSync(appUrlFile, 'utf8').trim();
+      if (fromFile) {
+        return fromFile.replace(/\/$/, '');
+      }
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const envPath = path.join(gatewayRoot, '.env');
+    if (fs.existsSync(envPath)) {
+      const env = fs.readFileSync(envPath, 'utf8');
+      const match = env.match(/^\s*APP_URL\s*=\s*(.+)\s*$/m);
+      if (match?.[1]) {
+        const v = match[1].trim().replace(/^["']|["']$/g, '');
+        if (v) {
+          return v.replace(/\/$/, '');
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
   return env('APP_URL', env('GETFY_APP_URL', 'http://localhost'));
 }
 
@@ -45,6 +74,21 @@ async function main() {
   const client = new StackerClient(apiUrl, token, licensePath);
   let publicIp: string | undefined;
   let updateInProgress = false;
+  let containerRestartInProgress = false;
+
+  const runContainerRestartWatch = async () => {
+    if (containerRestartInProgress || updateInProgress) {
+      return;
+    }
+    containerRestartInProgress = true;
+    try {
+      await processPendingContainerRestart(gatewayRoot);
+    } catch (err) {
+      console.warn('container-restart watch falhou:', err instanceof Error ? err.message : err);
+    } finally {
+      containerRestartInProgress = false;
+    }
+  };
 
   const runHeartbeat = async () => {
     try {
@@ -121,9 +165,11 @@ async function main() {
 
   await runHeartbeat();
   await runMetrics();
+  await runContainerRestartWatch();
 
   setInterval(runHeartbeat, HEARTBEAT_MS);
   setInterval(runMetrics, METRICS_MS);
+  setInterval(runContainerRestartWatch, CONTAINER_RESTART_MS);
 }
 
 main().catch((err) => {

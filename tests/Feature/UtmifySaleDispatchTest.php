@@ -108,6 +108,7 @@ class UtmifySaleDispatchTest extends TestCase
 
     public function test_product_filter_prevents_job_dispatch(): void
     {
+        config(['queue.default' => 'redis']);
         Queue::fake();
 
         User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
@@ -137,6 +138,7 @@ class UtmifySaleDispatchTest extends TestCase
 
     public function test_pix_generated_dispatches_waiting_payment_job(): void
     {
+        config(['queue.default' => 'redis']);
         Queue::fake();
 
         User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
@@ -155,6 +157,8 @@ class UtmifySaleDispatchTest extends TestCase
             'status' => 'pending',
             'amount' => 40,
             'email' => 'pix@example.com',
+            'payment_method' => 'pix',
+            'metadata' => ['checkout_payment_method' => 'pix'],
         ]);
 
         event(new PixGenerated($order, ['qr_code' => 'test']));
@@ -164,6 +168,68 @@ class UtmifySaleDispatchTest extends TestCase
                 && $job->utmifyStatus === 'waiting_payment'
                 && $job->queue === 'utmify-tracking';
         });
+    }
+
+    public function test_card_order_pending_dispatches_waiting_payment_for_cajupay_style_checkout(): void
+    {
+        config(['queue.default' => 'redis']);
+        Queue::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct(['tenant_id' => 1]);
+
+        UtmifyIntegration::create([
+            'tenant_id' => 1,
+            'name' => 'UTMfy card',
+            'api_key' => 'card-api-key',
+            'is_active' => true,
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'pending',
+            'amount' => 80,
+            'email' => 'card@example.com',
+            'payment_method' => 'card',
+            'metadata' => ['checkout_payment_method' => 'card'],
+        ]);
+
+        event(new \App\Events\OrderPending($order));
+
+        Queue::assertPushed(UtmifySendOrderJob::class, function (UtmifySendOrderJob $job) use ($order) {
+            return $job->orderId === $order->id && $job->utmifyStatus === 'waiting_payment';
+        });
+    }
+
+    public function test_pix_order_pending_does_not_dispatch_waiting_payment(): void
+    {
+        config(['queue.default' => 'redis']);
+        Queue::fake();
+
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+        $product = $this->createTestProduct(['tenant_id' => 1]);
+
+        UtmifyIntegration::create([
+            'tenant_id' => 1,
+            'name' => 'UTMfy pix pending',
+            'api_key' => 'pix-pending-key',
+            'is_active' => true,
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'product_id' => $product->id,
+            'status' => 'pending',
+            'amount' => 40,
+            'email' => 'pix-pending@example.com',
+            'payment_method' => 'pix',
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+
+        event(new \App\Events\OrderPending($order));
+
+        Queue::assertNotPushed(UtmifySendOrderJob::class);
     }
 
     public function test_failed_job_records_error_metadata(): void

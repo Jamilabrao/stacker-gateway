@@ -22,6 +22,24 @@ class PublicAppUrlAndMagicLinkTest extends TestCase
         $this->assertSame('https://loja.exemplo.com', PublicAppUrl::origin('http://localhost/m/foo'));
     }
 
+    public function test_when_app_and_webhook_urls_match_member_links_use_that_host(): void
+    {
+        config([
+            'app.url' => 'https://app.valuxpay.com',
+            'getfy.webhook_public_url' => 'https://app.valuxpay.com',
+        ]);
+
+        $this->assertSame('https://app.valuxpay.com', PublicAppUrl::base());
+
+        $product = $this->createTestProduct([
+            'type' => Product::TYPE_AREA_MEMBROS,
+            'checkout_slug' => '2xyzv09',
+        ]);
+
+        $url = app(MemberAreaResolver::class)->baseUrlForProduct($product);
+        $this->assertSame('https://app.valuxpay.com/m/2xyzv09', $url);
+    }
+
     public function test_path_magic_link_does_not_use_localhost_when_public_url_configured(): void
     {
         config([

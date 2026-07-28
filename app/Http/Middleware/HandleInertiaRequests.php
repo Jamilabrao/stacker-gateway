@@ -18,6 +18,7 @@ use App\Support\BrandingAssetUrls;
 use App\Support\DemoMode;
 use App\Support\LoginTemplate;
 use App\Support\PanelColorScheme;
+use App\Support\PublicAppUrl;
 use App\Support\SellerDashboardTemplate;
 use App\Support\SellerPanelSupportSettings;
 use App\Support\ReferralProgramSettings;
@@ -69,7 +70,7 @@ class HandleInertiaRequests extends Middleware
 
             return array_merge(parent::share($request), [
                 'csrf_token' => $request->hasSession() ? $request->session()->token() : '',
-                'app_url' => rtrim(config('app.url'), '/'),
+                'app_url' => rtrim(PublicAppUrl::base(), '/'),
                 'demo_mode' => DemoMode::publicConfig(),
                 'flash' => ['success' => null, 'error' => null, 'info' => null, 'status' => null],
                 'platform' => null,
@@ -219,7 +220,7 @@ class HandleInertiaRequests extends Middleware
         $shared = [
             ...parent::share($request),
             'csrf_token' => $request->session()->token(),
-            'app_url' => rtrim(config('app.url'), '/'),
+            'app_url' => rtrim(PublicAppUrl::base(), '/'),
             'pageTitle' => $pageTitle,
             'auth' => [
                 'user' => $user ? [

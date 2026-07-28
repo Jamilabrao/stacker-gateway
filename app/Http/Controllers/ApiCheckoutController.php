@@ -684,7 +684,7 @@ class ApiCheckoutController extends Controller
                 $cardGatewayConfig['card_redundancy'] = [];
                 $result = $paymentService->createCardPayment($order, $product, $consumer, $card, $cardGatewayConfig);
                 $status = $result['status'] ?? 'pending';
-                if ($status === 'paid' || $status === 'approved' || $status === 'completed') {
+                if (in_array($status, ['paid', 'settled', 'approved', 'completed'], true)) {
                     $order->update(['status' => 'completed']);
                     $order->grantPurchasedProductAccessToBuyer();
                     event(new OrderCompleted($order));

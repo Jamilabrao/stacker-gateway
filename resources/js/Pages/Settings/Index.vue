@@ -23,6 +23,7 @@ import {
     PlayCircle,
     Headset,
     Puzzle,
+    Globe,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
@@ -35,6 +36,7 @@ import SecurityTab from '@/Pages/Settings/Tabs/SecurityTab.vue';
 import DemoTab from '@/Pages/Settings/Tabs/DemoTab.vue';
 import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
 import SellerPanelSupportTab from '@/Pages/Settings/Tabs/SellerPanelSupportTab.vue';
+import PublicUrlTab from '@/Pages/Settings/Tabs/PublicUrlTab.vue';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -59,6 +61,26 @@ const props = defineProps({
         type: String,
         default: '',
     },
+    public_url: {
+        type: String,
+        default: '',
+    },
+    resolved_public_url: {
+        type: String,
+        default: '',
+    },
+    webhook_public_url: {
+        type: String,
+        default: '',
+    },
+    public_url_meta: {
+        type: Object,
+        default: () => ({}),
+    },
+    container_restart: {
+        type: Object,
+        default: () => ({}),
+    },
     base_path: {
         type: String,
         default: '',
@@ -78,7 +100,7 @@ const props = defineProps({
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'lgpd', 'cron', 'update', 'demo'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'lgpd', 'url_publica', 'cron', 'update', 'demo'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -203,6 +225,7 @@ const coreTabsStatic = [
     { id: 'suporte_painel', label: 'Suporte do painel', icon: Headset, group: 'operacao' },
     { id: 'seguranca', label: 'Segurança', icon: Shield, group: 'seguranca' },
     { id: 'lgpd', label: 'LGPD', icon: Scale, group: 'seguranca' },
+    { id: 'url_publica', label: 'URL pública', icon: Globe, group: 'sistema' },
     { id: 'cron', label: 'Cron', icon: Clock, group: 'sistema' },
     { id: 'update', label: 'Versão', icon: Tag, group: 'sistema' },
     { id: 'demo', label: 'Demo', icon: PlayCircle, group: 'sistema' },
@@ -1570,6 +1593,26 @@ const selectClass =
                 </p>
             </div>
         </template>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'url_publica'" class="w-full max-w-full space-y-6">
+                <PublicUrlTab
+                    :public_url="public_url || app_url"
+                    :resolved_public_url="resolved_public_url || app_url"
+                    :webhook_public_url="webhook_public_url"
+                    :public_url_meta="public_url_meta"
+                    :container_restart="container_restart"
+                    :docker_mode="docker_mode"
+                />
+            </div>
+        </Transition>
 
         <Transition
             enter-active-class="transition duration-200 ease-out"

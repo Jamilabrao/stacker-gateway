@@ -16,7 +16,10 @@ use App\Support\PlatformConfigContext;
 use App\Support\RegistrationEmailVerificationSettings;
 use App\Support\RegistrationTurnstileSettings;
 use App\Support\SellerPanelSupportSettings;
+use App\Services\InstallationPublicUrlService;
+use App\Services\Stacker\ContainerRestartRequestService;
 use App\Support\DockerSetupState;
+use App\Support\PublicAppUrl;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -53,7 +56,8 @@ class SettingsController extends Controller
         $cloudMode = (bool) config('getfy.cloud_mode', false);
         $dockerMode = DockerSetupState::isDocker();
         $cronSecret = config('getfy.cron_secret');
-        $appUrl = rtrim(config('app.url'), '/');
+        $publicUrlSnapshot = app(InstallationPublicUrlService::class)->snapshot();
+        $appUrl = rtrim(PublicAppUrl::base(), '/');
         $cronUrl = $cronSecret ? $appUrl . '/cron?token=' . urlencode((string) $cronSecret) : null;
         $versionFile = base_path('VERSION');
         $currentVersion = trim((is_file($versionFile) ? (string) file_get_contents($versionFile) : '') ?: '');
@@ -95,6 +99,11 @@ class SettingsController extends Controller
             'cloud_mode' => $cloudMode,
             'docker_mode' => $dockerMode,
             'app_url' => $appUrl,
+            'public_url' => $publicUrlSnapshot['app_url'] ?: $appUrl,
+            'resolved_public_url' => $publicUrlSnapshot['resolved_public_url'],
+            'webhook_public_url' => $publicUrlSnapshot['webhook_public_url'],
+            'public_url_meta' => $publicUrlSnapshot,
+            'container_restart' => app(ContainerRestartRequestService::class)->status(),
             'base_path' => base_path(),
             'cron_url' => $cronUrl,
             'settings' => [

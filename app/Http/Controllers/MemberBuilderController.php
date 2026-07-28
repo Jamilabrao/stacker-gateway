@@ -114,7 +114,7 @@ class MemberBuilderController extends Controller
 
         $memberAreaUrl = app(MemberAreaResolver::class)->baseUrlForProduct($produto);
 
-        $appUrl = rtrim(config('app.url'), '/');
+        $appUrl = rtrim(PublicAppUrl::base(), '/');
         $appHost = parse_url($appUrl, PHP_URL_HOST) ?: request()->getHost();
         $dnsTargetHost = $appHost;
         $dnsTargetIp = env('MEMBER_AREA_IP');

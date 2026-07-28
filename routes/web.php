@@ -400,6 +400,13 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/configuracoes/demo/data', [\App\Http\Controllers\Platform\DemoModeController::class, 'data'])->name('settings.demo.data');
         Route::put('/configuracoes/demo', [\App\Http\Controllers\Platform\DemoModeController::class, 'update'])->name('settings.demo.update');
         Route::post('/configuracoes/demo/provision', [\App\Http\Controllers\Platform\DemoModeController::class, 'provision'])->name('settings.demo.provision');
+        Route::get('/configuracoes/url-publica/data', [\App\Http\Controllers\Platform\PublicUrlSettingsController::class, 'data'])->name('settings.public-url.data');
+        Route::put('/configuracoes/url-publica', [\App\Http\Controllers\Platform\PublicUrlSettingsController::class, 'update'])->name('settings.public-url.update');
+        Route::post('/configuracoes/url-publica', [\App\Http\Controllers\Platform\PublicUrlSettingsController::class, 'update'])->name('settings.public-url.update.post');
+        Route::get('/configuracoes/url-publica/reiniciar-containers', [\App\Http\Controllers\Platform\PublicUrlSettingsController::class, 'restartStatus'])->name('settings.public-url.restart-status');
+        Route::post('/configuracoes/url-publica/reiniciar-containers', [\App\Http\Controllers\Platform\PublicUrlSettingsController::class, 'restartContainers'])
+            ->middleware('throttle:6,1')
+            ->name('settings.public-url.restart');
         Route::get('/configuracoes/update/check', [\App\Http\Controllers\UpdateController::class, 'check'])->name('settings.update.check');
         Route::get('/configuracoes/update/integrity', [\App\Http\Controllers\UpdateController::class, 'integrity'])->name('settings.update.integrity');
         Route::post('/configuracoes/update/migrate', [\App\Http\Controllers\UpdateController::class, 'migrateNow'])->name('settings.update.migrate')->middleware('throttle:10,1');

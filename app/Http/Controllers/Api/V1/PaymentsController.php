@@ -176,7 +176,7 @@ class PaymentsController extends Controller
             event(new OrderPending($order));
             $result = $paymentService->createCardPayment($order, $ctxData['product'], $ctxData['consumer'], $card, null);
             $status = $result['status'] ?? 'pending';
-            if ($status === 'paid' || $status === 'approved' || $status === 'completed') {
+            if (in_array($status, ['paid', 'settled', 'approved', 'completed'], true)) {
                 $order->update(['status' => 'completed', 'payment_method' => 'card']);
                 $order->grantPurchasedProductAccessToBuyer();
                 event(new \App\Events\OrderCompleted($order));
