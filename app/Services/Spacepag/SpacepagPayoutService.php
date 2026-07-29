@@ -9,6 +9,7 @@ use App\Models\Withdrawal;
 use App\Services\EffectiveMerchantFees;
 use App\Services\Payout\GatewayPayoutEconomics;
 use App\Services\Payout\PayoutUserSettings;
+use App\Services\Payout\WithdrawalPayoutDestination;
 use App\Support\GatewayWebhookUrl;
 
 class SpacepagPayoutService
@@ -61,10 +62,12 @@ class SpacepagPayoutService
         }
 
         $settings = is_array($owner->payout_settings) ? $owner->payout_settings : [];
-        $pixKey = PayoutUserSettings::pixKey($settings);
-        $pixKeyType = PayoutUserSettings::pixKeyType($settings);
+        $fromWithdrawal = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $fromWithdrawal['pix_key'] ?? PayoutUserSettings::pixKey($settings);
+        $pixKeyType = $fromWithdrawal['pix_key_type'] ?? PayoutUserSettings::pixKeyType($settings);
         $receiverName = isset($settings['receiver_name']) ? trim((string) $settings['receiver_name']) : '';
-        $receiverDocument = isset($settings['receiver_document']) ? trim((string) $settings['receiver_document']) : '';
+        $receiverDocument = $fromWithdrawal['key_owner_document']
+            ?? (isset($settings['receiver_document']) ? trim((string) $settings['receiver_document']) : '');
         $receiverEmail = isset($settings['receiver_email']) ? trim((string) $settings['receiver_email']) : '';
 
         if ($pixKey === '' || $pixKeyType === '' || $receiverName === '' || $receiverDocument === '' || $receiverEmail === '') {

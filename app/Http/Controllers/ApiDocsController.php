@@ -53,10 +53,14 @@ class ApiDocsController extends Controller
         }
 
         $filename = $bundle->downloadFilename();
+        $disposition = 'attachment; filename="'.$filename.'"; filename*=UTF-8\'\''.rawurlencode($filename);
 
         return response($content, 200, [
             'Content-Type' => 'text/markdown; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Content-Disposition' => $disposition,
+            'Content-Length' => (string) strlen($content),
+            'Cache-Control' => 'private, no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
         ]);
     }
 

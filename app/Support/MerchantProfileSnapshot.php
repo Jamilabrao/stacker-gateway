@@ -69,7 +69,7 @@ final class MerchantProfileSnapshot
         $pixOwnerDocument = PayoutUserSettings::cajuPixOwnerDocument($settings);
         $pixLabel = PayoutUserSettings::pixLabel($settings);
 
-        $whatsapp = self::resolveWhatsApp($user, $pixKeyType, $pixKey);
+        $whatsapp = self::resolveWhatsApp($user);
 
         $avatarUrl = null;
         if (! empty($user->avatar)) {
@@ -135,18 +135,14 @@ final class MerchantProfileSnapshot
     }
 
     /**
-     * Contato WhatsApp: telefone cadastrado no usuário; fallback só se a chave PIX for telefone.
+     * Contato WhatsApp: apenas o telefone/WhatsApp do cadastro (users.phone).
+     * Não usa chave PIX — telefone como chave de saque não é contato do infoprodutor.
      *
      * @return array{display?: string, url?: string}
      */
-    private static function resolveWhatsApp(User $user, string $pixKeyType, string $pixKey): array
+    private static function resolveWhatsApp(User $user): array
     {
-        $fromUser = self::whatsappFromPhoneDigits((string) ($user->phone ?? ''));
-        if ($fromUser !== []) {
-            return $fromUser;
-        }
-
-        return self::whatsappFromPixKey($pixKeyType, $pixKey);
+        return self::whatsappFromPhoneDigits((string) ($user->phone ?? ''));
     }
 
     /**
@@ -167,19 +163,6 @@ final class MerchantProfileSnapshot
             'display' => self::formatPhoneBr($digits),
             'url' => 'https://wa.me/'.$digits,
         ];
-    }
-
-    /**
-     * @return array{display?: string, url?: string}
-     */
-    private static function whatsappFromPixKey(string $pixKeyType, string $pixKey): array
-    {
-        $type = strtolower(trim($pixKeyType));
-        if (! in_array($type, ['phone', 'telefone', 'mobile'], true) || trim($pixKey) === '') {
-            return [];
-        }
-
-        return self::whatsappFromPhoneDigits($pixKey);
     }
 
     private static function formatAddressLine(User $user): ?string

@@ -177,7 +177,7 @@ export const apiKeyScopes = [
 export const partnerRecommendedScopes = 'payments:read, payments:write, payments:refund, webhooks:write';
 
 export const payoutDestinationFields = [
-    { field: 'pix_key', type: 'string', required: 'Sim', desc: 'Chave PIX de destino do saque' },
+    { field: 'pix_key', type: 'string', required: 'Sim', desc: 'Chave PIX a validar (não altera a chave master do infoprodutor)' },
     {
         field: 'pix_key_type',
         type: 'string',
@@ -199,6 +199,19 @@ export const payoutDestinationKeyTypeRules = [
 
 export const withdrawalRequestFields = [
     { field: 'amount', type: 'number', required: 'Sim', desc: 'Valor bruto do saque em reais' },
+    { field: 'pix_key', type: 'string', required: 'Sim', desc: 'Chave PIX de recebimento deste saque (gravada na transação; não altera a chave master)' },
+    {
+        field: 'pix_key_type',
+        type: 'string',
+        required: 'Sim',
+        desc: 'cpf, cnpj, email, phone, evp ou random',
+    },
+    {
+        field: 'key_owner_document',
+        type: 'string',
+        required: 'Condicional',
+        desc: 'CPF/CNPJ do titular — obrigatório para email, phone e evp/random',
+    },
     { field: 'bucket', type: 'string', required: 'Não', desc: 'pix (padrão), card ou boleto — carteira de origem' },
     { field: 'notes', type: 'string', required: 'Não', desc: 'Observação opcional' },
     { field: 'idempotency_key', type: 'string', required: 'Não*', desc: 'Ou header Idempotency-Key. Obrigatório em chaves novas com idempotência reforçada' },
@@ -211,6 +224,8 @@ export const withdrawalResponseFields = [
     { field: 'fee_amount', type: 'number', required: 'Sim', desc: 'Taxa de saque' },
     { field: 'net_amount', type: 'number', required: 'Sim', desc: 'Valor líquido enviado via PIX' },
     { field: 'bucket', type: 'string', required: 'Sim', desc: 'Carteira de origem' },
+    { field: 'pix_key_type', type: 'string', required: 'Não', desc: 'Tipo da chave PIX gravada neste saque' },
+    { field: 'pix_key_masked', type: 'string', required: 'Não', desc: 'Chave PIX mascarada gravada neste saque' },
 ];
 
 export const balanceResponseFields = [
@@ -451,7 +466,7 @@ export const endpointSummary = [
     { method: 'POST', endpoint: '/api/v1/withdrawals', desc: 'Solicitar saque' },
     { method: 'GET', endpoint: '/api/v1/withdrawals', desc: 'Listar saques' },
     { method: 'GET', endpoint: '/api/v1/withdrawals/{id}', desc: 'Consultar saque' },
-    { method: 'PUT', endpoint: '/api/v1/payout-destination', desc: 'Configurar chave PIX de destino do saque' },
+    { method: 'PUT', endpoint: '/api/v1/payout-destination', desc: 'Validar chave PIX (não altera a chave master do infoprodutor)' },
     { method: 'GET', endpoint: '/api/v1/webhook', desc: 'Consultar configuração do webhook' },
     { method: 'PUT', endpoint: '/api/v1/webhook', desc: 'Provisionar webhook (todos os eventos; retorna secret na 1ª vez)' },
     { method: 'POST', endpoint: '/api/v1/webhook/rotate-secret', desc: 'Rotacionar secret do webhook' },
@@ -460,7 +475,7 @@ export const endpointSummary = [
 export const whenToUse = [
     { cenario: 'PIX na sua própria tela', sugestao: 'POST /payments/pix' },
     { cenario: 'Alto volume / resposta rápida', sugestao: 'POST /payments/pix com header X-Async: true' },
-    { cenario: 'Sacar saldo para conta PIX', sugestao: 'PUT /payout-destination + POST /withdrawals' },
+    { cenario: 'Sacar saldo para conta PIX', sugestao: 'POST /withdrawals com pix_key + pix_key_type (+ key_owner_document quando exigido)' },
     { cenario: 'Valor avulso sem produto', sugestao: 'Envie amount; omita product_id' },
     { cenario: 'Cobrar preço do catálogo', sugestao: 'Envie product_id (amount no body é ignorado)' },
     { cenario: 'Compliance / auditoria', sugestao: 'Envie partner_checkout_url com a URL HTTPS do seu checkout' },
@@ -546,7 +561,7 @@ export const apiPlaygroundOperations = [
         group: 'saques',
         method: 'PUT',
         path: '/payout-destination',
-        description: 'Define chave PIX para receber saques.',
+        description: 'Valida chave PIX de destino (não altera a chave master do infoprodutor).',
         defaultBody: {
             pix_key: 'cliente@exemplo.com',
             pix_key_type: 'email',
@@ -559,11 +574,14 @@ export const apiPlaygroundOperations = [
         group: 'saques',
         method: 'POST',
         path: '/withdrawals',
-        description: 'Solicita saque do saldo disponível.',
+        description: 'Solicita saque do saldo disponível para a chave informada neste request.',
         defaultBody: {
             amount: 10.0,
             bucket: 'pix',
             notes: 'Saque teste playground',
+            pix_key: 'cliente@exemplo.com',
+            pix_key_type: 'email',
+            key_owner_document: '52998224725',
         },
         defaultHeaders: {
             'Idempotency-Key': 'playground-saque-001',

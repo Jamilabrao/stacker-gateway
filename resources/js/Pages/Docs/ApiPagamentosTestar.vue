@@ -72,7 +72,7 @@ const initialOpId = computed(() => {
                 </div>
                 <ol class="list-decimal space-y-1 pl-5 text-sm text-zinc-400">
                     <li><strong class="text-zinc-300">GET /balance</strong> — ver saldo</li>
-                    <li><strong class="text-zinc-300">PUT /payout-destination</strong> — chave PIX destino</li>
+                    <li><strong class="text-zinc-300">PUT /payout-destination</strong> — validar chave PIX (não altera master)</li>
                     <li><strong class="text-zinc-300">POST /withdrawals</strong> — solicitar saque</li>
                     <li><strong class="text-zinc-300">GET /withdrawals/{id}</strong> — acompanhar</li>
                 </ol>

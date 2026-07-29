@@ -16,8 +16,11 @@ class ApiPagamentosLlmBundleTest extends TestCase
 
         $response->assertOk();
         $response->assertHeader('content-type', 'text/markdown; charset=UTF-8');
+        $this->assertStringContainsString('attachment;', (string) $response->headers->get('content-disposition'));
+        $this->assertNotEmpty($response->headers->get('content-length'));
 
         $content = $response->getContent();
+        $this->assertSame((string) strlen((string) $content), $response->headers->get('content-length'));
         $this->assertStringContainsString('# Instruções para o modelo de IA', $content);
         $this->assertStringContainsString('# API de Pagamentos e Saques', $content);
         $this->assertStringContainsString('# Confirmação de pagamento e fallbacks', $content);

@@ -694,7 +694,7 @@ class UsersController extends Controller
         }
 
         $out = [];
-        foreach (['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'] as $key) {
+        foreach (['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'] as $key) {
             $block = $raw[$key] ?? null;
             if (! is_array($block)) {
                 continue;
@@ -799,6 +799,7 @@ class UsersController extends Controller
         $labels = [
             'pix' => 'PIX (checkout)',
             'api_pix' => 'PIX (API)',
+            'pixgo' => 'PixGo',
             'card' => 'Cartão',
             'apple_pay' => 'Apple Pay',
             'google_pay' => 'Google Pay',
@@ -807,7 +808,7 @@ class UsersController extends Controller
         ];
 
         $rows = [];
-        foreach (['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'] as $key) {
+        foreach (['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'] as $key) {
             $block = $fees[$key] ?? ['percent' => 0.0, 'fixed' => 0.0];
             $overrideBlock = is_array($rawOverrides) ? ($rawOverrides[$key] ?? null) : null;
             $hasOverride = is_array($overrideBlock) && (

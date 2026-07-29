@@ -13,12 +13,13 @@ class EffectiveMerchantFees
     public const API_ORDER_SOURCES = ['api', 'api_checkout_pro'];
 
     /** @var list<string> */
-    private const RULE_KEYS = ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
+    private const RULE_KEYS = ['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
 
     /**
      * @return array{
      *     pix: array{percent: float, fixed: float},
      *     api_pix: array{percent: float, fixed: float},
+     *     pixgo: array{percent: float, fixed: float},
      *     card: array{percent: float, fixed: float},
      *     apple_pay: array{percent: float, fixed: float},
      *     google_pay: array{percent: float, fixed: float},
@@ -35,6 +36,7 @@ class EffectiveMerchantFees
         $base = [
             'pix' => ['percent' => 0.0, 'fixed' => 0.0],
             'api_pix' => ['percent' => 0.0, 'fixed' => 0.0],
+            'pixgo' => ['percent' => 0.0, 'fixed' => 0.0],
             'card' => ['percent' => 0.0, 'fixed' => 0.0],
             'apple_pay' => ['percent' => 0.0, 'fixed' => 0.0],
             'google_pay' => ['percent' => 0.0, 'fixed' => 0.0],
@@ -54,6 +56,10 @@ class EffectiveMerchantFees
         // Primeira configuração / legado: sem bloco `api_pix`, herda PIX checkout.
         if (! isset($raw['api_pix']) || ! is_array($raw['api_pix'])) {
             $base['api_pix'] = $base['pix'];
+        }
+        // Legado: sem bloco `pixgo`, herda PIX checkout (comportamento anterior).
+        if (! isset($raw['pixgo']) || ! is_array($raw['pixgo'])) {
+            $base['pixgo'] = $base['pix'];
         }
         // Wallets CajuPay: sem bloco próprio, herdam taxa de cartão checkout.
         if (! isset($raw['apple_pay']) || ! is_array($raw['apple_pay'])) {
@@ -90,6 +96,7 @@ class EffectiveMerchantFees
      * @return array{
      *     pix: array{percent: float, fixed: float},
      *     api_pix: array{percent: float, fixed: float},
+     *     pixgo: array{percent: float, fixed: float},
      *     card: array{percent: float, fixed: float},
      *     apple_pay: array{percent: float, fixed: float},
      *     google_pay: array{percent: float, fixed: float},
@@ -124,6 +131,7 @@ class EffectiveMerchantFees
      * @return array{
      *     pix: array{percent: float, fixed: float},
      *     api_pix: array{percent: float, fixed: float},
+     *     pixgo: array{percent: float, fixed: float},
      *     card: array{percent: float, fixed: float},
      *     apple_pay: array{percent: float, fixed: float},
      *     google_pay: array{percent: float, fixed: float},
@@ -161,11 +169,15 @@ class EffectiveMerchantFees
      */
     private static function applyDerivedInheritance(array $effective, ?array $rawOverrides): array
     {
-        // Só herda quando o pai foi customizado. Override só de api_pix/saque/etc.
-        // não pode puxar wallets para card nem api_pix para pix global.
+        // Só herda quando o pai foi customizado. Override só de api_pix/pixgo/saque/etc.
+        // não pode puxar wallets para card nem api_pix/pixgo para pix global.
         if (! self::overrideBlockIsExplicit($rawOverrides, 'api_pix')
             && self::overrideBlockIsExplicit($rawOverrides, 'pix')) {
             $effective['api_pix'] = $effective['pix'];
+        }
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'pixgo')
+            && self::overrideBlockIsExplicit($rawOverrides, 'pix')) {
+            $effective['pixgo'] = $effective['pix'];
         }
         if (! self::overrideBlockIsExplicit($rawOverrides, 'apple_pay')
             && self::overrideBlockIsExplicit($rawOverrides, 'card')) {
@@ -213,7 +225,9 @@ class EffectiveMerchantFees
             $key = 'pix';
         }
         $rules = self::forTenant($tenantId);
-        if ($key === 'pix' && $source !== null && in_array($source, self::API_ORDER_SOURCES, true)) {
+        if ($key === 'pix' && $source === 'pixgo') {
+            $key = 'pixgo';
+        } elseif ($key === 'pix' && $source !== null && in_array($source, self::API_ORDER_SOURCES, true)) {
             $key = 'api_pix';
         }
         $percent = PercentDecimal::toFloat(PercentDecimal::normalize($rules[$key]['percent'] ?? 0));

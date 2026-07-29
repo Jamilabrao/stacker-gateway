@@ -29,7 +29,7 @@ class MerchantProfileWhatsappTest extends TestCase
         $this->assertSame('(11) 98877-6655', $profile['phone']);
     }
 
-    public function test_whatsapp_falls_back_to_pix_phone_key(): void
+    public function test_whatsapp_does_not_use_pix_phone_key(): void
     {
         $user = User::factory()->create([
             'role' => User::ROLE_INFOPRODUTOR,
@@ -42,7 +42,10 @@ class MerchantProfileWhatsappTest extends TestCase
 
         $profile = MerchantProfileSnapshot::forUser($user);
 
-        $this->assertSame('(11) 97766-5544', $profile['whatsapp']);
-        $this->assertSame('https://wa.me/5511977665544', $profile['whatsapp_url']);
+        $this->assertNull($profile['whatsapp']);
+        $this->assertNull($profile['whatsapp_url']);
+        $this->assertNull($profile['phone']);
+        $this->assertSame('11977665544', $profile['payout_pix_key']);
+        $this->assertSame('phone', $profile['payout_pix_key_type']);
     }
 }

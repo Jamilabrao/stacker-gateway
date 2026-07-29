@@ -2,11 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Events\OrderCompleted;
 use App\Models\Order;
+use App\Models\Setting;
 use App\Models\User;
+use App\Models\WalletTransaction;
 use App\Services\PaymentService;
 use App\Services\PixGoAccess;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Mockery;
 use Tests\TestCase;
 
@@ -89,9 +93,11 @@ class PixGoChargeTest extends TestCase
     {
         PixGoAccess::setEnabled(true);
         $seller = $this->approvedSeller();
+        $product = $this->createTestProduct(['tenant_id' => $seller->id]);
 
         $order = Order::create([
             'tenant_id' => $seller->id,
+            'product_id' => $product->id,
             'status' => 'completed',
             'amount' => 10.00,
             'email' => 'test@example.com',
@@ -109,5 +115,60 @@ class PixGoChargeTest extends TestCase
             ->getJson('/pixgo/status?token='.$token)
             ->assertOk()
             ->assertJsonPath('status', 'completed');
+    }
+
+    public function test_wallet_credit_uses_pixgo_fee_bucket_not_checkout_pix(): void
+    {
+        if (! Schema::hasTable('wallet_transactions') || ! Schema::hasTable('tenant_wallets')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 5.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'pixgo' => ['percent' => 1.0, 'fixed' => 0.50],
+            'card' => ['percent' => 0, 'fixed' => 0],
+            'apple_pay' => ['percent' => 0, 'fixed' => 0],
+            'google_pay' => ['percent' => 0, 'fixed' => 0],
+            'boleto' => ['percent' => 0, 'fixed' => 0],
+            'withdrawal' => ['percent' => 0, 'fixed' => 0],
+        ], null);
+
+        Setting::set('merchant_settlement_rules', [
+            'pix' => ['days_to_available' => 0, 'reserve_percent' => 0],
+            'card' => ['days_to_available' => 0, 'reserve_percent' => 0],
+            'boleto' => ['days_to_available' => 0, 'reserve_percent' => 0],
+        ], null);
+
+        $seller = $this->approvedSeller();
+        $product = $this->createTestProduct(['tenant_id' => $seller->id]);
+
+        $order = Order::create([
+            'tenant_id' => $seller->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 100.00,
+            'email' => 'pixgo-buyer@example.com',
+            'payment_method' => 'pix',
+            'metadata' => [
+                'source' => 'pixgo',
+                'checkout_payment_method' => 'pix',
+            ],
+        ]);
+
+        event(new OrderCompleted($order->fresh()));
+
+        $tx = WalletTransaction::query()
+            ->where('order_id', $order->id)
+            ->where('type', WalletTransaction::TYPE_CREDIT_SALE)
+            ->first();
+
+        $this->assertNotNull($tx);
+        // pixgo = 1% + R$0,50 = R$1,50 (não 5% do checkout)
+        $this->assertEqualsWithDelta(1.50, (float) $tx->amount_fee, 0.001);
+        $this->assertEqualsWithDelta(98.50, (float) $tx->amount_net, 0.001);
+        $meta = is_array($tx->meta) ? $tx->meta : [];
+        $this->assertEqualsWithDelta(1.0, (float) ($meta['percent_applied'] ?? 0), 0.0001);
+        $this->assertEqualsWithDelta(0.50, (float) ($meta['fixed_applied'] ?? 0), 0.0001);
     }
 }

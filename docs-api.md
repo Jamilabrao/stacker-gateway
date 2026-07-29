@@ -232,7 +232,7 @@ Status comuns: `pending`, `processing`, `completed`, `cancelled`, `refunded`, `d
 
 Valores em `pending_balance` ainda não estão disponíveis para saque.
 
-### Configurar destino PIX
+### Configurar / validar destino PIX
 
 `PUT /api/v1/payout-destination`
 
@@ -246,7 +246,7 @@ Valores em `pending_balance` ainda não estão disponíveis para saque.
 
 | Campo | Obrigatório | Descrição |
 |-------|-------------|-----------|
-| `pix_key` | Sim | Chave PIX de destino |
+| `pix_key` | Sim | Chave PIX a validar |
 | `pix_key_type` | Sim | `cpf`, `cnpj`, `email`, `phone`, `evp` ou `random` (alias de chave aleatória) |
 | `key_owner_document` | Condicional | CPF ou CNPJ do titular (somente dígitos) |
 
@@ -257,9 +257,8 @@ Valores em `pending_balance` ainda não estão disponíveis para saque.
 | `email`, `phone`, `evp`, `random` | **Obrigatório** — CPF ou CNPJ do titular real |
 | `cpf`, `cnpj` | Opcional — se omitido, usamos os dígitos da própria chave |
 
-A resposta inclui `key_owner_document_masked` (últimos 4 dígitos) sem expor o documento completo.
-
-Configure o destino **antes** do primeiro `POST /withdrawals`. Sem destino completo, o saque retorna **422**.
+Este endpoint **apenas valida** o destino e **não altera** a chave master do infoprodutor (painel Financeiro).
+A resposta inclui `persisted_to_merchant: false` e `key_owner_document_masked` (últimos 4 dígitos).
 
 ### Solicitar saque
 
@@ -269,16 +268,24 @@ Configure o destino **antes** do primeiro `POST /withdrawals`. Sem destino compl
 {
   "amount": 500.00,
   "bucket": "pix",
-  "notes": "Saque semanal"
+  "notes": "Saque semanal",
+  "pix_key": "cliente@exemplo.com",
+  "pix_key_type": "email",
+  "key_owner_document": "52998224725"
 }
 ```
 
 | Campo | Obrigatório | Descrição |
 |-------|-------------|-----------|
 | `amount` | Sim | Valor bruto em reais |
+| `pix_key` | Sim | Chave PIX de recebimento **deste** saque (gravada na transação) |
+| `pix_key_type` | Sim | `cpf`, `cnpj`, `email`, `phone`, `evp` ou `random` |
+| `key_owner_document` | Condicional | CPF/CNPJ do titular — obrigatório para email/phone/evp/random |
 | `bucket` | Não | `pix` (padrão), `card` ou `boleto` — carteira de origem |
 | `notes` | Não | Observação opcional |
 | `idempotency_key` | Não* | Ou header `Idempotency-Key` — **recomendado** para evitar duplicatas |
+
+A chave informada fica no saque (`payout_meta.destination_snapshot`) e **não sobrescreve** a chave master do infoprodutor.
 
 **Resposta 201:**
 
@@ -289,7 +296,9 @@ Configure o destino **antes** do primeiro `POST /withdrawals`. Sem destino compl
   "amount": 500.00,
   "fee_amount": 5.00,
   "net_amount": 495.00,
-  "bucket": "pix"
+  "bucket": "pix",
+  "pix_key_type": "email",
+  "pix_key_masked": "****************.com"
 }
 ```
 
@@ -315,7 +324,7 @@ Configure o destino **antes** do primeiro `POST /withdrawals`. Sem destino compl
 | POST | /api/v1/withdrawals | Solicitar saque |
 | GET | /api/v1/withdrawals | Listar saques |
 | GET | /api/v1/withdrawals/{id} | Consultar saque |
-| PUT | /api/v1/payout-destination | Configurar chave PIX de destino |
+| PUT | /api/v1/payout-destination | Validar chave PIX (não altera chave master) |
 | GET | /api/v1/webhook | Consultar configuração do webhook |
 | PUT | /api/v1/webhook | Provisionar/atualizar webhook (parceiros) |
 | POST | /api/v1/webhook/rotate-secret | Rotacionar secret do webhook |
@@ -461,6 +470,6 @@ Use `idempotency_key` no body ou header `Idempotency-Key` (máx. 128 caracteres)
 - Valide assinatura do webhook em produção
 - Deduplique webhooks por `event_id`
 - Implemente job de reconciliação (60–120 s) como fallback do webhook
-- Configure destino PIX (`PUT /payout-destination`) antes do primeiro saque
+- Informe destino PIX em cada `POST /withdrawals` (`pix_key`, `pix_key_type`, `key_owner_document` quando exigido) — a chave master do infoprodutor não é alterada
 
 Detalhes completos, exemplos Node.js e tabelas: `/docs/api-pagamentos`

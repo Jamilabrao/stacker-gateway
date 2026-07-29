@@ -344,4 +344,164 @@ class PlatformMerchantFeesUpdateTest extends TestCase
         $this->assertSame(5.0, $effective['apple_pay']['percent']);
         $this->assertSame(6.0, $effective['google_pay']['percent']);
     }
+
+    public function test_platform_defaults_inherit_pixgo_from_pix_when_missing(): void
+    {
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.5, 'fixed' => 0.5],
+            'api_pix' => ['percent' => 4.0, 'fixed' => 0.0],
+            'card' => ['percent' => 0, 'fixed' => 0],
+            'apple_pay' => ['percent' => 0, 'fixed' => 0],
+            'google_pay' => ['percent' => 0, 'fixed' => 0],
+            'boleto' => ['percent' => 0, 'fixed' => 0],
+            'withdrawal' => ['percent' => 0, 'fixed' => 0],
+        ], null);
+
+        $defaults = EffectiveMerchantFees::platformDefaults();
+        $this->assertSame(2.5, $defaults['pixgo']['percent']);
+        $this->assertSame(0.5, $defaults['pixgo']['fixed']);
+    }
+
+    public function test_pix_override_inherits_to_pixgo_for_tenant(): void
+    {
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 3.0, 'fixed' => 0.0],
+            'pixgo' => ['percent' => 4.0, 'fixed' => 0.0],
+            'card' => ['percent' => 3.0, 'fixed' => 0.0],
+            'apple_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'google_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'boleto' => ['percent' => 2.0, 'fixed' => 0.0],
+            'withdrawal' => ['percent' => 1.0, 'fixed' => 0.0],
+        ], null);
+
+        $merchant = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+            'merchant_fees' => ['pix' => ['percent' => 7.5, 'fixed' => 1.0]],
+        ]);
+        $merchant->forceFill(['tenant_id' => $merchant->id])->save();
+
+        $checkout = EffectiveMerchantFees::calculateSaleFee((int) $merchant->id, 'pix', 100.0);
+        $pixgo = EffectiveMerchantFees::calculateSaleFee((int) $merchant->id, 'pix', 100.0, 'pixgo');
+
+        $this->assertSame(7.5, $checkout['percent']);
+        $this->assertSame(7.5, $pixgo['percent']);
+        $this->assertSame(8.5, $pixgo['fee']);
+    }
+
+    public function test_explicit_pixgo_override_is_not_overwritten_by_pix_inheritance(): void
+    {
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 3.0, 'fixed' => 0.0],
+            'pixgo' => ['percent' => 4.0, 'fixed' => 0.0],
+            'card' => ['percent' => 3.0, 'fixed' => 0.0],
+            'apple_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'google_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'boleto' => ['percent' => 2.0, 'fixed' => 0.0],
+            'withdrawal' => ['percent' => 1.0, 'fixed' => 0.0],
+        ], null);
+
+        $merchant = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+            'merchant_fees' => [
+                'pix' => ['percent' => 7.5, 'fixed' => 0.0],
+                'pixgo' => ['percent' => 1.5, 'fixed' => 0.25],
+            ],
+        ]);
+        $merchant->forceFill(['tenant_id' => $merchant->id])->save();
+
+        $pixgo = EffectiveMerchantFees::calculateSaleFee((int) $merchant->id, 'pix', 100.0, 'pixgo');
+        $this->assertSame(1.5, $pixgo['percent']);
+        $this->assertSame(1.75, $pixgo['fee']);
+    }
+
+    public function test_pixgo_fee_bucket_is_isolated_from_checkout_and_api_pix(): void
+    {
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill([
+            'tenant_id' => $seller->id,
+            'merchant_fees' => [
+                'pix' => ['percent' => 1.0, 'fixed' => 0.50],
+                'api_pix' => ['percent' => 5.0, 'fixed' => 1.00],
+                'pixgo' => ['percent' => 3.0, 'fixed' => 0.75],
+            ],
+        ])->save();
+
+        $checkout = EffectiveMerchantFees::calculateSaleFee((int) $seller->id, 'pix', 100.00, 'checkout');
+        $api = EffectiveMerchantFees::calculateSaleFee((int) $seller->id, 'pix', 100.00, 'api');
+        $pixgo = EffectiveMerchantFees::calculateSaleFee((int) $seller->id, 'pix', 100.00, 'pixgo');
+
+        $this->assertSame(1.50, $checkout['fee']);
+        $this->assertSame(6.00, $api['fee']);
+        $this->assertSame(3.75, $pixgo['fee']);
+    }
+
+    public function test_admin_can_save_explicit_pixgo_override(): void
+    {
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'api_pix' => ['percent' => 3.0, 'fixed' => 0.0],
+            'pixgo' => ['percent' => 4.0, 'fixed' => 0.0],
+            'card' => ['percent' => 3.0, 'fixed' => 0.0],
+            'apple_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'google_pay' => ['percent' => 3.0, 'fixed' => 0.0],
+            'boleto' => ['percent' => 2.0, 'fixed' => 0.0],
+            'withdrawal' => ['percent' => 1.0, 'fixed' => 0.5],
+        ], null);
+
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $merchant = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $merchant->forceFill([
+            'tenant_id' => $merchant->id,
+            'kyc_status' => User::KYC_APPROVED,
+            'account_status' => 'approved',
+        ])->save();
+
+        $this->actingAs($admin)->put(route('plataforma.usuarios.update', $merchant), [
+            'name' => $merchant->name,
+            'email' => $merchant->email,
+            'merchant_fees' => [
+                'pixgo' => ['percent' => 2.25, 'fixed' => 0.40],
+            ],
+        ])->assertRedirect();
+
+        $merchant->refresh();
+        $this->assertSame(2.25, $merchant->merchant_fees['pixgo']['percent']);
+        $this->assertSame(0.40, $merchant->merchant_fees['pixgo']['fixed']);
+
+        $pixgo = EffectiveMerchantFees::calculateSaleFee((int) $merchant->id, 'pix', 100.0, 'pixgo');
+        $this->assertSame(2.25, $pixgo['percent']);
+        $this->assertSame(2.65, $pixgo['fee']);
+    }
+
+    public function test_platform_admin_can_save_pixgo_fee_rule(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $this->actingAs($admin)->put(route('plataforma.financeiro.taxas.update'), [
+            'merchant_fee_rules' => [
+                'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+                'api_pix' => ['percent' => 3.0, 'fixed' => 0.0],
+                'pixgo' => ['percent' => 1.75, 'fixed' => 0.30],
+                'card' => ['percent' => 0, 'fixed' => 0],
+                'apple_pay' => ['percent' => 0, 'fixed' => 0],
+                'google_pay' => ['percent' => 0, 'fixed' => 0],
+                'boleto' => ['percent' => 0, 'fixed' => 0],
+                'withdrawal' => ['percent' => 0, 'fixed' => 0],
+            ],
+            'api_pix_enabled' => true,
+        ])->assertRedirect();
+
+        $defaults = EffectiveMerchantFees::platformDefaults();
+        $this->assertSame(1.75, $defaults['pixgo']['percent']);
+        $this->assertSame(0.30, $defaults['pixgo']['fixed']);
+    }
 }

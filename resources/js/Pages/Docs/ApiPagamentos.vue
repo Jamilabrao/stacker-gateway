@@ -588,7 +588,7 @@ onMounted(() => nextTick(setupObserver));
                     <DocEndpoint
                         method="PUT"
                         path="/api/v1/payout-destination"
-                        description="Define a chave PIX de destino para saques."
+                        description="Valida uma chave PIX de destino. Não altera a chave master do infoprodutor."
                     >
                         <DocTable :columns="fieldColumns" :rows="payoutDestinationFields" />
                         <h4 class="doc-h4">Regras por tipo de chave</h4>
@@ -606,16 +606,17 @@ onMounted(() => nextTick(setupObserver));
                               "key_owner_document": "52998224725"
                             }
                         </DocCode>
-                        <DocCallout type="warning" title="Antes do primeiro saque">
-                            Configure o destino completo (incluindo CPF/CNPJ do titular quando exigido) antes de
-                            <code class="rounded bg-white/10 px-1 py-0.5">POST /withdrawals</code>. Destino incompleto
-                            retorna <strong class="text-zinc-200">422</strong>.
+                        <DocCallout type="warning" title="Chave master preservada">
+                            Este endpoint apenas valida o destino. A chave master do painel Financeiro do
+                            infoprodutor <strong class="text-zinc-200">não é alterada</strong>. Envie
+                            <code class="rounded bg-white/10 px-1 py-0.5">pix_key</code> em cada
+                            <code class="rounded bg-white/10 px-1 py-0.5">POST /withdrawals</code>.
                         </DocCallout>
                     </DocEndpoint>
                 </DocSection>
 
                 <DocSection id="post-withdrawals">
-                    <DocEndpoint method="POST" path="/api/v1/withdrawals" description="Solicita saque do saldo disponível.">
+                    <DocEndpoint method="POST" path="/api/v1/withdrawals" description="Solicita saque do saldo disponível para a chave informada.">
                         <p class="mb-4 text-sm">
                             <Link
                                 href="/docs/api-pagamentos/testar?op=post-withdrawals"
@@ -628,9 +629,12 @@ onMounted(() => nextTick(setupObserver));
                         <DocTable :columns="fieldColumns" :rows="withdrawalRequestFields" />
                         <h4 class="doc-h4">Resposta 201</h4>
                         <DocTable :columns="fieldColumns" :rows="withdrawalResponseFields" />
-                        <DocCallout type="warning" title="Pré-requisito">
-                            Destino PIX configurado via <code class="rounded bg-white/10 px-1 py-0.5">PUT /payout-destination</code>
-                            com CPF/CNPJ do titular quando a chave for e-mail, telefone ou aleatória.
+                        <DocCallout type="tip" title="Destino por saque">
+                            Informe <code class="rounded bg-white/10 px-1 py-0.5">pix_key</code>,
+                            <code class="rounded bg-white/10 px-1 py-0.5">pix_key_type</code> e
+                            <code class="rounded bg-white/10 px-1 py-0.5">key_owner_document</code> (quando exigido)
+                            neste request. A chave fica gravada na transação do saque e
+                            <strong class="text-zinc-200">não sobrescreve</strong> a chave master do infoprodutor.
                         </DocCallout>
                         <DocCallout type="warning" title="Idempotência">
                             Use <code class="rounded bg-white/10 px-1 py-0.5">Idempotency-Key</code> para evitar saques

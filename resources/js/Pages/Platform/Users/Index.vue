@@ -175,6 +175,9 @@ function computeEffectiveFeesPreview(draftOverrides) {
         if (!overrideBlockIsExplicit(draftOverrides, 'api_pix') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
             effective.api_pix = { ...effective.pix };
         }
+        if (!overrideBlockIsExplicit(draftOverrides, 'pixgo') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
+            effective.pixgo = { ...effective.pix };
+        }
         if (!overrideBlockIsExplicit(draftOverrides, 'apple_pay') && overrideBlockIsExplicit(draftOverrides, 'card')) {
             effective.apple_pay = { ...effective.card };
         }
@@ -202,6 +205,7 @@ function defaultFeeOverrides() {
     return {
         pix: { percent: '', fixed: '' },
         api_pix: { percent: '', fixed: '' },
+        pixgo: { percent: '', fixed: '' },
         card: { percent: '', fixed: '' },
         apple_pay: { percent: '', fixed: '' },
         google_pay: { percent: '', fixed: '' },
@@ -213,6 +217,7 @@ function defaultFeeOverrides() {
 const feeOverrideRows = [
     { key: 'pix', label: 'PIX (checkout)' },
     { key: 'api_pix', label: 'PIX (API)', inheritHint: 'Se vazio, herda de PIX (checkout)' },
+    { key: 'pixgo', label: 'PixGo', inheritHint: 'Se vazio, herda de PIX (checkout)' },
     { key: 'card', label: 'Cartão' },
     { key: 'apple_pay', label: 'Apple Pay', inheritHint: 'Se vazio, herda de Cartão' },
     { key: 'google_pay', label: 'Google Pay', inheritHint: 'Se vazio, herda de Cartão' },
@@ -220,7 +225,7 @@ const feeOverrideRows = [
     { key: 'withdrawal', label: 'Saque' },
 ];
 
-const feeRuleKeys = ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
+const feeRuleKeys = ['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
 
 const settlementOverrideRows = [
     { key: 'pix', label: 'PIX' },
@@ -233,7 +238,7 @@ const settlementOverrideRows = [
 function mergeFeeOverrides(raw) {
     const d = defaultFeeOverrides();
     if (!raw || typeof raw !== 'object') return d;
-    for (const k of ['pix', 'api_pix', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal']) {
+    for (const k of ['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal']) {
         if (raw[k] && typeof raw[k] === 'object') {
             if (raw[k].percent != null && raw[k].percent !== '') {
                 d[k].percent = formatPercentForInput(raw[k].percent);
@@ -1143,7 +1148,7 @@ function formatBlockUntilForInput(iso) {
                             </button>
                         </div>
                         <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Sobrescreve os padrões em Financeiro → Taxas. Só o PIX tem taxa separada para API (REST ou link de checkout pela API); cartão e boleto usam as linhas Cartão / Boleto. Deixe em branco para herdar.
+                            Sobrescreve os padrões em Financeiro → Taxas. PIX tem taxas separadas para API (REST ou link de checkout pela API) e PixGo; cartão e boleto usam as linhas Cartão / Boleto. Deixe em branco para herdar.
                             Percentual de 0 a 100 (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">2,5</code> = 2,5%). Fixo em reais (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">1,50</code> = R$ 1,50).
                         </p>
                         <div class="hidden gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500 sm:grid sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] dark:text-zinc-400">

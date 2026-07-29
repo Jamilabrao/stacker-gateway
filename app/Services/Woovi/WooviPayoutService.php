@@ -9,6 +9,7 @@ use App\Models\Withdrawal;
 use App\Services\EffectiveMerchantFees;
 use App\Services\Payout\GatewayPayoutEconomics;
 use App\Services\Payout\PayoutUserSettings;
+use App\Services\Payout\WithdrawalPayoutDestination;
 
 class WooviPayoutService
 {
@@ -60,7 +61,8 @@ class WooviPayoutService
         }
 
         $settings = is_array($owner->payout_settings) ? $owner->payout_settings : [];
-        $pixKey = PayoutUserSettings::pixKey($settings);
+        $fromWithdrawal = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $fromWithdrawal['pix_key'] ?? PayoutUserSettings::pixKey($settings);
         if ($pixKey === '') {
             return ['ok' => false, 'error' => 'Cadastre a chave PIX de destino no Financeiro antes de solicitar o saque.'];
         }

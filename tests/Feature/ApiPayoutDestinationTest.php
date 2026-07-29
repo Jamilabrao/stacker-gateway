@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\Withdrawal;
+use App\Services\Payout\WithdrawalPayoutDestination;
 use App\Support\ApiScopes;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -113,7 +114,7 @@ class ApiPayoutDestinationTest extends TestCase
         ];
     }
 
-    public function test_put_payout_destination_persists_key_owner_document(): void
+    public function test_put_payout_destination_does_not_overwrite_merchant_master_key(): void
     {
         if (! Schema::hasColumn('users', 'payout_settings')) {
             $this->markTestSkipped('payout_settings column');
@@ -122,23 +123,38 @@ class ApiPayoutDestinationTest extends TestCase
         $ctx = $this->createWithdrawalApiContext();
         $this->connectCajuPayPayout();
 
+        $masterKey = 'master@infoprodutor.com';
+        $ctx['seller']->forceFill([
+            'payout_settings' => [
+                'cajupay_pix_key' => $masterKey,
+                'cajupay_pix_key_type' => 'email',
+                'cajupay_pix_key_owner_document' => '52998224725',
+            ],
+        ])->save();
+
         $resp = $this->withHeaders($this->apiHeaders($ctx['public'], $ctx['secret']))
             ->putJson('/api/v1/payout-destination', [
-                'pix_key' => 'parceiro@exemplo.com',
+                'pix_key' => 'terceiro@exemplo.com',
                 'pix_key_type' => 'email',
                 'key_owner_document' => '529.982.247-25',
             ]);
 
         $resp->assertOk()
             ->assertJsonPath('pix_key_type', 'email')
-            ->assertJsonPath('pix_key_masked', '****************.com')
+            ->assertJsonPath('persisted_to_merchant', false)
             ->assertJsonPath('key_owner_document_masked', '*******4725');
+
+        $this->assertSame(
+            str_repeat('*', max(0, strlen('terceiro@exemplo.com') - 4)).substr('terceiro@exemplo.com', -4),
+            $resp->json('pix_key_masked')
+        );
 
         $ctx['seller']->refresh();
         $settings = is_array($ctx['seller']->payout_settings) ? $ctx['seller']->payout_settings : [];
-        $this->assertSame('parceiro@exemplo.com', $settings['cajupay_pix_key'] ?? null);
+        $this->assertSame($masterKey, $settings['cajupay_pix_key'] ?? null);
         $this->assertSame('email', $settings['cajupay_pix_key_type'] ?? null);
         $this->assertSame('52998224725', $settings['cajupay_pix_key_owner_document'] ?? null);
+        $this->assertNotSame('terceiro@exemplo.com', $settings['cajupay_pix_key'] ?? null);
     }
 
     public function test_put_payout_destination_email_without_document_returns_422(): void
@@ -178,11 +194,12 @@ class ApiPayoutDestinationTest extends TestCase
                 'key_owner_document' => '52998224725',
             ]);
 
-        $resp->assertOk()->assertJsonPath('pix_key_type', 'evp');
+        $resp->assertOk()
+            ->assertJsonPath('pix_key_type', 'evp')
+            ->assertJsonPath('persisted_to_merchant', false);
 
         $ctx['seller']->refresh();
-        $settings = is_array($ctx['seller']->payout_settings) ? $ctx['seller']->payout_settings : [];
-        $this->assertSame('evp', $settings['cajupay_pix_key_type'] ?? null);
+        $this->assertNull($ctx['seller']->payout_settings);
     }
 
     public function test_put_payout_destination_cpf_auto_derives_owner_document(): void
@@ -202,11 +219,11 @@ class ApiPayoutDestinationTest extends TestCase
 
         $resp->assertOk()
             ->assertJsonPath('pix_key_type', 'cpf')
-            ->assertJsonPath('key_owner_document_masked', '*******4725');
+            ->assertJsonPath('key_owner_document_masked', '*******4725')
+            ->assertJsonPath('persisted_to_merchant', false);
 
         $ctx['seller']->refresh();
-        $settings = is_array($ctx['seller']->payout_settings) ? $ctx['seller']->payout_settings : [];
-        $this->assertSame('52998224725', $settings['cajupay_pix_key_owner_document'] ?? null);
+        $this->assertNull($ctx['seller']->payout_settings);
     }
 
     public function test_post_withdrawals_without_destination_returns_422_and_keeps_balance(): void
@@ -223,7 +240,7 @@ class ApiPayoutDestinationTest extends TestCase
             ->postJson('/api/v1/withdrawals', ['amount' => 50.00]);
 
         $resp->assertStatus(422)
-            ->assertJsonValidationErrors(['amount']);
+            ->assertJsonValidationErrors(['pix_key']);
 
         $this->assertDatabaseCount('withdrawals', 0);
         $this->assertEqualsWithDelta(
@@ -233,7 +250,7 @@ class ApiPayoutDestinationTest extends TestCase
         );
     }
 
-    public function test_post_withdrawals_with_complete_destination_returns_201(): void
+    public function test_post_withdrawals_stores_destination_on_withdrawal_without_touching_master_key(): void
     {
         if (! Schema::hasTable('withdrawals') || ! Schema::hasTable('tenant_wallets')) {
             $this->markTestSkipped('withdrawals/tenant_wallets tables');
@@ -245,9 +262,68 @@ class ApiPayoutDestinationTest extends TestCase
         $this->connectCajuPayPayout();
         $this->fundWallet($ctx['seller'], 500.0);
 
+        $masterKey = 'master@infoprodutor.com';
         $ctx['seller']->forceFill([
             'payout_settings' => [
-                'cajupay_pix_key' => 'parceiro@exemplo.com',
+                'cajupay_pix_key' => $masterKey,
+                'cajupay_pix_key_type' => 'email',
+                'cajupay_pix_key_owner_document' => '52998224725',
+            ],
+        ])->save();
+
+        $thirdPartyKey = 'terceiro@exemplo.com';
+
+        $resp = $this->withHeaders($this->apiHeaders($ctx['public'], $ctx['secret']))
+            ->postJson('/api/v1/withdrawals', [
+                'amount' => 50.00,
+                'pix_key' => $thirdPartyKey,
+                'pix_key_type' => 'email',
+                'key_owner_document' => '52998224725',
+            ]);
+
+        $resp->assertStatus(201)
+            ->assertJsonPath('status', 'pending')
+            ->assertJsonPath('amount', 50)
+            ->assertJsonPath('pix_key_type', 'email');
+
+        $this->assertSame(
+            str_repeat('*', max(0, strlen($thirdPartyKey) - 4)).substr($thirdPartyKey, -4),
+            $resp->json('pix_key_masked')
+        );
+
+        $withdrawal = Withdrawal::query()->where('tenant_id', $ctx['seller']->id)->latest('id')->first();
+        $this->assertNotNull($withdrawal);
+
+        $dest = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $this->assertNotNull($dest);
+        $this->assertSame($thirdPartyKey, $dest['pix_key']);
+        $this->assertSame('email', $dest['pix_key_type']);
+        $this->assertSame('52998224725', $dest['key_owner_document']);
+
+        $ctx['seller']->refresh();
+        $settings = is_array($ctx['seller']->payout_settings) ? $ctx['seller']->payout_settings : [];
+        $this->assertSame($masterKey, $settings['cajupay_pix_key'] ?? null);
+
+        $this->assertEqualsWithDelta(
+            450.0,
+            (float) TenantWallet::query()->where('tenant_id', $ctx['seller']->id)->value('available_pix'),
+            0.01
+        );
+    }
+
+    public function test_post_withdrawals_with_master_key_only_still_requires_request_destination(): void
+    {
+        if (! Schema::hasTable('withdrawals') || ! Schema::hasTable('tenant_wallets')) {
+            $this->markTestSkipped('withdrawals/tenant_wallets tables');
+        }
+
+        $ctx = $this->createWithdrawalApiContext();
+        $this->connectCajuPayPayout();
+        $this->fundWallet($ctx['seller'], 500.0);
+
+        $ctx['seller']->forceFill([
+            'payout_settings' => [
+                'cajupay_pix_key' => 'master@infoprodutor.com',
                 'cajupay_pix_key_type' => 'email',
                 'cajupay_pix_key_owner_document' => '52998224725',
             ],
@@ -256,19 +332,9 @@ class ApiPayoutDestinationTest extends TestCase
         $resp = $this->withHeaders($this->apiHeaders($ctx['public'], $ctx['secret']))
             ->postJson('/api/v1/withdrawals', ['amount' => 50.00]);
 
-        $resp->assertStatus(201)
-            ->assertJsonPath('status', 'pending')
-            ->assertJsonPath('amount', 50);
+        $resp->assertStatus(422)
+            ->assertJsonValidationErrors(['pix_key']);
 
-        $this->assertDatabaseHas('withdrawals', [
-            'tenant_id' => $ctx['seller']->id,
-            'amount' => 50,
-        ]);
-
-        $this->assertEqualsWithDelta(
-            450.0,
-            (float) TenantWallet::query()->where('tenant_id', $ctx['seller']->id)->value('available_pix'),
-            0.01
-        );
+        $this->assertDatabaseCount('withdrawals', 0);
     }
 }

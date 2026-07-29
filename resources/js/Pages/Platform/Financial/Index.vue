@@ -30,6 +30,7 @@ import {
 const feeMethodRows = [
     { key: 'pix', label: 'PIX' },
     { key: 'api_pix', label: 'API — PIX' },
+    { key: 'pixgo', label: 'PixGo' },
     { key: 'card', label: 'Cartão' },
     { key: 'apple_pay', label: 'Apple Pay' },
     { key: 'google_pay', label: 'Google Pay' },
@@ -659,6 +660,7 @@ const feeForm = useForm({
     merchant_fee_rules: {
         pix: feeBlock('pix'),
         api_pix: feeBlock('api_pix'),
+        pixgo: feeBlock('pixgo'),
         card: feeBlock('card'),
         apple_pay: feeBlock('apple_pay'),
         google_pay: feeBlock('google_pay'),
@@ -1243,6 +1245,7 @@ function submitSettlement() {
                         Percentual e valor fixo por transação. <strong class="font-medium text-zinc-800 dark:text-zinc-200">PIX / cartão / Apple Pay / Google Pay / boleto</strong> valem para o checkout próprio da plataforma
                         (Apple Pay e Google Pay via CajuPay SDK usam as taxas próprias; se não configuradas, herdam a taxa de <strong class="font-medium">cartão</strong> até você definir valores distintos).
                         <strong class="font-medium text-zinc-800 dark:text-zinc-200">API — PIX</strong> aplica-se só ao PIX criado pela API REST ou pelo link de checkout hospedado gerado pela API (cartão e boleto usam sempre as taxas de checkout).
+                        <strong class="font-medium text-zinc-800 dark:text-zinc-200">PixGo</strong> aplica-se às cobranças geradas pelo PixGo (se não configurada, herda a taxa de PIX do checkout).
                         Cada infoprodutor pode sobrescrever em Infoprodutores → editar.
                     </p>
                     <p class="mb-6 text-xs text-zinc-500 dark:text-zinc-400">

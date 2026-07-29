@@ -4,13 +4,18 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Services\Api\ApiAuthContext;
-use App\Services\Api\ApiWithdrawalService;
 use App\Services\Payout\PayoutDestinationValidator;
 use App\Services\Payout\PlatformPayoutGateway;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * Valida destino PIX para saque via API.
+ *
+ * Não altera a chave master do infoprodutor (users.payout_settings).
+ * O destino deve ser informado em cada POST /withdrawals.
+ */
 class PayoutDestinationController extends Controller
 {
     public function update(Request $request): JsonResponse
@@ -39,39 +44,14 @@ class PayoutDestinationController extends Controller
             ]);
         }
 
-        $owner = ApiWithdrawalService::resolveInfoprodutor((int) $ctx->application->tenant_id);
-        $settings = is_array($owner->payout_settings) ? $owner->payout_settings : [];
-
-        $keyField = match ($slug) {
-            'spacepag' => 'spacepag_pix_key',
-            'woovi' => 'woovi_pix_key',
-            default => 'cajupay_pix_key',
-        };
-        $typeField = match ($slug) {
-            'spacepag' => 'spacepag_pix_key_type',
-            'woovi' => 'woovi_pix_key_type',
-            default => 'cajupay_pix_key_type',
-        };
-
-        $settings[$keyField] = $result['pix_key'];
-        $settings[$typeField] = $result['pix_key_type'];
-        $settings['payout_pix_key'] = $result['pix_key'];
-        $settings['payout_pix_key_type'] = $result['pix_key_type'];
-
-        if ($slug === 'cajupay' && $result['key_owner_document'] !== '') {
-            $settings['cajupay_pix_key_owner_document'] = $result['key_owner_document'];
-            $settings['payout_pix_key_owner_document'] = $result['key_owner_document'];
-        }
-
-        $owner->forceFill(['payout_settings' => $settings])->save();
-
         $response = [
-            'message' => 'Chave PIX de saque atualizada.',
+            'message' => 'Destino PIX válido. Envie pix_key, pix_key_type e key_owner_document (quando exigido) em cada POST /withdrawals. A chave master do infoprodutor não é alterada.',
             'pix_key_type' => $result['pix_key_type'],
             'pix_key_masked' => $this->maskPixKey($result['pix_key']),
+            'persisted_to_merchant' => false,
         ];
 
-        if ($slug === 'cajupay' && $result['key_owner_document'] !== '') {
+        if ($slug === 'cajupay' && ($result['key_owner_document'] ?? '') !== '') {
             $response['key_owner_document_masked'] = PayoutDestinationValidator::maskDocument($result['key_owner_document']);
         }
 

@@ -8,6 +8,7 @@ use App\Models\Withdrawal;
 use App\Services\MerchantOperationalGuard;
 use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutDestinationValidator;
+use App\Services\Payout\WithdrawalPayoutDestination;
 use App\Services\Withdrawal\WithdrawalPolicyService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
@@ -20,6 +21,8 @@ class ApiWithdrawalService
     ) {}
 
     /**
+     * @param  array{pix_key: string, pix_key_type: string, key_owner_document?: string|null}|null  $destination
+     *
      * @throws ValidationException
      */
     public function createWithdrawal(
@@ -29,17 +32,30 @@ class ApiWithdrawalService
         int $apiApplicationId,
         ?int $apiKeyId = null,
         ?string $notes = null,
+        ?array $destination = null,
     ): Withdrawal {
         $this->assertVelocityLimits((int) $owner->tenant_id);
 
-        $destination = PayoutDestinationValidator::assertReadyForWithdrawal($owner);
-        if (! ($destination['ok'] ?? false)) {
+        if ($destination === null) {
             throw ValidationException::withMessages([
-                'amount' => $destination['message'],
+                'pix_key' => 'Informe pix_key e pix_key_type no POST /withdrawals. A chave master do infoprodutor não é usada nem alterada por saques via API.',
+            ]);
+        }
+
+        $validatedDestination = PayoutDestinationValidator::validateForUpdate($destination);
+        if (! ($validatedDestination['ok'] ?? false)) {
+            throw ValidationException::withMessages([
+                $validatedDestination['field'] => $validatedDestination['message'],
             ]);
         }
 
         $withdrawal = MerchantWithdrawalService::requestWithdrawal($owner, $amount, $bucket, $notes);
+
+        WithdrawalPayoutDestination::attach($withdrawal, [
+            'pix_key' => $validatedDestination['pix_key'],
+            'pix_key_type' => $validatedDestination['pix_key_type'],
+            'key_owner_document' => $validatedDestination['key_owner_document'] ?? '',
+        ], 'api_request');
 
         if (Schema::hasColumn($withdrawal->getTable(), 'api_application_id')) {
             $withdrawal->forceFill([

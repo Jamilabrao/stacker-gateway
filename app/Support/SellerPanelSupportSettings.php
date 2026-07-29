@@ -150,44 +150,23 @@ final class SellerPanelSupportSettings
 
     /**
      * URL do avatar customizado para o painel do info.
-     * Usa storage global da plataforma e evita re-resolver com o disco do tenant.
+     * Usa o mesmo resolve do admin (storage global da plataforma + host da request atual).
      */
     public static function resolveCustomIconUrlForPanel(): ?string
     {
-        $stored = trim((string) Setting::get('seller_panel_support_icon_image', '', null));
-        if ($stored === '') {
+        $url = trim(self::iconImageUrl());
+        if ($url === '') {
             return null;
         }
 
-        $platformStorage = new \App\Services\StorageService(null);
-
-        // Disco local: path same-origin — o browser carrega do host atual do painel.
-        if ($platformStorage->isLocal()) {
-            $relative = ltrim($stored, '/');
-            if (preg_match('#^https?://#i', $relative)) {
-                $path = parse_url($relative, PHP_URL_PATH);
-                if (is_string($path) && str_starts_with($path, '/storage/')) {
-                    return $path;
-                }
-            } else {
-                if (str_starts_with($relative, 'storage/')) {
-                    $relative = substr($relative, strlen('storage/'));
-                }
-
-                return '/storage/'.$relative;
-            }
+        if (SafeUrl::isAllowedHttpUrl($url) || str_starts_with($url, '/storage/') || str_starts_with($url, '/images/')) {
+            return $url;
         }
 
-        $resolved = $platformStorage->resolvePublicUrl($stored);
-        if ($resolved === '') {
-            return null;
-        }
+        // Path relativo gravado no settings — re-resolve com disco da plataforma (tenant null).
+        $resolved = (new \App\Services\StorageService(null))->resolvePublicUrl($url);
 
-        if (SafeUrl::isAllowedHttpUrl($resolved) || str_starts_with($resolved, '/storage/')) {
-            return $resolved;
-        }
-
-        return SafeUrl::normalizeAppImageUrl($resolved);
+        return $resolved !== '' ? $resolved : null;
     }
 
     public static function normalizeWhatsappNumber(?string $phone): string

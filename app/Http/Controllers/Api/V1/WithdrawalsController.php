@@ -73,6 +73,9 @@ class WithdrawalsController extends Controller
             'bucket' => ['nullable', 'string', 'in:pix,card,boleto'],
             'notes' => ['nullable', 'string', 'max:500'],
             'idempotency_key' => ['nullable', 'string', 'max:128'],
+            'pix_key' => ['required', 'string', 'max:255'],
+            'pix_key_type' => ['required', 'string', 'in:cpf,cnpj,email,phone,evp,random'],
+            'key_owner_document' => ['nullable', 'string', 'max:20'],
         ]);
 
         $idemKey = $request->input('idempotency_key') ?: $request->header('Idempotency-Key');
@@ -92,6 +95,11 @@ class WithdrawalsController extends Controller
                         (int) $ctx->application->id,
                         $ctx->apiKey?->id,
                         $validated['notes'] ?? null,
+                        [
+                            'pix_key' => (string) $validated['pix_key'],
+                            'pix_key_type' => (string) $validated['pix_key_type'],
+                            'key_owner_document' => $validated['key_owner_document'] ?? null,
+                        ],
                     );
                     $withdrawals->recordVelocity((int) $ctx->application->tenant_id, (float) $validated['amount']);
 
@@ -111,6 +119,9 @@ class WithdrawalsController extends Controller
      */
     private function serializeWithdrawal(Withdrawal $withdrawal): array
     {
+        $destination = \App\Services\Payout\WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $destination['pix_key'] ?? null;
+
         return [
             'withdrawal_id' => $withdrawal->id,
             'status' => $withdrawal->status,
@@ -122,8 +133,20 @@ class WithdrawalsController extends Controller
             'notes' => $withdrawal->notes,
             'payout_provider' => $withdrawal->payout_provider,
             'payout_external_id' => $withdrawal->payout_external_id,
+            'pix_key_type' => $destination['pix_key_type'] ?? null,
+            'pix_key_masked' => is_string($pixKey) && $pixKey !== '' ? $this->maskPixKey($pixKey) : null,
             'created_at' => $withdrawal->created_at?->toIso8601String(),
             'updated_at' => $withdrawal->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function maskPixKey(string $key): string
+    {
+        $len = strlen($key);
+        if ($len <= 4) {
+            return '****';
+        }
+
+        return str_repeat('*', max(0, $len - 4)).substr($key, -4);
     }
 }

@@ -12,6 +12,7 @@ use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Services\CajuPay\CajuPayPayoutService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
+use App\Services\Payout\WithdrawalPayoutDestination;
 use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Services\Spacepag\SpacepagPayoutService;
 use App\Services\Woovi\WooviPayoutService;
@@ -77,10 +78,12 @@ class WithdrawalAutoPayoutService
         }
 
         $settings = is_array($owner?->payout_settings) ? $owner->payout_settings : [];
-        $pixKey = PayoutUserSettings::cajuPixKey($settings);
-        $pixKeyType = PayoutUserSettings::cajuPixKeyType($settings);
-        // O documento do titular vem do cadastro da chave PIX, sem comparação com documento do perfil.
-        $keyOwnerDocument = PayoutUserSettings::cajuPixOwnerDocument($settings);
+        $fromWithdrawal = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $fromWithdrawal['pix_key'] ?? PayoutUserSettings::cajuPixKey($settings);
+        $pixKeyType = $fromWithdrawal['pix_key_type'] ?? PayoutUserSettings::cajuPixKeyType($settings);
+        // O documento do titular vem do destino do saque (API) ou do cadastro master (painel).
+        $keyOwnerDocument = $fromWithdrawal['key_owner_document']
+            ?? PayoutUserSettings::cajuPixOwnerDocument($settings);
         if ($pixKey === '' || $pixKeyType === '') {
             return ['ok' => false, 'skipped' => true, 'reason' => 'no_pix_key'];
         }
@@ -98,15 +101,16 @@ class WithdrawalAutoPayoutService
         );
 
         if ($result['ok'] ?? false) {
+            $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
             $withdrawal->update([
                 'payout_manual' => false,
                 'payout_provider' => 'cajupay',
                 'payout_external_id' => $result['external_id'] ?? null,
-                'payout_meta' => array_filter([
+                'payout_meta' => array_merge($prev, array_filter([
                     'api_status' => $result['status'] ?? null,
                     'requested_at' => now()->toIso8601String(),
                     'auto' => true,
-                ]),
+                ])),
             ]);
 
             ReconcileCajuPayWithdrawalJob::dispatch($withdrawal->fresh()->id)
@@ -174,7 +178,8 @@ class WithdrawalAutoPayoutService
         }
 
         $settings = is_array($owner->payout_settings) ? $owner->payout_settings : [];
-        $pixKey = PayoutUserSettings::pixKey($settings);
+        $fromWithdrawal = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $fromWithdrawal['pix_key'] ?? PayoutUserSettings::pixKey($settings);
         if ($pixKey === '') {
             return ['ok' => false, 'skipped' => true, 'reason' => 'no_pix_key'];
         }
@@ -183,15 +188,16 @@ class WithdrawalAutoPayoutService
         $result = $payout->sendWithdrawalToPix($withdrawal->fresh(), $owner);
 
         if ($result['ok'] ?? false) {
+            $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
             $withdrawal->update([
                 'payout_manual' => false,
                 'payout_provider' => 'spacepag',
                 'payout_external_id' => $result['transaction_id'] ?? null,
-                'payout_meta' => array_filter([
+                'payout_meta' => array_merge($prev, array_filter([
                     'api_status' => 'pending',
                     'requested_at' => now()->toIso8601String(),
                     'auto' => true,
-                ]),
+                ])),
             ]);
 
             ReconcileSpacepagWithdrawalJob::dispatch($withdrawal->fresh()->id)
@@ -246,7 +252,8 @@ class WithdrawalAutoPayoutService
         }
 
         $settings = is_array($owner->payout_settings) ? $owner->payout_settings : [];
-        $pixKey = PayoutUserSettings::pixKey($settings);
+        $fromWithdrawal = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $fromWithdrawal['pix_key'] ?? PayoutUserSettings::pixKey($settings);
         if ($pixKey === '') {
             return ['ok' => false, 'skipped' => true, 'reason' => 'no_pix_key'];
         }
@@ -255,15 +262,16 @@ class WithdrawalAutoPayoutService
         $result = $payout->sendWithdrawalToPix($withdrawal->fresh(), $owner);
 
         if ($result['ok'] ?? false) {
+            $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
             $withdrawal->update([
                 'payout_manual' => false,
                 'payout_provider' => 'woovi',
                 'payout_external_id' => $result['transaction_id'] ?? null,
-                'payout_meta' => array_filter([
+                'payout_meta' => array_merge($prev, array_filter([
                     'api_status' => 'pending',
                     'requested_at' => now()->toIso8601String(),
                     'auto' => true,
-                ]),
+                ])),
             ]);
 
             ReconcileWooviWithdrawalJob::dispatch($withdrawal->fresh()->id)
@@ -318,7 +326,8 @@ class WithdrawalAutoPayoutService
         }
 
         $settings = is_array($owner->payout_settings) ? $owner->payout_settings : [];
-        $pixKey = PayoutUserSettings::pixKey($settings);
+        $fromWithdrawal = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $fromWithdrawal['pix_key'] ?? PayoutUserSettings::pixKey($settings);
         if ($pixKey === '') {
             return ['ok' => false, 'skipped' => true, 'reason' => 'no_pix_key'];
         }
@@ -327,15 +336,16 @@ class WithdrawalAutoPayoutService
         $result = $payout->sendWithdrawalToPix($withdrawal->fresh(), $owner);
 
         if ($result['ok'] ?? false) {
+            $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
             $withdrawal->update([
                 'payout_manual' => false,
                 'payout_provider' => 'onlyup',
                 'payout_external_id' => $result['transaction_id'] ?? null,
-                'payout_meta' => array_filter([
+                'payout_meta' => array_merge($prev, array_filter([
                     'api_status' => 'pending',
                     'requested_at' => now()->toIso8601String(),
                     'auto' => true,
-                ]),
+                ])),
             ]);
 
             ReconcileOnlyUpWithdrawalJob::dispatch($withdrawal->fresh()->id)

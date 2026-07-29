@@ -50,15 +50,26 @@ async function onFileSelected(event) {
     try {
         const formData = new FormData();
         formData.append('file', file);
+        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        if (token) {
+            formData.append('_token', token);
+        }
+        // Não definir Content-Type manualmente: o browser precisa do boundary do multipart.
+        // Sem isso o Laravel não lê o body e responde 419 CSRF token mismatch.
         const res = await window.axios.post('/plataforma/configuracoes/suporte-painel/upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
+            headers: token ? { 'X-CSRF-TOKEN': token } : {},
         });
         props.form.seller_panel_support_icon_image = res.data?.url ?? '';
         props.form.seller_panel_support_icon = 'custom';
     } catch (e) {
-        uploadError.value = e?.response?.data?.message
-            || e?.response?.data?.errors?.file?.[0]
-            || 'Não foi possível enviar a imagem.';
+        const status = e?.response?.status;
+        if (status === 419) {
+            uploadError.value = 'Sessão expirada (CSRF). Recarregue a página e envie a imagem de novo.';
+        } else {
+            uploadError.value = e?.response?.data?.message
+                || e?.response?.data?.errors?.file?.[0]
+                || 'Não foi possível enviar a imagem.';
+        }
     } finally {
         uploading.value = false;
     }
@@ -67,13 +78,25 @@ async function onFileSelected(event) {
 async function clearIcon() {
     uploadError.value = '';
     try {
-        await window.axios.post('/plataforma/configuracoes/suporte-painel/clear-icon');
+        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const formData = new FormData();
+        if (token) {
+            formData.append('_token', token);
+        }
+        await window.axios.post('/plataforma/configuracoes/suporte-painel/clear-icon', formData, {
+            headers: token ? { 'X-CSRF-TOKEN': token } : {},
+        });
         props.form.seller_panel_support_icon_image = '';
         if (props.form.seller_panel_support_icon === 'custom') {
             props.form.seller_panel_support_icon = 'whatsapp';
         }
     } catch (e) {
-        uploadError.value = e?.response?.data?.message || 'Não foi possível remover a imagem.';
+        const status = e?.response?.status;
+        if (status === 419) {
+            uploadError.value = 'Sessão expirada (CSRF). Recarregue a página e tente novamente.';
+        } else {
+            uploadError.value = e?.response?.data?.message || 'Não foi possível remover a imagem.';
+        }
     }
 }
 </script>

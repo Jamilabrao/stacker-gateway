@@ -2,16 +2,54 @@
 import LayoutDoc from '@/Layouts/LayoutDoc.vue';
 import { ArrowLeft, Download, Sparkles } from 'lucide-vue-next';
 import { Link } from '@inertiajs/vue3';
+import { ref } from 'vue';
 
 defineOptions({ layout: LayoutDoc });
 
-defineProps({
+const props = defineProps({
     baseUrl: { type: String, default: '' },
     llmBundleFilename: { type: String, default: 'plataforma-api-integracao-llm.md' },
 });
 
 /** Sempre relativo ao host atual — evita APP_URL/localhost apontando para outro endereço. */
 const downloadUrl = '/docs/api-pagamentos/llm/download';
+
+const downloading = ref(false);
+const downloadError = ref('');
+
+/**
+ * O atributo HTML `download` falha com frequência atrás de Cloudflare/Caddy/redirect
+ * (Chrome: "Site wasn't available"). Fetch + blob usa o mesmo origin e Content-Disposition.
+ */
+async function downloadLlmBundle() {
+    downloadError.value = '';
+    downloading.value = true;
+    try {
+        const res = await fetch(downloadUrl, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: { Accept: 'text/markdown, text/plain, */*' },
+        });
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = props.llmBundleFilename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+    } catch (_) {
+        downloadError.value =
+            'Não foi possível baixar automaticamente. Tentando abrir o arquivo direto…';
+        window.location.assign(downloadUrl);
+    } finally {
+        downloading.value = false;
+    }
+}
 </script>
 
 <template>
@@ -92,14 +130,25 @@ const downloadUrl = '/docs/api-pagamentos/llm/download';
                             Pacote Markdown completo da API e integração. Ideal para janelas de contexto longas em
                             assistentes de código e chat.
                         </p>
-                        <a
-                            :href="downloadUrl"
-                            :download="llmBundleFilename"
-                            class="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-teal-400"
+                        <button
+                            type="button"
+                            class="mt-4 inline-flex items-center gap-2 rounded-lg bg-teal-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-teal-400 disabled:cursor-wait disabled:opacity-70"
+                            :disabled="downloading"
+                            @click="downloadLlmBundle"
                         >
                             <Download class="h-4 w-4" />
-                            Baixar {{ llmBundleFilename }}
-                        </a>
+                            {{ downloading ? 'Baixando…' : `Baixar ${llmBundleFilename}` }}
+                        </button>
+                        <p v-if="downloadError" class="mt-3 text-sm text-amber-300/90">
+                            {{ downloadError }}
+                        </p>
+                        <p class="mt-3 text-xs text-zinc-500">
+                            Se o download falhar,
+                            <a :href="downloadUrl" class="text-teal-400 hover:underline" target="_blank" rel="noopener">
+                                abra o arquivo em nova aba
+                            </a>
+                            .
+                        </p>
                     </div>
                 </div>
             </div>
