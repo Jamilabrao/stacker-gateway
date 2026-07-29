@@ -41,4 +41,16 @@ class ApiPagamentosLlmBundleTest extends TestCase
         $this->assertStringContainsString('https://gateway.exemplo.com/api/v1', $content);
         $this->assertStringNotContainsString('https://seudominio.com', $content);
     }
+
+    public function test_llm_bundle_missing_module_returns_service_unavailable(): void
+    {
+        $this->withoutMiddleware(EnsureInstalled::class);
+
+        $bundle = \Mockery::mock(ApiPagamentosLlmBundle::class);
+        $bundle->shouldReceive('build')->once()->andThrow(new \RuntimeException('Arquivo de documentação ausente'));
+        $bundle->shouldReceive('downloadFilename')->never();
+        $this->app->instance(ApiPagamentosLlmBundle::class, $bundle);
+
+        $this->get(route('api-docs.pagamentos.llm'))->assertStatus(503);
+    }
 }

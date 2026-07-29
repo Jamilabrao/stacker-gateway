@@ -29,18 +29,13 @@ class ApiPagamentosLlmBundle
         $parts = [];
 
         foreach ($this->modulePaths() as $path) {
-            $content = file_get_contents($path);
-            if ($content === false) {
-                throw new \RuntimeException("Não foi possível ler o módulo de documentação: {$path}");
-            }
-            $parts[] = $this->replacePlaceholders($content, $baseUrl);
+            $parts[] = $this->replacePlaceholders($this->readRequiredFile($path), $baseUrl);
         }
 
-        $apiDoc = file_get_contents(base_path('docs-api.md'));
-        if ($apiDoc === false) {
-            throw new \RuntimeException('Não foi possível ler docs-api.md');
-        }
-        $parts[] = $this->replacePlaceholders($apiDoc, $baseUrl);
+        $parts[] = $this->replacePlaceholders(
+            $this->readRequiredFile(base_path('docs-api.md')),
+            $baseUrl
+        );
 
         return implode("\n\n---\n\n", $parts);
     }
@@ -54,6 +49,20 @@ class ApiPagamentosLlmBundle
             base_path('docs/llm/00-instructions.md'),
             base_path('docs/llm/10-payment-confirmation-fallbacks.md'),
         ];
+    }
+
+    private function readRequiredFile(string $path): string
+    {
+        if (! is_file($path) || ! is_readable($path)) {
+            throw new \RuntimeException('Arquivo de documentação ausente no servidor: '.$path);
+        }
+
+        $content = file_get_contents($path);
+        if ($content === false) {
+            throw new \RuntimeException('Não foi possível ler o arquivo de documentação: '.$path);
+        }
+
+        return $content;
     }
 
     private function replacePlaceholders(string $content, string $baseUrl): string

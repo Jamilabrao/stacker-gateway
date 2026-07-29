@@ -31,7 +31,22 @@ async function downloadLlmBundle() {
             headers: { Accept: 'text/markdown, text/plain, */*' },
         });
         if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
+            let detail = `HTTP ${res.status}`;
+            try {
+                const text = (await res.text()).trim();
+                if (text) {
+                    const plain = text
+                        .replace(/<[^>]+>/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    if (plain) {
+                        detail = plain.slice(0, 180);
+                    }
+                }
+            } catch (_) {
+                // ignore body parse errors
+            }
+            throw new Error(detail);
         }
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -42,10 +57,11 @@ async function downloadLlmBundle() {
         a.click();
         a.remove();
         URL.revokeObjectURL(objectUrl);
-    } catch (_) {
-        downloadError.value =
-            'Não foi possível baixar automaticamente. Tentando abrir o arquivo direto…';
-        window.location.assign(downloadUrl);
+    } catch (err) {
+        const msg = err instanceof Error && err.message ? err.message : '';
+        downloadError.value = msg
+            ? `Não foi possível baixar: ${msg}`
+            : 'Não foi possível baixar automaticamente. Tente novamente ou abra o link direto.';
     } finally {
         downloading.value = false;
     }

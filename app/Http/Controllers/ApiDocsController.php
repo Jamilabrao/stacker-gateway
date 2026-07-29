@@ -48,8 +48,9 @@ class ApiDocsController extends Controller
 
         try {
             $content = $bundle->build($baseUrl);
-        } catch (\RuntimeException $e) {
-            abort(404, 'Pacote de documentação indisponível. '.$e->getMessage());
+        } catch (\Throwable $e) {
+            report($e);
+            abort(503, 'Pacote de documentação indisponível. Verifique se docs/llm está publicado no servidor.');
         }
 
         $filename = $bundle->downloadFilename();
@@ -61,6 +62,7 @@ class ApiDocsController extends Controller
             'Content-Length' => (string) strlen($content),
             'Cache-Control' => 'private, no-cache, no-store, must-revalidate',
             'Pragma' => 'no-cache',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 

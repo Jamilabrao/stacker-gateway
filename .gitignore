@@ -28,6 +28,8 @@ Thumbs.db
 /docs/*
 !/docs/releases/
 !/docs/releases/**
+!/docs/llm/
+!/docs/llm/**
 /Docs Gateways
 Docs Gateways
 /plugins
