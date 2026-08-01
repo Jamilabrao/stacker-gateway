@@ -169,6 +169,23 @@ async function cancelCampaign(id) {
     await loadCampaigns(campaignsMeta.value.current_page);
 }
 
+/** Exibe o agendamento no timezone da campanha (não no fuso do browser/SO do servidor). */
+function formatCampaignSchedule(c) {
+    if (c?.scheduled_local) {
+        return c.scheduled_local;
+    }
+    if (!c?.scheduled_at) {
+        return '—';
+    }
+    try {
+        return new Date(c.scheduled_at).toLocaleString('pt-BR', {
+            timeZone: c.timezone || 'America/Sao_Paulo',
+        });
+    } catch {
+        return new Date(c.scheduled_at).toLocaleString('pt-BR');
+    }
+}
+
 async function load() {
     loading.value = true;
     error.value = '';
@@ -689,7 +706,7 @@ onMounted(load);
                                     </td>
                                     <td class="py-2 pr-3">{{ c.status_label }}</td>
                                     <td class="py-2 pr-3 text-xs">{{ c.audience_label }}</td>
-                                    <td class="py-2 pr-3 text-xs">{{ c.scheduled_at ? new Date(c.scheduled_at).toLocaleString('pt-BR') : '—' }}</td>
+                                    <td class="py-2 pr-3 text-xs">{{ formatCampaignSchedule(c) }}</td>
                                     <td class="py-2 pr-3 tabular-nums">{{ c.sent_count }}/{{ c.eligible_count }}</td>
                                     <td class="py-2">
                                         <button
