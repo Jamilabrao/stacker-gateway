@@ -217,6 +217,62 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $this->assertEquals(100, (float) PanelPushDailySummaryLog::query()->where('tenant_id', $seller->id)->value('orders_total'));
     }
 
+    public function test_send_now_is_not_blocked_by_utc_wall_clock_skew(): void
+    {
+        Bus::fake([ProcessPanelPushCampaignJob::class]);
+        $this->configureTestVapidPush();
+        $admin = $this->platformAdmin();
+
+        $this->actingAs($admin)
+            ->postJson(route('plataforma.app.push.send'), [
+                'title' => 'Agora',
+                'body' => 'Envio imediato',
+                'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+                'send_mode' => 'now',
+                'timezone' => 'America/Sao_Paulo',
+                'confirm_global' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('ok', true);
+
+        $campaign = PanelPushCampaign::query()->first();
+        $this->assertNotNull($campaign);
+        $this->assertSame(PanelPushCampaign::MODE_NOW, $campaign->send_mode);
+        $this->assertNotNull($campaign->scheduled_at);
+        // Deve estar no fuso da app (não relógio UTC naive).
+        $this->assertTrue($campaign->scheduled_at->between(now()->subMinute(), now()->addMinute()));
+
+        Bus::assertDispatched(ProcessPanelPushCampaignJob::class);
+
+        $service = app(PanelPushCampaignService::class);
+        $service->process($campaign->id);
+        $this->assertNotSame(PanelPushCampaign::STATUS_SCHEDULED, $campaign->fresh()->status);
+    }
+
+    public function test_scheduled_local_sao_paulo_is_stored_in_app_timezone(): void
+    {
+        Bus::fake([ProcessPanelPushCampaignJob::class]);
+        $this->configureTestVapidPush();
+        config(['app.timezone' => 'America/Sao_Paulo']);
+        $admin = $this->platformAdmin();
+
+        $this->actingAs($admin)
+            ->postJson(route('plataforma.app.push.send'), [
+                'title' => 'Agendada',
+                'body' => 'Mensagem',
+                'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+                'send_mode' => 'scheduled',
+                'scheduled_local' => '2026-08-01T15:40',
+                'timezone' => 'America/Sao_Paulo',
+                'confirm_global' => true,
+            ])
+            ->assertOk();
+
+        $campaign = PanelPushCampaign::query()->first();
+        $this->assertNotNull($campaign);
+        $this->assertSame('2026-08-01 15:40:00', $campaign->scheduled_at?->timezone('America/Sao_Paulo')->format('Y-m-d H:i:s'));
+    }
+
     public function test_seller_cannot_access_admin_push_campaigns(): void
     {
         $seller = $this->seller();

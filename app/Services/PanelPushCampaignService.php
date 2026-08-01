@@ -58,6 +58,10 @@ class PanelPushCampaignService
             $timezone = 'America/Sao_Paulo';
         }
 
+        // Persistir sempre no timezone da app (naive datetime). Converter via ->utc()
+        // e salvar o relógio UTC faz o Eloquent reinterpretar +3h em America/Sao_Paulo
+        // e bloquear "enviar agora" / atrasar agendamentos.
+        $appTimezone = (string) config('app.timezone', 'America/Sao_Paulo');
         $scheduledAt = null;
         $status = PanelPushCampaign::STATUS_SCHEDULED;
         if ($sendMode === PanelPushCampaign::MODE_SCHEDULED) {
@@ -66,15 +70,15 @@ class PanelPushCampaignService
                 throw new InvalidArgumentException('Informe data e hora do agendamento.');
             }
             try {
-                $scheduledAt = Carbon::parse($local, $timezone)->utc();
+                $scheduledAt = Carbon::parse($local, $timezone)->timezone($appTimezone);
             } catch (\Throwable) {
                 throw new InvalidArgumentException('Data/hora de agendamento inválida.');
             }
-            if ($scheduledAt->lte(now('UTC')->subMinute())) {
+            if ($scheduledAt->lte(now()->subMinute())) {
                 throw new InvalidArgumentException('Agende para um horário futuro.');
             }
         } else {
-            $scheduledAt = now('UTC');
+            $scheduledAt = now();
             $status = PanelPushCampaign::STATUS_SCHEDULED; // claim imediato pelo job
         }
 
@@ -135,10 +139,11 @@ class PanelPushCampaignService
             $timezone = $campaign->timezone;
         }
 
+        $appTimezone = (string) config('app.timezone', 'America/Sao_Paulo');
         $scheduledAt = $campaign->scheduled_at;
         if (! empty($data['scheduled_local'])) {
-            $scheduledAt = Carbon::parse((string) $data['scheduled_local'], $timezone)->utc();
-            if ($scheduledAt->lte(now('UTC')->subMinute())) {
+            $scheduledAt = Carbon::parse((string) $data['scheduled_local'], $timezone)->timezone($appTimezone);
+            if ($scheduledAt->lte(now()->subMinute())) {
                 throw new InvalidArgumentException('Agende para um horário futuro.');
             }
         }
@@ -207,7 +212,10 @@ class PanelPushCampaignService
             if ($campaign->status !== PanelPushCampaign::STATUS_SCHEDULED) {
                 return null;
             }
-            if ($campaign->scheduled_at && $campaign->scheduled_at->gt(now())) {
+            // "Enviar agora" não deve ficar preso a scheduled_at (ex.: relógio UTC gravado como local).
+            if ($campaign->send_mode !== PanelPushCampaign::MODE_NOW
+                && $campaign->scheduled_at
+                && $campaign->scheduled_at->gt(now())) {
                 return null;
             }
 
@@ -303,7 +311,10 @@ class PanelPushCampaignService
     {
         $ids = PanelPushCampaign::query()
             ->where('status', PanelPushCampaign::STATUS_SCHEDULED)
-            ->where('scheduled_at', '<=', now())
+            ->where(function ($q) {
+                $q->where('send_mode', PanelPushCampaign::MODE_NOW)
+                    ->orWhere('scheduled_at', '<=', now());
+            })
             ->orderBy('scheduled_at')
             ->limit($limit)
             ->pluck('id');
