@@ -166,7 +166,8 @@ function feesFormFromEffective(overrides) {
  */
 function buildMerchantFeesPayloadFromForm(fees) {
     if (clearingAllFeeOverrides.value) {
-        return null;
+        // Objeto vazio: backend normaliza para null e limpa overrides do merchant.
+        return {};
     }
     const base =
         savedFeeOverrides.value && typeof savedFeeOverrides.value === 'object'
