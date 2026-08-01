@@ -174,6 +174,10 @@ const limitsDirty = ref(false);
 const apiPixDirty = ref(false);
 const initialGatewayPrimary = ref({});
 const adminNotesCountByUser = ref({});
+/** Chaves de taxa tocadas pelo admin nesta edição (só essas sobrescrevem no save). */
+const feeKeysTouched = ref({});
+/** Se true, o próximo save limpa todos os overrides de taxa do merchant. */
+const clearingAllFeeOverrides = ref(false);
 
 function platformFeesMap() {
     const map = {};
@@ -213,8 +217,46 @@ function feeRowHasSavedOverride(key) {
 }
 
 function feeRowHasDraftOverride(key) {
-    const block = editForm.merchant_fees?.[key];
-    return overrideBlockIsExplicit({ [key]: block }, key);
+    return !!feeKeysTouched.value[key];
+}
+
+function feesFormFromEffective(overrides) {
+    const effective = computeEffectiveFeesPreview(overrides && typeof overrides === 'object' ? overrides : null);
+    const filled = defaultFeeOverrides();
+    for (const row of effective) {
+        filled[row.key] = {
+            percent: formatPercentForInput(row.percent) || '0',
+            fixed: row.fixed != null && row.fixed !== '' ? String(row.fixed) : '0',
+        };
+    }
+    return filled;
+}
+
+/**
+ * Mantém overrides já salvos; aplica só as chaves editadas nesta sessão.
+ */
+function buildMerchantFeesPayloadFromForm(fees) {
+    if (clearingAllFeeOverrides.value) {
+        // Objeto vazio: backend normaliza para null e limpa overrides do merchant.
+        return {};
+    }
+    const base =
+        savedFeeOverrides.value && typeof savedFeeOverrides.value === 'object'
+            ? { ...savedFeeOverrides.value }
+            : {};
+    for (const key of feeRuleKeys) {
+        if (!feeKeysTouched.value[key]) {
+            continue;
+        }
+        const block = fees?.[key];
+        const normalized = normalizeMerchantFeeOverridesForSubmit({ [key]: block });
+        if (normalized?.[key]) {
+            base[key] = normalized[key];
+        } else {
+            delete base[key];
+        }
+    }
+    return Object.keys(base).length ? base : null;
 }
 
 function overrideBlockIsExplicit(rawOverrides, key) {
@@ -268,8 +310,33 @@ const effectiveFeesPreview = computed(() => {
     if (!isEditModalOpen.value) {
         return [];
     }
-    const draft = normalizeMerchantFeeOverridesForSubmit(editForm.merchant_fees);
-    return computeEffectiveFeesPreview(draft);
+    const draft = feesDirty.value
+        ? buildMerchantFeesPayloadFromForm(editForm.merchant_fees)
+        : savedFeeOverrides.value;
+    return computeEffectiveFeesPreview(draft && typeof draft === 'object' ? draft : null);
+});
+
+const platformFeesPreview = computed(() => computeEffectiveFeesPreview(null));
+
+const feesComparisonPreview = computed(() => {
+    const platformMap = {};
+    for (const row of platformFeesPreview.value) {
+        platformMap[row.key] = row;
+    }
+    return effectiveFeesPreview.value.map((row) => {
+        const global = platformMap[row.key] || { percent: 0, fixed: 0 };
+        const differs =
+            Number(row.percent) !== Number(global.percent) || Number(row.fixed) !== Number(global.fixed);
+        return {
+            key: row.key,
+            label: row.label,
+            global_percent: global.percent,
+            global_fixed: global.fixed,
+            effective_percent: row.percent,
+            effective_fixed: row.fixed,
+            differs,
+        };
+    });
 });
 
 function defaultFeeOverrides() {
@@ -287,11 +354,11 @@ function defaultFeeOverrides() {
 
 const feeOverrideRows = [
     { key: 'pix', label: 'PIX (checkout)' },
-    { key: 'api_pix', label: 'PIX (API)', inheritHint: 'Se vazio, herda de PIX (checkout)' },
-    { key: 'pixgo', label: 'PixGo', inheritHint: 'Se vazio, herda de PIX (checkout)' },
+    { key: 'api_pix', label: 'PIX (API)', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
+    { key: 'pixgo', label: 'PixGo', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
     { key: 'card', label: 'Cartão' },
-    { key: 'apple_pay', label: 'Apple Pay', inheritHint: 'Se vazio, herda de Cartão' },
-    { key: 'google_pay', label: 'Google Pay', inheritHint: 'Se vazio, herda de Cartão' },
+    { key: 'apple_pay', label: 'Apple Pay', inheritHint: 'Valor atual; edite para personalizar (senão acompanha Cartão)' },
+    { key: 'google_pay', label: 'Google Pay', inheritHint: 'Valor atual; edite para personalizar (senão acompanha Cartão)' },
     { key: 'boleto', label: 'Boleto' },
     { key: 'withdrawal', label: 'Saque' },
 ];
@@ -500,13 +567,33 @@ function flushFeeInputs() {
 
 function updateMerchantFeeField(key, field, value) {
     feesDirty.value = true;
-    editForm.merchant_fees = {
-        ...editForm.merchant_fees,
-        [key]: {
-            ...editForm.merchant_fees[key],
-            [field]: value,
-        },
+    clearingAllFeeOverrides.value = false;
+    feeKeysTouched.value = { ...feeKeysTouched.value, [key]: true };
+    const nextBlock = {
+        ...editForm.merchant_fees[key],
+        [field]: value,
     };
+    let fees = {
+        ...editForm.merchant_fees,
+        [key]: nextBlock,
+    };
+    if (key === 'pix') {
+        if (!feeKeysTouched.value.api_pix && !overrideBlockIsExplicit(savedFeeOverrides.value, 'api_pix')) {
+            fees = { ...fees, api_pix: { ...nextBlock } };
+        }
+        if (!feeKeysTouched.value.pixgo && !overrideBlockIsExplicit(savedFeeOverrides.value, 'pixgo')) {
+            fees = { ...fees, pixgo: { ...nextBlock } };
+        }
+    }
+    if (key === 'card') {
+        if (!feeKeysTouched.value.apple_pay && !overrideBlockIsExplicit(savedFeeOverrides.value, 'apple_pay')) {
+            fees = { ...fees, apple_pay: { ...nextBlock } };
+        }
+        if (!feeKeysTouched.value.google_pay && !overrideBlockIsExplicit(savedFeeOverrides.value, 'google_pay')) {
+            fees = { ...fees, google_pay: { ...nextBlock } };
+        }
+    }
+    editForm.merchant_fees = fees;
 }
 
 function markSettlementDirty() {
@@ -533,6 +620,8 @@ function openEditModal(u) {
     savedFeeOverrides.value = u.merchant_fees ?? null;
     savedSettlementOverrides.value = u.merchant_settlement_overrides ?? null;
     feesDirty.value = false;
+    feeKeysTouched.value = {};
+    clearingAllFeeOverrides.value = false;
     settlementDirty.value = false;
     gatewayOrderDirty.value = false;
     cajupayAccountDirty.value = false;
@@ -552,7 +641,7 @@ function openEditModal(u) {
             wa && wa.admin_blocked_amount != null && wa.admin_blocked_amount !== '' ? String(wa.admin_blocked_amount) : '',
         admin_block_until: formatBlockUntilForInput(wa?.admin_block_until),
         admin_block_note: wa?.admin_block_note || '',
-        merchant_fees: mergeFeeOverrides(u.merchant_fees),
+        merchant_fees: feesFormFromEffective(u.merchant_fees),
         merchant_settlement_overrides: mergeSettlementOverrides(u.merchant_settlement_overrides),
         referral_commission_percent:
             u.referral_commission_percent != null && u.referral_commission_percent !== ''
@@ -592,7 +681,9 @@ function closeEditModal() {
 
 function restoreFeesDefaults() {
     feesDirty.value = true;
-    editForm.merchant_fees = defaultFeeOverrides();
+    clearingAllFeeOverrides.value = true;
+    feeKeysTouched.value = {};
+    editForm.merchant_fees = feesFormFromEffective(null);
 }
 
 function restoreSettlementDefaults() {
@@ -662,7 +753,7 @@ function submitEdit() {
                 delete payload.merchant_gateway_order;
             }
             if (feesDirty.value) {
-                payload.merchant_fees = normalizeMerchantFeeOverridesForSubmit(data.merchant_fees);
+                payload.merchant_fees = buildMerchantFeesPayloadFromForm(data.merchant_fees);
             } else {
                 delete payload.merchant_fees;
             }
@@ -1295,7 +1386,8 @@ function formatBlockUntilForInput(iso) {
                             </button>
                         </div>
                         <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Sobrescreve os padrões em Financeiro → Taxas. PIX tem taxas separadas para API (REST ou link de checkout pela API) e PixGo; cartão e boleto usam as linhas Cartão / Boleto. Deixe em branco para herdar.
+                            Mostra a taxa efetiva atual em cada campo. Edite para personalizar só aquele canal; canais não editados
+                            continuam herdando (API PIX / PixGo acompanham PIX checkout; Apple/Google Pay acompanham Cartão).
                             Percentual de 0 a 100 (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">2,5</code> = 2,5%). Fixo em reais (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">1,50</code> = R$ 1,50).
                         </p>
                         <div class="hidden gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500 sm:grid sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] dark:text-zinc-400">
@@ -1336,16 +1428,33 @@ function formatBlockUntilForInput(iso) {
                         </div>
                         <div class="mt-4 rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
                             <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Taxa efetiva após salvar</p>
-                            <div class="space-y-1 text-xs">
-                                <div
-                                    v-for="row in effectiveFeesPreview"
-                                    :key="'prev-' + row.key"
-                                    class="flex justify-between gap-2 text-zinc-700 dark:text-zinc-300"
-                                >
-                                    <span>{{ row.label }}</span>
-                                    <span class="tabular-nums text-zinc-900 dark:text-white">
-                                        {{ formatFeePreview(row.percent, row.fixed) }}
-                                    </span>
+                            <div class="overflow-x-auto">
+                                <div class="mb-1 grid min-w-[280px] grid-cols-[minmax(0,1.2fr)_1fr_1fr] gap-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                                    <span>Canal</span>
+                                    <span class="text-right">Global</span>
+                                    <span class="text-right">Efetiva</span>
+                                </div>
+                                <div class="min-w-[280px] space-y-1 text-xs">
+                                    <div
+                                        v-for="row in feesComparisonPreview"
+                                        :key="'prev-' + row.key"
+                                        class="grid grid-cols-[minmax(0,1.2fr)_1fr_1fr] gap-2 text-zinc-700 dark:text-zinc-300"
+                                    >
+                                        <span class="truncate">{{ row.label }}</span>
+                                        <span class="tabular-nums text-right text-zinc-500 dark:text-zinc-400">
+                                            {{ formatFeePreview(row.global_percent, row.global_fixed) }}
+                                        </span>
+                                        <span
+                                            class="tabular-nums text-right"
+                                            :class="
+                                                row.differs
+                                                    ? 'font-medium text-[var(--color-primary)]'
+                                                    : 'text-zinc-900 dark:text-white'
+                                            "
+                                        >
+                                            {{ formatFeePreview(row.effective_percent, row.effective_fixed) }}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
