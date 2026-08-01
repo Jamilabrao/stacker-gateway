@@ -187,6 +187,9 @@ const form = useForm({
     login_turnstile_enabled: props.settings.login_turnstile_enabled ?? '0',
     registration_turnstile_enabled: props.settings.registration_turnstile_enabled ?? '0',
     registration_email_verification_enabled: props.settings.registration_email_verification_enabled ?? '0',
+    allow_new_infoproducers: props.settings.allow_new_infoproducers ?? '1',
+    auto_approve_products: props.settings.auto_approve_products ?? '1',
+    account_manager_auto_assign_mode: props.settings.account_manager_auto_assign_mode ?? 'least_load',
     legal_privacy_policy_html: props.settings.legal_privacy_policy_html ?? '',
     legal_terms_of_use_html: props.settings.legal_terms_of_use_html ?? '',
     legal_privacy_contact_email: props.settings.legal_privacy_contact_email ?? '',
@@ -654,6 +657,9 @@ function applySecuritySettingsFromSettings(s) {
     form.login_turnstile_enabled = s.login_turnstile_enabled ?? '0';
     form.registration_turnstile_enabled = s.registration_turnstile_enabled ?? '0';
     form.registration_email_verification_enabled = s.registration_email_verification_enabled ?? '0';
+    form.allow_new_infoproducers = s.allow_new_infoproducers ?? '1';
+    form.auto_approve_products = s.auto_approve_products ?? '1';
+    form.account_manager_auto_assign_mode = s.account_manager_auto_assign_mode ?? 'least_load';
 }
 
 function syncSecuritySettingsFromProps() {
@@ -692,6 +698,9 @@ function buildSettingsPayload() {
             login_turnstile_enabled: data.login_turnstile_enabled,
             registration_turnstile_enabled: data.registration_turnstile_enabled,
             registration_email_verification_enabled: data.registration_email_verification_enabled,
+            allow_new_infoproducers: data.allow_new_infoproducers,
+            auto_approve_products: data.auto_approve_products,
+            account_manager_auto_assign_mode: data.account_manager_auto_assign_mode,
         };
     }
     if (activeTab.value === 'suporte_painel') {

@@ -95,11 +95,17 @@ class ProductDeliverablePreviewService
 
     private function memberAreaPreview(Product $product, ?string $checkoutUrl): array
     {
+        $previewUrl = route('plataforma.produtos.member-area.preview', ['product' => $product->id]);
+
         try {
-            $url = $this->memberAreaResolver->baseUrlForProduct($product);
+            $memberAreaUrl = $this->memberAreaResolver->baseUrlForProduct($product);
         } catch (\Throwable) {
-            $url = null;
+            $memberAreaUrl = null;
         }
+
+        $canOpen = is_string($memberAreaUrl)
+            && $memberAreaUrl !== ''
+            && filter_var($memberAreaUrl, FILTER_VALIDATE_URL) !== false;
 
         $slug = (string) ($product->checkout_slug ?? '');
         $domain = $product->relationLoaded('memberAreaDomain')
@@ -116,7 +122,7 @@ class ProductDeliverablePreviewService
             };
         }
 
-        $description = 'Área de membros hospedada na plataforma. O conteúdo (aulas, arquivos) fica dentro da área — abra o link para avaliar a página pública de acesso.';
+        $description = 'Área de membros hospedada na plataforma. Abra em modo administrativo para auditar o conteúdo sem criar compra ou matrícula.';
         if ($domainHint !== '') {
             $description .= ' '.$domainHint.'.';
         } elseif ($slug !== '') {
@@ -127,10 +133,13 @@ class ProductDeliverablePreviewService
             'kind' => 'member_area',
             'title' => 'Área de membros',
             'description' => $description,
-            'primary_url' => $url,
+            'primary_url' => $canOpen ? $previewUrl : null,
             'checkout_url' => $checkoutUrl,
-            'can_open' => is_string($url) && $url !== '' && filter_var($url, FILTER_VALIDATE_URL) !== false,
-            'limitations' => null,
+            'can_open' => $canOpen,
+            'open_label' => 'Ver Área de Membros',
+            'limitations' => $canOpen
+                ? 'O acesso abre em modo de visualização administrativa (somente leitura). Nenhuma venda ou matrícula é criada.'
+                : 'Não foi possível resolver a URL da área de membros deste produto.',
         ];
     }
 

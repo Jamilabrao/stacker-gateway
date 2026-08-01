@@ -8,13 +8,14 @@ use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
 use App\Services\AdminWalletAdjustmentService;
 use App\Gateways\GatewayRegistry;
+use App\Models\AccountManager;
 use App\Models\CajuPayAccount;
 use App\Models\MerchantAdminNote;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\AccountManagerAssignmentService;
 use App\Services\EffectiveMerchantFees;
-use App\Services\MerchantWalletAdminBlockService;
 use App\Services\MinimumChargeService;
 use App\Services\ApiPixAccess;
 use App\Services\Med\MedPolicyService;
@@ -23,6 +24,8 @@ use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
 use App\Services\SalesAchievementsService;
+use App\Support\MerchantAdminProductsListing;
+use App\Support\MerchantAdminWalletMovementsListing;
 use App\Support\MerchantProfileSnapshot;
 use App\Support\NormalizedEmail;
 use App\Support\PlatformConfigContext;
@@ -47,6 +50,12 @@ class UsersController extends Controller
     /** @var list<string> */
     private const ACCOUNT_STATUS_FILTERS = ['approved', 'pending', 'rejected', 'suspended', 'blocked'];
 
+    /** @var list<string> */
+    private const ALLOWED_SORT_BY = ['created_at', 'total_sales', 'balance'];
+
+    /** @var list<int> */
+    private const ALLOWED_PER_PAGE = [25, 50, 100];
+
     public function __construct(
         protected SalesAchievementsService $salesAchievements,
         protected MinimumChargeService $minimumChargeService,
@@ -63,59 +72,113 @@ class UsersController extends Controller
         $statusFilter = is_string($statusFilter) ? trim($statusFilter) : '';
         $statusFilter = in_array($statusFilter, self::ACCOUNT_STATUS_FILTERS, true) ? $statusFilter : null;
 
+        $sortByRaw = $request->query('sort_by');
+        $sortBy = is_string($sortByRaw) && in_array($sortByRaw, self::ALLOWED_SORT_BY, true)
+            ? $sortByRaw
+            : null;
+
+        $sortDirectionRaw = $request->query('sort_direction');
+        $sortDirection = is_string($sortDirectionRaw) && in_array(strtolower($sortDirectionRaw), ['asc', 'desc'], true)
+            ? strtolower($sortDirectionRaw)
+            : 'asc';
+
+        $perPageRaw = (int) $request->query('per_page', 25);
+        $perPage = in_array($perPageRaw, self::ALLOWED_PER_PAGE, true) ? $perPageRaw : 25;
+
         $usersQuery = User::query()
-            ->where('role', User::ROLE_INFOPRODUTOR);
+            ->select('users.*')
+            ->where('users.role', User::ROLE_INFOPRODUTOR);
 
         if ($statusFilter !== null) {
             if ($statusFilter === 'approved') {
                 $usersQuery->where(function ($q) {
-                    $q->where('account_status', 'approved')
-                        ->orWhereNull('account_status');
+                    $q->where('users.account_status', 'approved')
+                        ->orWhereNull('users.account_status');
                 });
             } else {
-                $usersQuery->where('account_status', $statusFilter);
+                $usersQuery->where('users.account_status', $statusFilter);
             }
         }
 
         if ($search !== null) {
             $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
             $usersQuery->where(function ($q) use ($like, $search) {
-                $q->where('name', 'like', $like)
-                    ->orWhere('email', 'like', $like)
-                    ->orWhere('document', 'like', $like);
+                $q->where('users.name', 'like', $like)
+                    ->orWhere('users.email', 'like', $like)
+                    ->orWhere('users.document', 'like', $like);
                 if (ctype_digit($search)) {
                     $id = (int) $search;
-                    $q->orWhere('id', $id)->orWhere('tenant_id', $id);
+                    $q->orWhere('users.id', $id)->orWhere('users.tenant_id', $id);
                 }
             });
         }
 
-        $users = $usersQuery->orderBy('name')->get();
+        $dirSql = $sortDirection === 'desc' ? 'desc' : 'asc';
 
-        $tenantIds = $users->pluck('tenant_id')->filter()->unique()->values();
-        $userIds = $users->pluck('id');
-        $wallets = collect();
-        $salesTotals = $this->salesAchievements->getValidSalesTotalsGrouped();
-        $adminNotesCounts = collect();
-        if (Schema::hasTable('merchant_admin_notes')) {
-            $adminNotesCounts = MerchantAdminNote::query()
-                ->whereIn('merchant_user_id', $userIds)
-                ->selectRaw('merchant_user_id, count(*) as aggregate')
-                ->groupBy('merchant_user_id')
-                ->pluck('aggregate', 'merchant_user_id');
+        if ($sortBy === 'created_at') {
+            $usersQuery->orderBy('users.created_at', $dirSql)->orderBy('users.name');
+        } elseif ($sortBy === 'balance' && Schema::hasTable('tenant_wallets')) {
+            $usersQuery->leftJoin('tenant_wallets', function ($join) {
+                $join->whereRaw('tenant_wallets.tenant_id = COALESCE(users.tenant_id, users.id)');
+            });
+            $usersQuery->orderByRaw('COALESCE(tenant_wallets.available_balance, 0) '.$dirSql)
+                ->orderBy('users.name');
+        } elseif ($sortBy === 'total_sales' && Schema::hasTable('orders')) {
+            $salesSub = $this->salesAchievements->validSalesTotalsQuery();
+            $usersQuery->leftJoinSub($salesSub, 'merchant_sales', function ($join) {
+                $join->whereRaw('merchant_sales.tenant_id = COALESCE(users.tenant_id, users.id)');
+            });
+            $usersQuery->orderByRaw('COALESCE(merchant_sales.total, 0) '.$dirSql)
+                ->orderBy('users.name');
+        } else {
+            // Sem sort_by válido (ou joins indisponíveis): ordem alfabética atual.
+            $usersQuery->orderBy('users.name');
+            $sortBy = null;
+            $sortDirection = 'asc';
         }
-        if (Schema::hasTable('tenant_wallets')) {
+
+        $paginator = $usersQuery
+            ->paginate($perPage)
+            ->withQueryString();
+
+        $users = $paginator->getCollection();
+        $tenantIds = $users->map(fn (User $u) => (int) ($u->tenant_id ?? $u->id))->filter(fn (int $id) => $id > 0)->unique()->values();
+        $userIds = $users->pluck('id');
+
+        $wallets = collect();
+        if (Schema::hasTable('tenant_wallets') && $tenantIds->isNotEmpty()) {
             $wallets = TenantWallet::query()
                 ->whereIn('tenant_id', $tenantIds)
                 ->get()
                 ->keyBy('tenant_id');
         }
 
-        $rows = $users->map(function (User $u) use ($wallets, $salesTotals, $adminNotesCounts) {
+        $salesTotals = $this->salesAchievements->getValidSalesTotalsForTenants($tenantIds);
+
+        $adminNotesCounts = collect();
+        if (Schema::hasTable('merchant_admin_notes') && $userIds->isNotEmpty()) {
+            $adminNotesCounts = MerchantAdminNote::query()
+                ->whereIn('merchant_user_id', $userIds)
+                ->selectRaw('merchant_user_id, count(*) as aggregate')
+                ->groupBy('merchant_user_id')
+                ->pluck('aggregate', 'merchant_user_id');
+        }
+
+        $medTotals = collect();
+        if (Schema::hasTable('wallet_transactions') && $tenantIds->isNotEmpty()) {
+            $medTotals = WalletTransaction::query()
+                ->whereIn('tenant_id', $tenantIds)
+                ->where('type', WalletTransaction::TYPE_MED_HOLD)
+                ->selectRaw('tenant_id, SUM(amount_net) as aggregate')
+                ->groupBy('tenant_id')
+                ->pluck('aggregate', 'tenant_id');
+        }
+
+        $rows = $users->map(function (User $u) use ($wallets, $salesTotals, $adminNotesCounts, $medTotals) {
             $tid = $u->tenant_id ?? $u->id;
             $tidInt = (int) $tid;
             $w = $wallets->get($tid);
-            $medTotal = $tidInt > 0 ? MerchantWalletAdminBlockService::totalMedHoldAmountForTenant($tidInt) : 0.0;
+            $medTotal = $tidInt > 0 ? round((float) ($medTotals[$tidInt] ?? 0), 2) : 0.0;
 
             $walletAdmin = null;
             if ($w && Schema::hasColumn('tenant_wallets', 'admin_withdrawal_blocked')) {
@@ -161,14 +224,19 @@ class UsersController extends Controller
             ];
         });
 
+        $paginator->setCollection($rows);
+
         $settingsTenantId = PlatformConfigContext::settingsTenantId();
         $editUserId = $request->query('edit');
         $editUserId = is_numeric($editUserId) ? (int) $editUserId : null;
 
         return Inertia::render('Platform/Users/Index', [
-            'users' => $rows,
+            'users' => $paginator,
             'q' => $search,
             'status' => $statusFilter,
+            'sort_by' => $sortBy,
+            'sort_direction' => $sortBy !== null ? $sortDirection : null,
+            'per_page' => $perPage,
             'status_options' => [
                 ['value' => 'approved', 'label' => 'Aprovado'],
                 ['value' => 'pending', 'label' => 'Pendente'],
@@ -202,11 +270,16 @@ class UsersController extends Controller
         ]);
     }
 
-    public function show(User $user): Response
+    public function show(Request $request, User $user): Response
     {
         Gate::authorize('manageMerchantForPlatform', $user);
 
         $tenantId = $this->tenantIdForUser($user);
+
+        $tab = (string) $request->query('tab', 'overview');
+        if (! in_array($tab, ['overview', 'products', 'wallet', 'achievements'], true)) {
+            $tab = 'overview';
+        }
 
         $adminNotes = [];
         if (Schema::hasTable('merchant_admin_notes')) {
@@ -244,7 +317,48 @@ class UsersController extends Controller
         // Garante atributos frescos (ex.: phone) antes do snapshot de contato.
         $user->refresh();
 
+        $productsTotal = MerchantAdminProductsListing::totalCount($tenantId);
+        $productsPayload = [
+            'products' => null,
+            'filters' => null,
+            'summary' => null,
+            'approval_enabled' => Schema::hasTable('products') && Schema::hasColumn('products', 'approval_status'),
+            'type_options' => [],
+        ];
+        if ($tab === 'products') {
+            $productsPayload = MerchantAdminProductsListing::paginateForTenant($tenantId, $request);
+        }
+
+        $walletMovements = [
+            'wallet_transactions' => MerchantAdminWalletMovementsListing::emptyPaginator($request),
+            'filters' => [
+                'wallet_type' => 'all',
+                'wallet_q' => null,
+                'wallet_date_from' => null,
+                'wallet_date_to' => null,
+                'wallet_per_page' => MerchantAdminWalletMovementsListing::DEFAULT_PER_PAGE,
+                'wallet_sort' => 'id',
+                'wallet_direction' => 'desc',
+            ],
+            'type_options' => WalletTransaction::typeLabels(),
+        ];
+        if ($tab === 'wallet') {
+            $walletMovements = MerchantAdminWalletMovementsListing::paginateForTenant($tenantId, $request);
+        }
+
+        $achievementsPayload = [
+            'progress' => null,
+            'unlocks' => [],
+        ];
+        if ($tab === 'achievements') {
+            $achievementsPayload = [
+                'progress' => $this->salesAchievements->getProgressForTenant($tenantId),
+                'unlocks' => $this->salesAchievements->unlocksPayloadForTenant($tenantId, forAdmin: true),
+            ];
+        }
+
         return Inertia::render('Platform/Users/Show', [
+            'tab' => $tab,
             'merchant' => [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -269,9 +383,18 @@ class UsersController extends Controller
             'revenue_breakdown' => $revenueBreakdown,
             'profile' => MerchantProfileSnapshot::forUser($user, maskDocuments: false),
             'wallet' => $this->walletPayloadForTenant($tenantId),
-            'withdrawals' => $this->withdrawalsPayloadForTenant($tenantId),
-            'wallet_transactions' => $this->walletTransactionsPayloadForTenant($tenantId),
-            'wallet_transaction_type_labels' => WalletTransaction::typeLabels(),
+            'withdrawals' => $tab === 'overview' ? $this->withdrawalsPayloadForTenant($tenantId) : [],
+            'wallet_transactions' => $walletMovements['wallet_transactions'],
+            'wallet_filters' => $walletMovements['filters'],
+            'wallet_transaction_type_labels' => $walletMovements['type_options'],
+            'products_total' => $productsTotal,
+            'products' => $productsPayload['products'],
+            'products_filters' => $productsPayload['filters'],
+            'products_summary' => $productsPayload['summary'],
+            'products_approval_enabled' => $productsPayload['approval_enabled'],
+            'products_type_options' => $productsPayload['type_options'],
+            'achievements_progress' => $achievementsPayload['progress'],
+            'achievement_unlocks' => $achievementsPayload['unlocks'],
             'effective_merchant_fees' => $this->formatEffectiveFeesForFrontend(
                 EffectiveMerchantFees::forTenant($tenantId),
                 $user->merchant_fees
@@ -285,7 +408,71 @@ class UsersController extends Controller
             ],
             'platform_api_pix_enabled' => ApiPixAccess::globalEnabled(),
             'admin_notes' => $adminNotes,
+            'account_manager' => $this->accountManagerPayload($user),
+            'account_managers_options' => $this->activeAccountManagersOptions(),
         ]);
+    }
+
+    public function assignAccountManager(Request $request, User $user, AccountManagerAssignmentService $assignments): RedirectResponse
+    {
+        Gate::authorize('manageMerchantForPlatform', $user);
+
+        $validated = $request->validate([
+            'account_manager_id' => ['nullable', 'integer', 'exists:account_managers,id'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $manager = null;
+        if (! empty($validated['account_manager_id'])) {
+            $manager = AccountManager::query()->find((int) $validated['account_manager_id']);
+        }
+
+        try {
+            $assignments->assign(
+                $user,
+                $manager,
+                $request->user(),
+                \App\Models\AccountManagerAssignment::SOURCE_MANUAL,
+                $validated['reason'] ?? null,
+                $request
+            );
+        } catch (InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', $manager ? 'Gerente de conta atualizado.' : 'Vínculo com gerente removido.');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function accountManagerPayload(User $user): ?array
+    {
+        if (! AccountManagerAssignmentService::ready() || ! $user->account_manager_id) {
+            return null;
+        }
+
+        $manager = AccountManager::query()->find($user->account_manager_id);
+
+        return app(AccountManagerAssignmentService::class)->adminPayload($manager);
+    }
+
+    /**
+     * @return list<array{id: int, name: string}>
+     */
+    private function activeAccountManagersOptions(): array
+    {
+        if (! AccountManagerAssignmentService::ready()) {
+            return [];
+        }
+
+        return AccountManager::query()
+            ->active()
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (AccountManager $m) => ['id' => $m->id, 'name' => $m->name])
+            ->values()
+            ->all();
     }
 
     public function effectiveFees(Request $request, User $user): JsonResponse
@@ -382,6 +569,12 @@ class UsersController extends Controller
                 ['tenant_id' => $user->tenant_id],
                 ['available_balance' => 0, 'pending_balance' => 0, 'currency' => 'BRL']
             );
+        }
+
+        try {
+            app(AccountManagerAssignmentService::class)->autoAssignIfConfigured($user->fresh(), $request);
+        } catch (\Throwable) {
+            // Não bloqueia o cadastro admin.
         }
 
         PlatformAuditService::log('platform.merchant.created', ['user_id' => $user->id], $request);

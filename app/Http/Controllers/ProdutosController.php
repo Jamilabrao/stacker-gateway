@@ -21,6 +21,7 @@ use App\Models\User;
 use App\Services\PaymentService;
 use App\Services\MinimumChargeService;
 use App\Services\PhysicalProductAccess;
+use App\Services\ProductApprovalService;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Support\HtmlSanitizer;
@@ -32,6 +33,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
+use InvalidArgumentException;
 
 class ProdutosController extends Controller
 {
@@ -138,6 +140,7 @@ class ProdutosController extends Controller
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'notification_name' => ['nullable', 'string', 'max:80'],
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes())],
@@ -151,6 +154,10 @@ class ProdutosController extends Controller
 
         // Texto puro (evita XSS armazenado em nome/descrição)
         $validated['name'] = HtmlSanitizer::plainText($validated['name'] ?? '', 255);
+        if (array_key_exists('notification_name', $validated)) {
+            $nn = HtmlSanitizer::plainText($validated['notification_name'] ?? '', 80);
+            $validated['notification_name'] = $nn !== '' ? $nn : null;
+        }
         if (array_key_exists('description', $validated)) {
             $validated['description'] = HtmlSanitizer::plainTextMultiline($validated['description'], 20000) ?: null;
         }
@@ -174,6 +181,12 @@ class ProdutosController extends Controller
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['refund_policy_days'] = 7;
         $this->assertPhysicalProductRules($validated['type'] ?? '', $validated['billing_type'] ?? '');
+
+        $approvalService = app(ProductApprovalService::class);
+        $approvalAttrs = $approvalService->attributesForNewProduct((bool) $validated['is_active']);
+        if ($approvalAttrs !== []) {
+            $validated = array_merge($validated, $approvalAttrs);
+        }
 
         $product = new Product($validated);
         $beforeEvent = new ProductBeforeSave($product, $validated, true);
@@ -240,7 +253,14 @@ class ProdutosController extends Controller
 
         event(new ProductCreated($product));
 
-        return redirect()->route('produtos.index')->with('success', 'Produto criado.');
+        app(ProductApprovalService::class)->afterCreated($product, $request);
+
+        $success = 'Produto criado.';
+        if (($product->approval_status ?? null) === Product::APPROVAL_PENDING) {
+            $success = 'Produto em análise. Seu produto foi enviado para análise das regras internas da plataforma. Após a avaliação, você será informado sobre a aprovação ou sobre eventuais ajustes necessários.';
+        }
+
+        return redirect()->route('produtos.index')->with('success', $success);
     }
 
     public function edit(Product $produto): Response
@@ -556,6 +576,7 @@ class ProdutosController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'notification_name' => ['nullable', 'string', 'max:80'],
             'description' => ['nullable', 'string'],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes($produto))],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
@@ -629,6 +650,10 @@ class ProdutosController extends Controller
 
         // Texto puro (evita XSS armazenado em nome/descrição/template)
         $validated['name'] = HtmlSanitizer::plainText($validated['name'] ?? '', 255);
+        if (array_key_exists('notification_name', $validated)) {
+            $nn = HtmlSanitizer::plainText($validated['notification_name'] ?? '', 80);
+            $validated['notification_name'] = $nn !== '' ? $nn : null;
+        }
         if (array_key_exists('description', $validated)) {
             $validated['description'] = HtmlSanitizer::plainTextMultiline($validated['description'], 20000) ?: null;
         }
@@ -655,6 +680,12 @@ class ProdutosController extends Controller
         $validated['refund_policy_days'] = ($validated['refund_policy_days'] ?? null) !== null
             ? (int) $validated['refund_policy_days']
             : null;
+
+        try {
+            app(ProductApprovalService::class)->guardSellerActivation($produto, (bool) $validated['is_active']);
+        } catch (InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage())->withInput();
+        }
 
         $beforeEvent = new ProductBeforeSave($produto, $validated, false);
         event($beforeEvent);
@@ -871,9 +902,34 @@ class ProdutosController extends Controller
                 : 7,
         ]);
 
+        $approvalService = app(ProductApprovalService::class);
+        $approvalAttrs = $approvalService->attributesForNewProduct((bool) $newProduct->is_active);
+        if ($approvalAttrs !== []) {
+            $newProduct->forceFill($approvalAttrs)->save();
+        }
+        $approvalService->afterCreated($newProduct->fresh(), request());
+
         event(new ProductDuplicated($produto, $newProduct));
 
-        return redirect()->route('produtos.index')->with('success', 'Produto duplicado.');
+        $success = 'Produto duplicado.';
+        if (($newProduct->fresh()->approval_status ?? null) === Product::APPROVAL_PENDING) {
+            $success = 'Produto duplicado e enviado para análise.';
+        }
+
+        return redirect()->route('produtos.index')->with('success', $success);
+    }
+
+    public function resubmitForReview(Request $request, Product $produto)
+    {
+        $this->authorizeProduct($produto);
+
+        try {
+            app(ProductApprovalService::class)->resubmit($produto, $request);
+        } catch (InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', 'Produto reenviado para análise. Ele permanecerá indisponível para venda até nova aprovação.');
     }
 
     public function addAluno(Request $request, Product $produto)
@@ -1216,6 +1272,7 @@ class ProdutosController extends Controller
             'price_eur' => $priceEur,
             'price_usd' => $priceUsd,
             'is_active' => $p->is_active,
+            'approval' => app(ProductApprovalService::class)->sellerFacingStatus($p),
             'conversion_pixels' => $p->conversion_pixels,
             'shipping_store_id' => $p->shipping_store_id,
             'physical_config' => $p->physical_config ?? ['free_shipping' => false],

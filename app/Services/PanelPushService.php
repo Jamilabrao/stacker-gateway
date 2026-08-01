@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\PanelNotification;
 use App\Models\PanelPushSubscription;
 use App\Services\Push\PanelPushDispatcher;
+use App\Support\UserPushPreferences;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +24,15 @@ class PanelPushService
      */
     public function sendAndPersistToTenant(?int $tenantId, string $type, string $title, string $body, ?string $url = null, ?string $eventKey = null): int
     {
+        if ($tenantId && ! UserPushPreferences::allowsEvent((int) $tenantId, $type)) {
+            Log::info('PanelPushService: evento desativado nas preferências', [
+                'tenant_id' => $tenantId,
+                'type' => $type,
+            ]);
+
+            return 0;
+        }
+
         $subscriptions = $this->subscriptionsForDelivery(
             PanelPushSubscription::where('tenant_id', $tenantId)->get()
         );
@@ -94,6 +104,10 @@ class PanelPushService
     public function sendAndPersistToAll(string $type, string $title, string $body, ?string $url = null): array
     {
         $subscriptions = $this->subscriptionsForDelivery(PanelPushSubscription::query()->get());
+        $subscriptions = $subscriptions->filter(function (PanelPushSubscription $sub) use ($type) {
+            return UserPushPreferences::allowsEvent((int) $sub->user_id, $type);
+        })->values();
+
         $userIds = $subscriptions->pluck('user_id')->unique()->filter()->values();
         foreach ($userIds as $userId) {
             PanelNotification::create([
@@ -153,6 +167,15 @@ class PanelPushService
         }
 
         return $result;
+    }
+
+    /**
+     * @param  Collection<int, PanelPushSubscription>  $subscriptions
+     * @return Collection<int, PanelPushSubscription>
+     */
+    public function filterSubscriptionsForDelivery(Collection $subscriptions): Collection
+    {
+        return $this->subscriptionsForDelivery($subscriptions);
     }
 
     /**

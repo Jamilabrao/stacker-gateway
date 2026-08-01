@@ -326,7 +326,8 @@ class CheckoutController extends Controller
         $payload['card_installments_enabled'] = ! empty($cardInstallmentsConfig['enabled']);
         $payload['card_max_installments'] = min(12, max(1, (int) ($cardInstallmentsConfig['max'] ?? 1)));
 
-        $orderBumps = $product->orderBumps()->with(['targetProduct', 'targetProductOffer'])->get();
+        $orderBumps = $product->orderBumps()->with(['targetProduct', 'targetProductOffer'])->get()
+            ->filter(fn (ProductOrderBump $b) => $b->targetProduct && $b->targetProduct->isAvailableForPurchase());
         $payload['order_bumps'] = $orderBumps->map(function (ProductOrderBump $b) use ($product) {
             $target = $b->targetProduct;
             $imageUrl = $target && $target->image
@@ -707,7 +708,12 @@ class CheckoutController extends Controller
         $orderBumpIds = array_values(array_filter(array_map('intval', $validated['order_bump_ids'] ?? [])));
         $selectedBumps = collect();
         if ($orderBumpIds) {
-            $selectedBumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $orderBumpIds)->get();
+            $selectedBumps = ProductOrderBump::where('product_id', $product->id)
+                ->whereIn('id', $orderBumpIds)
+                ->with('targetProduct')
+                ->get()
+                ->filter(fn (ProductOrderBump $b) => $b->targetProduct && $b->targetProduct->isAvailableForPurchase())
+                ->values();
         }
         $bumpAmountTotal = $selectedBumps->sum(fn (ProductOrderBump $b) => $b->getEffectiveAmountBrl());
         $totalAmount = $amount + $bumpAmountTotal;

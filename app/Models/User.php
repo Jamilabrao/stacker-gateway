@@ -279,6 +279,11 @@ class User extends Authenticatable
         return $this->belongsTo(User::class, 'referred_by_user_id');
     }
 
+    public function accountManager(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(AccountManager::class, 'account_manager_id');
+    }
+
     public function referrals(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(User::class, 'referred_by_user_id');

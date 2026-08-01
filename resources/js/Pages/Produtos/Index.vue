@@ -79,6 +79,12 @@ function duplicate(p) {
     closeMenu();
 }
 
+function resubmit(p) {
+    if (!confirm(`Reenviar "${p.name}" para análise?`)) return;
+    router.post(`/produtos/${p.id}/reenviar-analise`, {}, { preserveScroll: true });
+    closeMenu();
+}
+
 function openDeleteModal(p) {
     closeMenu();
     productToDelete.value = p;
@@ -172,7 +178,33 @@ function pluginActions(productId) {
                                 >
                                     {{ p.is_active ? 'Ativo' : 'Inativo' }}
                                 </span>
+                                <span
+                                    v-if="p.approval"
+                                    :class="[
+                                        'inline-block rounded px-2 py-0.5 text-xs font-medium',
+                                        p.approval.status === 'pending'
+                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+                                            : p.approval.status === 'rejected'
+                                              ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                              : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+                                    ]"
+                                    :title="p.approval.description"
+                                >
+                                    {{ p.approval.label }}
+                                </span>
                             </div>
+                            <p
+                                v-if="p.approval?.status === 'pending'"
+                                class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                            >
+                                Produto em análise — ainda não disponível para venda.
+                            </p>
+                            <p
+                                v-else-if="p.approval?.status === 'rejected'"
+                                class="mt-1 text-xs text-red-600 dark:text-red-300"
+                            >
+                                Motivo: {{ p.approval.reason || 'Consulte o painel de edição.' }}
+                            </p>
                         </div>
                         <div class="relative shrink-0" :data-product-menu="p.id">
                             <button
@@ -203,6 +235,14 @@ function pluginActions(productId) {
                                 >
                                     <Copy class="h-4 w-4 shrink-0" />
                                     Duplicar
+                                </button>
+                                <button
+                                    v-if="p.approval?.can_resubmit"
+                                    type="button"
+                                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-amber-800 hover:bg-amber-50 dark:text-amber-200 dark:hover:bg-amber-950/30"
+                                    @click="resubmit(p)"
+                                >
+                                    Reenviar para análise
                                 </button>
                                 <button
                                     type="button"

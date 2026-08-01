@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\User;
 use App\Models\MemberNotification;
 use App\Models\MemberPushSubscription;
+use App\Models\Product;
 use App\Services\InertiaSharedPropsCache;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
@@ -13,6 +14,7 @@ use App\Services\Platform\PlatformTotpService;
 use App\Services\ApiPixAccess;
 use App\Services\MinimumChargeService;
 use App\Services\MemberProgressService;
+use App\Services\MemberAreaResolver;
 use App\Services\PhysicalProductAccess;
 use App\Support\BrandingAssetUrls;
 use App\Support\DemoMode;
@@ -22,6 +24,8 @@ use App\Support\PublicAppUrl;
 use App\Support\SellerDashboardTemplate;
 use App\Support\SellerPanelSupportSettings;
 use App\Support\ReferralProgramSettings;
+use App\Support\InfoproducerRegistrationSettings;
+use App\Support\MemberAreaAdminPreview;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Middleware;
@@ -72,6 +76,7 @@ class HandleInertiaRequests extends Middleware
                 'csrf_token' => $request->hasSession() ? $request->session()->token() : '',
                 'app_url' => rtrim(PublicAppUrl::base(), '/'),
                 'demo_mode' => DemoMode::publicConfig(),
+                'allow_new_infoproducers' => InfoproducerRegistrationSettings::isAllowed(),
                 'flash' => ['success' => null, 'error' => null, 'info' => null, 'status' => null],
                 'platform' => null,
             ]);
@@ -167,9 +172,20 @@ class HandleInertiaRequests extends Middleware
         $memberNotificationsUnreadCount = 0;
         $memberPushSubscribed = false;
         $memberCertificate = ['enabled' => false];
+        $memberAreaAdminPreview = null;
         if ($user && $isMemberArea) {
             $product = $request->route('product') ?? $request->attributes->get('member_area_product');
-            if ($product) {
+            // HandleInertiaRequests roda antes dos middlewares member.area.*; resolve pelo slug/host.
+            if (! $product instanceof Product) {
+                try {
+                    $resolved = app(MemberAreaResolver::class)->resolve($request);
+                    $product = $resolved['product'] ?? null;
+                } catch (\Throwable) {
+                    $product = null;
+                }
+            }
+            if ($product instanceof Product) {
+                $memberAreaAdminPreview = MemberAreaAdminPreview::inertiaPayload($request, $product);
                 $memberNotificationsUnreadCount = MemberNotification::forUser($user->id)
                     ->forProduct($product->id)
                     ->unread()
@@ -178,25 +194,27 @@ class HandleInertiaRequests extends Middleware
                     ->where('product_id', $product->id)
                     ->exists();
 
-                $eligibility = app(MemberProgressService::class)->certificateEligibility($product, $user);
-                if ($eligibility['enabled']) {
-                    $memberCertificate = [
-                        'enabled' => true,
-                        'ready' => $eligibility['eligible'],
-                        'issued' => $eligibility['already_issued'],
-                        'progress_percent' => $eligibility['progress_percent'],
-                        'required_percent' => $eligibility['required_percent'],
-                        'release' => [
-                            'mode' => $eligibility['release_mode'],
+                if (! MemberAreaAdminPreview::isActive($request, $product)) {
+                    $eligibility = app(MemberProgressService::class)->certificateEligibility($product, $user);
+                    if ($eligibility['enabled']) {
+                        $memberCertificate = [
+                            'enabled' => true,
+                            'ready' => $eligibility['eligible'],
+                            'issued' => $eligibility['already_issued'],
+                            'progress_percent' => $eligibility['progress_percent'],
                             'required_percent' => $eligibility['required_percent'],
-                            'percent_met' => $eligibility['percent_met'],
-                            'days_after_access' => $eligibility['days_after_access'],
-                            'days_elapsed' => $eligibility['days_elapsed'],
-                            'days_remaining' => $eligibility['days_remaining'],
-                            'days_met' => $eligibility['days_met'],
-                            'unlocks_at' => $eligibility['unlocks_at'],
-                        ],
-                    ];
+                            'release' => [
+                                'mode' => $eligibility['release_mode'],
+                                'required_percent' => $eligibility['required_percent'],
+                                'percent_met' => $eligibility['percent_met'],
+                                'days_after_access' => $eligibility['days_after_access'],
+                                'days_elapsed' => $eligibility['days_elapsed'],
+                                'days_remaining' => $eligibility['days_remaining'],
+                                'days_met' => $eligibility['days_met'],
+                                'unlocks_at' => $eligibility['unlocks_at'],
+                            ],
+                        ];
+                    }
                 }
             }
         }
@@ -268,6 +286,7 @@ class HandleInertiaRequests extends Middleware
             'platform' => null,
             'cloud_mode' => (bool) config('getfy.cloud_mode', false),
             'demo_mode' => DemoMode::publicConfig(),
+            'allow_new_infoproducers' => InfoproducerRegistrationSettings::isAllowed(),
             'cloud_billing_renew_window_days' => (int) config('getfy.cloud.billing_renew_window_days', 7),
             'appSettings' => $appSettings,
             'public_branding' => $publicBranding,
@@ -285,6 +304,7 @@ class HandleInertiaRequests extends Middleware
             'member_notifications_unread_count' => $memberNotificationsUnreadCount,
             'member_push_subscribed' => $memberPushSubscribed,
             'member_certificate' => $memberCertificate,
+            'member_area_admin_preview' => $memberAreaAdminPreview,
             'customer_panel' => $customerPanel,
             'seller_dashboard_template' => ($user && $user->canAccessSellerPanel() && ! $customerPanel)
                 ? SellerDashboardTemplate::current()

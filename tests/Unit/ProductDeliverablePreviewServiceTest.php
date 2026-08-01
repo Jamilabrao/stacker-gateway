@@ -53,6 +53,10 @@ class ProductDeliverablePreviewServiceTest extends TestCase
         $this->assertSame('member_area', $preview['kind']);
         $this->assertNotEmpty($preview['primary_url']);
         $this->assertTrue($preview['can_open']);
-        $this->assertStringContainsString('curso-admin', (string) $preview['primary_url']);
+        $this->assertSame('Ver Área de Membros', $preview['open_label']);
+        $this->assertStringContainsString(
+            '/plataforma/produtos/'.$product->id.'/area-membros/preview',
+            (string) $preview['primary_url']
+        );
     }
 }

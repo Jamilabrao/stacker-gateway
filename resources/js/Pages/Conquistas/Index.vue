@@ -48,6 +48,12 @@ const usernameForm = useForm({
 function saveUsername() {
     usernameForm.put('/meu-perfil/username', { preserveScroll: true });
 }
+
+function formatDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
+}
 </script>
 
 <template>
@@ -68,10 +74,10 @@ function saveUsername() {
                     <div>
                         <p class="text-sm text-zinc-500 dark:text-zinc-400">Vendas válidas</p>
                         <p class="text-2xl font-semibold text-zinc-900 dark:text-white">
-                            R$ {{ formatCompactCurrency(progress.total_valid_sales ?? 0) }}
+                            R$ {{ formatCompactCurrency(progress.total_valid_sales ?? progress.current_value ?? 0) }}
                         </p>
                     </div>
-                    <div v-if="progress.next_achievement" class="w-full sm:max-w-xs">
+                    <div v-if="progress.next_achievement || progress.all_completed" class="w-full sm:max-w-xs">
                         <div class="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
                             <span>Progresso</span>
                             <span>{{ progress.progress_percent ?? 0 }}%</span>
@@ -79,15 +85,74 @@ function saveUsername() {
                         <div class="mt-1 h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
                             <div
                                 class="h-full rounded-full bg-[var(--color-primary)] transition-all duration-500"
-                                :style="{ width: `${progress.progress_percent ?? 0}%` }"
+                                :style="{ width: `${Math.min(100, progress.progress_percent ?? 0)}%` }"
                             />
                         </div>
-                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                            Próximo: {{ progress.next_achievement?.name }} (R$ {{ formatCompactCurrency(progress.next_achievement?.threshold ?? 0) }})
+                        <p v-if="progress.all_completed" class="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                            Todas as metas concluídas · Conquista alcançada
+                        </p>
+                        <p v-else-if="progress.next_achievement" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            Próximo: {{ progress.next_achievement.name }} (R$ {{ formatCompactCurrency(progress.next_achievement.threshold ?? 0) }})
+                            <span v-if="progress.remaining != null"> · Faltam R$ {{ formatCompactCurrency(progress.remaining) }}</span>
                         </p>
                     </div>
                 </div>
             </div>
+
+            <!-- Prêmio da próxima meta -->
+            <div v-if="progress.next_achievement && !progress.all_completed" class="border-t border-zinc-200 px-6 py-4 dark:border-zinc-700">
+                <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Prêmio ao atingir esta meta</h2>
+                <div v-if="progress.next_achievement.has_reward" class="mt-3 flex flex-wrap items-start gap-4">
+                    <div
+                        v-if="progress.next_achievement.reward_image"
+                        class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 dark:bg-zinc-800"
+                    >
+                        <img
+                            :src="progress.next_achievement.reward_image"
+                            :alt="progress.next_achievement.reward_name"
+                            class="h-14 w-14 object-contain"
+                        />
+                    </div>
+                    <div class="min-w-0">
+                        <p class="font-medium text-zinc-900 dark:text-white">{{ progress.next_achievement.reward_name }}</p>
+                        <p v-if="progress.next_achievement.reward_description" class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                            {{ progress.next_achievement.reward_description }}
+                        </p>
+                    </div>
+                </div>
+                <p v-else class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                    Esta conquista não possui premiação física cadastrada.
+                </p>
+            </div>
+        </div>
+
+        <!-- Minhas conquistas (unlocks) -->
+        <div
+            v-if="(progress.unlocks ?? []).length > 0"
+            class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50"
+        >
+            <div class="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
+                <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Minhas conquistas</h2>
+            </div>
+            <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                <li
+                    v-for="unlock in progress.unlocks"
+                    :key="unlock.id"
+                    class="flex flex-wrap items-center gap-4 px-6 py-4"
+                >
+                    <div class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 dark:bg-zinc-800">
+                        <img v-if="unlock.image" :src="unlock.image" :alt="unlock.name" class="h-10 w-10 object-contain" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <p class="font-semibold text-zinc-900 dark:text-white">{{ unlock.name }}</p>
+                        <p class="text-sm text-zinc-500 dark:text-zinc-400">{{ formatDate(unlock.unlocked_at) }}</p>
+                    </div>
+                    <div class="text-right text-sm">
+                        <p v-if="unlock.reward_name" class="font-medium text-zinc-800 dark:text-zinc-200">{{ unlock.reward_name }}</p>
+                        <p v-if="unlock.reward_status_label" class="text-zinc-500 dark:text-zinc-400">{{ unlock.reward_status_label }}</p>
+                    </div>
+                </li>
+            </ul>
         </div>
 
         <!-- Username para compartilhar -->

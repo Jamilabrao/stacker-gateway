@@ -14,6 +14,22 @@ const props = defineProps({
         required: true,
     },
     totp_enabled: { type: Boolean, default: false },
+    push_preferences: {
+        type: Object,
+        default: () => ({
+            sale_approved: true,
+            pix_generated: true,
+            boleto_generated: true,
+            withdrawal_paid: true,
+            affiliate_sale_approved: true,
+            affiliate_enrollment_approved: true,
+            daily_summary: true,
+            system: true,
+            show_product_name: true,
+            show_sale_amount: true,
+            show_payment_method: true,
+        }),
+    },
 });
 
 const avatarInputRef = ref(null);
@@ -31,6 +47,24 @@ const passwordForm = useForm({
     password: '',
     password_confirmation: '',
 });
+
+const pushForm = useForm({
+    sale_approved: !!props.push_preferences.sale_approved,
+    pix_generated: !!props.push_preferences.pix_generated,
+    boleto_generated: !!props.push_preferences.boleto_generated,
+    withdrawal_paid: !!props.push_preferences.withdrawal_paid,
+    affiliate_sale_approved: !!props.push_preferences.affiliate_sale_approved,
+    affiliate_enrollment_approved: !!props.push_preferences.affiliate_enrollment_approved,
+    daily_summary: !!props.push_preferences.daily_summary,
+    system: !!props.push_preferences.system,
+    show_product_name: !!props.push_preferences.show_product_name,
+    show_sale_amount: !!props.push_preferences.show_sale_amount,
+    show_payment_method: !!props.push_preferences.show_payment_method,
+});
+
+function submitPushPreferences() {
+    pushForm.put('/meu-perfil/preferencias-push', { preserveScroll: true });
+}
 
 const avatarUrl = computed(() => {
     if (avatarPreview.value) return avatarPreview.value;
@@ -311,5 +345,35 @@ function submitPassword() {
             disable-url="/seguranca/totp/desativar"
             context="seller"
         />
+
+        <div class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Preferências de notificações push</h2>
+            <p class="mt-1 text-sm text-zinc-500">
+                Vale para todos os dispositivos inscritos. Dados pessoais do comprador nunca são enviados no push.
+            </p>
+            <form class="mt-4 space-y-4" @submit.prevent="submitPushPreferences">
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.sale_approved" type="checkbox" class="rounded" /> Venda aprovada</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.pix_generated" type="checkbox" class="rounded" /> PIX gerado</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.boleto_generated" type="checkbox" class="rounded" /> Boleto gerado</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.withdrawal_paid" type="checkbox" class="rounded" /> Saque pago</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.affiliate_sale_approved" type="checkbox" class="rounded" /> Comissão de afiliado</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.affiliate_enrollment_approved" type="checkbox" class="rounded" /> Afiliação aprovada</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.daily_summary" type="checkbox" class="rounded" /> Resumo diário de vendas</label>
+                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.system" type="checkbox" class="rounded" /> Comunicados administrativos</label>
+                </div>
+                <div class="border-t border-zinc-100 pt-4 dark:border-zinc-700">
+                    <p class="mb-2 text-sm font-medium">Dados na notificação de venda</p>
+                    <div class="grid gap-3 sm:grid-cols-3">
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_product_name" type="checkbox" class="rounded" /> Nome do produto</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_sale_amount" type="checkbox" class="rounded" /> Valor</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_payment_method" type="checkbox" class="rounded" /> Forma de pagamento</label>
+                    </div>
+                </div>
+                <Button type="submit" :disabled="pushForm.processing">
+                    {{ pushForm.processing ? 'Salvando…' : 'Salvar preferências' }}
+                </Button>
+            </form>
+        </div>
     </div>
 </template>

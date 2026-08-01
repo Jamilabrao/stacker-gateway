@@ -17,6 +17,7 @@ use App\Services\WithdrawalPixReceiptService;
 use App\Support\DemoMode;
 use App\Support\Demo\DemoPlatformData;
 use App\Support\OrderManualRefund;
+use App\Support\PlatformTransactionsListing;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -30,8 +31,6 @@ class TransactionsController extends Controller
     public function __construct(
         protected WithdrawalPixReceiptService $receiptService,
     ) {}
-
-    private const STATUS_OPTIONS = ['all', 'pending', 'completed', 'disputed', 'cancelled', 'refunded'];
 
     private function productDisplayName(Order $order): string
     {
@@ -49,49 +48,33 @@ class TransactionsController extends Controller
 
     public function index(Request $request): Response
     {
-        $status = $request->query('status', 'all');
-        if (! in_array($status, self::STATUS_OPTIONS, true)) {
-            $status = 'all';
-        }
+        $status = PlatformTransactionsListing::normalizeStatus($request->query('status', 'all'));
         $q = trim((string) $request->query('q', ''));
+        $perPage = PlatformTransactionsListing::normalizePerPage($request->query('per_page'));
 
         if (DemoMode::isEnabled()) {
             $payload = DemoPlatformData::transactions(
                 $status,
                 $q,
                 $request->url(),
-                $request->query()
+                $request->query(),
+                $perPage
             );
 
             return Inertia::render('Platform/Transactions/Index', $payload);
         }
 
-        $ordersPaginator = new LengthAwarePaginator([], 0, 40, 1, [
+        $ordersPaginator = new LengthAwarePaginator([], 0, $perPage, 1, [
             'path' => $request->url(),
             'query' => $request->query(),
         ]);
 
         if (Schema::hasTable('orders')) {
             $query = $this->baseOrdersQuery();
+            PlatformTransactionsListing::applyStatusFilter($query, $status);
+            PlatformTransactionsListing::applySearchFilter($query, $q);
 
-            if ($status !== 'all') {
-                $query->where('orders.status', $status);
-            }
-
-            if ($q !== '') {
-                $query->where(function ($w) use ($q) {
-                    $w->where('orders.email', 'like', '%'.$q.'%')
-                        ->orWhereHas('user', function ($u) use ($q) {
-                            $u->where('name', 'like', '%'.$q.'%')
-                                ->orWhere('email', 'like', '%'.$q.'%');
-                        });
-                    if (ctype_digit($q)) {
-                        $w->orWhere('orders.id', $q);
-                    }
-                });
-            }
-
-            $paginated = $query->paginate(40)->withQueryString();
+            $paginated = $query->paginate($perPage)->withQueryString();
             $openMedOrderIds = MedDispute::query()
                 ->whereIn('order_id', $paginated->getCollection()->pluck('id'))
                 ->open()
@@ -107,19 +90,18 @@ class TransactionsController extends Controller
             'filters' => [
                 'status' => $status,
                 'q' => $q,
+                'per_page' => $perPage,
             ],
         ]);
     }
 
     public function apiIndex(Request $request): Response
     {
-        $status = $request->query('status', 'all');
-        if (! in_array($status, self::STATUS_OPTIONS, true)) {
-            $status = 'all';
-        }
+        $status = PlatformTransactionsListing::normalizeStatus($request->query('status', 'all'));
         $q = trim((string) $request->query('q', ''));
+        $perPage = PlatformTransactionsListing::normalizePerPage($request->query('per_page'));
 
-        $ordersPaginator = new LengthAwarePaginator([], 0, 40, 1, [
+        $ordersPaginator = new LengthAwarePaginator([], 0, $perPage, 1, [
             'path' => $request->url(),
             'query' => $request->query(),
         ]);
@@ -130,24 +112,10 @@ class TransactionsController extends Controller
                 ->where('orders.payment_method', 'pix')
                 ->where('orders.metadata->source', 'api');
 
-            if ($status !== 'all') {
-                $query->where('orders.status', $status);
-            }
+            PlatformTransactionsListing::applyStatusFilter($query, $status);
+            PlatformTransactionsListing::applySearchFilter($query, $q);
 
-            if ($q !== '') {
-                $query->where(function ($w) use ($q) {
-                    $w->where('orders.email', 'like', '%'.$q.'%')
-                        ->orWhereHas('user', function ($u) use ($q) {
-                            $u->where('name', 'like', '%'.$q.'%')
-                                ->orWhere('email', 'like', '%'.$q.'%');
-                        });
-                    if (ctype_digit($q)) {
-                        $w->orWhere('orders.id', $q);
-                    }
-                });
-            }
-
-            $paginated = $query->paginate(40)->withQueryString();
+            $paginated = $query->paginate($perPage)->withQueryString();
             $openMedOrderIds = MedDispute::query()
                 ->whereIn('order_id', $paginated->getCollection()->pluck('id'))
                 ->open()
@@ -158,7 +126,7 @@ class TransactionsController extends Controller
             $ordersPaginator = $paginated->through(fn (Order $o) => $this->mapOrderForAdmin($o, $openMedOrderIds));
         }
 
-        $apiCashoutsPaginator = new LengthAwarePaginator([], 0, 40, 1, [
+        $apiCashoutsPaginator = new LengthAwarePaginator([], 0, $perPage, 1, [
             'path' => $request->url(),
             'query' => $request->query(),
         ]);
@@ -170,7 +138,7 @@ class TransactionsController extends Controller
                 ->orderByDesc('created_at');
 
             $apiCashoutsPaginator = $cashoutQuery
-                ->paginate(40, ['*'], 'cashout_page')
+                ->paginate($perPage, ['*'], 'cashout_page')
                 ->withQueryString()
                 ->through(fn (Withdrawal $w) => $this->receiptService->mapWithdrawalListItem($w));
         }
@@ -181,6 +149,7 @@ class TransactionsController extends Controller
             'filters' => [
                 'status' => $status,
                 'q' => $q,
+                'per_page' => $perPage,
             ],
         ]);
     }
@@ -271,10 +240,69 @@ class TransactionsController extends Controller
 
     private function orderActionRedirectParams(Request $request): array
     {
+        $status = $request->input('status', $request->query('status'));
+        $q = $request->input('q', $request->query('q'));
+        $perPage = $request->input('per_page', $request->query('per_page'));
+        $page = $request->input('page', $request->query('page'));
+
         return array_filter([
-            'status' => $request->query('status'),
-            'q' => $request->query('q'),
+            'status' => $status,
+            'q' => $q,
+            'per_page' => $perPage,
+            'page' => $page,
         ], fn ($v) => $v !== null && $v !== '');
+    }
+
+    public function bulkDestroyPending(Request $request): RedirectResponse
+    {
+        $redirectParams = $this->orderActionRedirectParams($request);
+        // Após exclusão em massa, volta à página 1 com os mesmos filtros.
+        unset($redirectParams['page']);
+
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['integer', 'distinct'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ], [
+            'ids.required' => 'Selecione ao menos uma transação pendente.',
+            'ids.max' => 'É possível excluir no máximo 100 transações por operação.',
+        ]);
+
+        $ids = array_values(array_unique(array_map('intval', $validated['ids'])));
+        $reason = isset($validated['reason']) ? trim((string) $validated['reason']) : '';
+        $reason = $reason !== '' ? $reason : null;
+
+        try {
+            $deleted = PlatformAdminDeletionService::deletePendingOrdersAllOrNothing($ids);
+        } catch (InvalidArgumentException $e) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', 'Não foi possível excluir as transações selecionadas.');
+        }
+
+        $count = count($deleted);
+        foreach ($deleted as $orderId) {
+            PlatformAuditService::log('platform.order.deleted', [
+                'order_id' => $orderId,
+                'bulk' => true,
+                'reason' => $reason,
+            ], $request);
+        }
+
+        PlatformAuditService::log('platform.order.bulk_deleted', [
+            'deleted_count' => $count,
+            'deleted_ids' => $deleted,
+            'reason' => $reason,
+        ], $request);
+
+        $message = $count === 1
+            ? '1 transação pendente foi excluída com sucesso.'
+            : "{$count} transações pendentes foram excluídas com sucesso.";
+
+        return redirect()->route('plataforma.transacoes.index', $redirectParams)
+            ->with('success', $message);
     }
 
     public function approveManualOrder(Request $request, Order $order): RedirectResponse

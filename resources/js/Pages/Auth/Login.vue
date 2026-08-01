@@ -313,7 +313,7 @@ function loginDemo(role) {
             </Button>
         </form>
 
-        <p :class="['mt-6 text-center', mutedTextClass]">
+        <p v-if="page.props.allow_new_infoproducers !== false" :class="['mt-6 text-center', mutedTextClass]">
             Não tem conta?
             <Link href="/cadastro" :class="[linkClass, 'font-medium']">Criar conta</Link>
         </p>

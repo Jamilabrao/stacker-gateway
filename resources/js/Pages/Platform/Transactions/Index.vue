@@ -26,12 +26,13 @@ const props = defineProps({
     },
     filters: {
         type: Object,
-        default: () => ({ status: 'all', q: '' }),
+        default: () => ({ status: 'all', q: '', per_page: 25 }),
     },
 });
 
 const filterStatus = ref(props.filters?.status ?? 'all');
 const filterQ = ref(props.filters?.q ?? '');
+const filterPerPage = ref(String(props.filters?.per_page ?? 25));
 
 const sidebarOpen = ref(false);
 const selectedVenda = ref(null);
@@ -46,13 +47,27 @@ const refundTargetId = ref(null);
 const refundReason = ref('');
 const refundSubmitting = ref(false);
 
+const selectedIds = ref([]);
+const bulkDeleteOpen = ref(false);
+const bulkDeleteReason = ref('');
+const bulkDeleteLoading = ref(false);
+
 watch(
     () => props.filters,
     (f) => {
         filterStatus.value = f?.status ?? 'all';
         filterQ.value = f?.q ?? '';
+        filterPerPage.value = String(f?.per_page ?? 25);
     },
     { deep: true }
+);
+
+watch(
+    () => props.orders?.data,
+    () => {
+        const visible = new Set((props.orders?.data ?? []).map((o) => o.id));
+        selectedIds.value = selectedIds.value.filter((id) => visible.has(id));
+    }
 );
 
 const filterChips = [
@@ -68,16 +83,22 @@ function chipIsActive(chip) {
     return filterStatus.value === chip.status;
 }
 
+function listQueryParams(extra = {}) {
+    return {
+        status: filterStatus.value,
+        q: filterQ.value?.trim() || undefined,
+        per_page: Number(filterPerPage.value) || 25,
+        ...extra,
+    };
+}
+
 function selectChip(chip) {
     filterStatus.value = chip.status;
-    router.get(
-        '/plataforma/transacoes',
-        {
-            status: chip.status,
-            q: filterQ.value?.trim() || undefined,
-        },
-        { preserveState: true, preserveScroll: true, replace: true }
-    );
+    router.get('/plataforma/transacoes', listQueryParams(), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+    });
 }
 
 function formatBRL(value) {
@@ -104,20 +125,26 @@ function statusBadgeClass(status) {
 }
 
 function applyFilters() {
-    router.get(
-        '/plataforma/transacoes',
-        {
-            status: filterStatus.value,
-            q: filterQ.value?.trim() || undefined,
-        },
-        { preserveState: true, preserveScroll: true, replace: true }
-    );
+    router.get('/plataforma/transacoes', listQueryParams(), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+    });
+}
+
+function changePerPage() {
+    router.get('/plataforma/transacoes', listQueryParams(), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+    });
 }
 
 function approveQuerySuffix() {
     const params = new URLSearchParams();
     if (filterStatus.value && filterStatus.value !== 'all') params.set('status', filterStatus.value);
     if (filterQ.value?.trim()) params.set('q', filterQ.value.trim());
+    if (filterPerPage.value) params.set('per_page', filterPerPage.value);
     const s = params.toString();
     return s ? `?${s}` : '';
 }
@@ -204,12 +231,92 @@ function closeSidebar() {
     selectedVenda.value = null;
 }
 
-const rows = () => props.orders?.data ?? [];
+const rows = computed(() => props.orders?.data ?? []);
+
+const pendingRows = computed(() => rows.value.filter((o) => o.status === 'pending'));
+
+const selectedCount = computed(() => selectedIds.value.length);
+
+const allPendingOnPageSelected = computed(() => {
+    if (!pendingRows.value.length) return false;
+    return pendingRows.value.every((o) => selectedIds.value.includes(o.id));
+});
+
+const resultsSummary = computed(() => {
+    const total = Number(props.orders?.total ?? 0);
+    if (!total) return 'Nenhuma transação encontrada com os filtros aplicados.';
+    const from = Number(props.orders?.from ?? 0);
+    const to = Number(props.orders?.to ?? 0);
+    return `Exibindo ${from}–${to} de ${total} transações`;
+});
+
+const bulkConfirmMessage = computed(() => {
+    const n = selectedCount.value;
+    if (n === 1) {
+        return 'Você está prestes a excluir esta transação pendente. Esta ação não poderá ser desfeita. Deseja continuar?';
+    }
+    return `Você está prestes a excluir ${n} transações pendentes. Esta ação não poderá ser desfeita. Deseja continuar?`;
+});
+
+function toggleSelect(id) {
+    if (selectedIds.value.includes(id)) {
+        selectedIds.value = selectedIds.value.filter((rowId) => rowId !== id);
+        return;
+    }
+    selectedIds.value = [...selectedIds.value, id];
+}
+
+function toggleSelectAllPending() {
+    if (allPendingOnPageSelected.value) {
+        const pendingSet = new Set(pendingRows.value.map((o) => o.id));
+        selectedIds.value = selectedIds.value.filter((id) => !pendingSet.has(id));
+        return;
+    }
+    const merged = new Set([...selectedIds.value, ...pendingRows.value.map((o) => o.id)]);
+    selectedIds.value = [...merged];
+}
+
+function openBulkDeleteModal() {
+    if (!selectedIds.value.length) return;
+    bulkDeleteReason.value = '';
+    bulkDeleteOpen.value = true;
+}
+
+function closeBulkDeleteModal() {
+    if (bulkDeleteLoading.value) return;
+    bulkDeleteOpen.value = false;
+    bulkDeleteReason.value = '';
+}
+
+function submitBulkDelete() {
+    if (!selectedIds.value.length || bulkDeleteLoading.value) return;
+    bulkDeleteLoading.value = true;
+    router.post(
+        '/plataforma/transacoes/pedidos/excluir-em-massa',
+        {
+            ids: selectedIds.value,
+            reason: bulkDeleteReason.value?.trim() || undefined,
+            status: filterStatus.value,
+            q: filterQ.value?.trim() || undefined,
+            per_page: Number(filterPerPage.value) || 25,
+        },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                bulkDeleteLoading.value = false;
+            },
+            onSuccess: () => {
+                selectedIds.value = [];
+                bulkDeleteOpen.value = false;
+                bulkDeleteReason.value = '';
+            },
+        }
+    );
+}
 
 const menuOrder = computed(() => {
     if (openMenuId.value == null) return null;
-    const list = rows();
-    return list.find((x) => x.id === openMenuId.value) ?? null;
+    return rows.value.find((x) => x.id === openMenuId.value) ?? null;
 });
 
 function hasActionsMenu() {
@@ -360,19 +467,53 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
             >
                 <div class="min-w-[220px] flex-[2]">
                     <label for="tx-q" class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                        Buscar (e-mail, nome, ID do pedido)
+                        Buscar (cliente, infoprodutor, e-mail, produto, CPF, ID)
                     </label>
                     <input
                         id="tx-q"
                         v-model="filterQ"
                         type="search"
                         class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
-                        placeholder="Ex.: cliente@email.com ou 12345"
+                        placeholder="Ex.: cliente@email.com, vendedor ou 12345"
                         autocomplete="off"
                     />
                 </div>
+                <div class="w-full sm:w-36">
+                    <label for="tx-per-page" class="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Por página
+                    </label>
+                    <select
+                        id="tx-per-page"
+                        v-model="filterPerPage"
+                        class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                        @change="changePerPage"
+                    >
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
                 <Button type="submit">Buscar</Button>
             </form>
+        </div>
+
+        <div
+            v-if="selectedCount > 0"
+            class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/30"
+        >
+            <p class="text-sm text-amber-900 dark:text-amber-100">
+                {{ selectedCount }} transação(ões) pendente(s) selecionada(s)
+            </p>
+            <div class="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="secondary" @click="selectedIds = []">Limpar seleção</Button>
+                <Button type="button" size="sm" class="!bg-red-600 !text-white hover:!bg-red-700" @click="openBulkDeleteModal">
+                    Excluir {{ selectedCount }} {{ selectedCount === 1 ? 'transação selecionada' : 'transações selecionadas' }}
+                </Button>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <p>{{ resultsSummary }}</p>
         </div>
 
         <div
@@ -382,6 +523,17 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                 <table class="w-full min-w-[1100px] text-left text-sm">
                     <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900/50">
                         <tr>
+                            <th class="w-12 px-3 py-3">
+                                <input
+                                    type="checkbox"
+                                    class="rounded border-zinc-300"
+                                    :checked="allPendingOnPageSelected"
+                                    :disabled="!pendingRows.length"
+                                    :title="pendingRows.length ? 'Selecionar pendentes da página' : 'Nenhuma pendente nesta página'"
+                                    @change="toggleSelectAllPending"
+                                    @click.stop
+                                />
+                            </th>
                             <th class="px-4 py-3">Data</th>
                             <th class="px-4 py-3">Pedido</th>
                             <th class="px-4 py-3">Cliente</th>
@@ -395,7 +547,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                     </thead>
                     <tbody class="divide-y divide-zinc-100 dark:divide-zinc-700">
                         <tr
-                            v-for="o in rows()"
+                            v-for="o in rows"
                             :key="o.id"
                             class="cursor-pointer bg-white transition hover:bg-zinc-50 dark:bg-zinc-800/40 dark:hover:bg-zinc-700/50"
                             tabindex="0"
@@ -404,6 +556,16 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             @keydown.enter.prevent="openDetail(o)"
                             @keydown.space.prevent="openDetail(o)"
                         >
+                            <td class="px-3 py-3" @click.stop>
+                                <input
+                                    v-if="o.status === 'pending'"
+                                    type="checkbox"
+                                    class="rounded border-zinc-300"
+                                    :checked="selectedIds.includes(o.id)"
+                                    @change="toggleSelect(o.id)"
+                                />
+                                <span v-else class="inline-block w-4" aria-hidden="true" />
+                            </td>
                             <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-300">
                                 {{ o.created_at ? new Date(o.created_at).toLocaleString('pt-BR') : '—' }}
                             </td>
@@ -461,8 +623,10 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                                 </div>
                             </td>
                         </tr>
-                        <tr v-if="!rows().length">
-                            <td colspan="9" class="px-4 py-12 text-center text-zinc-500">Nenhuma transação encontrada.</td>
+                        <tr v-if="!rows.length">
+                            <td colspan="10" class="px-4 py-12 text-center text-zinc-500">
+                                Nenhuma transação encontrada com os filtros aplicados.
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -625,6 +789,53 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                         @click="submitRefund"
                     >
                         {{ refundSubmitting ? 'Processando...' : 'Confirmar reembolso' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div
+            v-if="bulkDeleteOpen"
+            class="fixed inset-0 z-[100002] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="platform-bulk-delete-title"
+        >
+            <div class="absolute inset-0 bg-zinc-900/50 dark:bg-zinc-950/60" @click="closeBulkDeleteModal" />
+            <div class="relative w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                <h3 id="platform-bulk-delete-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
+                    Confirmar exclusão
+                </h3>
+                <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    {{ bulkConfirmMessage }}
+                </p>
+                <label class="mt-4 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Motivo da exclusão (opcional)
+                    <textarea
+                        v-model="bulkDeleteReason"
+                        rows="3"
+                        maxlength="500"
+                        class="mt-1.5 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                        placeholder="Ex.: Cobranças de teste geradas incorretamente."
+                        :disabled="bulkDeleteLoading"
+                    />
+                </label>
+                <div class="mt-5 flex justify-end gap-2">
+                    <button
+                        type="button"
+                        class="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        :disabled="bulkDeleteLoading"
+                        @click="closeBulkDeleteModal"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        :disabled="bulkDeleteLoading"
+                        @click="submitBulkDelete"
+                    >
+                        {{ bulkDeleteLoading ? 'Excluindo...' : 'Excluir transações' }}
                     </button>
                 </div>
             </div>

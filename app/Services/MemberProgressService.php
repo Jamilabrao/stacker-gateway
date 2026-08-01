@@ -7,6 +7,7 @@ use App\Models\MemberLesson;
 use App\Models\MemberLessonProgress;
 use App\Models\Product;
 use App\Models\User;
+use App\Support\MemberAreaAdminPreview;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -56,7 +57,10 @@ class MemberProgressService
      */
     public function userAccessStartAt(Product $product, User $user): Carbon
     {
-        if ($user->canAccessPanel() && $user->tenant_id === $product->tenant_id) {
+        if (
+            ($user->canAccessPanel() && $user->tenant_id === $product->tenant_id)
+            || MemberAreaAdminPreview::isPlatformAuditor($user)
+        ) {
             return now()->subYears(20);
         }
 
@@ -160,6 +164,10 @@ class MemberProgressService
      */
     public function ensureLessonStarted(MemberLesson $lesson, User $user): void
     {
+        if (MemberAreaAdminPreview::isPlatformAuditor($user)) {
+            return;
+        }
+
         MemberLessonProgress::firstOrCreate(
             [
                 'user_id' => $user->id,
@@ -177,6 +185,10 @@ class MemberProgressService
      */
     public function markLessonCompleted(int $lessonId, User $user): void
     {
+        if (MemberAreaAdminPreview::isPlatformAuditor($user)) {
+            return;
+        }
+
         $lesson = MemberLesson::find($lessonId);
         if (! $lesson) {
             return;
@@ -207,6 +219,10 @@ class MemberProgressService
      */
     public function issueCertificate(Product $product, User $user): ?MemberCertificateIssued
     {
+        if (MemberAreaAdminPreview::isPlatformAuditor($user)) {
+            return null;
+        }
+
         if (! $this->canIssueCertificate($product, $user)) {
             return null;
         }

@@ -21,6 +21,7 @@ use App\Services\MemberAreaResolver;
 use App\Services\MemberCommentService;
 use App\Services\MemberProgressService;
 use App\Services\StorageService;
+use App\Support\MemberAreaAdminPreview;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -340,6 +341,7 @@ class MemberAreaAppController extends Controller
         if ($lesson->product_id !== $product->id) {
             abort(404);
         }
+        $this->assertNotAdminPreviewMutation($request, $product);
         $this->progressService->markLessonCompleted($lesson->id, $user);
 
         $newlyUnlocked = $this->gamificationService->checkAndUnlock($product, $user);
@@ -358,6 +360,7 @@ class MemberAreaAppController extends Controller
     public function storeLessonComment(Request $request, string $slug, MemberLesson $lesson): JsonResponse|RedirectResponse
     {
         $product = $this->getProduct($request);
+        $this->assertNotAdminPreviewMutation($request, $product);
         if ($lesson->product_id !== $product->id) {
             abort(404);
         }
@@ -519,6 +522,7 @@ class MemberAreaAppController extends Controller
     public function storeCommunityPost(Request $request, string $slug, string $pageSlug): RedirectResponse
     {
         $product = $this->getProduct($request);
+        $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if (! $page->is_public_posting) {
             abort(403, 'Apenas o instrutor pode postar nesta página.');
@@ -545,6 +549,7 @@ class MemberAreaAppController extends Controller
     public function destroyCommunityPost(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): RedirectResponse
     {
         $product = $this->getProduct($request);
+        $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
             abort(404);
@@ -565,6 +570,7 @@ class MemberAreaAppController extends Controller
     public function likeCommunityPost(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): JsonResponse
     {
         $product = $this->getProduct($request);
+        $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
             abort(404);
@@ -582,6 +588,7 @@ class MemberAreaAppController extends Controller
     public function unlikeCommunityPost(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): JsonResponse
     {
         $product = $this->getProduct($request);
+        $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
             abort(404);
@@ -599,6 +606,7 @@ class MemberAreaAppController extends Controller
     public function storeCommunityPostComment(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): JsonResponse|RedirectResponse
     {
         $product = $this->getProduct($request);
+        $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
             abort(404);
@@ -729,6 +737,7 @@ class MemberAreaAppController extends Controller
     public function pushSubscribe(Request $request, string $slug): JsonResponse
     {
         $product = $this->getProduct($request);
+        $this->assertNotAdminPreviewMutation($request, $product);
         $config = $this->memberAreaConfigForApp($product);
         $pwa = $config['pwa'] ?? [];
         if (! ((bool) ($pwa['push_enabled'] ?? false))) {
@@ -933,7 +942,11 @@ class MemberAreaAppController extends Controller
 
     private function userAccessStartAt(Product $product, User $user): Carbon
     {
-        if ($user->canAccessPanel() && $user->tenant_id === $product->tenant_id) {
+        // Seller do tenant ou admin da plataforma: liberar drips para inspeção.
+        if (
+            ($user->canAccessPanel() && $user->tenant_id === $product->tenant_id)
+            || $user->canAccessPlatformPanel()
+        ) {
             return now()->subYears(20);
         }
         $createdAt = DB::table('product_user')
@@ -944,6 +957,13 @@ class MemberAreaAppController extends Controller
             return Carbon::parse($createdAt);
         }
         return now();
+    }
+
+    private function assertNotAdminPreviewMutation(Request $request, Product $product): void
+    {
+        if (MemberAreaAdminPreview::isActive($request, $product)) {
+            abort(403, 'Modo de visualização administrativa: esta ação não está disponível.');
+        }
     }
 
     private function scheduleMeta(?int $afterDays, mixed $atDate, Carbon $accessStartAt): array

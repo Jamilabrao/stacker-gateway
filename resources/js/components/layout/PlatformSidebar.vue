@@ -25,6 +25,7 @@ import {
     Puzzle,
     Plug,
     Gift,
+    ContactRound,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 
@@ -84,6 +85,7 @@ const navGroupsCore = [
         label: 'Pessoas',
         items: [
             { name: 'Infoprodutores', href: '/plataforma/usuarios', icon: Users },
+            { name: 'Gerentes de Conta', href: '/plataforma/gerentes-conta', icon: ContactRound },
             { name: 'Clientes', href: '/plataforma/clientes', icon: UserCircle2 },
             { name: 'Verificações KYC', href: '/plataforma/verificacoes-kyc', icon: BadgeCheck, badgeKey: 'kyc' },
         ],
@@ -194,6 +196,9 @@ function isActive(href) {
     }
     if (href === '/plataforma/usuarios') {
         return url === '/plataforma/usuarios' || (url.startsWith('/plataforma/usuarios/') && !url.startsWith('/plataforma/usuarios/create'));
+    }
+    if (href === '/plataforma/gerentes-conta') {
+        return url === '/plataforma/gerentes-conta' || url.startsWith('/plataforma/gerentes-conta/');
     }
     if (href === '/plataforma/financeiro') {
         return url === '/plataforma/financeiro' || url.startsWith('/plataforma/financeiro/');

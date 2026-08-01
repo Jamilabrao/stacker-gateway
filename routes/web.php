@@ -309,8 +309,15 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/app/push/clear-provider-subscriptions', [\App\Http\Controllers\Platform\AppPushController::class, 'clearOtherProviderSubscriptions'])->name('app.push.clear-provider');
         Route::get('/app/push/subscribers', [\App\Http\Controllers\Platform\AppPushController::class, 'subscribers'])->name('app.push.subscribers');
         Route::delete('/app/push/subscribers/{subscription}', [\App\Http\Controllers\Platform\AppPushController::class, 'destroySubscriber'])->name('app.push.subscribers.destroy');
+        Route::get('/app/push/campaigns', [\App\Http\Controllers\Platform\AppPushController::class, 'campaigns'])->name('app.push.campaigns');
+        Route::get('/app/push/campaigns/{campaign}', [\App\Http\Controllers\Platform\AppPushController::class, 'showCampaign'])->name('app.push.campaigns.show');
+        Route::put('/app/push/campaigns/{campaign}', [\App\Http\Controllers\Platform\AppPushController::class, 'updateCampaign'])->name('app.push.campaigns.update');
+        Route::post('/app/push/campaigns/{campaign}/cancel', [\App\Http\Controllers\Platform\AppPushController::class, 'cancelCampaign'])->name('app.push.campaigns.cancel');
+        Route::put('/app/push/daily-sales', [\App\Http\Controllers\Platform\AppPushController::class, 'updateDailySalesSettings'])->name('app.push.daily-sales');
+        Route::get('/app/push/daily-sales/history', [\App\Http\Controllers\Platform\AppPushController::class, 'dailySummaryHistory'])->name('app.push.daily-sales.history');
         Route::get('/conquistas', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'index'])->name('conquistas.index');
         Route::post('/conquistas', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'store'])->name('conquistas.store');
+        Route::put('/conquistas/unlocks/{unlock}/reward-status', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'updateUnlockRewardStatus'])->name('conquistas.unlocks.reward-status');
         Route::put('/conquistas/{salesAchievement}', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'update'])->name('conquistas.update');
         Route::delete('/conquistas/{salesAchievement}', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'destroy'])->name('conquistas.destroy');
         Route::post('/conquistas/{salesAchievement}/image', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'uploadImage'])->name('conquistas.image.upload');
@@ -325,9 +332,37 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             Route::get('/{user}/taxas-efetivas', [\App\Http\Controllers\Platform\UsersController::class, 'effectiveFees'])->name('effective-fees');
             Route::get('/{user}/observacoes', [\App\Http\Controllers\Platform\MerchantAdminNotesController::class, 'index'])->name('notes.index');
             Route::post('/{user}/observacoes', [\App\Http\Controllers\Platform\MerchantAdminNotesController::class, 'store'])->name('notes.store');
+            Route::post('/{user}/gerente-conta', [\App\Http\Controllers\Platform\UsersController::class, 'assignAccountManager'])
+                ->middleware('throttle:60,1')
+                ->name('account-manager.assign');
             Route::post('/{user}/ajuste-saldo', [\App\Http\Controllers\Platform\UsersController::class, 'adjustBalance'])->name('adjust-balance');
             Route::put('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'update'])->name('update');
             Route::delete('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'destroy'])->name('destroy');
+        });
+
+        Route::prefix('gerentes-conta')->name('gerentes-conta.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Platform\AccountManagersController::class, 'index'])->name('index');
+            Route::get('/criar', [\App\Http\Controllers\Platform\AccountManagersController::class, 'create'])->name('create');
+            Route::post('/', [\App\Http\Controllers\Platform\AccountManagersController::class, 'store'])->name('store');
+            Route::post('/distribuir/preview', [\App\Http\Controllers\Platform\AccountManagersController::class, 'distributePreview'])
+                ->middleware('throttle:30,1')
+                ->name('distribute.preview');
+            Route::post('/distribuir', [\App\Http\Controllers\Platform\AccountManagersController::class, 'distribute'])
+                ->middleware('throttle:10,1')
+                ->name('distribute');
+            Route::get('/{gerente}', [\App\Http\Controllers\Platform\AccountManagersController::class, 'show'])->name('show');
+            Route::get('/{gerente}/editar', [\App\Http\Controllers\Platform\AccountManagersController::class, 'edit'])->name('edit');
+            Route::put('/{gerente}', [\App\Http\Controllers\Platform\AccountManagersController::class, 'update'])->name('update');
+            Route::post('/{gerente}', [\App\Http\Controllers\Platform\AccountManagersController::class, 'update'])->name('update.post');
+            Route::post('/{gerente}/ativacao', [\App\Http\Controllers\Platform\AccountManagersController::class, 'updateActive'])
+                ->middleware('throttle:60,1')
+                ->name('ativacao');
+            Route::post('/{gerente}/transferir', [\App\Http\Controllers\Platform\AccountManagersController::class, 'transfer'])
+                ->middleware('throttle:10,1')
+                ->name('transfer');
+            Route::delete('/{gerente}', [\App\Http\Controllers\Platform\AccountManagersController::class, 'destroy'])
+                ->middleware('throttle:30,1')
+                ->name('destroy');
         });
 
         Route::get('/saldo', [\App\Http\Controllers\Platform\BalancesController::class, 'index'])->name('saldo.index');
@@ -450,6 +485,18 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/financeiro/saques/{withdrawal}/rejeitar', [\App\Http\Controllers\Platform\FinancialController::class, 'rejectWithdrawal'])->name('financeiro.saques.reject');
 
         Route::get('/produtos', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'index'])->name('produtos.index');
+        Route::get('/produtos/{product}/area-membros/preview', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'previewMemberArea'])
+            ->name('produtos.member-area.preview')
+            ->middleware('throttle:30,1');
+        Route::post('/produtos/{product}/aprovar', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'approve'])
+            ->name('produtos.approve')
+            ->middleware('throttle:60,1');
+        Route::post('/produtos/{product}/rejeitar', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'reject'])
+            ->name('produtos.reject')
+            ->middleware('throttle:60,1');
+        Route::post('/produtos/{product}/ativacao', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'updateActive'])
+            ->name('produtos.ativacao')
+            ->middleware('throttle:60,1');
         Route::post('/produtos/{product}/bloqueio', [\App\Http\Controllers\Platform\PlatformProductsController::class, 'updateBlock'])
             ->name('produtos.bloqueio')
             ->middleware('throttle:60,1');
@@ -477,7 +524,14 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
 
         Route::get('/transacoes', [\App\Http\Controllers\Platform\TransactionsController::class, 'index'])->name('transacoes.index');
         Route::get('/transacoes-api', [\App\Http\Controllers\Platform\TransactionsController::class, 'apiIndex'])->name('transacoes-api.index');
+        Route::post('/transacoes/pedidos/excluir-em-massa', [\App\Http\Controllers\Platform\TransactionsController::class, 'bulkDestroyPending'])
+            ->name('transacoes.pedidos.bulk-destroy')
+            ->middleware('throttle:10,1');
         Route::get('/clientes', [\App\Http\Controllers\Platform\CustomersController::class, 'index'])->name('clientes.index');
+        Route::get('/clientes/export', [\App\Http\Controllers\Platform\CustomersController::class, 'export'])
+            ->name('clientes.export')
+            ->middleware('throttle:10,1');
+        Route::get('/clientes/{user}', [\App\Http\Controllers\Platform\CustomersController::class, 'show'])->name('clientes.show');
         Route::delete('/clientes/{user}', [\App\Http\Controllers\Platform\CustomersController::class, 'destroy'])
             ->name('clientes.destroy')
             ->middleware('throttle:30,1');
@@ -639,6 +693,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
     Route::post('/meu-perfil', [\App\Http\Controllers\ProfileController::class, 'update'])->name('profile.update');
     Route::put('/meu-perfil/username', [\App\Http\Controllers\ProfileController::class, 'updateUsername'])->name('profile.update-username');
     Route::put('/meu-perfil/senha', [\App\Http\Controllers\ProfileController::class, 'updatePassword'])->name('profile.update-password');
+    Route::put('/meu-perfil/preferencias-push', [\App\Http\Controllers\ProfileController::class, 'updatePushPreferences'])->name('profile.push-preferences');
     Route::post('/seguranca/totp/iniciar', [\App\Http\Controllers\TotpSecurityController::class, 'beginTotp'])->name('security.totp.begin');
     Route::post('/seguranca/totp/confirmar', [\App\Http\Controllers\TotpSecurityController::class, 'confirmTotp'])->name('security.totp.confirm');
     Route::post('/seguranca/totp/desativar', [\App\Http\Controllers\TotpSecurityController::class, 'disableTotp'])->name('security.totp.disable');
@@ -775,6 +830,9 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         Route::post('/produtos/{produto}/email-template-logo', [\App\Http\Controllers\ProdutosController::class, 'uploadEmailTemplateLogo'])->name('produtos.email-template-logo');
         Route::delete('/produtos/{produto}', [\App\Http\Controllers\ProdutosController::class, 'destroy'])->name('produtos.destroy');
         Route::post('/produtos/{produto}/duplicate', [\App\Http\Controllers\ProdutosController::class, 'duplicate'])->name('produtos.duplicate');
+        Route::post('/produtos/{produto}/reenviar-analise', [\App\Http\Controllers\ProdutosController::class, 'resubmitForReview'])
+            ->name('produtos.resubmit')
+            ->middleware('throttle:30,1');
         Route::post('/produtos/{produto}/alunos', [\App\Http\Controllers\ProdutosController::class, 'addAluno'])->name('produtos.alunos.add');
         Route::post('/produtos/{produto}/offers', [\App\Http\Controllers\ProdutosController::class, 'storeOffer'])->name('produtos.offers.store');
         Route::put('/produtos/{produto}/offers/{offer}', [\App\Http\Controllers\ProdutosController::class, 'updateOffer'])->name('produtos.offers.update');

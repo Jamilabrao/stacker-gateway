@@ -1,10 +1,13 @@
 <script setup>
-import { computed } from 'vue';
-import { Link, usePage } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import WalletAdjustForm from '@/components/platform/WalletAdjustForm.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
-import { BadgeCheck, Shield, MessageCircle, MapPin, User as UserIcon } from 'lucide-vue-next';
+import MerchantProductsTab from '@/components/platform/MerchantProductsTab.vue';
+import MerchantWalletMovementsTab from '@/components/platform/MerchantWalletMovementsTab.vue';
+import Button from '@/components/ui/Button.vue';
+import { BadgeCheck, Shield, MessageCircle, MapPin, User as UserIcon, ContactRound } from 'lucide-vue-next';
 import { buildWhatsAppUrl } from '@/lib/whatsappUrl';
 
 defineOptions({ layout: LayoutPlatform });
@@ -12,14 +15,25 @@ defineOptions({ layout: LayoutPlatform });
 const page = usePage();
 
 const props = defineProps({
+    tab: { type: String, default: 'overview' },
     merchant: { type: Object, required: true },
     profile: { type: Object, default: () => ({}) },
     wallet: { type: Object, default: null },
     withdrawals: { type: Array, default: () => [] },
-    wallet_transactions: { type: Array, default: () => [] },
+    wallet_transactions: { type: Object, default: null },
+    wallet_filters: { type: Object, default: null },
+    wallet_transaction_type_labels: { type: Object, default: () => ({}) },
+    products_total: { type: Number, default: 0 },
+    products: { type: Object, default: null },
+    products_filters: { type: Object, default: null },
+    products_summary: { type: Object, default: null },
+    products_approval_enabled: { type: Boolean, default: false },
+    products_type_options: { type: Array, default: () => [] },
     effective_merchant_fees: { type: Array, default: () => [] },
     admin_notes: { type: Array, default: () => [] },
     platform_referral_commission_percent: { type: Number, default: 20 },
+    account_manager: { type: Object, default: null },
+    account_managers_options: { type: Array, default: () => [] },
     revenue_breakdown: {
         type: Object,
         default: () => ({
@@ -28,7 +42,107 @@ const props = defineProps({
             total: { gross: 0, count: 0, fees: 0 },
         }),
     },
+    achievements_progress: { type: Object, default: null },
+    achievement_unlocks: { type: Array, default: () => [] },
 });
+
+const activeTab = computed(() => {
+    if (['overview', 'products', 'wallet', 'achievements'].includes(props.tab)) return props.tab;
+    return 'overview';
+});
+
+const unlockForms = ref({});
+const unlockSavingId = ref(null);
+const unlockError = ref('');
+
+function initUnlockForms() {
+    const forms = {};
+    for (const u of props.achievement_unlocks || []) {
+        forms[u.id] = {
+            reward_status: u.reward_status || 'pending',
+            note: '',
+            reward_carrier: u.reward_carrier || '',
+            reward_tracking_code: u.reward_tracking_code || '',
+            reward_admin_notes: u.reward_admin_notes || '',
+        };
+    }
+    unlockForms.value = forms;
+}
+
+initUnlockForms();
+
+watch(
+    () => props.achievement_unlocks,
+    () => initUnlockForms(),
+    { deep: true }
+);
+
+function nextRewardStatus(current) {
+    if (current === 'pending') return 'in_production';
+    if (current === 'in_production') return 'sent';
+    return null;
+}
+
+function nextRewardStatusLabel(current) {
+    const next = nextRewardStatus(current);
+    if (next === 'in_production') return 'Marcar em produção';
+    if (next === 'sent') return 'Marcar como enviado';
+    return null;
+}
+
+async function updateUnlockStatus(unlock, targetStatus) {
+    const form = unlockForms.value[unlock.id];
+    if (!form) return;
+
+    unlockSavingId.value = unlock.id;
+    unlockError.value = '';
+
+    try {
+        await window.axios.put(`/plataforma/conquistas/unlocks/${unlock.id}/reward-status`, {
+            reward_status: targetStatus,
+            note: form.note?.trim() || undefined,
+            reward_carrier: form.reward_carrier?.trim() || undefined,
+            reward_tracking_code: form.reward_tracking_code?.trim() || undefined,
+            reward_admin_notes: form.reward_admin_notes?.trim() || undefined,
+        });
+        router.reload({ preserveScroll: true });
+    } catch (e) {
+        unlockError.value = e?.response?.data?.message || 'Erro ao atualizar status da premiação.';
+    } finally {
+        unlockSavingId.value = null;
+    }
+}
+
+function switchTab(tab) {
+    router.get(
+        `/plataforma/usuarios/${props.merchant.id}`,
+        { tab },
+        { preserveState: false, replace: true }
+    );
+}
+
+const selectedManagerId = ref(
+    props.account_manager?.id ? String(props.account_manager.id) : ''
+);
+const assignReason = ref('');
+const assigningManager = ref(false);
+
+function saveAccountManager() {
+    assigningManager.value = true;
+    router.post(
+        `/plataforma/usuarios/${props.merchant.id}/gerente-conta`,
+        {
+            account_manager_id: selectedManagerId.value ? Number(selectedManagerId.value) : null,
+            reason: assignReason.value?.trim() || undefined,
+        },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                assigningManager.value = false;
+            },
+        }
+    );
+}
 
 function formatPhoneBr(phone) {
     const digits = String(phone ?? '').replace(/\D/g, '');
@@ -188,7 +302,241 @@ function formatFeePreview(percent, fixed) {
         >
             {{ page.props.flash.success }}
         </p>
+        <p
+            v-if="page.props.flash?.error"
+            class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+        >
+            {{ page.props.flash.error }}
+        </p>
 
+        <nav class="flex flex-wrap gap-1 border-b border-zinc-200 dark:border-zinc-700" aria-label="Abas do infoprodutor">
+            <button
+                type="button"
+                class="rounded-t-lg px-4 py-2.5 text-sm font-medium transition"
+                :class="
+                    activeTab === 'overview'
+                        ? 'border-b-2 border-[var(--color-primary)] text-[var(--color-primary)]'
+                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'
+                "
+                @click="switchTab('overview')"
+            >
+                Visão geral
+            </button>
+            <button
+                type="button"
+                class="rounded-t-lg px-4 py-2.5 text-sm font-medium transition"
+                :class="
+                    activeTab === 'products'
+                        ? 'border-b-2 border-[var(--color-primary)] text-[var(--color-primary)]'
+                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'
+                "
+                @click="switchTab('products')"
+            >
+                Produtos ({{ products_total }})
+            </button>
+            <button
+                type="button"
+                class="rounded-t-lg px-4 py-2.5 text-sm font-medium transition"
+                :class="
+                    activeTab === 'wallet'
+                        ? 'border-b-2 border-[var(--color-primary)] text-[var(--color-primary)]'
+                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'
+                "
+                @click="switchTab('wallet')"
+            >
+                Movimentação
+            </button>
+            <button
+                type="button"
+                class="rounded-t-lg px-4 py-2.5 text-sm font-medium transition"
+                :class="
+                    activeTab === 'achievements'
+                        ? 'border-b-2 border-[var(--color-primary)] text-[var(--color-primary)]'
+                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'
+                "
+                @click="switchTab('achievements')"
+            >
+                Conquistas e premiações
+            </button>
+        </nav>
+
+        <MerchantProductsTab
+            v-if="activeTab === 'products'"
+            :merchant-id="merchant.id"
+            :products="products"
+            :filters="products_filters"
+            :summary="products_summary"
+            :approval-enabled="products_approval_enabled"
+            :type-options="products_type_options"
+            :products-total="products_total"
+        />
+
+        <MerchantWalletMovementsTab
+            v-if="activeTab === 'wallet'"
+            :merchant-id="merchant.id"
+            :wallet-transactions="wallet_transactions"
+            :filters="wallet_filters"
+            :type-labels="wallet_transaction_type_labels"
+        />
+
+        <template v-if="activeTab === 'achievements'">
+            <p
+                v-if="unlockError"
+                class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+            >
+                {{ unlockError }}
+            </p>
+
+            <section
+                v-if="achievements_progress"
+                class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50"
+            >
+                <div class="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
+                    <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Progresso de conquistas</h2>
+                </div>
+                <div class="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                        <p class="text-xs uppercase text-zinc-500">Faturamento válido</p>
+                        <p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
+                            {{ formatBRL(achievements_progress.current_value ?? achievements_progress.total_valid_sales) }}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-zinc-500">Progresso</p>
+                        <p class="mt-1 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
+                            {{ achievements_progress.progress_percent ?? 0 }}%
+                        </p>
+                        <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                            <div
+                                class="h-full rounded-full bg-[var(--color-primary)]"
+                                :style="{ width: `${Math.min(100, achievements_progress.progress_percent ?? 0)}%` }"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-zinc-500">Próxima meta</p>
+                        <p class="mt-1 font-medium text-zinc-900 dark:text-white">
+                            {{ achievements_progress.all_completed ? 'Todas concluídas' : (achievements_progress.next_achievement?.name || '—') }}
+                        </p>
+                        <p v-if="!achievements_progress.all_completed && achievements_progress.remaining != null" class="mt-1 text-sm text-zinc-500">
+                            Faltam {{ formatBRL(achievements_progress.remaining) }}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-zinc-500">Próximo prêmio</p>
+                        <p class="mt-1 font-medium text-zinc-900 dark:text-white">
+                            {{ achievements_progress.next_achievement?.reward_name || '—' }}
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+                <div class="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
+                    <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Desbloqueios e premiações</h2>
+                </div>
+                <div v-if="achievement_unlocks.length === 0" class="px-6 py-8 text-center text-sm text-zinc-500">
+                    Nenhuma conquista desbloqueada ainda.
+                </div>
+                <div v-else class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    <div v-for="unlock in achievement_unlocks" :key="unlock.id" class="p-6">
+                        <div class="flex flex-wrap gap-4">
+                            <div class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 dark:bg-zinc-800">
+                                <img v-if="unlock.image" :src="unlock.image" :alt="unlock.name" class="h-12 w-12 object-contain" />
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <p class="font-semibold text-zinc-900 dark:text-white">{{ unlock.name }}</p>
+                                <p class="mt-1 text-sm text-zinc-500">
+                                    Meta {{ formatBRL(unlock.threshold) }} · Valor na conquista {{ formatBRL(unlock.metric_value_at_unlock) }}
+                                </p>
+                                <p class="mt-1 text-sm text-zinc-500">Desbloqueado em {{ formatDate(unlock.unlocked_at) }}</p>
+                                <p v-if="unlock.reward_name" class="mt-2 text-sm text-zinc-700 dark:text-zinc-300">
+                                    Prêmio: <span class="font-medium">{{ unlock.reward_name }}</span>
+                                </p>
+                                <p class="mt-1 text-sm">
+                                    Status:
+                                    <span class="font-medium text-zinc-900 dark:text-white">{{ unlock.reward_status_label }}</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="unlock.reward_name && unlockForms[unlock.id]"
+                            class="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900/40"
+                        >
+                            <div v-if="unlock.reward_status === 'sent'" class="mb-4 grid gap-3 sm:grid-cols-3">
+                                <div>
+                                    <p class="text-xs uppercase text-zinc-500">Transportadora</p>
+                                    <p class="mt-0.5 text-sm">{{ snap(unlock.reward_carrier) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs uppercase text-zinc-500">Rastreio</p>
+                                    <p class="mt-0.5 font-mono text-sm">{{ snap(unlock.reward_tracking_code) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs uppercase text-zinc-500">Enviado em</p>
+                                    <p class="mt-0.5 text-sm">{{ formatDate(unlock.reward_sent_at) }}</p>
+                                </div>
+                            </div>
+
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <div v-if="unlock.reward_status === 'in_production' || nextRewardStatus(unlock.reward_status) === 'sent'">
+                                    <label class="mb-1 block text-xs font-medium text-zinc-500">Transportadora</label>
+                                    <input
+                                        v-model="unlockForms[unlock.id].reward_carrier"
+                                        type="text"
+                                        class="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                                        placeholder="Ex.: Correios, Jadlog"
+                                    />
+                                </div>
+                                <div v-if="unlock.reward_status === 'in_production' || nextRewardStatus(unlock.reward_status) === 'sent'">
+                                    <label class="mb-1 block text-xs font-medium text-zinc-500">Código de rastreio</label>
+                                    <input
+                                        v-model="unlockForms[unlock.id].reward_tracking_code"
+                                        type="text"
+                                        class="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                                    />
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label class="mb-1 block text-xs font-medium text-zinc-500">Notas internas</label>
+                                    <textarea
+                                        v-model="unlockForms[unlock.id].reward_admin_notes"
+                                        rows="2"
+                                        class="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                                    />
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label class="mb-1 block text-xs font-medium text-zinc-500">Observação da alteração</label>
+                                    <input
+                                        v-model="unlockForms[unlock.id].note"
+                                        type="text"
+                                        class="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                                        placeholder="Opcional"
+                                    />
+                                </div>
+                            </div>
+
+                            <div v-if="nextRewardStatus(unlock.reward_status)" class="mt-4">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    :disabled="unlockSavingId === unlock.id"
+                                    @click="updateUnlockStatus(unlock, nextRewardStatus(unlock.reward_status))"
+                                >
+                                    {{
+                                        unlockSavingId === unlock.id
+                                            ? 'Salvando…'
+                                            : nextRewardStatusLabel(unlock.reward_status)
+                                    }}
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </template>
+
+        <template v-if="activeTab === 'overview'">
         <section class="grid gap-4 lg:grid-cols-3">
             <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 lg:col-span-1">
                 <h2 class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
@@ -538,6 +886,62 @@ function formatFeePreview(percent, fixed) {
         </section>
 
         <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                <ContactRound class="h-4 w-4" />
+                Gerente de conta
+            </h2>
+            <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                Contato de suporte atribuído a este infoprodutor (visível no dashboard do seller).
+            </p>
+            <div v-if="account_manager" class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+                <img
+                    v-if="account_manager.avatar_url"
+                    :src="account_manager.avatar_url"
+                    alt=""
+                    class="h-12 w-12 rounded-full object-cover"
+                />
+                <div class="min-w-0 flex-1">
+                    <p class="font-medium text-zinc-900 dark:text-white">{{ account_manager.name }}</p>
+                    <p class="text-xs text-zinc-500">{{ account_manager.email }} · {{ account_manager.phone_display }}</p>
+                </div>
+                <Link
+                    v-if="account_manager.id"
+                    :href="`/plataforma/gerentes-conta/${account_manager.id}`"
+                    class="text-sm text-[var(--color-primary)] hover:underline"
+                >
+                    Ver carteira
+                </Link>
+            </div>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div class="min-w-[200px] flex-1">
+                    <label class="mb-1 block text-xs font-medium text-zinc-500">Gerente</label>
+                    <select
+                        v-model="selectedManagerId"
+                        class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                    >
+                        <option value="">Sem gerente</option>
+                        <option v-for="opt in account_managers_options" :key="opt.id" :value="String(opt.id)">
+                            {{ opt.name }}
+                        </option>
+                    </select>
+                </div>
+                <div class="min-w-[200px] flex-1">
+                    <label class="mb-1 block text-xs font-medium text-zinc-500">Motivo (opcional)</label>
+                    <input
+                        v-model="assignReason"
+                        type="text"
+                        maxlength="500"
+                        class="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                        placeholder="Motivo da alteração"
+                    />
+                </div>
+                <Button type="button" :disabled="assigningManager" @click="saveAccountManager">
+                    {{ assigningManager ? 'Salvando…' : 'Salvar vínculo' }}
+                </Button>
+            </div>
+        </section>
+
+        <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <h2 class="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500">Ajuste manual de saldo</h2>
             <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
                 Credite ou debite o saldo disponível. Valores negativos são permitidos. O motivo fica registrado no extrato.
@@ -582,53 +986,16 @@ function formatFeePreview(percent, fixed) {
                     </tbody>
                 </table>
             </div>
-        </section>
-
-        <section class="rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
-            <h2 class="border-b border-zinc-200 px-6 py-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700">
-                Movimentações da carteira
-            </h2>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                    <thead class="border-b border-zinc-100 text-xs uppercase text-zinc-500 dark:border-zinc-700">
-                        <tr>
-                            <th class="px-4 py-3">Data</th>
-                            <th class="px-4 py-3">Tipo</th>
-                            <th class="px-4 py-3">Canal</th>
-                            <th class="px-4 py-3 text-right">Líquido</th>
-                            <th class="px-4 py-3">Ref.</th>
-                            <th class="px-4 py-3">Obs.</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-if="wallet_transactions.length === 0">
-                            <td colspan="6" class="px-4 py-8 text-center text-zinc-500">Nenhuma movimentação.</td>
-                        </tr>
-                        <tr
-                            v-for="t in wallet_transactions"
-                            :key="t.id"
-                            class="border-b border-zinc-50 dark:border-zinc-800"
-                        >
-                            <td class="px-4 py-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
-                                {{ formatDate(t.created_at) }}
-                            </td>
-                            <td class="px-4 py-3">{{ t.type_label }}</td>
-                            <td class="px-4 py-3">{{ bucketLabel(t.bucket) }}</td>
-                            <td class="px-4 py-3 text-right tabular-nums" :class="amountClass(t.amount_net)">
-                                {{ formatBRL(t.amount_net) }}
-                            </td>
-                            <td class="px-4 py-3 text-xs text-zinc-500">
-                                <span v-if="t.order_id">Pedido #{{ t.order_id }}</span>
-                                <span v-else-if="t.withdrawal_id">Saque #{{ t.withdrawal_id }}</span>
-                                <span v-else>—</span>
-                            </td>
-                            <td class="max-w-[200px] truncate px-4 py-3 text-xs text-zinc-500" :title="t.note || ''">
-                                {{ t.note || '—' }}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="border-t border-zinc-100 px-6 py-3 dark:border-zinc-700">
+                <button
+                    type="button"
+                    class="text-sm font-medium text-[var(--color-primary)] hover:underline"
+                    @click="switchTab('wallet')"
+                >
+                    Ver movimentações da carteira →
+                </button>
             </div>
         </section>
+        </template>
     </div>
 </template>

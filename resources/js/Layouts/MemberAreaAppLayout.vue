@@ -17,6 +17,8 @@ const vapid_public = computed(() => props.value?.vapid_public ?? null);
 const base_url = computed(() => props.value?.base_url ?? '');
 
 const user = computed(() => props.value?.auth?.user ?? null);
+const adminPreview = computed(() => props.value?.member_area_admin_preview ?? null);
+const isAdminPreview = computed(() => adminPreview.value?.active === true);
 const theme = computed(() => config.value?.theme ?? {});
 const sidebar = computed(() => config.value?.sidebar ?? {});
 const headerLogo = computed(() => config.value?.header?.logo_url ?? null);
@@ -731,6 +733,32 @@ watch(
             </div>
         </header>
 
+        <div
+            v-if="isAdminPreview"
+            class="fixed left-0 right-0 top-14 z-20 border-b border-amber-500/40 bg-amber-500/95 px-4 py-2.5 text-amber-950 shadow-md print:hidden"
+            role="status"
+        >
+            <div class="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0 text-sm leading-snug">
+                    <p class="font-semibold">Modo administrador — somente leitura</p>
+                    <p class="mt-0.5 opacity-90">
+                        {{ adminPreview.message }}
+                        <span v-if="adminPreview.seller_name" class="block sm:inline sm:before:content-['·_']">
+                            Seller: {{ adminPreview.seller_name }}
+                            <template v-if="adminPreview.seller_email">({{ adminPreview.seller_email }})</template>
+                        </span>
+                    </p>
+                </div>
+                <a
+                    v-if="adminPreview.back_url"
+                    :href="adminPreview.back_url"
+                    class="inline-flex shrink-0 items-center justify-center rounded-lg bg-amber-950/90 px-3 py-1.5 text-sm font-medium text-amber-50 hover:bg-amber-950"
+                >
+                    Voltar aos produtos
+                </a>
+            </div>
+        </div>
+
         <!-- Overlay + painel do menu mobile (hamburger) -->
         <Teleport to="body">
             <div
@@ -864,7 +892,11 @@ watch(
             </div>
         </Teleport>
 
-        <div class="min-h-screen pt-14 print:pt-0" :style="{ backgroundColor: 'var(--ma-bg)', color: 'var(--ma-text)' }">
+        <div
+            class="min-h-screen print:pt-0"
+            :class="isAdminPreview ? 'pt-[7.5rem] sm:pt-[6.5rem]' : 'pt-14'"
+            :style="{ backgroundColor: 'var(--ma-bg)', color: 'var(--ma-text)' }"
+        >
             <main class="px-6 pb-6 print:p-0">
                 <slot />
             </main>
