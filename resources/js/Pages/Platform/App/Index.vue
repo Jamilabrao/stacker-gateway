@@ -64,7 +64,32 @@ const pushForm = reactive({
     title: '',
     body: '',
     url: '',
+    audience: 'all_subscribers',
+    send_mode: 'now',
+    scheduled_local: '',
+    timezone: 'America/Sao_Paulo',
+    silent: false,
+    sales_from: '',
+    sales_to: '',
+    account_manager_id: '',
+    confirm_global: false,
 });
+
+const dailySales = reactive({
+    daily_sales_push_enabled: '0',
+    daily_sales_push_time: '20:00',
+    daily_sales_push_timezone: 'America/Sao_Paulo',
+    daily_sales_push_only_when_has_sales: '1',
+});
+
+const audiences = ref({});
+const soundNotice = ref('');
+const campaigns = ref([]);
+const campaignsMeta = ref({ current_page: 1, last_page: 1, total: 0 });
+const campaignStatusFilter = ref('');
+const accountManagers = ref([]);
+const pushSubTab = ref('send');
+const savingDaily = ref(false);
 
 const fieldLabels = {
     pwa_icon_192: 'Ícone PWA 192x192',
@@ -102,10 +127,46 @@ async function loadPush() {
         pushStats.push_enabled = !!push.push_enabled;
         pushStats.pwa_vapid_private_configured = !!push.pwa_vapid_private_configured;
         pushStats.firebase_service_account_configured = !!push.firebase_service_account_configured;
+        const ds = res.data?.daily_sales ?? {};
+        dailySales.daily_sales_push_enabled = ds.daily_sales_push_enabled ?? '0';
+        dailySales.daily_sales_push_time = ds.daily_sales_push_time ?? '20:00';
+        dailySales.daily_sales_push_timezone = ds.daily_sales_push_timezone ?? 'America/Sao_Paulo';
+        dailySales.daily_sales_push_only_when_has_sales = ds.daily_sales_push_only_when_has_sales ?? '1';
+        audiences.value = res.data?.audiences ?? {};
+        soundNotice.value = res.data?.sound_notice ?? '';
+        accountManagers.value = res.data?.account_managers ?? [];
         await loadSubscribers();
+        await loadCampaigns();
     } finally {
         pushLoading.value = false;
     }
+}
+
+async function loadCampaigns(page = 1) {
+    const params = { page, per_page: 25 };
+    if (campaignStatusFilter.value) params.status = campaignStatusFilter.value;
+    const res = await window.axios.get('/plataforma/app/push/campaigns', { params });
+    campaigns.value = res.data?.data ?? [];
+    campaignsMeta.value = res.data?.meta ?? { current_page: 1, last_page: 1, total: 0 };
+}
+
+async function saveDailySales() {
+    savingDaily.value = true;
+    error.value = '';
+    try {
+        const res = await window.axios.put('/plataforma/app/push/daily-sales', { ...dailySales });
+        Object.assign(dailySales, res.data?.daily_sales ?? dailySales);
+    } catch (e) {
+        error.value = e?.response?.data?.message || 'Erro ao salvar resumo diário.';
+    } finally {
+        savingDaily.value = false;
+    }
+}
+
+async function cancelCampaign(id) {
+    if (!confirm('Cancelar esta notificação agendada?')) return;
+    await window.axios.post(`/plataforma/app/push/campaigns/${id}/cancel`);
+    await loadCampaigns(campaignsMeta.value.current_page);
 }
 
 async function load() {
@@ -279,20 +340,60 @@ async function sendPush() {
     error.value = '';
     pushResult.value = null;
     try {
-        const res = await window.axios.post('/plataforma/app/push/send', { ...pushForm });
+        const payload = {
+            title: pushForm.title,
+            body: pushForm.body,
+            url: pushForm.url || null,
+            audience: pushForm.audience,
+            send_mode: pushForm.send_mode,
+            scheduled_local: pushForm.send_mode === 'scheduled' ? pushForm.scheduled_local : null,
+            timezone: pushForm.timezone,
+            silent: pushForm.silent,
+            confirm_global: pushForm.confirm_global,
+            audience_filters: {},
+        };
+        if (pushForm.audience === 'with_sales' || pushForm.audience === 'without_sales') {
+            payload.audience_filters.sales_from = pushForm.sales_from;
+            payload.audience_filters.sales_to = pushForm.sales_to;
+        }
+        if (pushForm.audience === 'account_manager') {
+            payload.audience_filters.account_manager_id = Number(pushForm.account_manager_id) || null;
+        }
+        const res = await window.axios.post('/plataforma/app/push/send', payload);
+        if (res.data?.needs_confirmation) {
+            if (confirm(res.data.message)) {
+                pushForm.confirm_global = true;
+                sendingPush.value = false;
+                return sendPush();
+            }
+            return;
+        }
         if (res.data?.ok === false) {
             error.value = res.data?.message || 'Não foi possível enviar.';
             pushResult.value = res.data?.result ?? null;
             return;
         }
-        pushResult.value = res.data?.result ?? null;
-        if (res.data?.message) error.value = res.data.message;
+        pushResult.value = res.data?.campaign ?? res.data?.result ?? null;
+        if (res.data?.message) error.value = '';
+        alert(res.data?.message || 'OK');
         pushForm.title = '';
         pushForm.body = '';
         pushForm.url = '';
+        pushForm.confirm_global = false;
+        await loadCampaigns();
+        pushSubTab.value = 'history';
     } catch (e) {
-        error.value = e?.response?.data?.message || 'Erro ao enviar push.';
-        pushResult.value = e?.response?.data?.result ?? null;
+        const data = e?.response?.data;
+        if (data?.needs_confirmation) {
+            if (confirm(data.message)) {
+                pushForm.confirm_global = true;
+                sendingPush.value = false;
+                return sendPush();
+            }
+            return;
+        }
+        error.value = data?.message || 'Erro ao enviar push.';
+        pushResult.value = data?.result ?? null;
     } finally {
         sendingPush.value = false;
     }
@@ -505,18 +606,133 @@ onMounted(load);
             </section>
 
             <section class="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
-                <h2 class="text-base font-semibold">Disparo manual</h2>
-                <div class="mt-4 space-y-4">
-                    <input v-model="pushForm.title" placeholder="Título" class="w-full rounded-xl border px-4 py-2.5 dark:border-zinc-600 dark:bg-zinc-900" />
-                    <textarea v-model="pushForm.body" rows="3" placeholder="Mensagem" class="w-full rounded-xl border px-4 py-2.5 dark:border-zinc-600 dark:bg-zinc-900" />
-                    <input v-model="pushForm.url" placeholder="URL ao clicar (opcional)" class="w-full rounded-xl border px-4 py-2.5 dark:border-zinc-600 dark:bg-zinc-900" />
+                <div class="flex flex-wrap gap-2 border-b border-zinc-100 pb-3 dark:border-zinc-700">
+                    <button type="button" class="rounded-lg px-3 py-1.5 text-sm" :class="pushSubTab === 'send' ? 'bg-[var(--color-primary)] text-white' : 'bg-zinc-100 dark:bg-zinc-800'" @click="pushSubTab = 'send'">Enviar / Agendar</button>
+                    <button type="button" class="rounded-lg px-3 py-1.5 text-sm" :class="pushSubTab === 'history' ? 'bg-[var(--color-primary)] text-white' : 'bg-zinc-100 dark:bg-zinc-800'" @click="pushSubTab = 'history'; loadCampaigns()">Histórico</button>
+                    <button type="button" class="rounded-lg px-3 py-1.5 text-sm" :class="pushSubTab === 'daily' ? 'bg-[var(--color-primary)] text-white' : 'bg-zinc-100 dark:bg-zinc-800'" @click="pushSubTab = 'daily'">Resumo diário</button>
+                </div>
+
+                <p v-if="soundNotice" class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+                    {{ soundNotice }}
+                </p>
+
+                <div v-if="pushSubTab === 'send'" class="mt-4 space-y-4">
+                    <h2 class="text-base font-semibold">Disparo manual / agendado</h2>
+                    <input v-model="pushForm.title" placeholder="Título" maxlength="120" class="w-full rounded-xl border px-4 py-2.5 dark:border-zinc-600 dark:bg-zinc-900" />
+                    <textarea v-model="pushForm.body" rows="3" maxlength="500" placeholder="Mensagem" class="w-full rounded-xl border px-4 py-2.5 dark:border-zinc-600 dark:bg-zinc-900" />
+                    <input v-model="pushForm.url" placeholder="URL ao clicar (interna /path ou https://)" class="w-full rounded-xl border px-4 py-2.5 dark:border-zinc-600 dark:bg-zinc-900" />
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <select v-model="pushForm.audience" class="rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900">
+                            <option v-for="(label, value) in audiences" :key="value" :value="value">{{ label }}</option>
+                        </select>
+                        <select v-model="pushForm.send_mode" class="rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900">
+                            <option value="now">Enviar agora</option>
+                            <option value="scheduled">Agendar envio</option>
+                        </select>
+                    </div>
+                    <div v-if="pushForm.send_mode === 'scheduled'" class="grid gap-3 sm:grid-cols-2">
+                        <input v-model="pushForm.scheduled_local" type="datetime-local" class="rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900" />
+                        <input v-model="pushForm.timezone" placeholder="Timezone" class="rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900" />
+                    </div>
+                    <div v-if="pushForm.audience === 'with_sales' || pushForm.audience === 'without_sales'" class="grid gap-3 sm:grid-cols-2">
+                        <input v-model="pushForm.sales_from" type="date" class="rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900" />
+                        <input v-model="pushForm.sales_to" type="date" class="rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900" />
+                    </div>
+                    <select
+                        v-if="pushForm.audience === 'account_manager'"
+                        v-model="pushForm.account_manager_id"
+                        class="w-full rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                    >
+                        <option value="">Selecione o gerente</option>
+                        <option v-for="m in accountManagers" :key="m.id" :value="String(m.id)">{{ m.name }}</option>
+                    </select>
+                    <label class="flex items-center gap-2 text-sm">
+                        <input v-model="pushForm.silent" type="checkbox" class="rounded" />
+                        Notificação silenciosa (quando o dispositivo respeitar)
+                    </label>
                     <Button type="button" class="inline-flex gap-2" :disabled="sendingPush" @click="sendPush">
                         <Send class="h-4 w-4" />
-                        {{ sendingPush ? 'Enviando...' : 'Enviar para todos' }}
+                        {{ sendingPush ? 'Processando...' : (pushForm.send_mode === 'scheduled' ? 'Agendar' : 'Enviar') }}
                     </Button>
-                    <p v-if="pushResult" class="text-sm text-zinc-600">
-                        Enviados: {{ pushResult.sent }} / {{ pushResult.total }} — Falhas: {{ pushResult.failed }} — Expirados: {{ pushResult.expired }} — Inválidos: {{ pushResult.invalid ?? 0 }}
-                    </p>
+                </div>
+
+                <div v-else-if="pushSubTab === 'history'" class="mt-4 space-y-3">
+                    <div class="flex flex-wrap gap-2">
+                        <select v-model="campaignStatusFilter" class="rounded-xl border px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900" @change="loadCampaigns(1)">
+                            <option value="">Todos os status</option>
+                            <option value="scheduled">Agendada</option>
+                            <option value="processing">Processando</option>
+                            <option value="sent">Enviada</option>
+                            <option value="partially_sent">Parcial</option>
+                            <option value="failed">Falhou</option>
+                            <option value="cancelled">Cancelada</option>
+                        </select>
+                        <Button type="button" variant="outline" @click="loadCampaigns()">Atualizar</Button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-left text-sm">
+                            <thead>
+                                <tr class="text-xs uppercase text-zinc-500">
+                                    <th class="py-2 pr-3">Título</th>
+                                    <th class="py-2 pr-3">Status</th>
+                                    <th class="py-2 pr-3">Público</th>
+                                    <th class="py-2 pr-3">Agendada</th>
+                                    <th class="py-2 pr-3">Enviadas</th>
+                                    <th class="py-2">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="c in campaigns" :key="c.id" class="border-t border-zinc-100 dark:border-zinc-800">
+                                    <td class="py-2 pr-3">
+                                        <div class="font-medium">{{ c.title }}</div>
+                                        <div class="text-xs text-zinc-500">{{ c.created_by || '—' }}</div>
+                                    </td>
+                                    <td class="py-2 pr-3">{{ c.status_label }}</td>
+                                    <td class="py-2 pr-3 text-xs">{{ c.audience_label }}</td>
+                                    <td class="py-2 pr-3 text-xs">{{ c.scheduled_at ? new Date(c.scheduled_at).toLocaleString('pt-BR') : '—' }}</td>
+                                    <td class="py-2 pr-3 tabular-nums">{{ c.sent_count }}/{{ c.eligible_count }}</td>
+                                    <td class="py-2">
+                                        <button
+                                            v-if="c.can_cancel"
+                                            type="button"
+                                            class="text-xs text-red-600"
+                                            @click="cancelCampaign(c.id)"
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!campaigns.length">
+                                    <td colspan="6" class="py-6 text-center text-zinc-500">Nenhuma campanha ainda.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div v-else class="mt-4 space-y-4">
+                    <h2 class="text-base font-semibold">Resumo diário de vendas</h2>
+                    <label class="flex items-center gap-2 text-sm">
+                        <input v-model="dailySales.daily_sales_push_enabled" type="checkbox" true-value="1" false-value="0" class="rounded" />
+                        Ativar resumo diário
+                    </label>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <div>
+                            <label class="mb-1 block text-xs text-zinc-500">Horário (HH:mm)</label>
+                            <input v-model="dailySales.daily_sales_push_time" type="time" class="w-full rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900" />
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-xs text-zinc-500">Timezone</label>
+                            <input v-model="dailySales.daily_sales_push_timezone" class="w-full rounded-xl border px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900" />
+                        </div>
+                    </div>
+                    <label class="flex items-center gap-2 text-sm">
+                        <input v-model="dailySales.daily_sales_push_only_when_has_sales" type="checkbox" true-value="1" false-value="0" class="rounded" />
+                        Enviar apenas se houver vendas
+                    </label>
+                    <Button type="button" :disabled="savingDaily" @click="saveDailySales">
+                        {{ savingDaily ? 'Salvando…' : 'Salvar resumo diário' }}
+                    </Button>
                 </div>
             </section>
         </template>

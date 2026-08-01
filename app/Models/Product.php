@@ -29,9 +29,18 @@ class Product extends Model
     public const BILLING_ONE_TIME = 'one_time';
     public const BILLING_SUBSCRIPTION = 'subscription';
 
+    public const APPROVAL_PENDING = 'pending';
+    public const APPROVAL_APPROVED = 'approved';
+    public const APPROVAL_REJECTED = 'rejected';
+
+    public const APPROVAL_SOURCE_AUTOMATIC = 'automatic';
+    public const APPROVAL_SOURCE_MANUAL = 'manual';
+    public const APPROVAL_SOURCE_MIGRATION = 'migration';
+
     protected $fillable = [
         'tenant_id',
         'name',
+        'notification_name',
         'slug',
         'checkout_slug',
         'checkout_config',
@@ -43,6 +52,11 @@ class Product extends Model
         'currency',
         'is_active',
         'admin_blocked',
+        'approval_status',
+        'approval_reason',
+        'approval_source',
+        'reviewed_by',
+        'reviewed_at',
         'conversion_pixels',
         'member_area_config',
         'affiliate_enabled',
@@ -64,6 +78,7 @@ class Product extends Model
             'price' => 'decimal:2',
             'is_active' => 'boolean',
             'admin_blocked' => 'boolean',
+            'reviewed_at' => 'datetime',
             'checkout_config' => 'array',
             'member_area_config' => 'array',
             'conversion_pixels' => 'array',
@@ -653,15 +668,45 @@ class Product extends Model
         return $this->belongsTo(User::class, 'tenant_id', 'id');
     }
 
-    /** Produto pode ser vendido no checkout (ativo e não bloqueado pela plataforma). */
+    /** Produto pode ser vendido no checkout (ativo, aprovado e não bloqueado pela plataforma). */
     public function isAvailableForPurchase(): bool
     {
-        return (bool) $this->is_active && ! (bool) $this->admin_blocked;
+        if (! (bool) $this->is_active || (bool) $this->admin_blocked) {
+            return false;
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn($this->getTable(), 'approval_status')) {
+            $status = $this->approval_status ?? self::APPROVAL_APPROVED;
+
+            return $status === self::APPROVAL_APPROVED;
+        }
+
+        return true;
     }
 
     public function scopeAvailableForPurchase(Builder $query): Builder
     {
-        return $query->where('is_active', true)->where('admin_blocked', false);
+        $query->where('is_active', true)->where('admin_blocked', false);
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn((new static)->getTable(), 'approval_status')) {
+            $query->where('approval_status', self::APPROVAL_APPROVED);
+        }
+
+        return $query;
+    }
+
+    public function isApprovalApproved(): bool
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn($this->getTable(), 'approval_status')) {
+            return true;
+        }
+
+        return ($this->approval_status ?? self::APPROVAL_APPROVED) === self::APPROVAL_APPROVED;
+    }
+
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
     }
 
     public function scopeForTenant($query, ?int $tenantId)
@@ -766,6 +811,11 @@ class Product extends Model
 
     public function hasMemberAreaAccess(User $user): bool
     {
+        // Administrador da plataforma: preview de moderação (sem matrícula).
+        if ($user->canAccessPlatformPanel()) {
+            return true;
+        }
+
         // Admin/Infoprodutor do mesmo tenant do produto tem acesso automático à área de membros
         // (usuário de equipe não deve ganhar acesso automático)
         if (($user->isAdmin() || $user->isInfoprodutor()) && $user->tenant_id === $this->tenant_id) {

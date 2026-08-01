@@ -14,6 +14,7 @@ const props = defineProps({
         type: Object,
         default: () => ({ q: null, filter: 'all' }),
     },
+    approval_enabled: { type: Boolean, default: false },
 });
 
 const page = usePage();
@@ -29,11 +30,26 @@ watch(
     { deep: true }
 );
 
-const filterChips = [
-    { value: 'all', label: 'Todos' },
-    { value: 'purchaseable', label: 'À venda' },
-    { value: 'blocked', label: 'Bloqueados' },
-];
+const filterChips = computed(() => {
+    const base = [
+        { value: 'all', label: 'Todos' },
+        { value: 'purchaseable', label: 'À venda' },
+        { value: 'blocked', label: 'Bloqueados' },
+        { value: 'active', label: 'Ativos' },
+        { value: 'inactive', label: 'Inativos' },
+    ];
+    if (!props.approval_enabled) return base;
+    return [
+        { value: 'all', label: 'Todos' },
+        { value: 'pending', label: 'Aguardando aprovação' },
+        { value: 'approved', label: 'Aprovados' },
+        { value: 'rejected', label: 'Não aprovados' },
+        { value: 'purchaseable', label: 'À venda' },
+        { value: 'active', label: 'Ativos' },
+        { value: 'inactive', label: 'Inativos' },
+        { value: 'blocked', label: 'Bloqueados' },
+    ];
+});
 
 function applyFilters() {
     const q = searchQ.value?.trim() || undefined;
@@ -56,6 +72,58 @@ function setProductBlocked(product, blocked) {
         `/plataforma/produtos/${product.id}/bloqueio`,
         { admin_blocked: blocked },
         { preserveScroll: true }
+    );
+}
+
+function setProductActive(product, active) {
+    const verb = active ? 'ativar' : 'desativar';
+    if (!confirm(`Confirma ${verb} o produto "${product.name}"?`)) return;
+    router.post(
+        `/plataforma/produtos/${product.id}/ativacao`,
+        { is_active: active },
+        { preserveScroll: true }
+    );
+}
+
+function approveProduct(product) {
+    if (
+        !confirm(
+            `Deseja aprovar este produto e permitir sua disponibilização para venda?\n\n"${product.name}"`
+        )
+    ) {
+        return;
+    }
+    router.post(`/plataforma/produtos/${product.id}/aprovar`, {}, { preserveScroll: true });
+}
+
+const rejectModalProduct = ref(null);
+const rejectReason = ref('');
+const rejectSubmitting = ref(false);
+
+function openRejectModal(product) {
+    rejectModalProduct.value = product;
+    rejectReason.value = '';
+}
+
+function closeRejectModal() {
+    rejectModalProduct.value = null;
+    rejectReason.value = '';
+    rejectSubmitting.value = false;
+}
+
+function submitReject() {
+    if (!rejectModalProduct.value) return;
+    rejectSubmitting.value = true;
+    router.post(
+        `/plataforma/produtos/${rejectModalProduct.value.id}/rejeitar`,
+        { reason: rejectReason.value },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                rejectSubmitting.value = false;
+            },
+            onSuccess: () => closeRejectModal(),
+        }
     );
 }
 
@@ -105,6 +173,13 @@ function formatBRL(value) {
 function typeLabel(p) {
     return p.type_label || p.type || '—';
 }
+
+function approvalLabel(status) {
+    if (status === 'pending') return 'Em análise';
+    if (status === 'rejected') return 'Não aprovado';
+    return 'Aprovado';
+}
+
 </script>
 
 <template>
@@ -116,7 +191,8 @@ function typeLabel(p) {
                     Produtos
                 </h1>
                 <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    Todos os produtos dos infoprodutores. Bloqueie para impedir checkout e vendas via API (área do aluno e pedidos antigos não são apagados).
+                    Todos os produtos dos infoprodutores. Aprovação libera a venda; ativação controla a disponibilidade.
+                    Bloqueie para impedir checkout e vendas via API (área do aluno e pedidos antigos não são apagados).
                 </p>
             </div>
         </div>
@@ -179,6 +255,7 @@ function typeLabel(p) {
                             <th class="px-4 py-3 text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Tipo</th>
                             <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Preço</th>
                             <th class="px-4 py-3 text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Estado</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Aprovação</th>
                             <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Ações</th>
                         </tr>
                     </thead>
@@ -219,7 +296,7 @@ function typeLabel(p) {
                                         v-else-if="!p.is_active"
                                         class="inline-flex w-fit rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200"
                                     >
-                                        Inativo (vendedor)
+                                        Inativo
                                     </span>
                                     <span
                                         v-else
@@ -229,8 +306,69 @@ function typeLabel(p) {
                                     </span>
                                 </div>
                             </td>
+                            <td class="px-4 py-3">
+                                <span
+                                    v-if="approval_enabled"
+                                    class="inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium"
+                                    :class="{
+                                        'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200':
+                                            p.approval_status === 'pending',
+                                        'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-200':
+                                            p.approval_status === 'rejected',
+                                        'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200':
+                                            p.approval_status === 'approved' || !p.approval_status,
+                                    }"
+                                >
+                                    {{ approvalLabel(p.approval_status) }}
+                                </span>
+                                <span v-else class="text-xs text-zinc-400">—</span>
+                            </td>
                             <td class="px-4 py-3 text-right">
                                 <div class="flex flex-wrap justify-end gap-2">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        @click="openDeliverableModal(p)"
+                                    >
+                                        Visualizar
+                                    </Button>
+                                    <Button
+                                        v-if="p.can_approve"
+                                        type="button"
+                                        size="sm"
+                                        @click="approveProduct(p)"
+                                    >
+                                        Aprovar
+                                    </Button>
+                                    <Button
+                                        v-if="p.can_reject"
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        class="!text-amber-800 dark:!text-amber-200"
+                                        @click="openRejectModal(p)"
+                                    >
+                                        Não aprovar
+                                    </Button>
+                                    <Button
+                                        v-if="p.can_activate"
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        @click="setProductActive(p, true)"
+                                    >
+                                        Ativar
+                                    </Button>
+                                    <Button
+                                        v-if="p.can_deactivate"
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        @click="setProductActive(p, false)"
+                                    >
+                                        Desativar
+                                    </Button>
                                     <Button
                                         v-if="!p.admin_blocked"
                                         type="button"
@@ -335,7 +473,7 @@ function typeLabel(p) {
                             class="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
                         >
                             <ExternalLink class="h-4 w-4" />
-                            Abrir
+                            {{ deliverableModalProduct.deliverable_preview.open_label || 'Abrir' }}
                         </a>
                         <button
                             type="button"
@@ -389,6 +527,50 @@ function typeLabel(p) {
                         @click="setProductBlocked(deliverableModalProduct, true); closeDeliverableModal()"
                     >
                         Bloquear produto
+                    </Button>
+                </div>
+            </div>
+        </div>
+
+        <div
+            v-if="rejectModalProduct"
+            class="fixed inset-0 z-[200000] flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reject-modal-title"
+            @click.self="closeRejectModal"
+        >
+            <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-900">
+                <h3 id="reject-modal-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
+                    Não aprovar produto
+                </h3>
+                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{{ rejectModalProduct.name }}</p>
+                <p class="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
+                    Informe de forma clara o motivo pelo qual o produto não pode ser aprovado. Esta mensagem será
+                    exibida e enviada ao infoprodutor.
+                </p>
+                <label class="mt-4 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    Motivo da não aprovação
+                </label>
+                <textarea
+                    v-model="rejectReason"
+                    rows="4"
+                    maxlength="1000"
+                    class="mt-1.5 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                    placeholder="Ex.: A descrição do produto promete resultados financeiros garantidos."
+                />
+                <p class="mt-1 text-xs text-zinc-500">Mínimo 20 caracteres. {{ rejectReason.length }}/1000</p>
+                <div class="mt-5 flex flex-wrap justify-end gap-2">
+                    <Button type="button" variant="secondary" :disabled="rejectSubmitting" @click="closeRejectModal">
+                        Cancelar
+                    </Button>
+                    <Button
+                        type="button"
+                        class="!bg-red-600 !text-white hover:!opacity-90"
+                        :disabled="rejectSubmitting || rejectReason.trim().length < 20"
+                        @click="submitReject"
+                    >
+                        Confirmar não aprovação
                     </Button>
                 </div>
             </div>

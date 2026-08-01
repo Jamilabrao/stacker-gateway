@@ -32,7 +32,34 @@ class ProfileController extends Controller
                 'avatar_url' => $user->avatar ? app(StorageService::class)->url($user->avatar) : null,
             ],
             'totp_enabled' => PlatformTotpService::isEnabledFor($user),
+            'push_preferences' => \App\Support\UserPushPreferences::forUserId((int) $user->id),
         ]);
+    }
+
+    public function updatePushPreferences(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+        if (! $user) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'sale_approved' => ['nullable', 'boolean'],
+            'pix_generated' => ['nullable', 'boolean'],
+            'boleto_generated' => ['nullable', 'boolean'],
+            'withdrawal_paid' => ['nullable', 'boolean'],
+            'affiliate_sale_approved' => ['nullable', 'boolean'],
+            'affiliate_enrollment_approved' => ['nullable', 'boolean'],
+            'daily_summary' => ['nullable', 'boolean'],
+            'system' => ['nullable', 'boolean'],
+            'show_product_name' => ['nullable', 'boolean'],
+            'show_sale_amount' => ['nullable', 'boolean'],
+            'show_payment_method' => ['nullable', 'boolean'],
+        ]);
+
+        \App\Support\UserPushPreferences::upsert((int) $user->id, $validated, $request);
+
+        return redirect()->route('profile.index')->with('success', 'Preferências de notificações atualizadas.');
     }
 
     public function update(Request $request): RedirectResponse

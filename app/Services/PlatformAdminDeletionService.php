@@ -142,6 +142,56 @@ class PlatformAdminDeletionService
         });
     }
 
+    /**
+     * Exclusão em lote (tudo ou nada) restrita a pedidos ainda pendentes.
+     *
+     * @param  list<int>  $orderIds
+     * @return list<int> IDs excluídos
+     */
+    public static function deletePendingOrdersAllOrNothing(array $orderIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $orderIds)));
+        $ids = array_values(array_filter($ids, fn (int $id) => $id > 0));
+
+        if ($ids === []) {
+            throw new InvalidArgumentException('Selecione ao menos uma transação pendente.');
+        }
+
+        if (count($ids) > 100) {
+            throw new InvalidArgumentException('É possível excluir no máximo 100 transações por operação.');
+        }
+
+        return DB::transaction(function () use ($ids) {
+            $orders = Order::query()
+                ->whereIn('id', $ids)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            if ($orders->count() !== count($ids)) {
+                throw new InvalidArgumentException(
+                    'Uma ou mais transações não foram encontradas.'
+                );
+            }
+
+            foreach ($orders as $order) {
+                if ($order->status !== 'pending') {
+                    throw new InvalidArgumentException(
+                        'Uma ou mais transações foram atualizadas e não podem mais ser excluídas porque não estão mais pendentes.'
+                    );
+                }
+            }
+
+            $deleted = [];
+            foreach ($orders as $order) {
+                self::deleteOrder($order);
+                $deleted[] = (int) $order->id;
+            }
+
+            return $deleted;
+        });
+    }
+
     private static function assertDeletableBuyerAccount(User $user): void
     {
         if ($user->isInfoprodutor() || $user->isTeam() || $user->role === User::ROLE_PLATFORM_ADMIN) {

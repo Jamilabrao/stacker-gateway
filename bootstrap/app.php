@@ -209,6 +209,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('withdrawals:reconcile-cajupay --limit=80 --min-age-minutes=0')->everyTwoMinutes();
         $schedule->command('settlement:release')->everyFiveMinutes();
         $schedule->command('schedule:heartbeat')->everyMinute();
+        $schedule->command('push:process-schedule')->everyMinute();
+        $schedule->command('conquistas:reconcile')->dailyAt('03:30');
         $schedule->job(new \App\Jobs\QueueHeartbeatJob)->everyMinute();
     })
     ->create();

@@ -138,6 +138,7 @@ const ci = props.produto.checkout_config?.card_installments ?? { enabled: false,
 const pme = props.produto.checkout_config?.payment_methods_enabled ?? {};
 const form = useForm({
     name: props.produto.name,
+    notification_name: props.produto.notification_name ?? '',
     description: props.produto.description ?? '',
     type: props.produto.type,
     billing_type: props.produto.billing_type ?? 'one_time',
@@ -307,6 +308,11 @@ function rejectAffiliateEnrollment(id) {
 function revokeAffiliateEnrollment(id) {
     if (!confirm('Revogar esta afiliação? O afiliado deixará de receber comissões.')) return;
     router.post(`/produtos/${props.produto.id}/affiliate-enrollments/${id}/revoke?tab=afiliados`, {}, { preserveScroll: true });
+}
+
+function resubmitForReview() {
+    if (!confirm('Reenviar este produto para análise?')) return;
+    router.post(`/produtos/${props.produto.id}/reenviar-analise`, {}, { preserveScroll: true });
 }
 
 function coproducerStatusLabel(s) {
@@ -1070,6 +1076,7 @@ const submitOptions = {
 
 function appendCoreProductFields(fd) {
     fd.append('name', form.name);
+    fd.append('notification_name', form.notification_name ?? '');
     fd.append('description', form.description ?? '');
     fd.append('type', form.type);
     fd.append('billing_type', form.billing_type);
@@ -1281,6 +1288,24 @@ function submit() {
                                     <p v-if="form.errors.name" class="mt-1.5 text-sm text-red-600 dark:text-red-400">{{ form.errors.name }}</p>
                                 </div>
                                 <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                        Nome do produto nas notificações
+                                    </label>
+                                    <input
+                                        v-model="form.notification_name"
+                                        type="text"
+                                        maxlength="80"
+                                        placeholder="Opcional — exibido no push de venda"
+                                        :class="inputClass"
+                                    />
+                                    <p class="mt-1 text-xs text-zinc-500">
+                                        Se vazio, usa o nome principal do produto. Máximo 80 caracteres.
+                                    </p>
+                                    <p v-if="form.errors.notification_name" class="mt-1.5 text-sm text-red-600 dark:text-red-400">
+                                        {{ form.errors.notification_name }}
+                                    </p>
+                                </div>
+                                <div>
                                     <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ t('common.description', 'Descrição') }}</label>
                                     <textarea
                                         v-model="form.description"
@@ -1290,7 +1315,35 @@ function submit() {
                                     />
                                 </div>
                                 <div class="flex flex-wrap items-center gap-4 pt-1">
-                                    <Toggle v-model="form.is_active" :label="t('products.create.active_product', 'Produto ativo')" />
+                                    <Toggle
+                                        v-model="form.is_active"
+                                        :label="t('products.create.active_product', 'Produto ativo')"
+                                        :disabled="produto.approval?.status && produto.approval.status !== 'approved'"
+                                    />
+                                </div>
+                                <div
+                                    v-if="produto.approval && produto.approval.status !== 'approved'"
+                                    class="mt-3 rounded-xl border px-4 py-3 text-sm"
+                                    :class="
+                                        produto.approval.status === 'rejected'
+                                            ? 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-100'
+                                            : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100'
+                                    "
+                                >
+                                    <p class="font-semibold">{{ produto.approval.label }}</p>
+                                    <p class="mt-1 text-xs opacity-90">{{ produto.approval.description }}</p>
+                                    <p v-if="produto.approval.reason" class="mt-2 text-xs">
+                                        <span class="font-medium">Motivo da não aprovação:</span>
+                                        {{ produto.approval.reason }}
+                                    </p>
+                                    <button
+                                        v-if="produto.approval.can_resubmit"
+                                        type="button"
+                                        class="mt-3 inline-flex rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 dark:bg-white dark:text-zinc-900"
+                                        @click="resubmitForReview"
+                                    >
+                                        Reenviar para análise
+                                    </button>
                                 </div>
                             </div>
                             <div class="flex flex-col items-start lg:pt-0">

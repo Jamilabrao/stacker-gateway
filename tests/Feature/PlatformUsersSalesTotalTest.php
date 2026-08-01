@@ -43,9 +43,9 @@ class PlatformUsersSalesTotalTest extends TestCase
 
         $response->assertOk()->assertInertia(fn ($page) => $page
             ->component('Platform/Users/Index')
-            ->has('users', 1)
-            ->where('users.0.id', $seller->id)
-            ->where('users.0.vendas_totais', 150.5)
+            ->has('users.data', 1)
+            ->where('users.data.0.id', $seller->id)
+            ->where('users.data.0.vendas_totais', 150.5)
         );
     }
 }

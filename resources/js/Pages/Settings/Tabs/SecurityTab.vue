@@ -129,6 +129,88 @@ const props = defineProps({
             </p>
         </div>
 
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 space-y-4">
+            <div>
+                <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Cadastro de infoprodutores</h3>
+                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Quando ativado, novos sellers e infoprodutores poderão acessar a página de cadastro e criar uma conta.
+                    Quando desativado, apenas usuários já cadastrados poderão acessar a plataforma — convites e indicações
+                    de sellers ativos continuam permitindo cadastro.
+                </p>
+            </div>
+            <label class="flex cursor-pointer items-center gap-3">
+                <input
+                    v-model="form.allow_new_infoproducers"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    true-value="1"
+                    false-value="0"
+                />
+                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Aceitar novos infoprodutores</span>
+            </label>
+            <p
+                class="inline-flex rounded-md px-2 py-1 text-xs font-medium"
+                :class="
+                    form.allow_new_infoproducers === '1'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                        : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
+                "
+            >
+                {{ form.allow_new_infoproducers === '1' ? 'Cadastros abertos' : 'Cadastros fechados' }}
+            </p>
+        </div>
+
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 space-y-4">
+            <div>
+                <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Aprovação de produtos</h3>
+                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Quando ativado, novos produtos ficam disponíveis para venda imediatamente após o cadastro. Quando
+                    desativado, os produtos permanecem em análise até a decisão de um administrador.
+                </p>
+            </div>
+            <label class="flex cursor-pointer items-center gap-3">
+                <input
+                    v-model="form.auto_approve_products"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+                    true-value="1"
+                    false-value="0"
+                />
+                <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Aprovar produtos automaticamente</span>
+            </label>
+            <p
+                class="inline-flex rounded-md px-2 py-1 text-xs font-medium"
+                :class="
+                    form.auto_approve_products === '1'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                        : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
+                "
+            >
+                {{
+                    form.auto_approve_products === '1'
+                        ? 'Aprovação automática ativada'
+                        : 'Aprovação manual ativada'
+                }}
+            </p>
+        </div>
+
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 space-y-4">
+            <div>
+                <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Gerentes de conta</h3>
+                <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Define se novos infoprodutores recebem automaticamente um gerente ativo com menor carteira.
+                </p>
+            </div>
+            <label class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">Atribuição automática</label>
+            <select
+                v-model="form.account_manager_auto_assign_mode"
+                class="w-full max-w-md rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+            >
+                <option value="least_load">Menor carteira (recomendado)</option>
+                <option value="none">Desativada (apenas manual)</option>
+            </select>
+        </div>
+
         <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
             <p class="font-medium">Rate limit (automático)</p>
             <ul class="mt-2 list-inside list-disc space-y-1 text-xs">

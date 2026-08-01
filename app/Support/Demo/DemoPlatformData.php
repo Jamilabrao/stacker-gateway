@@ -61,7 +61,7 @@ class DemoPlatformData
     /**
      * @return array{orders: LengthAwarePaginator, filters: array{status: string, q: string}}
      */
-    public static function transactions(string $status, string $q, string $path, array $query): array
+    public static function transactions(string $status, string $q, string $path, array $query, int $perPage = 25): array
     {
         $seed = crc32($status.'|'.$q);
         $items = [];
@@ -104,17 +104,27 @@ class DemoPlatformData
         }
 
         if ($q !== '') {
-            $items = array_values(array_filter($items, function (array $row) use ($q) {
-                return str_contains(strtolower((string) $row['email']), strtolower($q))
-                    || str_contains(strtolower((string) $row['product_name']), strtolower($q));
+            $needle = mb_strtolower($q);
+            $items = array_values(array_filter($items, function (array $row) use ($needle) {
+                return str_contains(mb_strtolower((string) $row['email']), $needle)
+                    || str_contains(mb_strtolower((string) $row['product_name']), $needle)
+                    || str_contains(mb_strtolower((string) $row['customer_name']), $needle)
+                    || str_contains(mb_strtolower((string) $row['infoprodutor_name']), $needle)
+                    || str_contains(mb_strtolower((string) $row['infoprodutor_email']), $needle)
+                    || str_contains((string) $row['id'], $needle);
             }));
         }
 
+        $perPage = in_array($perPage, [25, 50, 100], true) ? $perPage : 25;
+        $page = max(1, (int) ($query['page'] ?? 1));
+        $total = count($items);
+        $slice = array_slice($items, ($page - 1) * $perPage, $perPage);
+
         $paginator = new LengthAwarePaginator(
-            $items,
-            count($items),
-            40,
-            1,
+            $slice,
+            $total,
+            $perPage,
+            $page,
             ['path' => $path, 'query' => $query]
         );
 
@@ -123,6 +133,7 @@ class DemoPlatformData
             'filters' => [
                 'status' => $status,
                 'q' => $q,
+                'per_page' => $perPage,
             ],
         ];
     }

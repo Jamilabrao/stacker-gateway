@@ -15,6 +15,9 @@ use App\Support\LoginTurnstileSettings;
 use App\Support\PlatformConfigContext;
 use App\Support\RegistrationEmailVerificationSettings;
 use App\Support\RegistrationTurnstileSettings;
+use App\Support\InfoproducerRegistrationSettings;
+use App\Support\AccountManagerSettings;
+use App\Support\ProductApprovalSettings;
 use App\Support\SellerPanelSupportSettings;
 use App\Services\InstallationPublicUrlService;
 use App\Services\Stacker\ContainerRestartRequestService;
@@ -139,6 +142,9 @@ class SettingsController extends Controller
                 ...($tenantId === null ? LoginTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? RegistrationTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? RegistrationEmailVerificationSettings::forSettingsForm() : []),
+                ...($tenantId === null ? InfoproducerRegistrationSettings::forSettingsForm() : []),
+                ...($tenantId === null ? ProductApprovalSettings::forSettingsForm() : []),
+                ...($tenantId === null ? AccountManagerSettings::forSettingsForm() : []),
                 ...($tenantId === null ? SellerPanelSupportSettings::forSettingsForm() : []),
                 ...($tenantId === null ? [
                     'legal_privacy_policy_html' => $legalForm['legal_privacy_policy_html'],
@@ -199,6 +205,9 @@ class SettingsController extends Controller
             'login_turnstile_enabled' => ['nullable', 'boolean'],
             'registration_turnstile_enabled' => ['nullable', 'boolean'],
             'registration_email_verification_enabled' => ['nullable', 'boolean'],
+            'allow_new_infoproducers' => ['nullable', 'boolean'],
+            'auto_approve_products' => ['nullable', 'boolean'],
+            'account_manager_auto_assign_mode' => ['nullable', 'string', 'in:none,least_load'],
             'seller_panel_support_enabled' => ['nullable', 'boolean'],
             'seller_panel_support_destination' => ['nullable', 'string', 'in:whatsapp,url'],
             'seller_panel_support_whatsapp' => ['nullable', 'string', 'max:32'],
@@ -252,6 +261,51 @@ class SettingsController extends Controller
                 }
             }
 
+            if (array_key_exists('allow_new_infoproducers', $validated)) {
+                $allowing = ($validated['allow_new_infoproducers'] ?? false) === true
+                    || $validated['allow_new_infoproducers'] === '1'
+                    || $validated['allow_new_infoproducers'] === 1;
+                $wasAllowed = InfoproducerRegistrationSettings::isAllowed();
+                $next = $allowing ? '1' : '0';
+                Setting::set(InfoproducerRegistrationSettings::KEY, $next, null);
+                if ($wasAllowed !== $allowing) {
+                    PlatformAuditService::log('settings.infoproducer_registration.updated', [
+                        'from' => $wasAllowed ? '1' : '0',
+                        'to' => $next,
+                    ], $request);
+                }
+            }
+
+            if (array_key_exists('auto_approve_products', $validated)) {
+                $enabling = ($validated['auto_approve_products'] ?? false) === true
+                    || $validated['auto_approve_products'] === '1'
+                    || $validated['auto_approve_products'] === 1;
+                $wasEnabled = ProductApprovalSettings::autoApproveEnabled();
+                $next = $enabling ? '1' : '0';
+                Setting::set(ProductApprovalSettings::KEY, $next, null);
+                if ($wasEnabled !== $enabling) {
+                    PlatformAuditService::log('products.auto_approval_setting_updated', [
+                        'from' => $wasEnabled ? '1' : '0',
+                        'to' => $next,
+                    ], $request);
+                }
+            }
+
+            if (array_key_exists('account_manager_auto_assign_mode', $validated)) {
+                $mode = (string) ($validated['account_manager_auto_assign_mode'] ?? AccountManagerSettings::MODE_LEAST_LOAD);
+                if (! in_array($mode, [AccountManagerSettings::MODE_NONE, AccountManagerSettings::MODE_LEAST_LOAD], true)) {
+                    $mode = AccountManagerSettings::MODE_LEAST_LOAD;
+                }
+                $previous = AccountManagerSettings::mode();
+                Setting::set(AccountManagerSettings::KEY_MODE, $mode, null);
+                if ($previous !== $mode) {
+                    PlatformAuditService::log('account_managers.auto_assign_mode_updated', [
+                        'from' => $previous,
+                        'to' => $mode,
+                    ], $request);
+                }
+            }
+
             SellerPanelSupportSettings::persistFromValidated($validated);
         }
 
@@ -279,6 +333,17 @@ class SettingsController extends Controller
             'seller_panel_support_url',
             'seller_panel_support_icon',
             'seller_panel_support_color',
+        ];
+        $securityToggleKeys = [
+            'login_turnstile_enabled',
+            'registration_turnstile_enabled',
+            'registration_email_verification_enabled',
+            'allow_new_infoproducers',
+            'auto_approve_products',
+            'account_manager_auto_assign_mode',
+            'checkout_turnstile_site_key',
+            'checkout_turnstile_secret_key',
+            'physical_products_enabled',
         ];
         // Handle passwords separately (encrypt)
         if (array_key_exists('smtp_password', $validated) && $validated['smtp_password'] !== null && $validated['smtp_password'] !== '') {
@@ -318,6 +383,9 @@ class SettingsController extends Controller
                 continue;
             }
             if (in_array($key, $sellerPanelSupportKeys, true)) {
+                continue;
+            }
+            if (in_array($key, $securityToggleKeys, true)) {
                 continue;
             }
             if (in_array($key, $brandingKeys, true)) {

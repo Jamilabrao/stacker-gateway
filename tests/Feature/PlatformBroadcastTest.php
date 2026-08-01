@@ -92,9 +92,14 @@ class PlatformBroadcastTest extends TestCase
             ->postJson(route('plataforma.app.push.send'), [
                 'title' => 'Aviso',
                 'body' => 'Teste',
+                'send_mode' => 'now',
+                'confirm_global' => true,
             ])
             ->assertOk()
-            ->assertJsonPath('ok', false)
-            ->assertJsonPath('result.sent', 0);
+            ->assertJsonPath('ok', true);
+
+        $campaign = \App\Models\PanelPushCampaign::query()->latest('id')->first();
+        $this->assertNotNull($campaign);
+        $this->assertSame(0, (int) $campaign->sent_count);
     }
 }

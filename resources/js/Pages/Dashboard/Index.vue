@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, provide, defineAsyncComponent } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
+import AccountManagerCard from '@/components/dashboard/AccountManagerCard.vue';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
 
@@ -46,6 +47,7 @@ const props = defineProps({
     has_affiliate_enrollments: { type: Boolean, default: false },
     affiliate_stats: { type: Object, default: null },
     affiliate_recent_sales: { type: Array, default: () => [] },
+    account_manager: { type: Object, default: null },
 });
 
 const periodOptions = [
@@ -209,6 +211,7 @@ const sharedViewProps = computed(() => ({
 
 <template>
     <div class="space-y-6">
+        <AccountManagerCard v-if="account_manager" :manager="account_manager" />
         <component
             :is="dashboardView"
             v-if="dashboardView"

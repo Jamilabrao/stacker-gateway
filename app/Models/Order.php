@@ -194,15 +194,41 @@ class Order extends Model
 
     public function saleApprovedPushTitle(): string
     {
-        return 'Venda aprovada ('.$this->paymentMethodPushLabel().')';
+        $prefs = \App\Support\UserPushPreferences::forTenantOwner((int) ($this->tenant_id ?? 0));
+        if (! empty($prefs['show_payment_method'])) {
+            return 'Venda aprovada ('.$this->paymentMethodPushLabel().')';
+        }
+
+        return 'Venda aprovada';
     }
 
     public function saleApprovedPushBody(): string
     {
-        $productName = $this->product?->name ?? 'Produto';
-        $amount = number_format((float) $this->amount, 2, ',', '.');
+        $prefs = \App\Support\UserPushPreferences::forTenantOwner((int) ($this->tenant_id ?? 0));
+        $product = $this->product;
+        $displayName = null;
+        if ($product) {
+            $custom = trim((string) ($product->notification_name ?? ''));
+            $displayName = $custom !== '' ? $custom : (string) $product->name;
+        }
 
-        return "{$productName} - R$ {$amount}";
+        $lines = [];
+        if (! empty($prefs['show_product_name']) && $displayName) {
+            $lines[] = 'Produto: '.$displayName;
+        }
+        if (! empty($prefs['show_sale_amount'])) {
+            $amount = number_format((float) $this->amount, 2, ',', '.');
+            $lines[] = 'Valor: R$ '.$amount;
+        }
+        if (! empty($prefs['show_payment_method'])) {
+            $lines[] = 'Pagamento: '.$this->paymentMethodPushLabel();
+        }
+
+        if ($lines === []) {
+            return 'Você recebeu uma nova venda aprovada.';
+        }
+
+        return implode("\n", $lines);
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ProductCoproducer;
 use App\Models\User;
+use App\Support\InfoproducerRegistrationSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -60,6 +61,8 @@ class CoproductionInviteController extends Controller
             'auth_email' => $user?->email,
             'login_url' => url('/login').'?redirect='.urlencode(url('/coproducao/convite/'.$token)),
             'register_url' => url('/cadastro?coproducer_invite='.$token),
+            'allow_register' => InfoproducerRegistrationSettings::isAllowed()
+                || InfoproducerRegistrationSettings::isValidCoproductionInviteFromActiveSeller($token),
         ]);
     }
 

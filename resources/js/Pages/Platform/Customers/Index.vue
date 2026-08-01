@@ -1,9 +1,9 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
-import { router, usePage } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
-import { Search } from 'lucide-vue-next';
+import { Search, Download } from 'lucide-vue-next';
 import { htmlToText } from '@/lib/sanitizeHtml';
 
 defineOptions({ layout: LayoutPlatform });
@@ -11,10 +11,12 @@ defineOptions({ layout: LayoutPlatform });
 const props = defineProps({
     users: { type: Object, required: true },
     q: { type: String, default: null },
+    export_url: { type: String, default: '/plataforma/clientes/export' },
 });
 
 const page = usePage();
 const searchQ = ref(props.q ?? '');
+const NOT_INFORMED = 'Não informado';
 
 watch(
     () => props.q,
@@ -29,6 +31,29 @@ function applySearch() {
 }
 
 const userRows = computed(() => props.users?.data ?? []);
+
+const exportHref = computed(() => {
+    const q = searchQ.value?.trim();
+    if (!q) return props.export_url || '/plataforma/clientes/export';
+    const url = new URL(props.export_url || '/plataforma/clientes/export', window.location.origin);
+    url.searchParams.set('q', q);
+    return url.pathname + url.search;
+});
+
+function display(value) {
+    if (value === null || value === undefined || value === '') return NOT_INFORMED;
+    return value;
+}
+
+function formatBRL(value) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
+}
+
+function formatDate(iso) {
+    if (!iso) return NOT_INFORMED;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? NOT_INFORMED : d.toLocaleString('pt-BR');
+}
 
 function customerActionUrl(userId, pathSuffix = '') {
     const q = searchQ.value?.trim();
@@ -61,7 +86,16 @@ function deleteCustomerHistory(user) {
 
 <template>
     <div class="space-y-6">
-        <p class="text-sm text-zinc-600 dark:text-zinc-400">Utilizadores com pelo menos uma compra concluída.</p>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <p class="text-sm text-zinc-600 dark:text-zinc-400">Utilizadores com pelo menos uma compra concluída.</p>
+            <a
+                :href="exportHref"
+                class="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+                <Download class="h-4 w-4" />
+                Exportar CSV
+            </a>
+        </div>
 
         <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
             <div class="relative min-w-[200px] flex-1">
@@ -94,34 +128,48 @@ function deleteCustomerHistory(user) {
             {{ page.props.flash.error }}
         </p>
 
-        <!-- Mobile: cards com ações visíveis -->
         <div v-if="userRows.length" class="space-y-3 md:hidden">
             <article
                 v-for="u in userRows"
                 :key="`mobile-${u.id}`"
                 class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60"
             >
-                <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0 flex-1">
-                        <p class="break-words text-sm font-semibold text-zinc-900 dark:text-white">{{ u.name }}</p>
-                        <p class="mt-0.5 break-all text-xs text-zinc-500 dark:text-zinc-400">{{ u.email }}</p>
-                        <p class="mt-1 text-xs text-zinc-400">ID {{ u.id }}</p>
-                    </div>
-                    <div class="shrink-0 text-right">
-                        <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">Compras</p>
-                        <p class="mt-0.5 text-lg font-semibold tabular-nums text-zinc-900 dark:text-white">
-                            {{ u.purchases_count ?? 0 }}
-                        </p>
-                    </div>
+                <div class="min-w-0">
+                    <p class="break-words text-sm font-semibold text-zinc-900 dark:text-white">{{ display(u.name) }}</p>
+                    <p class="mt-0.5 break-all text-xs text-zinc-500 dark:text-zinc-400">{{ display(u.email) }}</p>
+                    <p class="mt-1 text-xs text-zinc-400">ID {{ u.id }}</p>
+                    <dl class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <dt class="text-zinc-500">Telefone</dt>
+                            <dd class="text-zinc-800 dark:text-zinc-200">{{ display(u.phone) }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-zinc-500">CPF</dt>
+                            <dd class="text-zinc-800 dark:text-zinc-200">{{ display(u.document) }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-zinc-500">Cadastro</dt>
+                            <dd class="text-zinc-800 dark:text-zinc-200">{{ formatDate(u.created_at) }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-zinc-500">Status</dt>
+                            <dd class="text-zinc-800 dark:text-zinc-200">{{ display(u.account_status_label) }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-zinc-500">Compras</dt>
+                            <dd class="font-semibold tabular-nums text-zinc-900 dark:text-white">{{ u.purchases_count ?? 0 }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-zinc-500">Total gasto</dt>
+                            <dd class="font-semibold tabular-nums text-zinc-900 dark:text-white">{{ formatBRL(u.total_spent) }}</dd>
+                        </div>
+                    </dl>
                 </div>
                 <div class="mt-4 flex flex-col gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        class="w-full justify-center"
-                        @click="deleteCustomerHistory(u)"
-                    >
+                    <Link :href="`/plataforma/clientes/${u.id}`" class="block">
+                        <Button type="button" size="sm" class="w-full justify-center">Visualizar</Button>
+                    </Link>
+                    <Button type="button" size="sm" variant="secondary" class="w-full justify-center" @click="deleteCustomerHistory(u)">
                         Excluir histórico
                     </Button>
                     <Button
@@ -137,7 +185,6 @@ function deleteCustomerHistory(user) {
             </article>
         </div>
 
-        <!-- Desktop: tabela -->
         <div class="hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60 md:block">
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -146,26 +193,36 @@ function deleteCustomerHistory(user) {
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">ID</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Nome</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">E-mail</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Telefone</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">CPF</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Cadastro</th>
                             <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Compras</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Total gasto</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Status</th>
                             <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-zinc-600 dark:text-zinc-400">Ações</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
                         <tr v-for="u in userRows" :key="u.id" class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
                             <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{{ u.id }}</td>
-                            <td class="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">{{ u.name }}</td>
-                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ u.email }}</td>
-                            <td class="px-4 py-3 text-right text-sm text-zinc-800 dark:text-zinc-200">
+                            <td class="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">{{ display(u.name) }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ display(u.email) }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ display(u.phone) }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ display(u.document) }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ formatDate(u.created_at) }}</td>
+                            <td class="px-4 py-3 text-right text-sm tabular-nums text-zinc-800 dark:text-zinc-200">
                                 {{ u.purchases_count ?? 0 }}
                             </td>
+                            <td class="px-4 py-3 text-right text-sm tabular-nums text-zinc-800 dark:text-zinc-200">
+                                {{ formatBRL(u.total_spent) }}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ display(u.account_status_label) }}</td>
                             <td class="px-4 py-3 text-right">
                                 <div class="flex flex-wrap justify-end gap-2">
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="secondary"
-                                        @click="deleteCustomerHistory(u)"
-                                    >
+                                    <Link :href="`/plataforma/clientes/${u.id}`">
+                                        <Button type="button" size="sm">Visualizar</Button>
+                                    </Link>
+                                    <Button type="button" size="sm" variant="secondary" @click="deleteCustomerHistory(u)">
                                         Excluir histórico
                                     </Button>
                                     <Button
@@ -185,8 +242,11 @@ function deleteCustomerHistory(user) {
             </div>
         </div>
 
-        <div v-if="!userRows.length" class="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            {{ q ? 'Nenhum cliente encontrado para esta busca.' : 'Nenhum cliente encontrado.' }}
+        <div
+            v-if="!userRows.length"
+            class="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700"
+        >
+            {{ q ? 'Nenhum cliente encontrado com os filtros selecionados.' : 'Nenhum cliente encontrado.' }}
         </div>
 
         <nav

@@ -40,6 +40,13 @@ const nextLabel = computed(() => {
     return formatCompactCurrency(next.threshold);
 });
 
+const remainingLabel = computed(() => {
+    const remaining = progress.value?.remaining;
+    if (remaining == null || remaining <= 0) return null;
+    if (!progress.value?.next_achievement) return null;
+    return formatCompactCurrency(remaining);
+});
+
 const totalLabel = computed(() => {
     const total = progress.value?.total_valid_sales ?? 0;
     return formatCompactCurrency(total);
@@ -110,6 +117,15 @@ const totalLabel = computed(() => {
             >
                 {{ totalLabel }}
                 <span v-if="nextLabel"> → {{ nextLabel }}</span>
+            </p>
+            <p
+                v-if="remainingLabel"
+                class="truncate text-zinc-400 dark:text-zinc-500"
+                :class="[
+                    props.variant === 'sidebar' || props.variant === 'dashboard' ? 'text-[10px]' : 'text-[10px]',
+                ]"
+            >
+                Faltam {{ remainingLabel }}
             </p>
         </div>
     </Link>

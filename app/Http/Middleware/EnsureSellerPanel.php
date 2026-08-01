@@ -65,6 +65,7 @@ class EnsureSellerPanel
             'profile.update',
             'profile.update-username',
             'profile.update-password',
+            'profile.push-preferences',
         );
     }
 
@@ -82,6 +83,7 @@ class EnsureSellerPanel
             'profile.update',
             'profile.update-username',
             'profile.update-password',
+            'profile.push-preferences',
             'verification.notice',
             'verification.resend',
         );

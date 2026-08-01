@@ -7,7 +7,8 @@ import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
 import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
 import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
-import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare, Search, Shield } from 'lucide-vue-next';
+import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare, Search, Shield, ChevronUp, ChevronDown } from 'lucide-vue-next';
+import { htmlToText } from '@/lib/sanitizeHtml';
 import {
     formatPercentForInput,
     normalizeMerchantFeeOverridesForSubmit,
@@ -17,9 +18,12 @@ import {
 defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
-    users: { type: Array, default: () => [] },
+    users: { type: Object, default: () => ({ data: [], links: [], total: 0, from: null, to: null, per_page: 25 }) },
     q: { type: String, default: null },
     status: { type: String, default: null },
+    sort_by: { type: String, default: null },
+    sort_direction: { type: String, default: null },
+    per_page: { type: Number, default: 25 },
     status_options: { type: Array, default: () => [] },
     edit_user_id: { type: Number, default: null },
     gateways: { type: Array, default: () => [] },
@@ -40,6 +44,9 @@ const props = defineProps({
 const page = usePage();
 const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
 
+const usersList = computed(() => (Array.isArray(props.users?.data) ? props.users.data : []));
+const paginationLinks = computed(() => (Array.isArray(props.users?.links) ? props.users.links : []));
+
 /** Exibe WhatsApp no modal no formato BR (sem DDI 55). */
 function formatPhoneForInput(phone) {
     const digits = String(phone ?? '').replace(/\D/g, '');
@@ -59,6 +66,7 @@ function formatPhoneForInput(phone) {
 
 const searchQ = ref(props.q ?? '');
 const statusFilter = ref(props.status ?? '');
+const perPage = ref(Number(props.per_page) || 25);
 
 watch(
     () => props.q,
@@ -74,16 +82,79 @@ watch(
     }
 );
 
+watch(
+    () => props.per_page,
+    (v) => {
+        perPage.value = Number(v) || 25;
+    }
+);
+
+function listingQuery(overrides = {}) {
+    const q = overrides.q !== undefined ? overrides.q : searchQ.value?.trim() || undefined;
+    const status = overrides.status !== undefined ? overrides.status : statusFilter.value?.trim() || undefined;
+    const sort_by = overrides.sort_by !== undefined ? overrides.sort_by : props.sort_by || undefined;
+    const sort_direction =
+        overrides.sort_direction !== undefined ? overrides.sort_direction : props.sort_direction || undefined;
+    const nextPerPage = overrides.per_page !== undefined ? Number(overrides.per_page) : Number(perPage.value) || 25;
+
+    let pageNum;
+    if (Object.prototype.hasOwnProperty.call(overrides, 'page')) {
+        pageNum = overrides.page;
+    } else {
+        pageNum = props.users?.current_page;
+    }
+
+    const query = {
+        q: q || undefined,
+        status: status || undefined,
+        sort_by: sort_by || undefined,
+        sort_direction: sort_by ? sort_direction || 'asc' : undefined,
+        per_page: nextPerPage,
+    };
+
+    if (pageNum !== undefined && pageNum !== null && Number(pageNum) > 1) {
+        query.page = Number(pageNum);
+    }
+
+    return query;
+}
+
 function applySearch() {
-    const q = searchQ.value?.trim() || undefined;
-    const status = statusFilter.value?.trim() || undefined;
-    router.get('/plataforma/usuarios', { q, status }, { preserveState: true, replace: true });
+    router.get('/plataforma/usuarios', listingQuery({ page: 1 }), { preserveState: true, replace: true });
 }
 
 function clearFilters() {
     searchQ.value = '';
     statusFilter.value = '';
-    router.get('/plataforma/usuarios', {}, { preserveState: true, replace: true });
+    router.get(
+        '/plataforma/usuarios',
+        listingQuery({ q: undefined, status: undefined, page: 1 }),
+        { preserveState: true, replace: true }
+    );
+}
+
+function changePerPage() {
+    router.get('/plataforma/usuarios', listingQuery({ per_page: Number(perPage.value) || 25, page: 1 }), {
+        preserveState: true,
+        replace: true,
+    });
+}
+
+function toggleSort(column) {
+    let nextDirection = 'asc';
+    if (props.sort_by === column) {
+        nextDirection = props.sort_direction === 'asc' ? 'desc' : 'asc';
+    }
+    router.get(
+        '/plataforma/usuarios',
+        listingQuery({ sort_by: column, sort_direction: nextDirection, page: 1 }),
+        { preserveState: true, replace: true }
+    );
+}
+
+function sortIndicator(column) {
+    if (props.sort_by !== column) return null;
+    return props.sort_direction === 'desc' ? 'desc' : 'asc';
 }
 
 const editUser = ref(null);
@@ -515,7 +586,7 @@ function onAdminNotesCountChanged(userId, count) {
 function closeEditModal() {
     editUser.value = null;
     if (props.edit_user_id) {
-        router.get('/plataforma/usuarios', { q: props.q || undefined }, { preserveState: true, replace: true });
+        router.get('/plataforma/usuarios', listingQuery(), { preserveState: true, replace: true });
     }
 }
 
@@ -557,7 +628,7 @@ const effectivePlatformMinimumPreview = computed(() => {
 
 onMounted(() => {
     if (props.edit_user_id) {
-        const u = props.users.find((row) => row.id === props.edit_user_id);
+        const u = usersList.value.find((row) => row.id === props.edit_user_id);
         if (u) {
             openEditModal(u);
         }
@@ -655,12 +726,12 @@ function destroyUser(id) {
 const selectedCount = computed(() => selectedIds.value.length);
 
 const allVisibleSelected = computed(() => {
-    if (!props.users.length) return false;
-    return props.users.every((u) => selectedIds.value.includes(u.id));
+    if (!usersList.value.length) return false;
+    return usersList.value.every((u) => selectedIds.value.includes(u.id));
 });
 
 const bulkDeleteTargets = computed(() =>
-    props.users.filter((u) => selectedIds.value.includes(u.id))
+    usersList.value.filter((u) => selectedIds.value.includes(u.id))
 );
 
 const bulkDeleteResult = computed(() => page.props.flash?.bulk_delete_result ?? null);
@@ -675,16 +746,16 @@ function toggleUserSelection(id) {
 
 function toggleSelectAllVisible() {
     if (allVisibleSelected.value) {
-        const visibleIds = new Set(props.users.map((u) => u.id));
+        const visibleIds = new Set(usersList.value.map((u) => u.id));
         selectedIds.value = selectedIds.value.filter((id) => !visibleIds.has(id));
         return;
     }
-    const merged = new Set([...selectedIds.value, ...props.users.map((u) => u.id)]);
+    const merged = new Set([...selectedIds.value, ...usersList.value.map((u) => u.id)]);
     selectedIds.value = [...merged];
 }
 
 function selectPendingWithoutSales() {
-    const ids = props.users
+    const ids = usersList.value
         .filter((u) => (u.account_status || 'approved') === 'pending' && Number(u.vendas_totais || 0) === 0)
         .map((u) => u.id);
     selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
@@ -747,6 +818,13 @@ function submitBulkDelete(totpCode = '') {
 
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
+}
+
+function formatCreatedAt(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('pt-BR');
 }
 
 function statusLabel(s) {
@@ -817,6 +895,18 @@ function formatBlockUntilForInput(iso) {
             >
                 Limpar
             </button>
+            <label class="ml-auto flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                <span class="whitespace-nowrap">Por página</span>
+                <select
+                    v-model="perPage"
+                    class="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                    @change="changePerPage"
+                >
+                    <option :value="25">25</option>
+                    <option :value="50">50</option>
+                    <option :value="100">100</option>
+                </select>
+            </label>
         </form>
 
         <p
@@ -877,7 +967,7 @@ function formatBlockUntilForInput(iso) {
         </div>
 
         <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
-            <table class="w-full text-left text-sm">
+            <table class="w-full min-w-[960px] text-left text-sm">
                 <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-400">
                     <tr>
                         <th class="w-10 px-3 py-3">
@@ -885,7 +975,7 @@ function formatBlockUntilForInput(iso) {
                                 type="checkbox"
                                 class="h-4 w-4 rounded border-zinc-300"
                                 :checked="allVisibleSelected"
-                                :disabled="!users.length"
+                                :disabled="!usersList.length"
                                 @change="toggleSelectAllVisible"
                             />
                         </th>
@@ -893,16 +983,45 @@ function formatBlockUntilForInput(iso) {
                         <th class="px-4 py-3">E-mail</th>
                         <th class="px-4 py-3">Documento</th>
                         <th class="px-4 py-3">Status</th>
-                        <th class="px-4 py-3 text-right" title="Pedidos concluídos via gateway (exclui aprovação manual)">
-                            Vendas totais
+                        <th class="px-4 py-3">
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
+                                @click="toggleSort('created_at')"
+                            >
+                                Data de cadastro
+                                <ChevronUp v-if="sortIndicator('created_at') === 'asc'" class="h-3.5 w-3.5" />
+                                <ChevronDown v-else-if="sortIndicator('created_at') === 'desc'" class="h-3.5 w-3.5" />
+                            </button>
                         </th>
-                        <th class="px-4 py-3 text-right">Saldo</th>
+                        <th class="px-4 py-3 text-right" title="Pedidos concluídos via gateway (exclui aprovação manual)">
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
+                                @click="toggleSort('total_sales')"
+                            >
+                                Vendas totais
+                                <ChevronUp v-if="sortIndicator('total_sales') === 'asc'" class="h-3.5 w-3.5" />
+                                <ChevronDown v-else-if="sortIndicator('total_sales') === 'desc'" class="h-3.5 w-3.5" />
+                            </button>
+                        </th>
+                        <th class="px-4 py-3 text-right">
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
+                                @click="toggleSort('balance')"
+                            >
+                                Saldo
+                                <ChevronUp v-if="sortIndicator('balance') === 'asc'" class="h-3.5 w-3.5" />
+                                <ChevronDown v-else-if="sortIndicator('balance') === 'desc'" class="h-3.5 w-3.5" />
+                            </button>
+                        </th>
                         <th class="px-4 py-3 text-right">Pendente</th>
                         <th class="px-4 py-3 text-right">Ações</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="u in users" :key="u.id" class="border-b border-zinc-100 dark:border-zinc-800">
+                    <tr v-for="u in usersList" :key="u.id" class="border-b border-zinc-100 dark:border-zinc-800">
                         <td class="px-3 py-3">
                             <input
                                 type="checkbox"
@@ -956,6 +1075,9 @@ function formatBlockUntilForInput(iso) {
                         <td class="px-4 py-3">
                             <span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ statusLabel(u.account_status) }}</span>
                         </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                            {{ formatCreatedAt(u.created_at) }}
+                        </td>
                         <td class="px-4 py-3 text-right tabular-nums font-medium text-zinc-900 dark:text-white">
                             {{ formatBRL(u.vendas_totais) }}
                         </td>
@@ -997,13 +1119,38 @@ function formatBlockUntilForInput(iso) {
                             </div>
                         </td>
                     </tr>
-                    <tr v-if="!users.length">
-                        <td colspan="9" class="px-4 py-10 text-center text-zinc-500">
+                    <tr v-if="!usersList.length">
+                        <td colspan="10" class="px-4 py-10 text-center text-zinc-500">
                             {{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}
                         </td>
                     </tr>
                 </tbody>
             </table>
+        </div>
+
+        <div
+            v-if="users.total > 0"
+            class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">
+                Exibindo {{ users.from ?? 0 }}–{{ users.to ?? 0 }} de {{ users.total }} infoprodutores
+            </p>
+            <div v-if="paginationLinks.length > 3" class="flex flex-wrap gap-1">
+                <Link
+                    v-for="(link, i) in paginationLinks"
+                    :key="i"
+                    :href="link.url || '#'"
+                    class="rounded-lg px-3 py-1.5 text-sm"
+                    :class="
+                        link.active
+                            ? 'bg-[var(--color-primary)] text-white'
+                            : link.url
+                              ? 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                              : 'pointer-events-none text-zinc-300 dark:text-zinc-600'
+                    "
+                    v-text="htmlToText(link.label)"
+                />
+            </div>
         </div>
 
         <!-- Modal editar -->

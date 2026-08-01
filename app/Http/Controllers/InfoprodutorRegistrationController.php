@@ -16,6 +16,7 @@ use App\Support\NormalizedEmail;
 use App\Support\RegistrationEmailVerificationSettings;
 use App\Services\PlatformAuditService;
 use App\Support\RegistrationTurnstileSettings;
+use App\Support\InfoproducerRegistrationSettings;
 use App\Services\ReferralAttributionService;
 use App\Support\ReferralProgramSettings;
 use Illuminate\Http\RedirectResponse;
@@ -46,6 +47,10 @@ class InfoprodutorRegistrationController extends Controller
             return redirect()->route('criar-admin');
         }
 
+        if ($blocked = $this->denyIfRegistrationClosed($request)) {
+            return $blocked;
+        }
+
         $response = Inertia::render('Auth/RegisterWizard', array_merge([
             'revenue_ranges' => self::revenueRangeOptions(),
             'coproducer_invite' => $request->query('coproducer_invite'),
@@ -67,6 +72,10 @@ class InfoprodutorRegistrationController extends Controller
         }
         if (! $user->isCliente()) {
             return redirect($user->defaultAuthenticatedHomeUrl());
+        }
+
+        if ($blocked = $this->denyIfRegistrationClosed($request)) {
+            return $blocked;
         }
 
         $response = Inertia::render('Auth/RegisterWizard', array_merge([
@@ -95,6 +104,10 @@ class InfoprodutorRegistrationController extends Controller
 
     public function validateEmail(Request $request): \Illuminate\Http\JsonResponse
     {
+        if ($blocked = $this->denyIfRegistrationClosedJson($request)) {
+            return $blocked;
+        }
+
         $validated = $request->validate([
             'email' => ['required', 'email', 'max:255'],
         ]);
@@ -122,6 +135,10 @@ class InfoprodutorRegistrationController extends Controller
 
     public function validateDocument(Request $request): \Illuminate\Http\JsonResponse
     {
+        if ($blocked = $this->denyIfRegistrationClosedJson($request)) {
+            return $blocked;
+        }
+
         $validated = $request->validate([
             'person_type' => ['required', 'string', Rule::in(['pf', 'pj'])],
             'document' => ['required', 'string', 'max:20'],
@@ -214,6 +231,10 @@ class InfoprodutorRegistrationController extends Controller
 
         if (User::count() === 0) {
             abort(403, 'Cadastro indisponível.');
+        }
+
+        if ($blocked = $this->denyIfRegistrationClosed($request)) {
+            return $blocked;
         }
 
         if (Auth::check() && Auth::user()->isCliente()) {
@@ -356,6 +377,12 @@ class InfoprodutorRegistrationController extends Controller
         $user->update(['tenant_id' => $user->id]);
 
         $this->attachReferralIfPresent($request, $user, $validated['ref'] ?? null);
+
+        try {
+            app(\App\Services\AccountManagerAssignmentService::class)->autoAssignIfConfigured($user->fresh(), $request);
+        } catch (\Throwable) {
+            // Não bloqueia o cadastro.
+        }
 
         $this->recordLegalConsent($user);
 
@@ -552,6 +579,12 @@ class InfoprodutorRegistrationController extends Controller
 
         $this->attachReferralIfPresent($request, $user, $validated['ref'] ?? null);
 
+        try {
+            app(\App\Services\AccountManagerAssignmentService::class)->autoAssignIfConfigured($user->fresh(), $request);
+        } catch (\Throwable) {
+            // Não bloqueia o cadastro.
+        }
+
         $this->recordLegalConsent($user);
 
         if (Schema::hasTable('tenant_wallets')) {
@@ -602,6 +635,29 @@ class InfoprodutorRegistrationController extends Controller
         return [
             'registration_turnstile' => RegistrationTurnstileSettings::publicConfig(),
         ];
+    }
+
+    private function denyIfRegistrationClosed(Request $request): ?RedirectResponse
+    {
+        if (InfoproducerRegistrationSettings::requestMayRegister($request)) {
+            return null;
+        }
+
+        return redirect()
+            ->route('login')
+            ->with('error', InfoproducerRegistrationSettings::BLOCKED_MESSAGE);
+    }
+
+    private function denyIfRegistrationClosedJson(Request $request): ?\Illuminate\Http\JsonResponse
+    {
+        if (InfoproducerRegistrationSettings::requestMayRegister($request)) {
+            return null;
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => InfoproducerRegistrationSettings::BLOCKED_MESSAGE,
+        ], 403);
     }
 
     private function validateRegistrationTurnstile(Request $request): ?RedirectResponse

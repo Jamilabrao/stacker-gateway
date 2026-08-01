@@ -1,0 +1,231 @@
+<script setup>
+import { computed, ref, watch } from 'vue';
+import { router } from '@inertiajs/vue3';
+import Button from '@/components/ui/Button.vue';
+import { htmlToText } from '@/lib/sanitizeHtml';
+
+const props = defineProps({
+    merchantId: { type: Number, required: true },
+    walletTransactions: { type: Object, default: null },
+    filters: { type: Object, default: null },
+    typeLabels: { type: Object, default: () => ({}) },
+});
+
+const typeFilter = ref(props.filters?.wallet_type ?? 'all');
+const searchQ = ref(props.filters?.wallet_q ?? '');
+const dateFrom = ref(props.filters?.wallet_date_from ?? '');
+const dateTo = ref(props.filters?.wallet_date_to ?? '');
+const perPage = ref(String(props.filters?.wallet_per_page ?? 25));
+const sort = ref(props.filters?.wallet_sort ?? 'id');
+const direction = ref(props.filters?.wallet_direction ?? 'desc');
+
+watch(
+    () => props.filters,
+    (f) => {
+        typeFilter.value = f?.wallet_type ?? 'all';
+        searchQ.value = f?.wallet_q ?? '';
+        dateFrom.value = f?.wallet_date_from ?? '';
+        dateTo.value = f?.wallet_date_to ?? '';
+        perPage.value = String(f?.wallet_per_page ?? 25);
+        sort.value = f?.wallet_sort ?? 'id';
+        direction.value = f?.wallet_direction ?? 'desc';
+    },
+    { deep: true }
+);
+
+const rows = computed(() => props.walletTransactions?.data ?? []);
+const hasFilters = computed(() => {
+    const f = props.filters || {};
+    return !!(
+        (f.wallet_type && f.wallet_type !== 'all') ||
+        f.wallet_q ||
+        f.wallet_date_from ||
+        f.wallet_date_to
+    );
+});
+
+const rangeLabel = computed(() => {
+    const p = props.walletTransactions;
+    if (!p || !p.total) return null;
+    return `Exibindo ${p.from ?? 0}–${p.to ?? 0} de ${p.total} movimentações`;
+});
+
+const typeOptions = computed(() =>
+    Object.entries(props.typeLabels || {}).map(([value, label]) => ({ value, label }))
+);
+
+function visitParams(extra = {}) {
+    return {
+        tab: 'wallet',
+        wallet_type: typeFilter.value !== 'all' ? typeFilter.value : undefined,
+        wallet_q: searchQ.value?.trim() || undefined,
+        wallet_date_from: dateFrom.value || undefined,
+        wallet_date_to: dateTo.value || undefined,
+        wallet_per_page: Number(perPage.value) || 25,
+        wallet_sort: sort.value,
+        wallet_direction: direction.value,
+        wallet_page: 1,
+        ...extra,
+    };
+}
+
+function applyFilters() {
+    router.get(`/plataforma/usuarios/${props.merchantId}`, visitParams(), {
+        preserveState: true,
+        replace: true,
+    });
+}
+
+function changeSort(field) {
+    if (sort.value === field) {
+        direction.value = direction.value === 'asc' ? 'desc' : 'asc';
+    } else {
+        sort.value = field;
+        direction.value = 'desc';
+    }
+    applyFilters();
+}
+
+function formatBRL(value) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
+}
+
+function formatDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR');
+}
+
+function bucketLabel(b) {
+    const map = { pix: 'PIX', card: 'Cartão', boleto: 'Boleto' };
+    return map[b] || b || '—';
+}
+
+function amountClass(n) {
+    const v = Number(n) || 0;
+    if (v > 0) return 'text-emerald-700 dark:text-emerald-300';
+    if (v < 0) return 'text-red-600 dark:text-red-400';
+    return 'text-zinc-600 dark:text-zinc-400';
+}
+</script>
+
+<template>
+    <div class="space-y-5">
+        <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Movimentações da carteira</h2>
+            <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                Extrato oficial do ledger deste infoprodutor. Somente consulta — saldos não são recalculados nesta tela.
+            </p>
+        </div>
+
+        <form
+            class="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800"
+            @submit.prevent="applyFilters"
+        >
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <select
+                    v-model="typeFilter"
+                    class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                >
+                    <option value="all">Tipo: todos</option>
+                    <option v-for="opt in typeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+                <input
+                    v-model="searchQ"
+                    type="search"
+                    placeholder="ID, pedido ou saque"
+                    class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                />
+                <input
+                    v-model="dateFrom"
+                    type="date"
+                    class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                />
+                <input
+                    v-model="dateTo"
+                    type="date"
+                    class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                />
+                <select
+                    v-model="perPage"
+                    class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                >
+                    <option value="25">25 / página</option>
+                    <option value="50">50 / página</option>
+                    <option value="100">100 / página</option>
+                </select>
+                <Button type="submit">Filtrar</Button>
+            </div>
+        </form>
+
+        <p v-if="rangeLabel" class="text-sm text-zinc-600 dark:text-zinc-400">{{ rangeLabel }}</p>
+
+        <div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+            <div class="overflow-x-auto">
+                <table class="min-w-[800px] w-full text-left text-sm">
+                    <thead class="border-b border-zinc-100 text-xs uppercase text-zinc-500 dark:border-zinc-700">
+                        <tr>
+                            <th class="px-4 py-3">
+                                <button type="button" class="hover:underline" @click="changeSort('created_at')">Data</button>
+                            </th>
+                            <th class="px-4 py-3">
+                                <button type="button" class="hover:underline" @click="changeSort('type')">Tipo</button>
+                            </th>
+                            <th class="px-4 py-3">Canal</th>
+                            <th class="px-4 py-3 text-right">
+                                <button type="button" class="hover:underline" @click="changeSort('amount_net')">Líquido</button>
+                            </th>
+                            <th class="px-4 py-3">Ref.</th>
+                            <th class="px-4 py-3">Obs.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-if="!rows.length">
+                            <td colspan="6" class="px-4 py-8 text-center text-zinc-500">
+                                {{
+                                    hasFilters
+                                        ? 'Nenhuma movimentação encontrada no período selecionado.'
+                                        : 'Nenhuma movimentação encontrada.'
+                                }}
+                            </td>
+                        </tr>
+                        <tr
+                            v-for="t in rows"
+                            :key="t.id"
+                            class="border-b border-zinc-50 dark:border-zinc-800"
+                        >
+                            <td class="px-4 py-3 whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                                {{ formatDate(t.created_at) }}
+                            </td>
+                            <td class="px-4 py-3">{{ t.type_label }}</td>
+                            <td class="px-4 py-3">{{ bucketLabel(t.bucket) }}</td>
+                            <td class="px-4 py-3 text-right tabular-nums" :class="amountClass(t.amount_net)">
+                                {{ formatBRL(t.amount_net) }}
+                            </td>
+                            <td class="px-4 py-3 text-xs text-zinc-500">
+                                <span v-if="t.order_id">Pedido #{{ t.order_id }}</span>
+                                <span v-else-if="t.withdrawal_id">Saque #{{ t.withdrawal_id }}</span>
+                                <span v-else>—</span>
+                            </td>
+                            <td class="max-w-[200px] truncate px-4 py-3 text-xs text-zinc-500" :title="t.note || ''">
+                                {{ t.note || '—' }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <nav v-if="(walletTransactions?.links?.length ?? 0) > 3" class="flex flex-wrap justify-center gap-2">
+            <a
+                v-for="link in walletTransactions.links"
+                :key="link.label + String(link.url)"
+                :href="link.url || undefined"
+                class="rounded-lg px-3 py-2 text-sm"
+                :class="link.active ? 'bg-[var(--color-primary)] text-white' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'"
+                v-text="htmlToText(link.label)"
+                @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
+            />
+        </nav>
+    </div>
+</template>
