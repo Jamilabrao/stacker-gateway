@@ -83,7 +83,7 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $service->process($campaign->id);
         $this->assertSame(PanelPushCampaign::STATUS_SCHEDULED, $campaign->fresh()->status);
 
-        $campaign->forceFill(['scheduled_at' => now()->subMinute()])->save();
+        $campaign->forceFill(['scheduled_at' => now('UTC')->subMinute()])->save();
         $service->process($campaign->id);
         $this->assertNotSame(PanelPushCampaign::STATUS_SCHEDULED, $campaign->fresh()->status);
 
@@ -217,10 +217,11 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $this->assertEquals(100, (float) PanelPushDailySummaryLog::query()->where('tenant_id', $seller->id)->value('orders_total'));
     }
 
-    public function test_send_now_is_not_blocked_by_utc_wall_clock_skew(): void
+    public function test_send_now_is_not_blocked_by_timezone_and_uses_utc(): void
     {
         Bus::fake([ProcessPanelPushCampaignJob::class]);
         $this->configureTestVapidPush();
+        config(['app.timezone' => 'America/Sao_Paulo']);
         $admin = $this->platformAdmin();
 
         $this->actingAs($admin)
@@ -239,8 +240,8 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $this->assertNotNull($campaign);
         $this->assertSame(PanelPushCampaign::MODE_NOW, $campaign->send_mode);
         $this->assertNotNull($campaign->scheduled_at);
-        // Deve estar no fuso da app (não relógio UTC naive).
-        $this->assertTrue($campaign->scheduled_at->between(now()->subMinute(), now()->addMinute()));
+        $this->assertSame('UTC', $campaign->scheduled_at->timezoneName);
+        $this->assertTrue($campaign->scheduled_at->between(now('UTC')->subMinute(), now('UTC')->addMinute()));
 
         Bus::assertDispatched(ProcessPanelPushCampaignJob::class);
 
@@ -249,10 +250,11 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $this->assertNotSame(PanelPushCampaign::STATUS_SCHEDULED, $campaign->fresh()->status);
     }
 
-    public function test_scheduled_local_sao_paulo_is_stored_in_app_timezone(): void
+    public function test_scheduled_local_sao_paulo_is_stored_as_utc(): void
     {
         Bus::fake([ProcessPanelPushCampaignJob::class]);
         $this->configureTestVapidPush();
+        // Simula install com APP_TIMEZONE ≠ UTC (comum) e SO em UTC.
         config(['app.timezone' => 'America/Sao_Paulo']);
         $admin = $this->platformAdmin();
 
@@ -270,7 +272,11 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
 
         $campaign = PanelPushCampaign::query()->first();
         $this->assertNotNull($campaign);
-        $this->assertSame('2026-08-01 15:40:00', $campaign->scheduled_at?->timezone('America/Sao_Paulo')->format('Y-m-d H:i:s'));
+        $this->assertSame('UTC', $campaign->scheduled_at?->timezoneName);
+        // 15:40 America/Sao_Paulo = 18:40 UTC
+        $this->assertSame('2026-08-01 18:40:00', $campaign->scheduled_at?->utc()->format('Y-m-d H:i:s'));
+        $raw = \Illuminate\Support\Facades\DB::table('panel_push_campaigns')->where('id', $campaign->id)->value('scheduled_at');
+        $this->assertStringStartsWith('2026-08-01 18:40:00', (string) $raw);
     }
 
     public function test_seller_cannot_access_admin_push_campaigns(): void

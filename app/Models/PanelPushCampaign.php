@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\UtcDatetime;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -70,7 +71,8 @@ class PanelPushCampaign extends Model
         return [
             'audience_filters' => 'array',
             'result_meta' => 'array',
-            'scheduled_at' => 'datetime',
+            // UTC canônico: independente do fuso do SO / APP_TIMEZONE.
+            'scheduled_at' => UtcDatetime::class,
             'processing_started_at' => 'datetime',
             'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',

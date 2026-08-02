@@ -493,7 +493,10 @@ class AppPushController extends Controller
             'audience_label' => PanelPushCampaign::audienceLabels()[$campaign->audience] ?? $campaign->audience,
             'audience_filters' => $campaign->audience_filters,
             'send_mode' => $campaign->send_mode,
-            'scheduled_at' => $campaign->scheduled_at?->toIso8601String(),
+            'scheduled_at' => $campaign->scheduled_at?->utc()->toIso8601String(),
+            'scheduled_local' => $campaign->scheduled_at
+                ? $campaign->scheduled_at->timezone($campaign->timezone ?: 'UTC')->format('Y-m-d H:i:s')
+                : null,
             'timezone' => $campaign->timezone,
             'silent' => (bool) $campaign->silent,
             'status' => $campaign->status,
