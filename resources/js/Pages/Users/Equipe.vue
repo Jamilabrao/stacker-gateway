@@ -52,6 +52,7 @@ const permissionDefs = [
     { key: 'financeiro.view', label: t('sidebar.finance', 'Financeiro') },
     { key: 'produtos.view', label: t('sidebar.products', 'Produtos') },
     { key: 'relatorios.view', label: t('sidebar.reports', 'Relatórios') },
+    { key: 'metrics.view', label: t('sidebar.metrics', 'Métricas e Tracking') },
     { key: 'integracoes.view', label: t('sidebar.integrations', 'Integrações') },
     { key: 'email_marketing.view', label: t('team.permission_email_marketing', 'E-mail Marketing') },
     { key: 'api_pagamentos.view', label: t('team.permission_api_payments', 'API de Pagamentos') },

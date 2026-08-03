@@ -54,6 +54,12 @@ function openInvitePage(token) {
 
         <ProdutosTabs />
 
+        <div class="flex justify-end">
+            <Button type="button" variant="outline" size="sm" @click="router.visit('/produtos/coproducao/metricas')">
+                Ver métricas
+            </Button>
+        </div>
+
         <!-- Pendentes -->
         <section>
             <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

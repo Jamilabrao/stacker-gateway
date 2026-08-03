@@ -222,6 +222,9 @@ Route::post('/checkout/pagarme-tokenize-sink', fn () => response()->noContent())
 Route::post('/api/checkout/track', [\App\Http\Controllers\CheckoutTrackingController::class, 'track'])
     ->name('checkout.track')
     ->middleware('throttle:checkout-track');
+Route::post('/api/metrics/collect', [\App\Http\Controllers\Api\MetricsCollectController::class, '__invoke'])
+    ->name('metrics.collect')
+    ->middleware('throttle:120,1');
 Route::post('/checkout/validate-coupon', [\App\Http\Controllers\CheckoutController::class, 'validateCoupon'])
     ->name('checkout.validate-coupon')
     ->middleware('throttle:checkout-coupon');
@@ -318,6 +321,16 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/app/push/daily-sales', [\App\Http\Controllers\Platform\AppPushController::class, 'updateDailySalesSettings'])->name('app.push.daily-sales');
         Route::get('/app/push/daily-sales/history', [\App\Http\Controllers\Platform\AppPushController::class, 'dailySummaryHistory'])->name('app.push.daily-sales.history');
         Route::get('/conquistas', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'index'])->name('conquistas.index');
+        Route::get('/metricas', [\App\Http\Controllers\Platform\MetricsTrackingController::class, 'index'])->name('metrics.index');
+        Route::get('/metricas/origem', [\App\Http\Controllers\Platform\MetricsTrackingController::class, 'origins'])->name('metrics.origins');
+        Route::get('/metricas/funil', [\App\Http\Controllers\Platform\MetricsTrackingController::class, 'funnel'])->name('metrics.funnel');
+        Route::get('/metricas/cliques', [\App\Http\Controllers\Platform\MetricsTrackingController::class, 'clicks'])->name('metrics.clicks');
+        Route::get('/metricas/mapa', [\App\Http\Controllers\Platform\MetricsTrackingController::class, 'map'])->name('metrics.map');
+        Route::get('/metricas/export.csv', [\App\Http\Controllers\Platform\MetricsTrackingController::class, 'exportCsv'])
+            ->name('metrics.export');
+        Route::get('/metricas/export.xlsx', [\App\Http\Controllers\Platform\MetricsTrackingController::class, 'exportXlsx'])
+            ->middleware('throttle:20,1')
+            ->name('metrics.export.xlsx');
         Route::post('/conquistas', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'store'])->name('conquistas.store');
         Route::put('/conquistas/unlocks/{unlock}/reward-status', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'updateUnlockRewardStatus'])->name('conquistas.unlocks.reward-status');
         Route::put('/conquistas/{salesAchievement}', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'update'])->name('conquistas.update');
@@ -384,6 +397,8 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/ops/saude-pagamentos/pedidos/{order}/reconciliar', [\App\Http\Controllers\Platform\PaymentHealthController::class, 'reconcileOrder'])
             ->middleware('throttle:10,1')
             ->name('ops.payment-health.reconcile-order');
+        Route::get('/ops/saude-utmify', [\App\Http\Controllers\Platform\UtmifyMetricsHealthController::class, 'index'])
+            ->name('ops.utmify-metrics-health');
 
         Route::get('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'index'])->name('settings.index');
         Route::put('/configuracoes', [\App\Http\Controllers\SettingsController::class, 'update'])->name('settings.update');
@@ -802,9 +817,17 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         Route::get('/produtos/afiliados/dashboard', \App\Http\Controllers\AffiliateDashboardController::class)->name('produtos.afiliados.dashboard');
         Route::get('/produtos/afiliados/vendas', [\App\Http\Controllers\AffiliateSalesController::class, 'index'])->name('produtos.afiliados.vendas');
         Route::get('/produtos/afiliados/relatorios', [\App\Http\Controllers\AffiliateReportsController::class, 'index'])->name('produtos.afiliados.relatorios');
+        Route::get('/produtos/afiliados/metricas', [\App\Http\Controllers\AffiliateMetricsTrackingController::class, 'index'])->name('produtos.afiliados.metrics.index');
+        Route::get('/produtos/afiliados/metricas/origem', [\App\Http\Controllers\AffiliateMetricsTrackingController::class, 'origins'])->name('produtos.afiliados.metrics.origins');
+        Route::get('/produtos/afiliados/metricas/funil', [\App\Http\Controllers\AffiliateMetricsTrackingController::class, 'funnel'])->name('produtos.afiliados.metrics.funnel');
+        Route::get('/produtos/afiliados/metricas/cliques', [\App\Http\Controllers\AffiliateMetricsTrackingController::class, 'clicks'])->name('produtos.afiliados.metrics.clicks');
         Route::get('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'show'])->name('produtos.painel-afiliado.show');
         Route::put('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'updatePixels'])->name('produtos.painel-afiliado.update');
         Route::get('/produtos/coproducao', [\App\Http\Controllers\ProdutosController::class, 'coproductionIndex'])->name('produtos.coproducao');
+        Route::get('/produtos/coproducao/metricas', [\App\Http\Controllers\CoproducerMetricsTrackingController::class, 'index'])->name('produtos.coproducao.metrics.index');
+        Route::get('/produtos/coproducao/metricas/origem', [\App\Http\Controllers\CoproducerMetricsTrackingController::class, 'origins'])->name('produtos.coproducao.metrics.origins');
+        Route::get('/produtos/coproducao/metricas/funil', [\App\Http\Controllers\CoproducerMetricsTrackingController::class, 'funnel'])->name('produtos.coproducao.metrics.funnel');
+        Route::get('/produtos/coproducao/metricas/cliques', [\App\Http\Controllers\CoproducerMetricsTrackingController::class, 'clicks'])->name('produtos.coproducao.metrics.clicks');
         Route::get('/produtos/vitrine-afiliacao', [\App\Http\Controllers\AffiliateShowcaseController::class, 'index'])->name('produtos.vitrine-afiliacao');
         Route::post('/produtos/vitrine-afiliacao/{product}/solicitar', [\App\Http\Controllers\AffiliateShowcaseController::class, 'enroll'])
             ->name('produtos.vitrine-afiliacao.solicitar')
@@ -914,6 +937,20 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
     Route::get('/relatorios/carrinhos-abandonados/export', [\App\Http\Controllers\RelatoriosController::class, 'exportAbandonedCarts'])
         ->middleware(['throttle:30,1', 'team.permission:relatorios.view'])
         ->name('relatorios.abandoned-carts.export');
+
+    Route::middleware('team.permission:metrics.view')->group(function () {
+        Route::get('/metricas', [\App\Http\Controllers\MetricsTrackingController::class, 'index'])->name('metrics.index');
+        Route::get('/metricas/origem', [\App\Http\Controllers\MetricsTrackingController::class, 'origins'])->name('metrics.origins');
+        Route::get('/metricas/funil', [\App\Http\Controllers\MetricsTrackingController::class, 'funnel'])->name('metrics.funnel');
+        Route::get('/metricas/cliques', [\App\Http\Controllers\MetricsTrackingController::class, 'clicks'])->name('metrics.clicks');
+        Route::get('/metricas/mapa', [\App\Http\Controllers\MetricsTrackingController::class, 'map'])->name('metrics.map');
+        Route::get('/metricas/export.csv', [\App\Http\Controllers\MetricsTrackingController::class, 'exportCsv'])
+            ->middleware('throttle:30,1')
+            ->name('metrics.export');
+        Route::get('/metricas/export.xlsx', [\App\Http\Controllers\MetricsTrackingController::class, 'exportXlsx'])
+            ->middleware('throttle:20,1')
+            ->name('metrics.export.xlsx');
+    });
 
     Route::get('/integracoes', [\App\Http\Controllers\IntegrationsController::class, 'index'])
         ->middleware('team.permission:integracoes.view')

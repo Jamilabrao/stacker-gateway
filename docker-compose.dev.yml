@@ -83,7 +83,7 @@ services:
       - "php"
       - "artisan"
       - "queue:work"
-      - "--queue=integrax-sms,utmify-tracking,webhooks-outbound,webhooks-inbound,payments,default"
+      - "--queue=integrax-sms,utmify-tracking,metrics-tracking,webhooks-outbound,webhooks-inbound,payments,default"
       - "--sleep=2"
       - "--tries=3"
       - "--timeout=120"

@@ -11,16 +11,24 @@ const { isAurora, isKawaii, themePrefix } = useSellerDashboardTemplate();
 
 const path = computed(() => page.url.split('?')[0]);
 
-const isCoproducao = computed(() => path.value === '/produtos/coproducao');
+const isCoproducao = computed(() =>
+    path.value === '/produtos/coproducao' || path.value.startsWith('/produtos/coproducao/')
+);
 
-const isAfiliados = computed(() => path.value === '/produtos/afiliados' || /^\/produtos\/[^/]+\/painel-afiliado/.test(path.value));
+const isAfiliados = computed(() =>
+    path.value === '/produtos/afiliados'
+    || path.value.startsWith('/produtos/afiliados/')
+    || /^\/produtos\/[^/]+\/painel-afiliado/.test(path.value)
+);
 
 const isProdutos = computed(() => {
     const p = path.value;
     if (
-        p === '/produtos/coproducao' ||
-        p === '/produtos/afiliados' ||
-        /^\/produtos\/[^/]+\/painel-afiliado/.test(p)
+        p === '/produtos/coproducao'
+        || p.startsWith('/produtos/coproducao/')
+        || p === '/produtos/afiliados'
+        || p.startsWith('/produtos/afiliados/')
+        || /^\/produtos\/[^/]+\/painel-afiliado/.test(p)
     ) {
         return false;
     }

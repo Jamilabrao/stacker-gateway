@@ -26,6 +26,7 @@ import {
     Plug,
     Gift,
     ContactRound,
+    ChartNoAxesCombined,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 
@@ -109,12 +110,14 @@ const navGroupsCore = [
             { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet, badgeKey: 'financeiro' },
             { name: 'Indique e Ganhe', href: '/plataforma/indique-e-ganhe', icon: Gift },
             { name: 'Saúde de Pagamentos', href: '/plataforma/ops/saude-pagamentos', icon: Activity },
+            { name: 'Saúde UTMify', href: '/plataforma/ops/saude-utmify', icon: Activity },
         ],
     },
     {
         id: 'crescimento',
         label: 'Crescimento',
         items: [
+            { name: 'Métricas e Tracking', href: '/plataforma/metricas', icon: ChartNoAxesCombined },
             { name: 'Conquistas', href: '/plataforma/conquistas', icon: Trophy },
             { name: 'E-mail Marketing', href: '/plataforma/email-marketing', icon: Mail },
             { name: 'IntegraX SMS', href: '/plataforma/integrax', icon: MessageSquare },
@@ -208,6 +211,12 @@ function isActive(href) {
     }
     if (href === '/plataforma/ops/saude-pagamentos') {
         return url === '/plataforma/ops/saude-pagamentos' || url.startsWith('/plataforma/ops/saude-pagamentos/');
+    }
+    if (href === '/plataforma/ops/saude-utmify') {
+        return url === '/plataforma/ops/saude-utmify' || url.startsWith('/plataforma/ops/saude-utmify/');
+    }
+    if (href === '/plataforma/metricas') {
+        return url === '/plataforma/metricas' || url.startsWith('/plataforma/metricas/');
     }
     if (href === '/plataforma/configuracoes') {
         return url === '/plataforma/configuracoes' || url.startsWith('/plataforma/configuracoes/');
