@@ -226,9 +226,22 @@ export async function applyUpdate(
 
   ensurePhpUploadsIni(gatewayRoot);
   ensureComposeProjectName(gatewayRoot);
-  ensureHostDotEnv(gatewayRoot);
+  try {
+    ensureHostDotEnv(gatewayRoot);
+  } catch (err) {
+    // Token ausente não deve abortar o rebuild — senão VERSION já copiada e runtime fica antigo.
+    console.warn(
+      'ensure-host-dotenv falhou (seguindo apply):',
+      err instanceof Error ? err.message : err,
+    );
+  }
 
-  await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+  try {
+    await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+  } catch (err) {
+    markUpdateStatusReported(err);
+    throw err;
+  }
 
   fs.rmSync(stagingDir, { recursive: true, force: true });
   scheduleStackerAgentRestart(gatewayRoot);
@@ -245,7 +258,12 @@ export async function reapplyUpdate(
     logs: 'Reaplicando rebuild Docker (arquivos já na VPS)...',
   });
 
-  await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+  try {
+    await executeDockerApply(client, cmd.jobId, cmd.version, gatewayRoot);
+  } catch (err) {
+    markUpdateStatusReported(err);
+    throw err;
+  }
   scheduleStackerAgentRestart(gatewayRoot);
 }
 
@@ -307,17 +325,23 @@ async function executeDockerApply(
   } catch (err) {
     stopKeepalive();
     const e = err as { stdout?: string; stderr?: string; message?: string };
-    const full = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
-    const logs =
-      (full.length > 8000 ? full.slice(-6000) : full) ||
-      applyLogs ||
-      'Falha ao aplicar update';
+    // Preferir output acumulado do script — Error.message sozinho é inútil ("Command failed: bash…").
+    const combined = [applyLogs, e.stdout, e.stderr]
+      .filter((s) => typeof s === 'string' && s.trim())
+      .join('\n')
+      .trim();
+    const tail = combined.length > 8000 ? combined.slice(-6000) : combined;
+    const logs = tail || e.message || 'Falha ao aplicar update';
     await client.reportUpdateStatus({
       jobId,
       status: 'failed',
       logs,
     });
-    throw err;
+    const wrapped = new Error(
+      tail ? `Apply falhou:\n${tail.slice(-2000)}` : e.message || 'Falha ao aplicar update',
+    );
+    markUpdateStatusReported(wrapped);
+    throw wrapped;
   }
 
   stopKeepalive();
@@ -354,9 +378,11 @@ async function executeDockerApply(
       installedVersion: hostVersion,
       runtimeVersion,
     });
-    throw new Error(
+    const mismatchErr = new Error(
       `Update ${targetVersion} incompleto: host=${hostVersion ?? '?'}, runtime=${runtimeVersion ?? '?'}`,
     );
+    markUpdateStatusReported(mismatchErr);
+    throw mismatchErr;
   }
 
   await client.reportUpdateStatus({
@@ -451,6 +477,12 @@ function ensureHostDotEnv(gatewayRoot: string): void {
     `GETFY_APP_URL=${pick('GETFY_APP_URL', 'http://localhost')}`,
   ];
   fs.writeFileSync(dotenvPath, `${lines.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+}
+
+function markUpdateStatusReported(err: unknown): void {
+  if (err && typeof err === 'object') {
+    (err as { updateStatusReported?: boolean }).updateStatusReported = true;
+  }
 }
 
 function runShell(

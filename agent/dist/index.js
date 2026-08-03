@@ -114,12 +114,18 @@ async function main() {
                     updateInProgress = true;
                     void applyUpdate(client, cmd, gatewayRoot, signingKey)
                         .catch(async (err) => {
+                        const reported = err &&
+                            typeof err === 'object' &&
+                            err.updateStatusReported;
                         const message = err instanceof Error ? err.message : String(err);
-                        await client.reportUpdateStatus({
-                            jobId: cmd.jobId,
-                            status: 'failed',
-                            logs: message,
-                        });
+                        // executeDockerApply já reportou failed com o log do script — não sobrescrever.
+                        if (!reported) {
+                            await client.reportUpdateStatus({
+                                jobId: cmd.jobId,
+                                status: 'failed',
+                                logs: message,
+                            });
+                        }
                         console.error('Falha no update:', message);
                     })
                         .finally(() => {
@@ -130,12 +136,17 @@ async function main() {
                     updateInProgress = true;
                     void reapplyUpdate(client, cmd, gatewayRoot)
                         .catch(async (err) => {
+                        const reported = err &&
+                            typeof err === 'object' &&
+                            err.updateStatusReported;
                         const message = err instanceof Error ? err.message : String(err);
-                        await client.reportUpdateStatus({
-                            jobId: cmd.jobId,
-                            status: 'failed',
-                            logs: message,
-                        });
+                        if (!reported) {
+                            await client.reportUpdateStatus({
+                                jobId: cmd.jobId,
+                                status: 'failed',
+                                logs: message,
+                            });
+                        }
                         console.error('Falha no reapply:', message);
                     })
                         .finally(() => {

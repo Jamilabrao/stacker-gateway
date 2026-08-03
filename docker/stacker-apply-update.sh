@@ -186,7 +186,9 @@ echo "Compose work dir: $COMPOSE_WORK_DIR"
 echo "Compose files: $COMPOSE_FILES"
 
 if [ -f docker/ensure-host-dotenv.sh ]; then
-  sh docker/ensure-host-dotenv.sh
+  if ! sh docker/ensure-host-dotenv.sh; then
+    echo "Aviso: ensure-host-dotenv falhou (token ausente?). Continuando rebuild do app." >&2
+  fi
 elif [ ! -f "$ROOT_DIR/.env" ]; then
   echo "Aviso: .env ausente — stacker-agent precisa de STACKER_AGENT_TOKEN em $ROOT_DIR/.env" >&2
 fi
@@ -231,8 +233,8 @@ echo "=== Hardening LOG_* no .env do host ==="
 harden_host_log_env || true
 
 if [ ! -f "$ROOT_DIR/.env" ]; then
-  echo "FATAL: $ROOT_DIR/.env ausente (STACKER_AGENT_TOKEN). Corrija antes do apply." >&2
-  exit 1
+  echo "Aviso: $ROOT_DIR/.env ausente — compose pode falhar no stacker-agent; seguindo rebuild." >&2
+  touch "$ROOT_DIR/.env" || true
 fi
 
 if [ ! -f public/build/manifest.json ]; then
