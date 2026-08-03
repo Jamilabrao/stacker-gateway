@@ -302,4 +302,172 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
             ])
             ->assertStatus(422);
     }
+
+    public function test_transient_db_failure_releases_campaign_for_retry(): void
+    {
+        Bus::fake([ProcessPanelPushCampaignJob::class]);
+        $this->configureTestVapidPush();
+        $admin = $this->platformAdmin();
+
+        $campaign = PanelPushCampaign::query()->create([
+            'title' => 'Retry',
+            'body' => 'Body',
+            'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+            'send_mode' => PanelPushCampaign::MODE_NOW,
+            'scheduled_at' => now('UTC'),
+            'timezone' => 'America/Sao_Paulo',
+            'status' => PanelPushCampaign::STATUS_SCHEDULED,
+            'idempotency_key' => 'retry-1',
+            'created_by' => $admin->id,
+        ]);
+
+        $service = app(PanelPushCampaignService::class);
+
+        $push = \Mockery::mock(\App\Services\PanelPushService::class)->makePartial();
+        $push->shouldReceive('filterSubscriptionsForDelivery')->andReturn(collect());
+        $push->shouldReceive('sendToSubscriptions')->andThrow(
+            new \PDOException('SQLSTATE[08006] Connection refused while connecting to postgres:5433')
+        );
+        $this->app->instance(\App\Services\PanelPushService::class, $push);
+        $service = app(PanelPushCampaignService::class);
+
+        try {
+            $service->process($campaign->id);
+            $this->fail('Deveria ter lançado TransientInfrastructureException');
+        } catch (\App\Exceptions\TransientInfrastructureException $e) {
+            $this->assertStringContainsString('Connection refused', $e->getMessage());
+        }
+
+        $fresh = $campaign->fresh();
+        $this->assertSame(PanelPushCampaign::STATUS_SCHEDULED, $fresh->status);
+        $this->assertNotSame(PanelPushCampaign::STATUS_SENT, $fresh->status);
+        $this->assertNotNull($fresh->last_error);
+    }
+
+    public function test_duplicate_process_is_idempotent_for_inbox(): void
+    {
+        Bus::fake([ProcessPanelPushCampaignJob::class]);
+        $this->configureTestVapidPush();
+        $admin = $this->platformAdmin();
+        $seller = $this->seller();
+
+        \App\Models\PanelPushSubscription::query()->create([
+            'user_id' => $seller->id,
+            'tenant_id' => $seller->id,
+            'endpoint' => 'https://example.test/push/'.$seller->id,
+            'keys' => ['p256dh' => 'x', 'auth' => 'y'],
+            'provider' => \App\Models\PanelPushSubscription::PROVIDER_VAPID,
+        ]);
+
+        $campaign = PanelPushCampaign::query()->create([
+            'title' => 'Dup',
+            'body' => 'Body',
+            'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+            'send_mode' => PanelPushCampaign::MODE_NOW,
+            'scheduled_at' => now('UTC'),
+            'timezone' => 'America/Sao_Paulo',
+            'status' => PanelPushCampaign::STATUS_SCHEDULED,
+            'idempotency_key' => 'dup-1',
+            'created_by' => $admin->id,
+        ]);
+
+        $push = \Mockery::mock(\App\Services\PanelPushService::class)->makePartial();
+        $push->shouldReceive('filterSubscriptionsForDelivery')->andReturnUsing(fn ($c) => $c);
+        $push->shouldReceive('sendToSubscriptions')->andReturn([
+            'sent' => 1, 'failed' => 0, 'invalid' => 0, 'expired' => 0, 'total' => 1,
+        ]);
+        $this->app->instance(\App\Services\PanelPushService::class, $push);
+
+        $service = app(PanelPushCampaignService::class);
+        $service->process($campaign->id);
+        $this->assertSame(PanelPushCampaign::STATUS_SENT, $campaign->fresh()->status);
+
+        // Segunda chamada não reprocessa (status !== scheduled).
+        $service->process($campaign->id);
+        $count = \App\Models\PanelNotification::query()
+            ->where('event_key', 'campaign_'.$campaign->id.'_'.$seller->id)
+            ->count();
+        $this->assertSame(1, $count);
+    }
+
+    public function test_recover_stuck_processing_reeschedules(): void
+    {
+        $admin = $this->platformAdmin();
+        $campaign = PanelPushCampaign::query()->create([
+            'title' => 'Stuck',
+            'body' => 'Body',
+            'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+            'send_mode' => PanelPushCampaign::MODE_SCHEDULED,
+            'scheduled_at' => now('UTC')->subMinutes(5),
+            'timezone' => 'America/Sao_Paulo',
+            'status' => PanelPushCampaign::STATUS_PROCESSING,
+            'processing_started_at' => now()->subMinutes(20),
+            'idempotency_key' => 'stuck-1',
+            'created_by' => $admin->id,
+        ]);
+
+        $n = app(PanelPushCampaignService::class)->recoverStuckProcessing(10);
+        $this->assertGreaterThanOrEqual(1, $n);
+        $this->assertSame(PanelPushCampaign::STATUS_SCHEDULED, $campaign->fresh()->status);
+    }
+
+    public function test_clear_history_selected_and_all(): void
+    {
+        $admin = $this->platformAdmin();
+        $a = PanelPushCampaign::query()->create([
+            'title' => 'A',
+            'body' => 'Body',
+            'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+            'send_mode' => PanelPushCampaign::MODE_NOW,
+            'scheduled_at' => now('UTC'),
+            'timezone' => 'America/Sao_Paulo',
+            'status' => PanelPushCampaign::STATUS_SENT,
+            'idempotency_key' => 'hist-a',
+            'created_by' => $admin->id,
+        ]);
+        $b = PanelPushCampaign::query()->create([
+            'title' => 'B',
+            'body' => 'Body',
+            'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+            'send_mode' => PanelPushCampaign::MODE_NOW,
+            'scheduled_at' => now('UTC'),
+            'timezone' => 'America/Sao_Paulo',
+            'status' => PanelPushCampaign::STATUS_FAILED,
+            'idempotency_key' => 'hist-b',
+            'created_by' => $admin->id,
+        ]);
+        $pending = PanelPushCampaign::query()->create([
+            'title' => 'Pending',
+            'body' => 'Body',
+            'audience' => PanelPushCampaign::AUDIENCE_ALL_SUBSCRIBERS,
+            'send_mode' => PanelPushCampaign::MODE_SCHEDULED,
+            'scheduled_at' => now('UTC')->addHour(),
+            'timezone' => 'America/Sao_Paulo',
+            'status' => PanelPushCampaign::STATUS_SCHEDULED,
+            'idempotency_key' => 'hist-p',
+            'created_by' => $admin->id,
+        ]);
+
+        $this->actingAs($admin)
+            ->deleteJson(route('plataforma.app.push.campaigns.destroy', $a))
+            ->assertOk()
+            ->assertJsonPath('deleted', 1);
+
+        $this->assertNull($a->fresh());
+
+        $this->actingAs($admin)
+            ->postJson(route('plataforma.app.push.campaigns.clear-history'), ['all' => true])
+            ->assertOk();
+
+        $this->assertNull($b->fresh());
+        $this->assertNotNull($pending->fresh());
+    }
+
+    public function test_job_has_retries_and_unique(): void
+    {
+        $job = new ProcessPanelPushCampaignJob(99);
+        $this->assertSame(5, $job->tries);
+        $this->assertSame([15, 30, 60, 120, 180], $job->backoff);
+        $this->assertSame('panel-push-campaign:99', $job->uniqueId());
+    }
 }

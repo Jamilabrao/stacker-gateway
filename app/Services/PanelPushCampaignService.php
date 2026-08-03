@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\TransientInfrastructureException;
 use App\Jobs\ProcessPanelPushCampaignJob;
 use App\Models\PanelNotification;
 use App\Models\PanelPushCampaign;
@@ -13,8 +14,10 @@ use App\Support\UserPushPreferences;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Throwable;
 
 class PanelPushCampaignService
 {
@@ -109,6 +112,10 @@ class PanelPushCampaignService
             $request
         );
 
+        Log::info('push_campaign_created', $this->logContext($campaign, [
+            'phase' => 'created',
+        ]));
+
         if ($sendMode === PanelPushCampaign::MODE_NOW) {
             ProcessPanelPushCampaignJob::dispatch($campaign->id);
         }
@@ -196,36 +203,103 @@ class PanelPushCampaignService
     }
 
     /**
+     * Remove campanhas do histórico (não remove inscrições push dos dispositivos).
+     *
+     * @param  array<int>|null  $ids
+     * @return array{deleted: int}
+     */
+    public function deleteHistory(?array $ids = null, bool $all = false, ?Request $request = null): array
+    {
+        $query = PanelPushCampaign::query()
+            ->where('status', '!=', PanelPushCampaign::STATUS_PROCESSING);
+
+        if ($all) {
+            // Histórico já efetuado / encerrado (não remove agendadas futuras pendentes).
+            $query->whereIn('status', [
+                PanelPushCampaign::STATUS_SENT,
+                PanelPushCampaign::STATUS_PARTIALLY_SENT,
+                PanelPushCampaign::STATUS_FAILED,
+                PanelPushCampaign::STATUS_CANCELLED,
+            ]);
+        } elseif (is_array($ids) && $ids !== []) {
+            $ids = array_values(array_unique(array_map('intval', $ids)));
+            $query->whereIn('id', $ids);
+        } else {
+            throw new InvalidArgumentException('Informe ids ou all=true para limpar o histórico.');
+        }
+
+        $deleted = 0;
+        $query->orderBy('id')->chunkById(100, function ($rows) use (&$deleted) {
+            foreach ($rows as $row) {
+                /** @var PanelPushCampaign $row */
+                if ($row->status === PanelPushCampaign::STATUS_PROCESSING) {
+                    continue;
+                }
+                $row->delete();
+                $deleted++;
+            }
+        });
+
+        PlatformAuditService::log('push.history_cleared', [
+            'deleted' => $deleted,
+            'all' => $all,
+            'ids' => $ids,
+        ], $request);
+
+        Log::info('push_campaign_history_cleared', [
+            'deleted' => $deleted,
+            'all' => $all,
+            'ids' => $ids,
+        ]);
+
+        return ['deleted' => $deleted];
+    }
+
+    /**
      * Claim atômico + envio.
+     *
+     * @throws TransientInfrastructureException
      */
     public function process(int $campaignId): void
     {
-        $claimed = DB::transaction(function () use ($campaignId) {
-            $campaign = PanelPushCampaign::query()->whereKey($campaignId)->lockForUpdate()->first();
-            if (! $campaign) {
-                return null;
-            }
-            if ($campaign->status !== PanelPushCampaign::STATUS_SCHEDULED) {
-                return null;
-            }
-            // "Enviar agora" não espera scheduled_at; agendadas comparam em UTC.
-            if ($campaign->send_mode !== PanelPushCampaign::MODE_NOW
-                && $campaign->scheduled_at
-                && $campaign->scheduled_at->utc()->gt(now('UTC'))) {
-                return null;
-            }
+        try {
+            $claimed = DB::transaction(function () use ($campaignId) {
+                $campaign = PanelPushCampaign::query()->whereKey($campaignId)->lockForUpdate()->first();
+                if (! $campaign) {
+                    return null;
+                }
+                if ($campaign->status !== PanelPushCampaign::STATUS_SCHEDULED) {
+                    return null;
+                }
+                // "Enviar agora" não espera scheduled_at; agendadas comparam em UTC.
+                if ($campaign->send_mode !== PanelPushCampaign::MODE_NOW
+                    && $campaign->scheduled_at
+                    && $campaign->scheduled_at->utc()->gt(now('UTC'))) {
+                    return null;
+                }
 
-            $campaign->forceFill([
-                'status' => PanelPushCampaign::STATUS_PROCESSING,
-                'processing_started_at' => now(),
-            ])->save();
+                $campaign->forceFill([
+                    'status' => PanelPushCampaign::STATUS_PROCESSING,
+                    'processing_started_at' => now(),
+                    'last_error' => null,
+                ])->save();
 
-            return $campaign;
-        });
+                return $campaign;
+            });
+        } catch (Throwable $e) {
+            if (TransientInfrastructureException::matches($e)) {
+                throw TransientInfrastructureException::fromThrowable($e);
+            }
+            throw $e;
+        }
 
         if (! $claimed) {
             return;
         }
+
+        Log::info('push_campaign_processing', $this->logContext($claimed, [
+            'phase' => 'processing_started',
+        ]));
 
         try {
             $subs = PanelPushAudienceResolver::subscriptionsForCampaign($claimed);
@@ -239,15 +313,20 @@ class PanelPushCampaignService
             })->values();
 
             foreach ($eligible->pluck('user_id')->unique() as $userId) {
-                PanelNotification::create([
-                    'tenant_id' => null,
-                    'user_id' => $userId,
-                    'type' => 'system',
-                    'title' => $claimed->title,
-                    'body' => $claimed->body,
-                    'url' => $claimed->target_url,
-                    'event_key' => 'campaign_'.$claimed->id.'_'.$userId,
-                ]);
+                // Idempotente: reprocessamento seguro não duplica inbox.
+                PanelNotification::query()->firstOrCreate(
+                    [
+                        'user_id' => $userId,
+                        'event_key' => 'campaign_'.$claimed->id.'_'.$userId,
+                    ],
+                    [
+                        'tenant_id' => null,
+                        'type' => 'system',
+                        'title' => $claimed->title,
+                        'body' => $claimed->body,
+                        'url' => $claimed->target_url,
+                    ]
+                );
             }
 
             $result = $this->panelPushService->sendToSubscriptions(
@@ -289,7 +368,26 @@ class PanelPushCampaignService
                 'sent' => $sent,
                 'failed' => $failed,
             ]);
-        } catch (\Throwable $e) {
+
+            Log::info('push_campaign_finished', $this->logContext($claimed->fresh(), [
+                'phase' => 'finished',
+                'recipients' => $eligible->count(),
+                'sent' => $sent,
+                'failed' => $failed,
+                'invalid' => $invalid,
+                'expired' => $expired,
+                'final_status' => $final,
+            ]));
+        } catch (Throwable $e) {
+            if (TransientInfrastructureException::matches($e)) {
+                $this->releaseClaimForRetry($claimed, $e);
+                Log::warning('push_campaign_transient_failure', $this->logContext($claimed, [
+                    'phase' => 'transient_retry',
+                    'error' => mb_substr($e->getMessage(), 0, 500),
+                ]));
+                throw TransientInfrastructureException::fromThrowable($e);
+            }
+
             $claimed->forceFill([
                 'status' => PanelPushCampaign::STATUS_FAILED,
                 'completed_at' => now(),
@@ -300,11 +398,46 @@ class PanelPushCampaignService
                 'campaign_id' => $claimed->id,
                 'error' => mb_substr($e->getMessage(), 0, 500),
             ]);
+
+            Log::error('push_campaign_failed', $this->logContext($claimed->fresh(), [
+                'phase' => 'failed',
+                'error' => mb_substr($e->getMessage(), 0, 500),
+            ]));
         }
+    }
+
+    /**
+     * Devolve processing preso para scheduled (reinício de worker/container).
+     */
+    public function recoverStuckProcessing(int $olderThanMinutes = 10): int
+    {
+        $threshold = now()->subMinutes(max(1, $olderThanMinutes));
+
+        $updated = PanelPushCampaign::query()
+            ->where('status', PanelPushCampaign::STATUS_PROCESSING)
+            ->where(function ($q) use ($threshold) {
+                $q->whereNull('processing_started_at')
+                    ->orWhere('processing_started_at', '<=', $threshold);
+            })
+            ->update([
+                'status' => PanelPushCampaign::STATUS_SCHEDULED,
+                'last_error' => 'Reenfileirada após processing preso (worker/container reiniciado).',
+            ]);
+
+        if ($updated > 0) {
+            Log::warning('push_campaign_stuck_recovered', [
+                'recovered' => $updated,
+                'older_than_minutes' => $olderThanMinutes,
+            ]);
+        }
+
+        return $updated;
     }
 
     public function claimDueCampaigns(int $limit = 20): int
     {
+        $this->recoverStuckProcessing(10);
+
         // String UTC pura: evita o query builder reinterpretar Carbon no APP_TIMEZONE.
         $utcNow = now('UTC')->format('Y-m-d H:i:s');
 
@@ -322,6 +455,75 @@ class PanelPushCampaignService
             ProcessPanelPushCampaignJob::dispatch((int) $id);
         }
 
+        if ($ids->isNotEmpty()) {
+            Log::info('push_campaigns_claimed_due', [
+                'count' => $ids->count(),
+                'ids' => $ids->values()->all(),
+                'utc_now' => $utcNow,
+            ]);
+        }
+
         return $ids->count();
+    }
+
+    /**
+     * Marca falha definitiva após esgotar retries do job.
+     */
+    public function markFailedAfterRetries(int $campaignId, string $error): void
+    {
+        $campaign = PanelPushCampaign::query()->find($campaignId);
+        if (! $campaign) {
+            return;
+        }
+        if (! in_array($campaign->status, [PanelPushCampaign::STATUS_SCHEDULED, PanelPushCampaign::STATUS_PROCESSING], true)) {
+            return;
+        }
+
+        $campaign->forceFill([
+            'status' => PanelPushCampaign::STATUS_FAILED,
+            'completed_at' => now(),
+            'last_error' => mb_substr($error, 0, 2000),
+        ])->save();
+
+        Log::error('push_campaign_failed_after_retries', $this->logContext($campaign, [
+            'phase' => 'failed_after_retries',
+            'error' => mb_substr($error, 0, 500),
+        ]));
+    }
+
+    private function releaseClaimForRetry(PanelPushCampaign $campaign, Throwable $e): void
+    {
+        try {
+            PanelPushCampaign::query()
+                ->whereKey($campaign->id)
+                ->where('status', PanelPushCampaign::STATUS_PROCESSING)
+                ->update([
+                    'status' => PanelPushCampaign::STATUS_SCHEDULED,
+                    'last_error' => mb_substr('Retry temporário: '.$e->getMessage(), 0, 2000),
+                ]);
+        } catch (Throwable) {
+            // Se o banco ainda estiver fora, o job relança e o recoverStuckProcessing recupera depois.
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     * @return array<string, mixed>
+     */
+    private function logContext(PanelPushCampaign $campaign, array $extra = []): array
+    {
+        return array_merge([
+            'campaign_id' => $campaign->id,
+            'send_mode' => $campaign->send_mode,
+            'send_type' => $campaign->send_mode === PanelPushCampaign::MODE_NOW ? 'manual' : 'scheduled',
+            'scheduled_at' => $campaign->scheduled_at?->utc()->toIso8601String(),
+            'timezone' => $campaign->timezone,
+            'status' => $campaign->status,
+            'eligible_count' => $campaign->eligible_count,
+            'sent_count' => $campaign->sent_count,
+            'failed_count' => $campaign->failed_count,
+            'db_host' => config('database.connections.'.config('database.default').'.host'),
+            'db_port' => config('database.connections.'.config('database.default').'.port'),
+        ], $extra);
     }
 }

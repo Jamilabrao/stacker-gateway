@@ -310,9 +310,11 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/app/push/subscribers', [\App\Http\Controllers\Platform\AppPushController::class, 'subscribers'])->name('app.push.subscribers');
         Route::delete('/app/push/subscribers/{subscription}', [\App\Http\Controllers\Platform\AppPushController::class, 'destroySubscriber'])->name('app.push.subscribers.destroy');
         Route::get('/app/push/campaigns', [\App\Http\Controllers\Platform\AppPushController::class, 'campaigns'])->name('app.push.campaigns');
+        Route::post('/app/push/campaigns/clear-history', [\App\Http\Controllers\Platform\AppPushController::class, 'destroyCampaigns'])->name('app.push.campaigns.clear-history');
         Route::get('/app/push/campaigns/{campaign}', [\App\Http\Controllers\Platform\AppPushController::class, 'showCampaign'])->name('app.push.campaigns.show');
         Route::put('/app/push/campaigns/{campaign}', [\App\Http\Controllers\Platform\AppPushController::class, 'updateCampaign'])->name('app.push.campaigns.update');
         Route::post('/app/push/campaigns/{campaign}/cancel', [\App\Http\Controllers\Platform\AppPushController::class, 'cancelCampaign'])->name('app.push.campaigns.cancel');
+        Route::delete('/app/push/campaigns/{campaign}', [\App\Http\Controllers\Platform\AppPushController::class, 'destroyCampaign'])->name('app.push.campaigns.destroy');
         Route::put('/app/push/daily-sales', [\App\Http\Controllers\Platform\AppPushController::class, 'updateDailySalesSettings'])->name('app.push.daily-sales');
         Route::get('/app/push/daily-sales/history', [\App\Http\Controllers\Platform\AppPushController::class, 'dailySummaryHistory'])->name('app.push.daily-sales.history');
         Route::get('/conquistas', [\App\Http\Controllers\Platform\SalesAchievementsController::class, 'index'])->name('conquistas.index');

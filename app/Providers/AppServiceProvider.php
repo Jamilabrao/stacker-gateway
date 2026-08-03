@@ -21,6 +21,7 @@ use App\Listeners\SpedyEventSubscriber;
 use App\Listeners\UtmifyEventSubscriber;
 use App\Listeners\SendApiApplicationWebhookListener;
 use App\Listeners\WebhookEventSubscriber;
+use App\Support\DockerInternalDatabaseConfig;
 use App\Support\DockerSetupState;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -58,6 +59,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(RefundRequest::class, RefundRequestPolicy::class);
 
         $this->ensureRuntimeDirectories();
+        DockerInternalDatabaseConfig::normalize();
         $this->fallbackRedisToDatabase();
         $this->fallbackInvalidQueueConnectionToSync();
         $this->applyPanelPushConfig();
