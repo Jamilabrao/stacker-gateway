@@ -27,6 +27,7 @@ use App\Services\MerchantWithdrawalService;
 use App\Services\MinimumChargeService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
+use App\Services\Payout\GatewayPayoutEconomics;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformEmailNotifications;
@@ -65,6 +66,7 @@ class FinancialController extends Controller
             'platform_minimum_charge_brl' => app(MinimumChargeService::class)->platformMinimumBrl(),
             'platform_minimum_withdrawal_brl' => WithdrawalMinimumService::platformMinimumBrl(),
             'effective_minimum_withdrawal_brl' => WithdrawalMinimumService::effectiveRequiredMinNet(),
+            'payout_gateway_min_brl' => (float) (GatewayPayoutEconomics::forActiveGateway()['payout_min_brl'] ?? 0),
             'payout_gateway_preference' => PlatformPayoutGateway::preference(),
             'payout_gateway_active' => PlatformPayoutGateway::activeSlug(),
             'gateway_webhook_security_warnings' => $this->gatewayWebhookSecurityWarnings($tenantId),

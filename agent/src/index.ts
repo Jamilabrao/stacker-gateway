@@ -6,8 +6,9 @@ import { applyUpdate, reapplyUpdate, StackerClient } from './stacker-client.js';
 import { processPendingContainerRestart } from './container-restart.js';
 
 const AGENT_VERSION = '1.0.0';
-const HEARTBEAT_MS = Number(process.env.STACKER_HEARTBEAT_INTERVAL_MS || 30_000);
-const METRICS_MS = Number(process.env.STACKER_METRICS_INTERVAL_MS || 10_000);
+/** Default 60s — evita flicker online/offline; limiar no hub deve ser bem maior. */
+const HEARTBEAT_MS = Number(process.env.STACKER_HEARTBEAT_INTERVAL_MS || 60_000);
+const METRICS_MS = Number(process.env.STACKER_METRICS_INTERVAL_MS || 30_000);
 const CONTAINER_RESTART_MS = Number(process.env.STACKER_CONTAINER_RESTART_POLL_MS || 5_000);
 
 function env(name: string, fallback = ''): string {

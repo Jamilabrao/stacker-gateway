@@ -38,6 +38,18 @@ class GatewayPayoutEconomics
      */
     public static function fromSlug(string $slug): array
     {
+        if ($slug === 'cajupay') {
+            // Contas multi-CajuPay (CajuPayAccount) — não a credencial legada GatewayCredential.
+            $e = \App\Services\CajuPay\CajuPayCredentialEconomics::fromGateway();
+
+            return [
+                'required_min_net' => $e['required_min_net'],
+                'payout_min_brl' => $e['cajupay_payout_min_brl'],
+                'admin_fee_pix_brl' => $e['cajupay_admin_fee_pix_brl'],
+                'admin_fee_payout_brl' => $e['cajupay_admin_fee_payout_brl'],
+            ];
+        }
+
         $cred = GatewayCredential::resolveForPayment(null, $slug);
         if ($cred === null || ! $cred->is_connected) {
             return self::defaults();

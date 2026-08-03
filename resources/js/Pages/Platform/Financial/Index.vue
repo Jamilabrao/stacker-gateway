@@ -66,6 +66,7 @@ const props = defineProps({
     platform_minimum_charge_brl: { type: Number, default: 0 },
     platform_minimum_withdrawal_brl: { type: Number, default: 0 },
     effective_minimum_withdrawal_brl: { type: Number, default: 0 },
+    payout_gateway_min_brl: { type: Number, default: 0 },
     /** @type {'auto'|'cajupay'|'spacepag'|'woovi'|'onlyup'} */
     payout_gateway_preference: { type: String, default: 'auto' },
     /** Slug efetivo usado hoje (pode diferir do preferido se este não estiver conectado). */
@@ -1404,6 +1405,26 @@ function submitSettlement() {
                                                 maximumFractionDigits: 2,
                                             })
                                         }}
+                                    </p>
+                                    <p class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+                                        max(
+                                        plataforma
+                                        R$
+                                        {{
+                                            Number(platform_minimum_withdrawal_brl || 0).toLocaleString('pt-BR', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            })
+                                        }},
+                                        {{ payout_gateway_active || 'adquirente' }}
+                                        R$
+                                        {{
+                                            Number(payout_gateway_min_brl || 0).toLocaleString('pt-BR', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            })
+                                        }}
+                                        )
                                     </p>
                                     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                                         Após salvar, este valor atualiza. Taxa de saque do merchant (aba Taxas) pode elevar o valor bruto solicitado.
