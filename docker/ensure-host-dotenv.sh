@@ -2,7 +2,12 @@
 # Garante .env na raiz — docker compose exige para env_file do stacker-agent.
 # Roda no host ou dentro do stacker-agent (cwd /gateway — não use /opt/getfy aqui).
 # Uso: sh docker/ensure-host-dotenv.sh
-set -eu
+#
+# Nunca aborta o apply remoto por token ausente (exit 0 + aviso).
+# Antes: exit 1 fazia o agente antigo falhar com
+#   Command failed: sh "/gateway/docker/ensure-host-dotenv.sh"
+# e deixava VERSION nova + runtime antiga.
+set -u
 
 GATEWAY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 STACK_ENV="$GATEWAY_DIR/.docker/stack.env"
@@ -16,41 +21,45 @@ fi
 
 if [ ! -f "$STACK_ENV" ]; then
   echo "ensure-host-dotenv: $STACK_ENV ausente (gateway dir: $GATEWAY_DIR)" >&2
-  exit 1
+  exit 0
 fi
 
 unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
+set +e
 set -a
 # shellcheck disable=SC1091
-. "$STACK_ENV"
+# Não usar set -e ao source — stack.env de produção pode ter sintaxe que quebra o apply.
+. "$STACK_ENV" 2>/dev/null || true
 set +a
+set -e
 
 read_env_var() {
-  local file="$1"
-  local key="$2"
+  file="$1"
+  key="$2"
   grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true
 }
 
 set_env_var_in_file() {
-  local file="$1"
-  local key="$2"
-  local val="$3"
-  touch "$file"
+  file="$1"
+  key="$2"
+  val="$3"
+  touch "$file" 2>/dev/null || return 0
   if grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null; then
-    local tmp
     tmp="$(mktemp)"
     awk -v k="$key" -v v="$val" '
       $0 ~ "^[[:space:]]*" k "[[:space:]]*=" { print k "=" v; next }
       { print }
-    ' "$file" > "$tmp"
-    mv "$tmp" "$file"
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || rm -f "$tmp"
   else
     echo "${key}=${val}" >> "$file"
   fi
 }
 
-VOLUME_STACK="$(docker run --rm -v getfy_getfy_env:/v alpine cat /v/stack.env 2>/dev/null || true)"
+VOLUME_STACK=""
 VOLUME_STACK_FILE=""
+if command -v docker >/dev/null 2>&1; then
+  VOLUME_STACK="$(docker run --rm -v getfy_getfy_env:/v alpine cat /v/stack.env 2>/dev/null || true)"
+fi
 if [ -n "$VOLUME_STACK" ]; then
   VOLUME_STACK_FILE="$(mktemp)"
   printf '%s\n' "$VOLUME_STACK" > "$VOLUME_STACK_FILE"
@@ -79,7 +88,7 @@ for var in STACKER_AGENT_TOKEN STACKER_API_URL STACKER_RELEASE_SIGNING_KEY; do
   if [ -z "$val" ] && [ -n "$VOLUME_STACK_FILE" ]; then
     val="$(read_env_var "$VOLUME_STACK_FILE" "$var")"
   fi
-  if [ -z "$val" ]; then
+  if [ -z "$val" ] && command -v docker >/dev/null 2>&1; then
     cid="$(docker ps -q --filter 'name=stacker-agent' 2>/dev/null | head -1 || true)"
     if [ -n "$cid" ]; then
       val="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$cid" 2>/dev/null | grep "^${var}=" | cut -d= -f2- | tr -d '\r\n' || true)"
@@ -104,8 +113,9 @@ done
 chmod 600 "$DOTENV" 2>/dev/null || true
 
 if ! grep -Eq '^[[:space:]]*STACKER_AGENT_TOKEN=[^[:space:]]' "$DOTENV" 2>/dev/null; then
-  echo "ensure-host-dotenv: STACKER_AGENT_TOKEN vazio em $DOTENV — configure antes do apply." >&2
-  exit 1
+  echo "ensure-host-dotenv: AVISO — STACKER_AGENT_TOKEN vazio em $DOTENV (apply segue; configure o token depois)." >&2
+  exit 0
 fi
 
 echo "ensure-host-dotenv: OK ($DOTENV)"
+exit 0

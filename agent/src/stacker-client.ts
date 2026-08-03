@@ -454,7 +454,15 @@ function detectHostGatewayDir(gatewayRoot: string): string | null {
 function ensureHostDotEnv(gatewayRoot: string): void {
   const script = path.join(gatewayRoot, 'docker', 'ensure-host-dotenv.sh');
   if (fs.existsSync(script)) {
-    execSync(`sh "${script}"`, { cwd: gatewayRoot, stdio: 'inherit' });
+    try {
+      execSync(`sh "${script}"`, { cwd: gatewayRoot, stdio: 'pipe' });
+    } catch (err) {
+      // Nunca abortar apply — script antigo podia exit 1 sem token.
+      console.warn(
+        'ensure-host-dotenv:',
+        err instanceof Error ? err.message : err,
+      );
+    }
     return;
   }
   const stackEnvPath = path.join(gatewayRoot, '.docker', 'stack.env');
