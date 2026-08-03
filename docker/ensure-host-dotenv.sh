@@ -25,13 +25,27 @@ if [ ! -f "$STACK_ENV" ]; then
 fi
 
 unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
-set +e
-set -a
-# shellcheck disable=SC1091
-# Não usar set -e ao source — stack.env de produção pode ter sintaxe que quebra o apply.
-. "$STACK_ENV" 2>/dev/null || true
-set +a
-set -e
+# Não usar `source` — GETFY_COMPOSE_FILES sem aspas vira "command not found".
+while IFS= read -r line || [ -n "$line" ]; do
+  line="$(printf '%s' "$line" | tr -d '\r')"
+  case "$line" in
+    ''|\#*) continue ;;
+  esac
+  case "$line" in
+    *=*) ;;
+    *) continue ;;
+  esac
+  key="${line%%=*}"
+  val="${line#*=}"
+  key="$(printf '%s' "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  case "$key" in
+    ''|*[!A-Za-z0-9_]*) continue ;;
+  esac
+  val="$(printf '%s' "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  val="${val#\"}"; val="${val%\"}"
+  val="${val#\'}"; val="${val%\'}"
+  export "$key=$val"
+done < "$STACK_ENV"
 
 read_env_var() {
   file="$1"

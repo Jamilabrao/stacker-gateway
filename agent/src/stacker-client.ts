@@ -418,10 +418,41 @@ function ensureComposeProjectName(gatewayRoot: string): void {
   if (!fs.existsSync(envPath)) return;
   let content = fs.readFileSync(envPath, 'utf8');
   let changed = false;
-  if (!/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=/m.test(content)) {
-    content += '\nGETFY_COMPOSE_PROJECT_NAME=getfy\n';
+
+  const projectMatch = content.match(/^\s*GETFY_COMPOSE_PROJECT_NAME\s*=\s*(.+)$/m);
+  const currentProject = projectMatch?.[1]?.trim().replace(/^["']|["']$/g, '') ?? '';
+  const badProject =
+    !currentProject ||
+    currentProject === 'gateway' ||
+    currentProject === 'stacker-gateway' ||
+    currentProject === 'stacker_gateway';
+
+  if (badProject) {
+    // Preferir stack getfy existente em produção
+    let project = 'getfy';
+    try {
+      const vols = execSync('docker volume ls --format "{{.Name}}"', { encoding: 'utf8' });
+      if (!vols.split('\n').some((n) => n.trim() === 'getfy_postgres_data')) {
+        const running = execSync('docker ps --format "{{.Names}}"', { encoding: 'utf8' })
+          .split('\n')
+          .map((n) => n.trim())
+          .find((n) => /-app-1$/.test(n) && !n.startsWith('gateway-') && !n.startsWith('stacker-gateway-'));
+        if (running) project = running.replace(/-app-1$/, '');
+      }
+    } catch {
+      // default getfy
+    }
+    if (projectMatch) {
+      content = content.replace(
+        /^\s*GETFY_COMPOSE_PROJECT_NAME\s*=.*$/m,
+        `GETFY_COMPOSE_PROJECT_NAME=${project}`,
+      );
+    } else {
+      content += `\nGETFY_COMPOSE_PROJECT_NAME=${project}\n`;
+    }
     changed = true;
   }
+
   if (!/^\s*GETFY_HOST_DIR\s*=/m.test(content)) {
     try {
       const hostDir = detectHostGatewayDir(gatewayRoot);

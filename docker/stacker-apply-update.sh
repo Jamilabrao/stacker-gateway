@@ -47,12 +47,88 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+# Nunca use `source`/`.` em stack.env: valores com espaço sem aspas
+# (ex.: GETFY_COMPOSE_FILES=a.yml b.yml) viram "command not found" e abortam o apply.
+load_stack_env_safe() {
+  local file="$1"
+  local line key val
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="$(printf '%s' "$line" | tr -d '\r')"
+    case "$line" in
+      ''|\#*) continue ;;
+    esac
+    case "$line" in
+      *=*) ;;
+      *) continue ;;
+    esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    key="$(printf '%s' "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    case "$key" in
+      ''|*[!A-Za-z0-9_]*) continue ;;
+    esac
+    val="$(printf '%s' "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    val="${val#\"}"
+    val="${val%\"}"
+    val="${val#\'}"
+    val="${val%\'}"
+    export "$key=$val"
+  done < "$file"
+}
+
+# Corrige linha clássica que quebra o apply:
+# GETFY_COMPOSE_FILES=docker-compose.yml docker-compose.dev.yml
+sanitize_compose_files_in_stack_env() {
+  local raw fixed tmp
+  raw="$(grep -E '^[[:space:]]*GETFY_COMPOSE_FILES[[:space:]]*=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+  raw="$(printf '%s' "$raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//;s/^'\''//;s/'\''$//')"
+  [ -n "$raw" ] || return 0
+
+  # Em VPS de produção com Caddy, nunca manter compose.dev
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -qi 'caddy' \
+    || docker volume ls --format '{{.Name}}' 2>/dev/null | grep -q 'caddy_data'; then
+    fixed="docker-compose.caddy.yml"
+  elif printf '%s' "$raw" | grep -q 'docker-compose.no-redis.yml'; then
+    fixed="docker-compose.no-redis.yml"
+  elif printf '%s' "$raw" | grep -q 'docker-compose.caddy.yml'; then
+    fixed="docker-compose.caddy.yml"
+  else
+    # pega só o primeiro .yml e descarta .dev
+    fixed="$(printf '%s' "$raw" | tr ' ' '\n' | grep -E '\.yml$' | grep -v '\.dev\.yml$' | head -1 || true)"
+    [ -n "$fixed" ] || fixed="docker-compose.yml"
+  fi
+
+  tmp="$(mktemp)"
+  awk -v v="$fixed" '
+    BEGIN { done=0 }
+    $0 ~ /^[[:space:]]*GETFY_COMPOSE_FILES[[:space:]]*=/ {
+      print "GETFY_COMPOSE_FILES=\"" v "\""
+      done=1
+      next
+    }
+    { print }
+    END { if (!done) print "GETFY_COMPOSE_FILES=\"" v "\"" }
+  ' "$ENV_FILE" > "$tmp"
+  mv "$tmp" "$ENV_FILE"
+  echo "GETFY_COMPOSE_FILES sanitizado: $fixed"
+}
+
+sanitize_compose_files_in_stack_env || true
+load_stack_env_safe "$ENV_FILE"
 
 COMPOSE_FILES="$(sh docker/detect-compose-files.sh)"
+# Nunca persistir compose.dev em apply remoto
+case "$COMPOSE_FILES" in
+  *docker-compose.dev.yml*|*docker-compose.local-db.yml*)
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qi 'caddy' \
+      || docker volume ls --format '{{.Name}}' 2>/dev/null | grep -q 'caddy_data'; then
+      COMPOSE_FILES="docker-compose.caddy.yml"
+    else
+      COMPOSE_FILES="docker-compose.yml"
+    fi
+    ;;
+esac
+
 COMPOSE_ARGS=""
 for f in $COMPOSE_FILES; do
   if [ -n "$f" ]; then
@@ -63,17 +139,22 @@ done
 persist_compose_files_in_stack_env() {
   local files="$1"
   local tmp
+  # Sempre aspas — espaços no valor quebram `source` de scripts legados
   if grep -Eq '^\s*GETFY_COMPOSE_FILES\s*=' "$ENV_FILE" 2>/dev/null; then
     tmp="$(mktemp)"
     awk -v v="$files" '
       BEGIN { done=0 }
-      $0 ~ /^[[:space:]]*GETFY_COMPOSE_FILES[[:space:]]*=/ { print "GETFY_COMPOSE_FILES=" v; done=1; next }
+      $0 ~ /^[[:space:]]*GETFY_COMPOSE_FILES[[:space:]]*=/ {
+        print "GETFY_COMPOSE_FILES=\"" v "\""
+        done=1
+        next
+      }
       { print }
-      END { if (!done) print "GETFY_COMPOSE_FILES=" v }
+      END { if (!done) print "GETFY_COMPOSE_FILES=\"" v "\"" }
     ' "$ENV_FILE" > "$tmp"
     mv "$tmp" "$ENV_FILE"
   else
-    echo "GETFY_COMPOSE_FILES=$files" >> "$ENV_FILE"
+    echo "GETFY_COMPOSE_FILES=\"$files\"" >> "$ENV_FILE"
   fi
 }
 
@@ -87,26 +168,41 @@ if [ "$COMPOSE_FILES" = "docker-compose.caddy.yml" ]; then
 fi
 
 resolve_compose_project_name() {
-  if [ -n "${GETFY_COMPOSE_PROJECT_NAME:-}" ]; then
-    printf '%s' "$GETFY_COMPOSE_PROJECT_NAME"
-    return
-  fi
-
-  # Instalação real em /opt/getfy — agente monta como /gateway (basename engana).
+  # Produção real tem volumes/containers getfy_* — nunca criar stacker-gateway paralelo.
   if docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx 'getfy_postgres_data'; then
     printf 'getfy'
     return
   fi
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Eqx 'getfy-app-1|getfy_app_1'; then
+    printf 'getfy'
+    return
+  fi
+
+  local configured
+  configured="${GETFY_COMPOSE_PROJECT_NAME:-}"
+  case "$configured" in
+    gateway|stacker-gateway|stacker_gateway)
+      configured=""
+      ;;
+  esac
+
+  if [ -n "$configured" ]; then
+    # Só confia no env se já existir container desse projeto
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Eq "^${configured}-(app|postgres)-1$"; then
+      printf '%s' "$configured"
+      return
+    fi
+  fi
 
   local running
-  running="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'app-1$' | grep -v '^gateway-' | head -1 | sed 's/-app-1$//' || true)"
+  running="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -E 'app-1$' | grep -Ev '^(gateway|stacker-gateway)-' | head -1 | sed 's/-app-1$//' || true)"
   if [ -n "$running" ]; then
     printf '%s' "$running"
     return
   fi
 
   local detected
-  detected="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '_postgres_data$' | grep -v '^gateway_' | head -1 | sed 's/_postgres_data$//' || true)"
+  detected="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '_postgres_data$' | grep -Ev '^(gateway|stacker-gateway)_' | head -1 | sed 's/_postgres_data$//' || true)"
   if [ -n "$detected" ]; then
     printf '%s' "$detected"
     return
@@ -114,10 +210,15 @@ resolve_compose_project_name() {
 
   local base
   base="$(basename "$ROOT_DIR")"
-  if [ "$base" != "gateway" ]; then
-    printf '%s' "$base"
-    return
-  fi
+  case "$base" in
+    gateway|stacker-gateway) ;;
+    *)
+      if [ -n "$base" ]; then
+        printf '%s' "$base"
+        return
+      fi
+      ;;
+  esac
 
   echo "GETFY_COMPOSE_PROJECT_NAME não definido em .docker/stack.env (ex.: getfy)." >&2
   exit 1
@@ -125,16 +226,29 @@ resolve_compose_project_name() {
 
 PROJECT_NAME="$(resolve_compose_project_name)"
 
-if [ "$PROJECT_NAME" = "gateway" ] && docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx 'getfy_postgres_data'; then
-  echo "Aviso: compose project 'gateway' ignorado — usando getfy (stack de produção)." >&2
-  PROJECT_NAME=getfy
+if [ "$PROJECT_NAME" = "gateway" ] || [ "$PROJECT_NAME" = "stacker-gateway" ]; then
+  if docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx 'getfy_postgres_data' \
+    || docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Eqx 'getfy-app-1|getfy_app_1'; then
+    echo "Aviso: compose project '$PROJECT_NAME' ignorado — usando getfy (stack de produção)." >&2
+    PROJECT_NAME=getfy
+  fi
 fi
 
 export COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 
-if ! grep -Eq '^\s*GETFY_COMPOSE_PROJECT_NAME\s*=' "$ENV_FILE" 2>/dev/null; then
+# Persiste o nome correto (corrige stacker-gateway gravado por engano).
+if grep -Eq '^\s*GETFY_COMPOSE_PROJECT_NAME\s*=' "$ENV_FILE" 2>/dev/null; then
+  _pn_tmp="$(mktemp)"
+  awk -v v="$PROJECT_NAME" '
+    $0 ~ /^[[:space:]]*GETFY_COMPOSE_PROJECT_NAME[[:space:]]*=/ { print "GETFY_COMPOSE_PROJECT_NAME=" v; next }
+    { print }
+  ' "$ENV_FILE" > "$_pn_tmp"
+  mv "$_pn_tmp" "$ENV_FILE"
+else
   echo "GETFY_COMPOSE_PROJECT_NAME=$PROJECT_NAME" >> "$ENV_FILE"
 fi
+# limpa env exportado errado da load anterior
+export GETFY_COMPOSE_PROJECT_NAME="$PROJECT_NAME"
 
 resolve_compose_host_dir() {
   if [ -n "${GETFY_HOST_DIR:-}" ]; then
