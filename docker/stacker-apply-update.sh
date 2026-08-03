@@ -191,6 +191,45 @@ elif [ ! -f "$ROOT_DIR/.env" ]; then
   echo "Aviso: .env ausente — stacker-agent precisa de STACKER_AGENT_TOKEN em $ROOT_DIR/.env" >&2
 fi
 
+# Soft-upgrade: single+debug enche o disco (já vimos 40GB+ em storage/logs).
+harden_host_log_env() {
+  local envf="$ROOT_DIR/.env"
+  [ -f "$envf" ] || return 0
+  set_kv() {
+    local key="$1" val="$2"
+    if grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$envf" 2>/dev/null; then
+      local tmp
+      tmp="$(mktemp)"
+      awk -v k="$key" -v v="$val" '
+        $0 ~ "^[[:space:]]*" k "[[:space:]]*=" { print k "=" v; next }
+        { print }
+      ' "$envf" > "$tmp"
+      mv "$tmp" "$envf"
+    else
+      echo "${key}=${val}" >> "$envf"
+    fi
+  }
+  local stack level
+  stack="$(grep -E '^[[:space:]]*LOG_STACK[[:space:]]*=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/[\"'\'']//g;s/\r//g;s/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+  level="$(grep -E '^[[:space:]]*LOG_LEVEL[[:space:]]*=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/[\"'\'']//g;s/\r//g;s/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+  if [ -z "$stack" ] || [ "$stack" = "single" ]; then
+    set_kv LOG_STACK daily
+    echo "LOG_STACK=daily (antes: ${stack:-ausente})"
+  fi
+  if [ -z "$level" ] || [ "$level" = "debug" ]; then
+    set_kv LOG_LEVEL warning
+    echo "LOG_LEVEL=warning (antes: ${level:-ausente})"
+  fi
+  if ! grep -Eq '^[[:space:]]*LOG_DAILY_DAYS[[:space:]]*=' "$envf" 2>/dev/null; then
+    set_kv LOG_DAILY_DAYS 7
+  fi
+  if ! grep -Eq '^[[:space:]]*LOG_CHANNEL[[:space:]]*=' "$envf" 2>/dev/null; then
+    set_kv LOG_CHANNEL stack
+  fi
+}
+echo "=== Hardening LOG_* no .env do host ==="
+harden_host_log_env || true
+
 if [ ! -f "$ROOT_DIR/.env" ]; then
   echo "FATAL: $ROOT_DIR/.env ausente (STACKER_AGENT_TOKEN). Corrija antes do apply." >&2
   exit 1
@@ -234,7 +273,24 @@ if [ "${#COMPOSE_UP_SERVICES[@]}" -eq 0 ]; then
   exit 1
 fi
 
-RECREATE_SERVICES=(app queue)
+# Recria serviços que usam getfy_app:latest — sem hardcode de "queue"
+# (compose padrão tem app/scheduler/worker-*; caddy/no-redis têm queue).
+RECREATE_SERVICES=()
+for svc in "${COMPOSE_UP_SERVICES[@]}"; do
+  case "$svc" in
+    app|queue|scheduler|worker|worker-*) RECREATE_SERVICES+=("$svc") ;;
+  esac
+done
+
+has_app=0
+for svc in "${RECREATE_SERVICES[@]+"${RECREATE_SERVICES[@]}"}"; do
+  [ "$svc" = "app" ] && has_app=1
+done
+if [ "$has_app" -ne 1 ]; then
+  echo "FATAL: serviço 'app' não encontrado para recreate." >&2
+  echo "Serviços no compose: ${COMPOSE_UP_SERVICES[*]}" >&2
+  exit 1
+fi
 
 echo "=== Recriando containers com imagem nova (${RECREATE_SERVICES[*]}) ==="
 "${COMPOSE[@]}" up -d --force-recreate --no-deps "${RECREATE_SERVICES[@]}"
@@ -293,5 +349,19 @@ if [ "$RUNTIME_VERSION" != "$HOST_VERSION" ]; then
   exit 1
 fi
 echo "Versão runtime OK: $RUNTIME_VERSION"
+
+echo "=== Limpeza de imagens Docker antigas ==="
+if [ -f docker/prune-docker-images.sh ]; then
+  chmod +x docker/prune-docker-images.sh 2>/dev/null || true
+  # Após rebuild + recreate, imagens antigas ficam órfãs — remove dangling e unused.
+  GETFY_DOCKER_PRUNE_UNUSED="${GETFY_DOCKER_PRUNE_UNUSED:-1}" \
+    GETFY_SKIP_DOCKER_PRUNE="${GETFY_SKIP_DOCKER_PRUNE:-0}" \
+    bash docker/prune-docker-images.sh || true
+else
+  echo "docker/prune-docker-images.sh ausente — pulando."
+fi
+
+echo "=== Limpeza de logs Laravel (storage) ==="
+"${COMPOSE[@]}" exec -T app php artisan logs:prune --days="${LOG_DAILY_DAYS:-7}" --max-mb=50 || true
 
 echo "=== Stacker apply update concluído ==="

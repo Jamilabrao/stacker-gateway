@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Remove imagens Docker órfãs após rebuild. Nunca mexe em volumes nem containers em execução.
+# Remove imagens Docker órfãs após rebuild/update remoto.
+# Chamado por update.sh e por docker/stacker-apply-update.sh.
+# Nunca mexe em volumes nem containers em execução.
 set -euo pipefail
 
 if [ "${GETFY_SKIP_DOCKER_PRUNE:-0}" = "1" ]; then
@@ -33,6 +35,7 @@ echo ""
 echo "Removendo cache de build com mais de 14 dias..."
 docker builder prune -f --filter until=336h 2>/dev/null || true
 
+# No apply remoto o padrão é 1 (GETFY_DOCKER_PRUNE_UNUSED=1); no update.sh legado costuma ser 0.
 if [ "${GETFY_DOCKER_PRUNE_UNUSED:-0}" = "1" ]; then
   echo ""
   echo "Removendo imagens não usadas por containers (GETFY_DOCKER_PRUNE_UNUSED=1)..."

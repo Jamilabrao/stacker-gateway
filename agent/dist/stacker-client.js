@@ -1,5 +1,5 @@
 import * as crypto from 'node:crypto';
-import { readInstalledVersion, readRuntimeVersion } from './metrics.js';
+import { readInstalledVersion, readRuntimeVersion, invalidateRuntimeVersionCache } from './metrics.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
@@ -82,8 +82,19 @@ export class StackerClient {
         return { sha256: sha256 || computed, signature };
     }
     async reportUpdateStatus(data) {
-        return this.request('POST', '/gateway/agent/update-status', data);
+        return this.request('POST', '/gateway/agent/update-status', {
+            ...data,
+            logs: data.logs != null ? truncateLogs(data.logs) : undefined,
+        });
     }
+}
+/** Express default era 100kb — docker build estoura fácil. Mantém só o tail. */
+const MAX_UPDATE_LOG_CHARS = 12_000;
+function truncateLogs(logs) {
+    const trimmed = logs.trim();
+    if (trimmed.length <= MAX_UPDATE_LOG_CHARS)
+        return trimmed;
+    return `…(truncado)\n${trimmed.slice(-MAX_UPDATE_LOG_CHARS)}`;
 }
 export async function applyUpdate(client, cmd, gatewayRoot, signingKey) {
     const stagingDir = path.join(gatewayRoot, '.stacker-update-staging');
@@ -180,7 +191,10 @@ async function executeDockerApply(client, jobId, targetVersion, gatewayRoot) {
         logs: 'Executando docker/stacker-apply-update.sh (build pode levar 10–30 min)...',
     });
     let applyLogs = '';
+    let keepaliveActive = true;
     const keepalive = setInterval(() => {
+        if (!keepaliveActive)
+            return;
         void client
             .reportUpdateStatus({
             jobId,
@@ -189,6 +203,10 @@ async function executeDockerApply(client, jobId, targetVersion, gatewayRoot) {
         })
             .catch(() => undefined);
     }, 60_000);
+    const stopKeepalive = () => {
+        keepaliveActive = false;
+        clearInterval(keepalive);
+    };
     try {
         const result = await runShell(`bash "${applyScript}"`, gatewayRoot, {
             DOCKER_HOST: process.env.DOCKER_HOST || 'unix:///var/run/docker.sock',
@@ -198,22 +216,30 @@ async function executeDockerApply(client, jobId, targetVersion, gatewayRoot) {
                 applyLogs = applyLogs.slice(-6000);
             }
         });
-        applyLogs = [result.stdout, result.stderr].filter(Boolean).join('\n');
+        // Não substituir pelo stdout/stderr completo (docker build pode ter MBs → 413).
+        const joined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+        if (joined) {
+            applyLogs = joined.length > 8000 ? joined.slice(-6000) : joined;
+        }
     }
     catch (err) {
-        clearInterval(keepalive);
+        stopKeepalive();
         const e = err;
-        const logs = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
+        const full = [e.stdout, e.stderr, e.message].filter(Boolean).join('\n');
+        const logs = (full.length > 8000 ? full.slice(-6000) : full) ||
+            applyLogs ||
+            'Falha ao aplicar update';
         await client.reportUpdateStatus({
             jobId,
             status: 'failed',
-            logs: logs || 'Falha ao aplicar update',
+            logs,
         });
         throw err;
     }
-    finally {
-        clearInterval(keepalive);
-    }
+    stopKeepalive();
+    // Pequena pausa para HTTP de keepalive em voo terminar antes do success.
+    await new Promise((r) => setTimeout(r, 500));
+    invalidateRuntimeVersionCache();
     const hostVersion = readInstalledVersion(gatewayRoot);
     const runtimeVersion = readRuntimeVersion(gatewayRoot);
     const versionAligned = hostVersion === targetVersion && runtimeVersion === targetVersion;

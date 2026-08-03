@@ -2,6 +2,11 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     depends_on:
       app:
         condition: service_healthy
@@ -20,6 +25,11 @@ services:
       dockerfile: Dockerfile
     image: getfy_app:latest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
       - getfy_storage:/var/www/html/storage
       - getfy_env:/var/www/html/.docker
@@ -44,6 +54,10 @@ services:
       SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "true"
+      LOG_CHANNEL: ${LOG_CHANNEL:-stack}
+      LOG_STACK: ${LOG_STACK:-daily}
+      LOG_LEVEL: ${LOG_LEVEL:-warning}
+      LOG_DAILY_DAYS: ${LOG_DAILY_DAYS:-7}
       API_INBOUND_WEBHOOKS_ASYNC: ${API_INBOUND_WEBHOOKS_ASYNC:-true}
     depends_on:
       postgres:
@@ -60,6 +74,11 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     environment:
       POSTGRES_DB: ${GETFY_DB_DATABASE:-getfy}
       POSTGRES_USER: ${GETFY_DB_USERNAME:-getfy}
@@ -75,6 +94,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     command:
       - "redis-server"
       - "--maxmemory"
@@ -90,6 +114,11 @@ services:
   queue:
     image: getfy_app:latest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     command:
       - "sh"
       - "-lc"
@@ -117,6 +146,10 @@ services:
       SESSION_DRIVER: ${GETFY_SESSION_DRIVER:-file}
       GETFY_DOCKER: "true"
       GETFY_RUN_SETUP: "false"
+      LOG_CHANNEL: ${LOG_CHANNEL:-stack}
+      LOG_STACK: ${LOG_STACK:-daily}
+      LOG_LEVEL: ${LOG_LEVEL:-warning}
+      LOG_DAILY_DAYS: ${LOG_DAILY_DAYS:-7}
       API_INBOUND_WEBHOOKS_ASYNC: "true"
     depends_on:
       postgres:
@@ -130,6 +163,11 @@ services:
       dockerfile: Dockerfile
     image: stacker_agent:latest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     environment:
       STACKER_GATEWAY_ROOT: /gateway
       APP_URL: ${GETFY_APP_URL:-http://localhost}

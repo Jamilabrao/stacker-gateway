@@ -93,14 +93,27 @@ async function main() {
   const runHeartbeat = async () => {
     try {
       const ip = publicIp ?? (publicIp = await resolvePublicIp());
-      const result = await client.heartbeat({
+      const heartbeatPayload: {
+        appUrl: string;
+        version?: string;
+        runtimeVersion?: string;
+        agentVersion?: string;
+        hostname?: string;
+        ip?: string;
+      } = {
         appUrl: resolveAppUrl(),
-        version: readInstalledVersion(gatewayRoot),
-        runtimeVersion: readRuntimeVersion(gatewayRoot),
         agentVersion: AGENT_VERSION,
         hostname: os.hostname(),
         ip,
-      });
+      };
+      // Durante apply o VERSION no host já muda; não reportar host prematuro.
+      if (!updateInProgress) {
+        heartbeatPayload.version = readInstalledVersion(gatewayRoot);
+        heartbeatPayload.runtimeVersion = readRuntimeVersion(gatewayRoot);
+      } else {
+        heartbeatPayload.runtimeVersion = readRuntimeVersion(gatewayRoot);
+      }
+      const result = await client.heartbeat(heartbeatPayload);
       const prev = client.readLicenseCache();
       client.writeLicenseCache(result.license);
       if (!prev || prev.blocked !== result.license.blocked || prev.valid !== result.license.valid) {

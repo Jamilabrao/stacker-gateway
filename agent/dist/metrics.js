@@ -126,6 +126,10 @@ export function readRuntimeVersion(gatewayRoot) {
     runtimeVersionCache = { value, at: Date.now() };
     return value;
 }
+/** Invalida cache após recreate do container app (apply/reapply). */
+export function invalidateRuntimeVersionCache() {
+    runtimeVersionCache = { at: 0 };
+}
 function readRuntimeVersionUncached(gatewayRoot) {
     try {
         const container = execSync(`docker ps --format '{{.Names}}' 2>/dev/null | grep -E '-app-1$' | grep -v '^gateway-' | head -1`, { encoding: 'utf8', shell: '/bin/bash', timeout: 15_000 }).trim();

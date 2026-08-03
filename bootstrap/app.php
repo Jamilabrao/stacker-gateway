@@ -211,6 +211,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('schedule:heartbeat')->everyMinute();
         $schedule->command('push:process-schedule')->everyMinute();
         $schedule->command('conquistas:reconcile')->dailyAt('03:30');
+        $schedule->command('logs:prune --days='.(int) env('LOG_DAILY_DAYS', 7).' --max-mb=50')->dailyAt('03:45');
+        $schedule->command('queue:prune-failed --hours=168')->dailyAt('04:00');
         $schedule->job(new \App\Jobs\QueueHeartbeatJob)->everyMinute();
     })
     ->create();

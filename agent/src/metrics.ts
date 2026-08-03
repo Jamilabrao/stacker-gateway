@@ -145,6 +145,11 @@ export function readRuntimeVersion(gatewayRoot: string): string | undefined {
   return value;
 }
 
+/** Invalida cache após recreate do container app (apply/reapply). */
+export function invalidateRuntimeVersionCache(): void {
+  runtimeVersionCache = { at: 0 };
+}
+
 function readRuntimeVersionUncached(gatewayRoot: string): string | undefined {
   try {
     const container = execSync(
