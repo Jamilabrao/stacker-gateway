@@ -150,18 +150,87 @@ export function invalidateRuntimeVersionCache(): void {
   runtimeVersionCache = { at: 0 };
 }
 
-function readRuntimeVersionUncached(gatewayRoot: string): string | undefined {
+/** Aguarda o container app reportar a versão alvo após recreate. */
+export async function waitForRuntimeVersion(
+  gatewayRoot: string,
+  targetVersion: string,
+  attempts = 20,
+  delayMs = 2000,
+): Promise<string | undefined> {
+  for (let i = 0; i < attempts; i++) {
+    invalidateRuntimeVersionCache();
+    const v = readRuntimeVersion(gatewayRoot);
+    if (v === targetVersion) {
+      return v;
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  invalidateRuntimeVersionCache();
+  return readRuntimeVersion(gatewayRoot);
+}
+
+function resolveAppContainerName(): string | undefined {
+  const commands = [
+    // Imagem padrão do stack — mais confiável que só o sufixo -app-1.
+    `docker ps --filter "ancestor=getfy_app:latest" --format '{{.Names}}' 2>/dev/null | head -1`,
+    `docker ps --format '{{.Names}}' 2>/dev/null | grep -E '(^|-)app-1$' | grep -v '^gateway-' | head -1`,
+    `docker ps --format '{{.Names}}' 2>/dev/null | grep -E '(^|-)app$' | grep -v gateway | head -1`,
+  ];
+  for (const cmd of commands) {
+    try {
+      const name = execSync(cmd, {
+        encoding: 'utf8',
+        shell: '/bin/bash',
+        timeout: 15_000,
+      }).trim();
+      if (name) return name;
+    } catch {
+      // try next
+    }
+  }
+  return undefined;
+}
+
+function normalizeVersionOutput(raw: string): string | undefined {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    // tinker / php warnings
+    .filter((l) => !/^>/i.test(l))
+    .filter((l) => !/deprecated|warning|notice|error/i.test(l));
+  const candidate = lines[lines.length - 1]?.trim();
+  if (!candidate) return undefined;
+  // semver-ish or plain VERSION file content
+  if (/^[0-9]+(\.[0-9]+)*([.-][A-Za-z0-9]+)*$/.test(candidate)) {
+    return candidate;
+  }
+  return undefined;
+}
+
+function readRuntimeVersionUncached(_gatewayRoot: string): string | undefined {
   try {
-    const container = execSync(
-      `docker ps --format '{{.Names}}' 2>/dev/null | grep -E '-app-1$' | grep -v '^gateway-' | head -1`,
-      { encoding: 'utf8', shell: '/bin/bash', timeout: 15_000 },
-    ).trim();
+    const container = resolveAppContainerName();
     if (!container) return undefined;
-    const v = execSync(
+
+    // VERSION no filesystem da imagem — mais rápido/estável que tinker pós-recreate.
+    try {
+      const fromFile = execSync(`docker exec ${container} cat /var/www/html/VERSION`, {
+        encoding: 'utf8',
+        shell: '/bin/bash',
+        timeout: 15_000,
+      });
+      const v = normalizeVersionOutput(fromFile);
+      if (v) return v;
+    } catch {
+      // fallback tinker
+    }
+
+    const fromTinker = execSync(
       `docker exec ${container} php artisan tinker --execute="echo config('getfy.version');"`,
       { encoding: 'utf8', shell: '/bin/bash', timeout: 30_000 },
-    ).trim();
-    return v || undefined;
+    );
+    return normalizeVersionOutput(fromTinker);
   } catch {
     return undefined;
   }

@@ -1,5 +1,5 @@
 import * as crypto from 'node:crypto';
-import { readInstalledVersion, readRuntimeVersion, invalidateRuntimeVersionCache } from './metrics.js';
+import { readInstalledVersion, readRuntimeVersion, invalidateRuntimeVersionCache, waitForRuntimeVersion } from './metrics.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
@@ -324,9 +324,19 @@ async function executeDockerApply(
   // Pequena pausa para HTTP de keepalive em voo terminar antes do success.
   await new Promise((r) => setTimeout(r, 500));
 
-  invalidateRuntimeVersionCache();
   const hostVersion = readInstalledVersion(gatewayRoot);
-  const runtimeVersion = readRuntimeVersion(gatewayRoot);
+  // O script já validou runtime via compose exec; o docker exec do agente pode
+  // falhar por alguns segundos (container recém-criado / nome). Esperar e retentar.
+  const applyConfirmedRuntime =
+    !!applyLogs &&
+    (applyLogs.includes(`Versão runtime OK: ${targetVersion}`) ||
+      applyLogs.includes('Stacker apply update concluído'));
+
+  let runtimeVersion = await waitForRuntimeVersion(gatewayRoot, targetVersion);
+  if (!runtimeVersion && applyConfirmedRuntime && hostVersion === targetVersion) {
+    runtimeVersion = targetVersion;
+  }
+
   const versionAligned =
     hostVersion === targetVersion && runtimeVersion === targetVersion;
 
@@ -353,7 +363,7 @@ async function executeDockerApply(
     jobId,
     status: 'success',
     installedVersion: targetVersion,
-    runtimeVersion: runtimeVersion ?? targetVersion,
+    runtimeVersion,
     logs: applyLogs.trim() || `Update ${targetVersion} aplicado`,
   });
 }
