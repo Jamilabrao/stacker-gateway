@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Services\CajuPay\CajuPayCheckoutCompletionService;
 use App\Services\CajuPay\CajuPayMedService;
+use App\Services\CajuPay\CajuPayPayoutStatuses;
 use App\Services\PlatformOrderAdminService;
 use App\Support\CajuPayPaymentId;
 use App\Support\GatewayWebhookTelemetry;
@@ -40,6 +41,11 @@ class CajuPayCheckoutWebhookController extends Controller
         }
 
         $eventType = strtolower(trim((string) ($request->header('X-CajuPay-Event') ?: ($payload['type'] ?? ''))));
+
+        // Payout events wrongly delivered to the checkout URL must not be 200-ignored.
+        if (CajuPayPayoutStatuses::isPayoutRelatedEvent($eventType) || CajuPayPayoutStatuses::looksLikePayoutPayload($payload)) {
+            return app(CajuPayPayoutWebhookController::class)->handle($request);
+        }
 
         $sigHeader = (string) $request->header('X-CajuPay-Signature', '');
         $parsed = $this->parseSignatureHeader($sigHeader);
@@ -447,7 +453,7 @@ class CajuPayCheckoutWebhookController extends Controller
      */
     private function matchSigningSecret(array $creds, string $signedPayload, string $signatureHex): ?string
     {
-        foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret'] as $key) {
+        foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret', 'payout_webhook_signing_secret', 'webhook_secret'] as $key) {
             $secret = trim((string) ($creds[$key] ?? ''));
             if ($secret === '') {
                 continue;

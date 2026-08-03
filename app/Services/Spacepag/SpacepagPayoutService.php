@@ -10,6 +10,7 @@ use App\Services\EffectiveMerchantFees;
 use App\Services\Payout\GatewayPayoutEconomics;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\WithdrawalPayoutDestination;
+use App\Services\Withdrawal\WithdrawalMinimumService;
 use App\Support\GatewayWebhookUrl;
 
 class SpacepagPayoutService
@@ -46,7 +47,7 @@ class SpacepagPayoutService
         }
 
         $economics = GatewayPayoutEconomics::fromCredentialsArray('spacepag', $credentials);
-        $requiredNet = $economics['required_min_net'];
+        $requiredNet = WithdrawalMinimumService::effectiveRequiredMinNet($economics);
         $minCents = (int) max(1, (int) round($requiredNet * 100));
         $apiAmount = GatewayPayoutEconomics::transferAmountBrlForApi($net, $economics['admin_fee_payout_brl']);
         $amountCents = (int) round($net * 100);

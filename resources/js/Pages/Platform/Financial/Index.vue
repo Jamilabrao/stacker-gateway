@@ -64,6 +64,8 @@ const props = defineProps({
     pixgo_sidebar_label: { type: String, default: 'PixGO' },
     api_pix_minimum_charge_brl: { type: Number, default: 0.01 },
     platform_minimum_charge_brl: { type: Number, default: 0 },
+    platform_minimum_withdrawal_brl: { type: Number, default: 0 },
+    effective_minimum_withdrawal_brl: { type: Number, default: 0 },
     /** @type {'auto'|'cajupay'|'spacepag'|'woovi'|'onlyup'} */
     payout_gateway_preference: { type: String, default: 'auto' },
     /** Slug efetivo usado hoje (pode diferir do preferido se este não estiver conectado). */
@@ -712,6 +714,7 @@ function submitPixGo() {
 const chargeLimitsForm = useForm({
     api_pix_minimum_charge_brl: props.api_pix_minimum_charge_brl ?? 0.01,
     platform_minimum_charge_brl: props.platform_minimum_charge_brl ?? 0,
+    platform_minimum_withdrawal_brl: props.platform_minimum_withdrawal_brl ?? 0,
 });
 
 function submitChargeLimits() {
@@ -721,6 +724,7 @@ function submitChargeLimits() {
             chargeLimitsForm.defaults({
                 api_pix_minimum_charge_brl: props.api_pix_minimum_charge_brl,
                 platform_minimum_charge_brl: props.platform_minimum_charge_brl,
+                platform_minimum_withdrawal_brl: props.platform_minimum_withdrawal_brl,
             });
             chargeLimitsForm.reset();
         },
@@ -1358,6 +1362,56 @@ function submitSettlement() {
                                 </p>
                             </div>
                         </div>
+
+                        <div class="border-t border-zinc-200 pt-6 dark:border-zinc-700">
+                            <h3 class="mb-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                Saque mínimo global
+                            </h3>
+                            <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                                Valor líquido mínimo que o infoprodutor precisa atingir no saque.
+                                O efetivo é o maior entre este valor e o mínimo do adquirente de payout
+                                (campo “Mínimo líquido de payout” nas credenciais — padrão R$&nbsp;7,00).
+                                Taxas admin PIX/saque do gateway não entram neste piso.
+                            </p>
+                            <div class="grid gap-6 sm:grid-cols-2">
+                                <div>
+                                    <label class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                        Saque mínimo da plataforma (R$)
+                                    </label>
+                                    <input
+                                        v-model.number="chargeLimitsForm.platform_minimum_withdrawal_brl"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                                    />
+                                    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                        Use 0 para não forçar um piso além do adquirente.
+                                    </p>
+                                    <p v-if="chargeLimitsForm.errors.platform_minimum_withdrawal_brl" class="mt-1 text-xs text-red-600">
+                                        {{ chargeLimitsForm.errors.platform_minimum_withdrawal_brl }}
+                                    </p>
+                                </div>
+                                <div class="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-900/60">
+                                    <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                        Mínimo líquido efetivo agora
+                                    </p>
+                                    <p class="mt-1 text-lg font-semibold text-zinc-900 dark:text-white">
+                                        R$
+                                        {{
+                                            Number(effective_minimum_withdrawal_brl || 0).toLocaleString('pt-BR', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            })
+                                        }}
+                                    </p>
+                                    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                        Após salvar, este valor atualiza. Taxa de saque do merchant (aba Taxas) pode elevar o valor bruto solicitado.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="flex justify-end">
                             <Button type="submit" :disabled="chargeLimitsForm.processing">Salvar limites</Button>
                         </div>

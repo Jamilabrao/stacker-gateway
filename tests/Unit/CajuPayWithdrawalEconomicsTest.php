@@ -35,7 +35,7 @@ class CajuPayWithdrawalEconomicsTest extends TestCase
             'cajupay_admin_fee_payout_brl' => '0.5',
         ]);
 
-        $this->assertSame(8.5, $out['required_min_net']);
+        $this->assertSame(7.0, $out['required_min_net']);
         $this->assertSame(7.0, $out['cajupay_payout_min_brl']);
         $this->assertSame(1.0, $out['cajupay_admin_fee_pix_brl']);
         $this->assertSame(0.5, $out['cajupay_admin_fee_payout_brl']);

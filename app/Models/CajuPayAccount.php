@@ -91,7 +91,7 @@ class CajuPayAccount extends Model
     {
         $creds = $this->getDecryptedCredentials();
 
-        foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret'] as $key) {
+        foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret', 'payout_webhook_signing_secret'] as $key) {
             if (trim((string) ($creds[$key] ?? '')) !== '') {
                 return true;
             }

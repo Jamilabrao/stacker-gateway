@@ -479,6 +479,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::put('/financeiro/saques-politica', [\App\Http\Controllers\Platform\FinancialController::class, 'updateWithdrawalPolicy'])->name('financeiro.saques-politica.update');
         Route::post('/financeiro/saques-politica/pin-reset', [\App\Http\Controllers\Platform\FinancialController::class, 'resetManualApprovalPin'])->name('financeiro.saques-politica.pin-reset');
         Route::post('/financeiro/saques/{withdrawal}/aprovar', [\App\Http\Controllers\Platform\FinancialController::class, 'approveWithdrawal'])->name('financeiro.saques.approve');
+        Route::post('/financeiro/saques/{withdrawal}/reconciliar-cajupay', [\App\Http\Controllers\Platform\FinancialController::class, 'reconcileCajuPayWithdrawal'])
+            ->name('financeiro.saques.reconcile-cajupay')
+            ->middleware('throttle:60,1');
         Route::post('/financeiro/saques/{withdrawal}/reprocessar-cajupay', [\App\Http\Controllers\Platform\FinancialController::class, 'retryCajuPayWithdrawal'])
             ->name('financeiro.saques.reprocessar-cajupay')
             ->middleware('throttle:30,1');

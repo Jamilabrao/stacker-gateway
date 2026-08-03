@@ -91,6 +91,53 @@ final class CajuPayPayoutStatuses
     }
 
     /**
+     * Eventos de cashout/payout (não confundir com checkout/pix.payment).
+     */
+    public static function isPayoutRelatedEvent(string $eventType): bool
+    {
+        $eventType = strtolower(trim($eventType));
+        if ($eventType === '') {
+            return false;
+        }
+
+        return str_starts_with($eventType, 'payout.')
+            || str_starts_with($eventType, 'withdrawal.')
+            || str_starts_with($eventType, 'transfer.')
+            || self::isPaidEvent($eventType)
+            || self::isFailedEvent($eventType);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public static function looksLikePayoutPayload(array $payload): bool
+    {
+        if (self::isPayoutRelatedEvent(self::eventTypeFromWebhookPayload($payload))) {
+            return true;
+        }
+
+        $payoutId = self::externalIdFromWebhookPayload($payload);
+        if ($payoutId === '') {
+            return false;
+        }
+
+        // IDs de payout oficiais / chaves típicas sem type de pagamento.
+        foreach ([
+            data_get($payload, 'data.object.cajupay_payout_id'),
+            data_get($payload, 'data.cajupay_payout_id'),
+            data_get($payload, 'cajupay_payout_id'),
+            $payload['payout_id'] ?? null,
+            $payload['withdrawal_id'] ?? null,
+        ] as $candidate) {
+            if (is_scalar($candidate) && trim((string) $candidate) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     public static function eventTypeFromWebhookPayload(array $payload): string

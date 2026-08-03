@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Http\Controllers\Controller;
 use App\Models\GatewayCredential;
 use App\Models\Withdrawal;
+use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Services\CajuPay\CajuPayPayoutStatuses;
 use App\Services\MerchantWithdrawalService;
 use App\Services\WithdrawalPixReceiptService;
@@ -159,22 +160,50 @@ class CajuPayPayoutWebhookController extends Controller
 
         $signedPayload = $timestamp.'.'.$rawBody;
 
-        $candidates = GatewayCredential::query()
+        $resolver = app(CajuPayAccountResolver::class);
+        $accounts = $resolver->allConnectedForWebhookValidation();
+
+        foreach ($accounts as $account) {
+            $secret = $this->matchSigningSecret($account->getDecryptedCredentials(), $signedPayload, $signatureHex);
+            if ($secret !== null) {
+                return $secret;
+            }
+        }
+
+        // Fallback legado: GatewayCredential (instalações pré-multi-conta).
+        $legacy = GatewayCredential::query()
             ->where('gateway_slug', 'cajupay')
             ->where('is_connected', true)
             ->get();
 
-        foreach ($candidates as $credential) {
-            $creds = $credential->getDecryptedCredentials();
-            foreach (['checkout_webhook_signing_secret', 'webhook_signing_secret', 'webhook_secret'] as $key) {
-                $secret = trim((string) ($creds[$key] ?? ''));
-                if ($secret === '') {
-                    continue;
-                }
-                $expected = hash_hmac('sha256', $signedPayload, $secret);
-                if (hash_equals($expected, $signatureHex)) {
-                    return $secret;
-                }
+        foreach ($legacy as $credential) {
+            $secret = $this->matchSigningSecret($credential->getDecryptedCredentials(), $signedPayload, $signatureHex);
+            if ($secret !== null) {
+                return $secret;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $creds
+     */
+    private function matchSigningSecret(array $creds, string $signedPayload, string $signatureHex): ?string
+    {
+        foreach ([
+            'checkout_webhook_signing_secret',
+            'webhook_signing_secret',
+            'payout_webhook_signing_secret',
+            'webhook_secret',
+        ] as $key) {
+            $secret = trim((string) ($creds[$key] ?? ''));
+            if ($secret === '') {
+                continue;
+            }
+            $expected = hash_hmac('sha256', $signedPayload, $secret);
+            if (hash_equals($expected, $signatureHex)) {
+                return $secret;
             }
         }
 

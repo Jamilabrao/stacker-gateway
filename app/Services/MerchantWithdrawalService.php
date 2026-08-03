@@ -8,8 +8,7 @@ use App\Models\WalletTransaction;
 use App\Models\Withdrawal;
 use App\Services\MerchantWalletAdminBlockService;
 use App\Services\PanelPushService;
-use App\Services\Payout\GatewayPayoutEconomics;
-use App\Services\Payout\PlatformPayoutGateway;
+use App\Services\Withdrawal\WithdrawalMinimumService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -101,17 +100,15 @@ class MerchantWithdrawalService
             throw ValidationException::withMessages(['amount' => 'O valor líquido após taxas deve ser maior que zero.']);
         }
 
-        if (PlatformPayoutGateway::isEnabled()) {
-            $required = GatewayPayoutEconomics::forActiveGateway()['required_min_net'];
-            if ($feeCalc['net'] + 0.0001 < $required) {
-                $minGross = EffectiveMerchantFees::minimumWithdrawalGrossForTargetNet($tenantId, $required);
-                $msg = $minGross !== null
-                    ? 'O valor mínimo do saque é R$ '
-                        .number_format($minGross, 2, ',', '.').' (valor total a solicitar).'
-                    : 'O valor solicitado é inferior ao mínimo permitido. Aumente o valor ou contate o suporte.';
+        $required = WithdrawalMinimumService::effectiveRequiredMinNet();
+        if ($required > 0 && $feeCalc['net'] + 0.0001 < $required) {
+            $minGross = EffectiveMerchantFees::minimumWithdrawalGrossForTargetNet($tenantId, $required);
+            $msg = $minGross !== null
+                ? 'O valor mínimo do saque é R$ '
+                    .number_format($minGross, 2, ',', '.').' (valor total a solicitar).'
+                : 'O valor solicitado é inferior ao mínimo permitido. Aumente o valor ou contate o suporte.';
 
-                throw ValidationException::withMessages(['amount' => $msg]);
-            }
+            throw ValidationException::withMessages(['amount' => $msg]);
         }
 
         return DB::transaction(function () use ($user, $tenantId, $amount, $feeCalc, $bucket, $col, $notes) {

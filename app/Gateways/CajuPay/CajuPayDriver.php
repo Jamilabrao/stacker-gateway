@@ -1090,15 +1090,25 @@ class CajuPayDriver implements GatewayDriver
     }
 
     /**
+     * @param  list<string>|null  $eventTypes
      * @return array{endpoint_id: string, signing_secret: string|null, created: bool, already_exists: bool, raw: array<string, mixed>}
      */
-    public function registerWebhookEndpointIdempotent(array $credentials, string $url, bool $rotateIfExists = false): array
-    {
+    public function registerWebhookEndpointIdempotent(
+        array $credentials,
+        string $url,
+        bool $rotateIfExists = false,
+        ?array $eventTypes = null,
+    ): array {
         if (! $this->hasApiKeys($credentials)) {
             throw new \RuntimeException('CajuPay: configure as chaves de API antes de registrar o webhook.');
         }
         if ($url === '') {
             throw new \RuntimeException('CajuPay: URL do webhook vazia.');
+        }
+
+        $eventTypes = $eventTypes ?? ['checkout.payment.*', 'pix.payment.*'];
+        if ($eventTypes === []) {
+            throw new \RuntimeException('CajuPay: event_types do webhook vazio.');
         }
 
         $http = $this->httpForCredentials($credentials);
@@ -1107,7 +1117,7 @@ class CajuPayDriver implements GatewayDriver
             $response = $http->post('/api/webhooks/endpoints/register', [
                 'url' => $url,
                 'description' => 'Getfy ('.parse_url($url, PHP_URL_HOST).')',
-                'event_types' => ['checkout.payment.*', 'pix.payment.*'],
+                'event_types' => array_values($eventTypes),
                 'rotate_if_exists' => $rotateIfExists,
             ]);
         } catch (\Throwable $e) {

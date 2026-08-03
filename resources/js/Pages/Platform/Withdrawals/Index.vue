@@ -157,6 +157,10 @@ function reprocessCajuPayWithdrawal(id) {
     router.post(`/plataforma/financeiro/saques/${id}/reprocessar-cajupay`, {}, { preserveScroll: true });
 }
 
+function reconcileCajuPayWithdrawal(id) {
+    router.post(`/plataforma/financeiro/saques/${id}/reconciliar-cajupay`, {}, { preserveScroll: true });
+}
+
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 }
@@ -269,10 +273,10 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
             >
                 <p class="font-medium">Pendentes</p>
                 <p class="mt-1 text-sm opacity-95">
-                    O envio do PIX costuma ser <strong>automático</strong> ao solicitar no Financeiro. Com CajuPay ativo, use
-                    <strong>Reprocessar</strong> para nova tentativa (ex.: saldo insuficiente antes) ou
-                    <strong>Pago (CajuPay)</strong> na primeira aprovação. Use
-                    <strong>Pago manual</strong> se o pagamento já foi feito por fora.
+                    O envio do PIX costuma ser <strong>automático</strong> ao solicitar no Financeiro. Em
+                    <strong>Aguardando gateway</strong>, use <strong>Reconciliar</strong> (consulta a CajuPay) ou
+                    <strong>Confirmar pago</strong> se o PIX já liquidou lá. Use <strong>Pago manual</strong> só quando
+                    o pagamento foi feito por fora, sem ID no gateway.
                 </p>
             </div>
             <div class="overflow-x-auto">
@@ -353,14 +357,32 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                         v-else-if="w.status === 'pending' && withdrawalAwaitingGateway(w)"
                                         class="flex flex-col items-end gap-2"
                                     >
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="secondary"
-                                            @click="openRejectStepUp(w.id, true)"
-                                        >
-                                            Cancelar e estornar
-                                        </Button>
+                                        <div class="flex flex-wrap justify-end gap-2">
+                                            <Button
+                                                v-if="w.payout_provider === 'cajupay'"
+                                                type="button"
+                                                size="sm"
+                                                @click="reconcileCajuPayWithdrawal(w.id)"
+                                            >
+                                                Reconciliar
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="secondary"
+                                                @click="openApproveStepUp(w.id, true)"
+                                            >
+                                                Confirmar pago
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="secondary"
+                                                @click="openRejectStepUp(w.id, true)"
+                                            >
+                                                Cancelar e estornar
+                                            </Button>
+                                        </div>
                                     </div>
                                     <div
                                         v-else-if="w.status === 'pending' && !withdrawalAwaitingGateway(w)"
@@ -412,6 +434,29 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
                                     {{ w.payout_last_error }}
                                     <span v-if="w.payout_last_attempt_at" class="ml-2 text-red-700/80 dark:text-red-300/80">
                                         ({{ new Date(w.payout_last_attempt_at).toLocaleString('pt-BR') }})
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr
+                                v-if="withdrawalAwaitingGateway(w) && (w.webhook_last_at || w.reconcile_last_at || w.reconcile_exhausted)"
+                                class="border-t border-sky-100 bg-sky-50/70 dark:border-sky-900/40 dark:bg-sky-950/20"
+                            >
+                                <td colspan="9" class="px-3 py-2 text-xs text-sky-950 dark:text-sky-100">
+                                    <span v-if="w.payout_external_id" class="mr-3">
+                                        <span class="font-medium">ID gateway:</span> {{ w.payout_external_id }}
+                                    </span>
+                                    <span v-if="w.webhook_last_at" class="mr-3">
+                                        <span class="font-medium">Webhook:</span>
+                                        {{ w.webhook_last_event || '—' }} / {{ w.webhook_last_status || '—' }}
+                                        ({{ new Date(w.webhook_last_at).toLocaleString('pt-BR') }})
+                                    </span>
+                                    <span v-if="w.reconcile_last_at" class="mr-3">
+                                        <span class="font-medium">Reconciliação:</span>
+                                        {{ w.reconcile_last_api_status ?? 'null' }}
+                                        ({{ new Date(w.reconcile_last_at).toLocaleString('pt-BR') }})
+                                    </span>
+                                    <span v-if="w.reconcile_exhausted" class="font-medium text-amber-800 dark:text-amber-200">
+                                        Tentativas de reconciliação esgotadas — use Reconciliar ou Confirmar pago.
                                     </span>
                                 </td>
                             </tr>

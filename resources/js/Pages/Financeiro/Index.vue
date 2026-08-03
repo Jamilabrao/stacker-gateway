@@ -32,6 +32,10 @@ const props = defineProps({
     caju_pix_owner_document_hint: { type: String, default: '' },
     settlement_preview: { type: Object, default: () => ({}) },
     pending_receive_by_date: { type: Array, default: () => [] },
+    /** Líquido mínimo efetivo (plataforma × gateway). */
+    withdrawal_minimum_net_brl: { type: Number, default: 0 },
+    /** Valor bruto mínimo a solicitar para atingir o líquido (após taxa de saque). */
+    withdrawal_minimum_gross_brl: { type: Number, default: null },
     seller_profile: {
         type: Object,
         default: () => ({ name: '', email: '', document: null }),
@@ -1378,6 +1382,15 @@ const inputClass =
                             </button>
                         </div>
                         <p v-if="withdrawalFeeHint" class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">{{ withdrawalFeeHint }}</p>
+                        <p
+                            v-if="withdrawal_minimum_gross_brl != null && Number(withdrawal_minimum_gross_brl) > 0"
+                            class="mt-2 text-xs leading-snug text-zinc-500 dark:text-zinc-400"
+                        >
+                            Valor mínimo do saque: {{ formatBRL(withdrawal_minimum_gross_brl) }}
+                            <span v-if="Number(withdrawal_minimum_net_brl) > 0">
+                                (líquido mínimo {{ formatBRL(withdrawal_minimum_net_brl) }})
+                            </span>
+                        </p>
                         <p class="mt-2 text-xs leading-snug text-zinc-500 dark:text-zinc-400">
                             {{ t('finance.withdraw_modal_bucket_hint', 'Escolha a carteira do método em que as vendas entraram (PIX, cartão ou boleto). O saldo total da página soma as três.') }}
                         </p>

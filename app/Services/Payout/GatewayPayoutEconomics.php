@@ -77,7 +77,9 @@ class GatewayPayoutEconomics
             return self::defaults();
         }
 
-        $required = round($minPayout + $feePix + $feePayout, 2);
+        // Piso técnico do adquirente = mínimo líquido configurado.
+        // Taxas admin (PIX/saque) não entram no piso do seller — só KPIs + valor da API de cashout.
+        $required = round($minPayout, 2);
 
         return [
             'required_min_net' => $required,

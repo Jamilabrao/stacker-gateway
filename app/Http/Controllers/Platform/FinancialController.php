@@ -15,6 +15,7 @@ use App\Models\CajuPayAccount;
 use App\Models\User;
 use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayPayoutService;
+use App\Services\CajuPay\CajuPayWithdrawalReconcileService;
 use App\Services\Spacepag\SpacepagPayoutService;
 use App\Services\Woovi\WooviPayoutService;
 use App\Services\EffectiveMerchantFees;
@@ -30,6 +31,7 @@ use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformEmailNotifications;
 use App\Services\PlatformPaymentMethods;
+use App\Services\Withdrawal\WithdrawalMinimumService;
 use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Models\Setting;
 use App\Support\KycNotificationEmails;
@@ -61,6 +63,8 @@ class FinancialController extends Controller
             'api_pix_enabled' => ApiPixAccess::globalEnabled(),
             'api_pix_minimum_charge_brl' => app(MinimumChargeService::class)->apiPixMinimumBrl(),
             'platform_minimum_charge_brl' => app(MinimumChargeService::class)->platformMinimumBrl(),
+            'platform_minimum_withdrawal_brl' => WithdrawalMinimumService::platformMinimumBrl(),
+            'effective_minimum_withdrawal_brl' => WithdrawalMinimumService::effectiveRequiredMinNet(),
             'payout_gateway_preference' => PlatformPayoutGateway::preference(),
             'payout_gateway_active' => PlatformPayoutGateway::activeSlug(),
             'gateway_webhook_security_warnings' => $this->gatewayWebhookSecurityWarnings($tenantId),
@@ -341,21 +345,25 @@ class FinancialController extends Controller
         $validated = $request->validate([
             'api_pix_minimum_charge_brl' => ['required', 'numeric', 'min:0', 'max:999999'],
             'platform_minimum_charge_brl' => ['required', 'numeric', 'min:0', 'max:999999'],
+            'platform_minimum_withdrawal_brl' => ['required', 'numeric', 'min:0', 'max:999999'],
         ]);
 
         $apiMin = round((float) $validated['api_pix_minimum_charge_brl'], 2);
         $platformMin = round((float) $validated['platform_minimum_charge_brl'], 2);
+        $withdrawalMin = round((float) $validated['platform_minimum_withdrawal_brl'], 2);
 
         Setting::set(MinimumChargeService::SETTING_API_PIX, (string) $apiMin, null);
         Setting::set(MinimumChargeService::SETTING_PLATFORM, (string) $platformMin, null);
+        WithdrawalMinimumService::setPlatformMinimumBrl($withdrawalMin);
 
         PlatformAuditService::log('platform.financial.charge_limits_updated', [
             'api_pix_minimum_charge_brl' => $apiMin,
             'platform_minimum_charge_brl' => $platformMin,
+            'platform_minimum_withdrawal_brl' => $withdrawalMin,
         ], $request);
 
         return redirect()->route('plataforma.financeiro.index', ['tab' => 'limites'])
-            ->with('success', 'Limites de cobrança atualizados.');
+            ->with('success', 'Limites atualizados.');
     }
 
     public function approveWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse
@@ -396,17 +404,31 @@ class FinancialController extends Controller
             $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
             $meta['manual_confirmed_by'] = $request->user()?->id;
             $meta['manual_confirmed_at'] = now()->toIso8601String();
-            $withdrawal->update([
+            $hadExternal = trim((string) ($withdrawal->payout_external_id ?? '')) !== '';
+            if ($hadExternal) {
+                $meta['manual_confirmed_while_awaiting_gateway'] = true;
+            }
+            $update = [
                 'payout_manual' => true,
-                'payout_provider' => 'manual',
                 'payout_meta' => $meta,
-            ]);
+            ];
+            // Sem envio prévio ao gateway: marca provedor como manual. Se já há external_id, preserva cajupay/etc.
+            if (! $hadExternal) {
+                $update['payout_provider'] = 'manual';
+            }
+            $withdrawal->update($update);
             MerchantWithdrawalService::markPaid($withdrawal->fresh());
 
-            PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'manual' => true], $request);
+            PlatformAuditService::log('platform.withdrawal.approved', [
+                'withdrawal_id' => $withdrawal->id,
+                'manual' => true,
+                'awaiting_gateway' => $hadExternal,
+            ], $request);
 
             return redirect()->route('plataforma.saques.index')
-                ->with('success', 'Saque marcado como pago (aprovado manualmente, sem API).');
+                ->with('success', $hadExternal
+                    ? 'Saque confirmado como pago (já liquidado no gateway).'
+                    : 'Saque marcado como pago (aprovado manualmente, sem API).');
         }
 
         $slug = PlatformPayoutGateway::activeSlug();
@@ -604,6 +626,48 @@ class FinancialController extends Controller
 
         return redirect()->route('plataforma.saques.index')
             ->with('error', 'Gateway de payout não suportado.');
+    }
+
+    /**
+     * Consulta o status do payout na CajuPay e confirma/falha o saque local se a API for definitiva.
+     */
+    public function reconcileCajuPayWithdrawal(Request $request, Withdrawal $withdrawal): RedirectResponse
+    {
+        if ($withdrawal->payout_provider !== 'cajupay') {
+            return redirect()->route('plataforma.saques.index')
+                ->with('error', 'Reconciliação automática disponível apenas para saques CajuPay.');
+        }
+
+        if (! in_array($withdrawal->status, ['pending', 'processing'], true)) {
+            return redirect()->route('plataforma.saques.index')
+                ->with('error', 'Este saque não está pendente.');
+        }
+
+        if (trim((string) ($withdrawal->payout_external_id ?? '')) === '') {
+            return redirect()->route('plataforma.saques.index')
+                ->with('error', 'Saque sem ID externo na CajuPay. Use Pago (CajuPay) ou Reprocessar.');
+        }
+
+        $outcome = app(CajuPayWithdrawalReconcileService::class)->reconcile($withdrawal->fresh());
+
+        PlatformAuditService::log('platform.withdrawal.cajupay_reconcile', [
+            'withdrawal_id' => $withdrawal->id,
+            'result' => $outcome['result'] ?? null,
+            'api_status' => $outcome['api_status'] ?? null,
+        ], $request);
+
+        if (($outcome['result'] ?? null) === 'paid') {
+            return redirect()->route('plataforma.saques.index')
+                ->with('success', 'Saque confirmado como pago via consulta à CajuPay.');
+        }
+
+        if (($outcome['result'] ?? null) === 'failed') {
+            return redirect()->route('plataforma.saques.index')
+                ->with('success', 'CajuPay reportou falha; saldo devolvido ao infoprodutor.');
+        }
+
+        return redirect()->route('plataforma.saques.index')
+            ->with('error', $outcome['message'] ?? 'CajuPay ainda não confirmou o saque. Tente novamente em instantes ou confirme manualmente se o PIX já liquidou.');
     }
 
     /**

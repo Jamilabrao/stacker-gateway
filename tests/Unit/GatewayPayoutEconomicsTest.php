@@ -15,7 +15,8 @@ class GatewayPayoutEconomicsTest extends TestCase
             'spacepag_admin_fee_payout_brl' => '0.5',
         ]);
 
-        $this->assertSame(8.5, $out['required_min_net']);
+        // Taxas admin não entram no piso do seller — só no retorno para KPI/API.
+        $this->assertSame(7.0, $out['required_min_net']);
         $this->assertSame(7.0, $out['payout_min_brl']);
         $this->assertSame(1.0, $out['admin_fee_pix_brl']);
         $this->assertSame(0.5, $out['admin_fee_payout_brl']);

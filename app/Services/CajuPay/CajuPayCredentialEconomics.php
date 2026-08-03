@@ -10,7 +10,7 @@ class CajuPayCredentialEconomics
     public const DEFAULT_MIN_PAYOUT_BRL = GatewayPayoutEconomics::DEFAULT_MIN_PAYOUT_BRL;
 
     /**
-     * Líquido mínimo exigido: mínimo CajuPay + taxas PIX/saque (referência admin).
+     * Líquido mínimo exigido pelo gateway: mínimo CajuPay configurado (sem somar taxas admin).
      *
      * @return array{
      *     required_min_net: float,

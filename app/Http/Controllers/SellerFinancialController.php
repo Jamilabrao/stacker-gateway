@@ -12,6 +12,7 @@ use App\Services\EffectiveSettlementRules;
 use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutUserSettings;
 use App\Services\Payout\PlatformPayoutGateway;
+use App\Services\Withdrawal\WithdrawalMinimumService;
 use App\Services\WithdrawalAutoPayoutService;
 use App\Services\WithdrawalPixReceiptService;
 use App\Support\BrazilianDocumentDigits;
@@ -192,6 +193,11 @@ class SellerFinancialController extends Controller
         $kycFinanceLocked = Schema::hasColumn('users', 'kyc_status')
             && ! $subject->isMerchantOperationallyApproved();
 
+        $requiredWithdrawalNet = WithdrawalMinimumService::effectiveRequiredMinNet();
+        $withdrawalMinimumGross = $requiredWithdrawalNet > 0
+            ? EffectiveMerchantFees::minimumWithdrawalGrossForTargetNet($tenantId, $requiredWithdrawalNet)
+            : null;
+
         return Inertia::render('Financeiro/Index', [
             'wallet' => $walletPayload,
             'pending_receive_by_date' => $pendingReceiveByDate,
@@ -213,6 +219,8 @@ class SellerFinancialController extends Controller
             'payout_pix_setup' => $payoutPixSetup,
             'caju_pix_owner_document_hint' => $cajuPixOwnerDocumentHint,
             'fee_preview' => $feesPreview,
+            'withdrawal_minimum_net_brl' => $requiredWithdrawalNet,
+            'withdrawal_minimum_gross_brl' => $withdrawalMinimumGross,
             'settlement_preview' => [
                 'pix' => EffectiveSettlementRules::forTenantMethod($tenantId, 'pix'),
                 'card' => EffectiveSettlementRules::forTenantMethod($tenantId, 'card'),

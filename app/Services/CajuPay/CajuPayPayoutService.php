@@ -4,10 +4,11 @@ namespace App\Services\CajuPay;
 
 use App\Models\GatewayCredential;
 use App\Models\Withdrawal;
-use App\Services\WithdrawalPixReceiptService;
-use App\Support\BrazilianDocumentDigits;
 use App\Services\EffectiveMerchantFees;
 use App\Services\Payout\GatewayPayoutEconomics;
+use App\Services\Withdrawal\WithdrawalMinimumService;
+use App\Services\WithdrawalPixReceiptService;
+use App\Support\BrazilianDocumentDigits;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -43,7 +44,7 @@ class CajuPayPayoutService
         }
 
         $economics = GatewayPayoutEconomics::fromCredentialsArray('cajupay', $credentials);
-        $requiredNet = $economics['required_min_net'];
+        $requiredNet = WithdrawalMinimumService::effectiveRequiredMinNet($economics);
         $minCents = (int) max(1, (int) round($requiredNet * 100));
 
         $netCents = (int) round($net * 100);

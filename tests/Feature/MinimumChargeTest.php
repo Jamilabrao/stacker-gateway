@@ -62,6 +62,7 @@ class MinimumChargeTest extends TestCase
         $response = $this->actingAs($admin)->put(route('plataforma.financeiro.limites.update'), [
             'api_pix_minimum_charge_brl' => 5,
             'platform_minimum_charge_brl' => 10,
+            'platform_minimum_withdrawal_brl' => 25,
         ]);
 
         $response->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'limites']));
@@ -70,6 +71,7 @@ class MinimumChargeTest extends TestCase
         $this->assertSame(5.0, $service->apiPixMinimumBrl());
         $this->assertSame(10.0, $service->platformMinimumBrl());
         $this->assertSame('5', Setting::get(MinimumChargeService::SETTING_API_PIX, null, null));
+        $this->assertSame(25.0, \App\Services\Withdrawal\WithdrawalMinimumService::platformMinimumBrl());
     }
 
     public function test_api_pix_below_minimum_returns_422(): void

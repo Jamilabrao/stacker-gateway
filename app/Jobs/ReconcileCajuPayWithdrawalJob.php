@@ -3,9 +3,8 @@
 namespace App\Jobs;
 
 use App\Models\Withdrawal;
-use App\Services\CajuPay\CajuPayPayoutService;
+use App\Services\CajuPay\CajuPayWithdrawalReconcileService;
 use App\Services\MerchantWithdrawalService;
-use App\Services\WithdrawalPixReceiptService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -16,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 /**
  * Consulta status do payout na CajuPay até o saque constar como pago (fallback ao webhook).
  * Intervalo: 2 min entre tentativas; máximo 30 tentativas (~1 h).
+ * Se a API permanecer desconhecida/null após o máximo, NÃO estorna — deixa pending para o admin.
  */
 class ReconcileCajuPayWithdrawalJob implements ShouldQueue
 {
@@ -32,8 +32,10 @@ class ReconcileCajuPayWithdrawalJob implements ShouldQueue
 
     public function __construct(public int $withdrawalId) {}
 
-    public function handle(): void
+    public function handle(?CajuPayWithdrawalReconcileService $reconcile = null): void
     {
+        $reconcile ??= app(CajuPayWithdrawalReconcileService::class);
+
         $withdrawal = Withdrawal::query()->find($this->withdrawalId);
         if ($withdrawal === null
             || ! in_array($withdrawal->status, ['pending', 'processing'], true)
@@ -46,52 +48,26 @@ class ReconcileCajuPayWithdrawalJob implements ShouldQueue
             return;
         }
 
-        $apiStatus = null;
-        try {
-            $apiStatus = app(CajuPayPayoutService::class)->getPayoutSettlementStatus($externalId, (int) $withdrawal->tenant_id);
-        } catch (\Throwable $e) {
-            Log::warning('ReconcileCajuPayWithdrawalJob: falha na consulta', [
-                'withdrawal_id' => $this->withdrawalId,
-                'message' => $e->getMessage(),
-            ]);
-            $this->recordReconcileAttempt($withdrawal, null);
-            $this->maybeReleaseForRetry();
+        $outcome = $reconcile->reconcile($withdrawal);
+        $this->recordAttemptMeta($withdrawal->fresh() ?? $withdrawal, $outcome['api_status'] ?? null);
 
+        if (($outcome['result'] ?? null) === 'paid' || ($outcome['result'] ?? null) === 'failed') {
             return;
         }
 
-        $this->recordReconcileAttempt($withdrawal, $apiStatus);
-
-        if ($apiStatus === 'paid') {
-            $fresh = $withdrawal->fresh();
-            app(WithdrawalPixReceiptService::class)->enrichFromCajuPay($fresh);
-            MerchantWithdrawalService::markPaid($fresh);
-
-            return;
-        }
-
-        if ($apiStatus === 'failed') {
-            MerchantWithdrawalService::markFailed(
-                $withdrawal->fresh(),
-                'Payout CajuPay falhou na API (reconciliação).'
-            );
-
-            return;
-        }
-
-        $this->maybeReleaseForRetry();
+        $this->maybeReleaseForRetry($outcome['api_status'] ?? null);
     }
 
-    private function recordReconcileAttempt(Withdrawal $withdrawal, ?string $apiStatus): void
+    private function recordAttemptMeta(Withdrawal $withdrawal, ?string $apiStatus): void
     {
         $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+        $meta['reconcile_attempt'] = $this->attempts();
         $meta['reconcile_last_at'] = now()->toIso8601String();
         $meta['reconcile_last_api_status'] = $apiStatus;
-        $meta['reconcile_attempt'] = $this->attempts();
         $withdrawal->update(['payout_meta' => $meta]);
     }
 
-    private function maybeReleaseForRetry(): void
+    private function maybeReleaseForRetry(?string $apiStatus): void
     {
         if (config('queue.default') === 'sync') {
             return;
@@ -99,12 +75,30 @@ class ReconcileCajuPayWithdrawalJob implements ShouldQueue
 
         if ($this->attempts() >= self::MAX_ATTEMPTS) {
             $withdrawal = Withdrawal::query()->find($this->withdrawalId);
-            if ($withdrawal !== null && in_array($withdrawal->status, ['pending', 'processing'], true)) {
+            if ($withdrawal === null || ! in_array($withdrawal->status, ['pending', 'processing'], true)) {
+                return;
+            }
+
+            // Só estorna se a Caju confirmou falha. Status null/desconhecido pode ser PIX já pago.
+            if ($apiStatus === 'failed') {
                 MerchantWithdrawalService::markFailed(
                     $withdrawal->fresh(),
-                    'Payout CajuPay não confirmado após esgotar tentativas de reconciliação.'
+                    'Payout CajuPay falhou na API (reconciliação).'
                 );
+
+                return;
             }
+
+            $meta = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+            $meta['reconcile_exhausted'] = true;
+            $meta['reconcile_exhausted_at'] = now()->toIso8601String();
+            $meta['reconcile_exhausted_api_status'] = $apiStatus;
+            $withdrawal->update(['payout_meta' => $meta]);
+
+            Log::warning('ReconcileCajuPayWithdrawalJob: tentativas esgotadas sem confirmação definitiva', [
+                'withdrawal_id' => $this->withdrawalId,
+                'api_status' => $apiStatus,
+            ]);
 
             return;
         }
