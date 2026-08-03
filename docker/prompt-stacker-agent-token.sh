@@ -2,7 +2,9 @@
 # Solicita STACKER_AGENT_TOKEN (painel Stacker) e grava em .env + .docker/stack.env
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# BASH_SOURCE quando sourced; $0 quando executado direto
+_SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+ROOT_DIR="$(cd "$(dirname "$_SCRIPT_PATH")/.." && pwd)"
 ENV_FILE="${STACKER_ENV_FILE:-$ROOT_DIR/.env}"
 STACK_ENV="${STACKER_STACK_ENV:-$ROOT_DIR/.docker/stack.env}"
 

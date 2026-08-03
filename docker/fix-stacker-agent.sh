@@ -43,6 +43,37 @@ read_env_var() {
   grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true
 }
 
+set_env_var_in_file() {
+  file="$1"
+  key="$2"
+  val="$3"
+  dir="$(dirname "$file")"
+  mkdir -p "$dir"
+  touch "$file"
+  if grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$file" 2>/dev/null; then
+    tmp="$(mktemp)"
+    awk -v k="$key" -v v="$val" '
+      $0 ~ "^[[:space:]]*" k "[[:space:]]*=" { print k "=" v; next }
+      { print }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+  else
+    echo "${key}=${val}" >> "$file"
+  fi
+}
+
+sync_token_to_stack_env() {
+  token="$1"
+  api_url="$2"
+  [ -n "$token" ] || return 0
+  mkdir -p "$(dirname "$STACK_ENV")"
+  touch "$STACK_ENV"
+  set_env_var_in_file "$STACK_ENV" "STACKER_AGENT_TOKEN" "$token"
+  if [ -n "$api_url" ]; then
+    set_env_var_in_file "$STACK_ENV" "STACKER_API_URL" "$api_url"
+  fi
+}
+
 mask_token() {
   token="$1"
   len="${#token}"
@@ -53,6 +84,15 @@ mask_token() {
   prefix="$(printf '%.4s' "$token")"
   suffix="$(printf '%s' "$token" | tail -c 5)"
   printf '%s...%s' "$prefix" "$suffix"
+}
+
+# POSIX: sem arrays bash — wrapper para docker compose
+dc() {
+  docker compose -p "$PROJECT" --project-directory "$HOST_DIR" \
+    -f "$COMPOSE_FILE" \
+    --env-file "$STACK_ENV" \
+    --env-file "$ENV_FILE" \
+    "$@"
 }
 
 echo "=== Stacker Agent — diagnóstico e correção ==="
@@ -78,11 +118,6 @@ elif [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-if command -v bash >/dev/null 2>&1 && [ -f docker/prompt-stacker-agent-token.sh ]; then
-  echo "→ Sincronizando .env → .docker/stack.env ..."
-  bash -c 'set -euo pipefail; source docker/prompt-stacker-agent-token.sh; sync_stacker_vars_from_env'
-fi
-
 TOKEN_DOTENV="$(read_env_var "$ENV_FILE" STACKER_AGENT_TOKEN)"
 TOKEN_STACK="$(read_env_var "$STACK_ENV" STACKER_AGENT_TOKEN)"
 API_URL="$(read_env_var "$ENV_FILE" STACKER_API_URL)"
@@ -94,6 +129,13 @@ if [ -z "$API_URL" ]; then
   API_URL="$(read_env_var "$STACK_ENV" STACKER_API_URL)"
 fi
 [ -z "$API_URL" ] && API_URL="https://api.stacker.builders"
+
+# Token no .env mas ausente/diferente no stack.env — compose interpola STACKER_AGENT_TOKEN daí
+if [ -n "$TOKEN_DOTENV" ] && [ "$TOKEN_DOTENV" != "$TOKEN_STACK" ]; then
+  echo "→ Gravando STACKER_AGENT_TOKEN em .docker/stack.env ..."
+  sync_token_to_stack_env "$TOKEN_DOTENV" "$API_URL"
+  TOKEN_STACK="$(read_env_var "$STACK_ENV" STACKER_AGENT_TOKEN)"
+fi
 
 echo ""
 echo "--- Configuração ---"
@@ -117,9 +159,10 @@ if [ -z "$TOKEN_DOTENV" ]; then
   exit 1
 fi
 
-if [ -n "$TOKEN_DOTENV" ] && [ -n "$TOKEN_STACK" ] && [ "$TOKEN_DOTENV" != "$TOKEN_STACK" ]; then
+if [ -z "$TOKEN_STACK" ]; then
   echo ""
-  echo "Aviso: tokens diferentes entre .env e .docker/stack.env — será corrigido ao recriar."
+  echo "Erro: token não chegou em $STACK_ENV" >&2
+  exit 1
 fi
 
 if [ -f "$LICENSE_FILE" ]; then
@@ -132,10 +175,8 @@ fi
 HOST_DIR="${GETFY_HOST_DIR:-$ROOT_DIR}"
 PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"
 COMPOSE_FILE="$(sh docker/detect-compose-files.sh 2>/dev/null || echo 'docker-compose.yml')"
-COMPOSE=(docker compose -p "$PROJECT" --project-directory "$HOST_DIR" \
-  -f "$COMPOSE_FILE" --env-file "$ROOT_DIR/.docker/stack.env" --env-file "$ROOT_DIR/.env")
 
-AGENT_CID="$("${COMPOSE[@]}" ps -q stacker-agent 2>/dev/null | head -1 || true)"
+AGENT_CID="$(dc ps -q stacker-agent 2>/dev/null | head -1 || true)"
 AGENT_HEALTH="missing"
 if [ -z "$AGENT_CID" ]; then
   AGENT_CID="$(docker ps -aq --filter "name=${PROJECT}-stacker-agent" 2>/dev/null | head -1 || true)"
@@ -144,13 +185,12 @@ fi
 echo ""
 echo "--- Container ---"
 if [ -n "$AGENT_CID" ]; then
-  AGENT_STATE="$(docker inspect -f '{{.State.Status}}' "$AGENT_CID" 2>/dev/null || echo unknown)"
   AGENT_HEALTH="$(docker inspect -f '{{if .State.Restarting}}restarting{{else}}{{.State.Status}}{{end}}' "$AGENT_CID" 2>/dev/null || echo unknown)"
   echo "ID:               $AGENT_CID"
   echo "Status:           $AGENT_HEALTH"
   echo ""
   echo "Últimas linhas do log:"
-  "${COMPOSE[@]}" logs stacker-agent --tail 15 2>/dev/null \
+  dc logs stacker-agent --tail 15 2>/dev/null \
     || docker logs "$AGENT_CID" --tail 15 2>/dev/null \
     || true
 else
@@ -160,7 +200,7 @@ fi
 if [ "$CHECK_ONLY" -eq 1 ]; then
   echo ""
   echo "Modo --check-only: nenhuma alteração feita."
-  if [ "$AGENT_HEALTH" = "running" ] 2>/dev/null; then
+  if [ "$AGENT_HEALTH" = "running" ]; then
     exit 0
   fi
   exit 1
@@ -170,10 +210,10 @@ echo ""
 echo "→ Recriando stacker-agent ..."
 if [ "$REBUILD" -eq 1 ]; then
   echo "→ Rebuild da imagem ..."
-  "${COMPOSE[@]}" build stacker-agent
+  dc build stacker-agent
 fi
 
-"${COMPOSE[@]}" up -d --no-deps --force-recreate stacker-agent
+dc up -d --no-deps --force-recreate stacker-agent
 
 echo ""
 echo "→ Aguardando heartbeat (até 45s) ..."
@@ -184,7 +224,7 @@ while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
   sleep 5
   ATTEMPTS=$((ATTEMPTS + 1))
 
-  AGENT_CID="$("${COMPOSE[@]}" ps -q stacker-agent 2>/dev/null | head -1 || true)"
+  AGENT_CID="$(dc ps -q stacker-agent 2>/dev/null | head -1 || true)"
   if [ -z "$AGENT_CID" ]; then
     continue
   fi
@@ -192,7 +232,7 @@ while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
   STATE="$(docker inspect -f '{{if .State.Restarting}}restarting{{else}}{{.State.Status}}{{end}}' "$AGENT_CID" 2>/dev/null || echo unknown)"
   if [ "$STATE" = "restarting" ] || [ "$STATE" = "exited" ]; then
     echo "  [$((ATTEMPTS * 5))s] container em $STATE — verificando logs..."
-    LOG_TAIL="$("${COMPOSE[@]}" logs stacker-agent --tail 5 2>/dev/null || true)"
+    LOG_TAIL="$(dc logs stacker-agent --tail 5 2>/dev/null || true)"
     if printf '%s' "$LOG_TAIL" | grep -q 'STACKER_AGENT_TOKEN não configurado'; then
       echo ""
       echo "Erro: token não chegou ao container. Confira .env e .docker/stack.env." >&2
@@ -202,7 +242,7 @@ while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
     continue
   fi
 
-  LOG_TAIL="$("${COMPOSE[@]}" logs stacker-agent --tail 20 2>/dev/null || true)"
+  LOG_TAIL="$(dc logs stacker-agent --tail 20 2>/dev/null || true)"
   if printf '%s' "$LOG_TAIL" | grep -q 'Stacker Agent '; then
     if ! printf '%s' "$LOG_TAIL" | grep -q 'Heartbeat falhou'; then
       OK=1
@@ -223,13 +263,13 @@ done
 
 echo ""
 echo "Logs recentes:"
-"${COMPOSE[@]}" logs stacker-agent --tail 25 2>/dev/null \
+dc logs stacker-agent --tail 25 2>/dev/null \
   || docker logs "${PROJECT}-stacker-agent-1" --tail 25 2>/dev/null \
   || true
 
 echo ""
 if [ "$OK" -eq 1 ]; then
-  echo "OK — agente rodando. O painel Stacker deve marcar online em ~30–60s."
+  echo "OK — agente rodando. O painel Stacker deve marcar online em ~1–2 min."
   exit 0
 fi
 
@@ -237,5 +277,5 @@ echo "Aviso: container subiu, mas heartbeat ainda não confirmado." >&2
 echo "Verifique:" >&2
 echo "  1. Token correto no painel (Gateway → Instalações)" >&2
 echo "  2. Saída HTTPS para $API_URL" >&2
-echo "  3. Logs: ${COMPOSE[*]} logs stacker-agent --tail 50" >&2
+echo "  3. Logs: docker logs ${PROJECT}-stacker-agent-1 --tail 50" >&2
 exit 3
