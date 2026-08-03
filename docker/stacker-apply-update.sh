@@ -262,9 +262,14 @@ ensure_php_uploads_ini
 
 echo "=== Subindo stack (sem recriar stacker-agent — apply roda dentro dele) ==="
 COMPOSE_UP_SERVICES=()
+HAS_CADDY=0
 while IFS= read -r svc; do
   [ -z "$svc" ] && continue
   [ "$svc" = "stacker-agent" ] && continue
+  if [ "$svc" = "caddy" ]; then
+    HAS_CADDY=1
+    continue
+  fi
   COMPOSE_UP_SERVICES+=("$svc")
 done < <("${COMPOSE[@]}" config --services)
 
@@ -275,6 +280,7 @@ fi
 
 # Recria serviços que usam getfy_app:latest — sem hardcode de "queue"
 # (compose padrão tem app/scheduler/worker-*; caddy/no-redis têm queue).
+# Nunca inclui caddy aqui — recrear o proxy derruba 80/443.
 RECREATE_SERVICES=()
 for svc in "${COMPOSE_UP_SERVICES[@]}"; do
   case "$svc" in
@@ -292,12 +298,6 @@ if [ "$has_app" -ne 1 ]; then
   exit 1
 fi
 
-echo "=== Recriando containers com imagem nova (${RECREATE_SERVICES[*]}) ==="
-"${COMPOSE[@]}" up -d --force-recreate --no-deps "${RECREATE_SERVICES[@]}"
-
-echo "=== Subindo demais serviços ==="
-"${COMPOSE[@]}" up -d --remove-orphans "${COMPOSE_UP_SERVICES[@]}"
-
 wait_for_app_http() {
   local attempt=0
   local max=90
@@ -314,20 +314,67 @@ wait_for_app_http() {
   return 1
 }
 
-echo "=== Aguardando app ficar saudável ==="
-wait_for_app_http
+# Caddy: manter processo (TLS/portas). Só sobe se estiver parado; reload atualiza upstream.
+ensure_caddy_proxy() {
+  if [ "$HAS_CADDY" -ne 1 ] && [ "$COMPOSE_FILES" != "docker-compose.caddy.yml" ]; then
+    return 0
+  fi
 
-if [ "$COMPOSE_FILES" = "docker-compose.caddy.yml" ]; then
-  echo "=== Recriando Caddy (proxy → app) ==="
-  "${COMPOSE[@]}" up -d --force-recreate --no-deps caddy
-  sleep 3
+  local caddy_cid caddy_state
+  caddy_cid="$("${COMPOSE[@]}" ps -q caddy 2>/dev/null | head -1 || true)"
+  caddy_state="missing"
+  if [ -n "$caddy_cid" ]; then
+    caddy_state="$(docker inspect -f '{{if .State.Running}}running{{else}}{{.State.Status}}{{end}}' "$caddy_cid" 2>/dev/null || echo unknown)"
+  fi
+
+  if [ "${GETFY_FORCE_RECREATE_CADDY:-0}" = "1" ]; then
+    echo "=== Recriando Caddy (GETFY_FORCE_RECREATE_CADDY=1) ==="
+    "${COMPOSE[@]}" up -d --force-recreate --no-deps caddy
+  elif [ "$caddy_state" != "running" ]; then
+    echo "=== Subindo Caddy (estava: $caddy_state) ==="
+    "${COMPOSE[@]}" up -d --no-deps caddy
+  else
+    echo "=== Caddy permanece no ar — reload do proxy (sem recreate) ==="
+    if ! "${COMPOSE[@]}" exec -T caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null; then
+      echo "Aviso: caddy reload falhou — tentando start sem recreate." >&2
+      "${COMPOSE[@]}" up -d --no-deps caddy || true
+    fi
+  fi
+
+  sleep 2
   if command -v curl >/dev/null 2>&1; then
     if ! curl -sI --max-time 8 "http://127.0.0.1/" 2>/dev/null | head -1 | grep -qE 'HTTP/[0-9.]+ [23]'; then
       echo "Aviso: HTTP local ainda não retornou 2xx — verifique logs do Caddy." >&2
       "${COMPOSE[@]}" logs caddy --tail 40 2>/dev/null || true
+    else
+      echo "HTTP local via Caddy OK."
     fi
   fi
+}
+
+# App primeiro (tráfego HTTP), depois workers — reduz janela fora do ar no Caddy.
+APP_ONLY=(app)
+OTHER_RECREATE=()
+for svc in "${RECREATE_SERVICES[@]}"; do
+  [ "$svc" = "app" ] && continue
+  OTHER_RECREATE+=("$svc")
+done
+
+echo "=== Recriando app com imagem nova ==="
+"${COMPOSE[@]}" up -d --force-recreate --no-deps "${APP_ONLY[@]}"
+
+echo "=== Aguardando app ficar saudável ==="
+wait_for_app_http
+
+ensure_caddy_proxy
+
+if [ "${#OTHER_RECREATE[@]}" -gt 0 ]; then
+  echo "=== Recriando workers (${OTHER_RECREATE[*]}) ==="
+  "${COMPOSE[@]}" up -d --force-recreate --no-deps "${OTHER_RECREATE[@]}"
 fi
+
+echo "=== Garantindo demais serviços (sem recreate / sem tocar no Caddy) ==="
+"${COMPOSE[@]}" up -d --remove-orphans --no-recreate "${COMPOSE_UP_SERVICES[@]}"
 
 echo "=== Migrate + config clear ==="
 if "${COMPOSE[@]}" exec -T app php artisan migrate --force; then

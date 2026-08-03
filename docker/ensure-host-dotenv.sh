@@ -70,11 +70,12 @@ if [ ! -f "$DOTENV" ] || [ ! -s "$DOTENV" ]; then
 fi
 
 for var in STACKER_AGENT_TOKEN STACKER_API_URL STACKER_RELEASE_SIGNING_KEY; do
-  current="$(read_env_var "$DOTENV" "$var")"
-  if [ -n "$current" ]; then
-    continue
+  dotenv_val="$(read_env_var "$DOTENV" "$var")"
+  stack_val="$(read_env_var "$STACK_ENV" "$var")"
+  val="$dotenv_val"
+  if [ -z "$val" ]; then
+    val="$stack_val"
   fi
-  val="$(read_env_var "$STACK_ENV" "$var")"
   if [ -z "$val" ] && [ -n "$VOLUME_STACK_FILE" ]; then
     val="$(read_env_var "$VOLUME_STACK_FILE" "$var")"
   fi
@@ -84,9 +85,17 @@ for var in STACKER_AGENT_TOKEN STACKER_API_URL STACKER_RELEASE_SIGNING_KEY; do
       val="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$cid" 2>/dev/null | grep "^${var}=" | cut -d= -f2- | tr -d '\r\n' || true)"
     fi
   fi
-  if [ -n "$val" ]; then
+  if [ -z "$val" ]; then
+    continue
+  fi
+  # Bidirecional: .env ↔ stack.env (compose interpola STACKER_* do stack.env)
+  if [ -z "$dotenv_val" ]; then
     set_env_var_in_file "$DOTENV" "$var" "$val"
     echo "ensure-host-dotenv: ${var} sincronizado em .env"
+  fi
+  if [ -z "$stack_val" ] || [ "$stack_val" != "$val" ]; then
+    set_env_var_in_file "$STACK_ENV" "$var" "$val"
+    echo "ensure-host-dotenv: ${var} sincronizado em stack.env"
   fi
 done
 
