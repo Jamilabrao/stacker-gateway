@@ -202,6 +202,13 @@ $vars = [
     "REDIS_PASSWORD" => getenv("REDIS_PASSWORD") ?: "null",
     "TRUSTED_PROXIES" => getenv("TRUSTED_PROXIES") ?: ($setupDone ? "*" : null),
 ];
+// Entre containers: postgres escuta em 5432 (5433 é só publish no host).
+if (($vars["DB_HOST"] ?? "") === "postgres" && (string) ($vars["DB_PORT"] ?? "") !== "5432") {
+    $vars["DB_PORT"] = "5432";
+}
+if (in_array(($vars["DB_HOST"] ?? ""), ["mysql", "mariadb"], true) && (string) ($vars["DB_PORT"] ?? "") !== "3306") {
+    $vars["DB_PORT"] = "3306";
+}
 foreach ($vars as $key => $value) {
     if ($value === null) {
         continue;
@@ -246,9 +253,20 @@ DB_PASSWORD="${DB_PASSWORD:-getfy}"
 if [ "$DB_CONNECTION" = "pgsql" ]; then
   DB_HOST="${DB_HOST:-postgres}"
   DB_PORT="${DB_PORT:-5432}"
+  # Porta publicada no host (ex. 5433) não funciona entre containers.
+  if [ "$DB_HOST" = "postgres" ] && [ "$DB_PORT" != "5432" ]; then
+    echo "Aviso: DB_HOST=postgres com DB_PORT=${DB_PORT} → forçando DB_PORT=5432 (porta interna Docker)."
+    DB_PORT="5432"
+    export DB_PORT
+  fi
 else
   DB_HOST="${DB_HOST:-mysql}"
   DB_PORT="${DB_PORT:-3306}"
+  if { [ "$DB_HOST" = "mysql" ] || [ "$DB_HOST" = "mariadb" ]; } && [ "$DB_PORT" != "3306" ]; then
+    echo "Aviso: DB_HOST=${DB_HOST} com DB_PORT=${DB_PORT} → forçando DB_PORT=3306 (porta interna Docker)."
+    DB_PORT="3306"
+    export DB_PORT
+  fi
 fi
 
 DB_OK=0

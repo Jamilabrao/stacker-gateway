@@ -430,6 +430,50 @@ class AppPushController extends Controller
         return response()->json(['ok' => true, 'campaign' => $this->campaignPayload($updated)]);
     }
 
+    public function destroyCampaign(Request $request, PanelPushCampaign $campaign, PanelPushCampaignService $campaigns): JsonResponse
+    {
+        if ($campaign->status === PanelPushCampaign::STATUS_PROCESSING) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Não é possível excluir uma campanha em processamento. Aguarde ou tente novamente.',
+            ], 422);
+        }
+
+        try {
+            $result = $campaigns->deleteHistory([$campaign->id], false, $request);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['ok' => true, 'deleted' => $result['deleted']]);
+    }
+
+    public function destroyCampaigns(Request $request, PanelPushCampaignService $campaigns): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['nullable', 'array'],
+            'ids.*' => ['integer'],
+            'all' => ['nullable', 'boolean'],
+        ]);
+
+        $all = (bool) ($validated['all'] ?? false);
+        $ids = $validated['ids'] ?? null;
+
+        try {
+            $result = $campaigns->deleteHistory($ids, $all, $request);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'deleted' => $result['deleted'],
+            'message' => $result['deleted'] === 1
+                ? '1 campanha removida do histórico.'
+                : "{$result['deleted']} campanhas removidas do histórico.",
+        ]);
+    }
+
     public function updateDailySalesSettings(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -513,6 +557,7 @@ class AppPushController extends Controller
             'cancelled_at' => $campaign->cancelled_at?->toIso8601String(),
             'can_edit' => $campaign->isEditable(),
             'can_cancel' => $campaign->isCancellable(),
+            'can_delete' => $campaign->status !== PanelPushCampaign::STATUS_PROCESSING,
         ];
 
         if ($detailed) {

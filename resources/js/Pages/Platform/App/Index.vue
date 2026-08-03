@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
@@ -87,6 +87,8 @@ const soundNotice = ref('');
 const campaigns = ref([]);
 const campaignsMeta = ref({ current_page: 1, last_page: 1, total: 0 });
 const campaignStatusFilter = ref('');
+const selectedCampaignIds = ref([]);
+const clearingHistory = ref(false);
 const accountManagers = ref([]);
 const pushSubTab = ref('send');
 const savingDaily = ref(false);
@@ -148,6 +150,7 @@ async function loadCampaigns(page = 1) {
     const res = await window.axios.get('/plataforma/app/push/campaigns', { params });
     campaigns.value = res.data?.data ?? [];
     campaignsMeta.value = res.data?.meta ?? { current_page: 1, last_page: 1, total: 0 };
+    selectedCampaignIds.value = [];
 }
 
 async function saveDailySales() {
@@ -163,10 +166,77 @@ async function saveDailySales() {
     }
 }
 
+const selectableCampaignIds = computed(() =>
+    campaigns.value.filter((c) => c.can_delete !== false).map((c) => c.id)
+);
+
+const allCampaignsSelected = computed({
+    get() {
+        const ids = selectableCampaignIds.value;
+        return ids.length > 0 && ids.every((id) => selectedCampaignIds.value.includes(id));
+    },
+    set(checked) {
+        selectedCampaignIds.value = checked ? [...selectableCampaignIds.value] : [];
+    },
+});
+
+function toggleCampaignSelection(id) {
+    const set = new Set(selectedCampaignIds.value);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    selectedCampaignIds.value = [...set];
+}
+
 async function cancelCampaign(id) {
     if (!confirm('Cancelar esta notificação agendada?')) return;
     await window.axios.post(`/plataforma/app/push/campaigns/${id}/cancel`);
     await loadCampaigns(campaignsMeta.value.current_page);
+}
+
+async function deleteCampaign(id) {
+    if (!confirm('Remover esta campanha do histórico?')) return;
+    clearingHistory.value = true;
+    error.value = '';
+    try {
+        await window.axios.delete(`/plataforma/app/push/campaigns/${id}`);
+        await loadCampaigns(campaignsMeta.value.current_page);
+    } catch (e) {
+        error.value = e?.response?.data?.message || 'Erro ao remover campanha.';
+    } finally {
+        clearingHistory.value = false;
+    }
+}
+
+async function clearSelectedCampaigns() {
+    if (!selectedCampaignIds.value.length) return;
+    if (!confirm(`Remover ${selectedCampaignIds.value.length} campanha(s) do histórico?`)) return;
+    clearingHistory.value = true;
+    error.value = '';
+    try {
+        await window.axios.post('/plataforma/app/push/campaigns/clear-history', {
+            ids: selectedCampaignIds.value,
+        });
+        await loadCampaigns(1);
+    } catch (e) {
+        error.value = e?.response?.data?.message || 'Erro ao limpar histórico.';
+    } finally {
+        clearingHistory.value = false;
+    }
+}
+
+async function clearAllCampaignHistory() {
+    if (!confirm('Limpar todo o histórico de campanhas já enviadas/canceladas/falhas? Agendadas futuras serão mantidas.')) return;
+    clearingHistory.value = true;
+    error.value = '';
+    try {
+        const res = await window.axios.post('/plataforma/app/push/campaigns/clear-history', { all: true });
+        alert(res.data?.message || 'Histórico limpo.');
+        await loadCampaigns(1);
+    } catch (e) {
+        error.value = e?.response?.data?.message || 'Erro ao limpar histórico.';
+    } finally {
+        clearingHistory.value = false;
+    }
 }
 
 /** Exibe o agendamento no timezone da campanha (não no fuso do browser/SO do servidor). */
@@ -685,11 +755,25 @@ onMounted(load);
                             <option value="cancelled">Cancelada</option>
                         </select>
                         <Button type="button" variant="outline" @click="loadCampaigns()">Atualizar</Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            :disabled="clearingHistory || !selectedCampaignIds.length"
+                            @click="clearSelectedCampaigns"
+                        >
+                            Limpar selecionadas
+                        </Button>
+                        <Button type="button" variant="outline" :disabled="clearingHistory" @click="clearAllCampaignHistory">
+                            Limpar todas
+                        </Button>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full text-left text-sm">
                             <thead>
                                 <tr class="text-xs uppercase text-zinc-500">
+                                    <th class="py-2 pr-2">
+                                        <input v-model="allCampaignsSelected" type="checkbox" class="rounded" />
+                                    </th>
                                     <th class="py-2 pr-3">Título</th>
                                     <th class="py-2 pr-3">Status</th>
                                     <th class="py-2 pr-3">Público</th>
@@ -700,6 +784,15 @@ onMounted(load);
                             </thead>
                             <tbody>
                                 <tr v-for="c in campaigns" :key="c.id" class="border-t border-zinc-100 dark:border-zinc-800">
+                                    <td class="py-2 pr-2">
+                                        <input
+                                            v-if="c.can_delete !== false"
+                                            type="checkbox"
+                                            class="rounded"
+                                            :checked="selectedCampaignIds.includes(c.id)"
+                                            @change="toggleCampaignSelection(c.id)"
+                                        />
+                                    </td>
                                     <td class="py-2 pr-3">
                                         <div class="font-medium">{{ c.title }}</div>
                                         <div class="text-xs text-zinc-500">{{ c.created_by || '—' }}</div>
@@ -708,7 +801,7 @@ onMounted(load);
                                     <td class="py-2 pr-3 text-xs">{{ c.audience_label }}</td>
                                     <td class="py-2 pr-3 text-xs">{{ formatCampaignSchedule(c) }}</td>
                                     <td class="py-2 pr-3 tabular-nums">{{ c.sent_count }}/{{ c.eligible_count }}</td>
-                                    <td class="py-2">
+                                    <td class="py-2 space-x-2">
                                         <button
                                             v-if="c.can_cancel"
                                             type="button"
@@ -717,10 +810,19 @@ onMounted(load);
                                         >
                                             Cancelar
                                         </button>
+                                        <button
+                                            v-if="c.can_delete !== false"
+                                            type="button"
+                                            class="text-xs text-zinc-500 hover:text-red-600"
+                                            :disabled="clearingHistory"
+                                            @click="deleteCampaign(c.id)"
+                                        >
+                                            Excluir
+                                        </button>
                                     </td>
                                 </tr>
                                 <tr v-if="!campaigns.length">
-                                    <td colspan="6" class="py-6 text-center text-zinc-500">Nenhuma campanha ainda.</td>
+                                    <td colspan="7" class="py-6 text-center text-zinc-500">Nenhuma campanha ainda.</td>
                                 </tr>
                             </tbody>
                         </table>
