@@ -15,6 +15,7 @@ import SupportButton from '@/components/checkout/SupportButton.vue';
 import ExitPopup from '@/components/checkout/ExitPopup.vue';
 import ConversionPixels from '@/components/checkout/ConversionPixels.vue';
 import { runCheckoutMetaTracking } from '@/composables/useMetaCheckoutTracking';
+import { trackMetricsEvent } from '@/lib/metricsTracking.js';
 
 defineOptions({ layout: null });
 
@@ -205,6 +206,19 @@ let checkoutMetaTrackingDone = false;
 async function startCheckoutMetaTracking() {
     if (checkoutMetaTrackingDone || props.checkout_builder_preview) return;
     if (!props.checkout_session_token) return;
+
+    // Tracking interno (paralelo; nunca bloqueia Meta/UTMify).
+    try {
+        trackMetricsEvent({
+            event_name: 'checkout_view',
+            product_id: props.product?.id,
+            tenant_id: props.product?.tenant_id,
+            offer_id: props.offer?.id,
+            plan_id: props.subscription_plan?.id,
+            affiliate_ref: props.affiliate_ref || undefined,
+            properties: { checkout_session_token: props.checkout_session_token },
+        });
+    } catch (_) {}
 
     const result = await runCheckoutMetaTracking({
         pixels: conversionPixels.value,

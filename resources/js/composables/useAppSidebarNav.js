@@ -23,6 +23,7 @@ import {
     Gift,
     Truck,
     Zap,
+    Activity,
 } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
 
@@ -92,6 +93,14 @@ export function useAppSidebarNav() {
 
         if (canView('relatorios.view')) {
             items.push({ name: t('sidebar.reports', 'Relatórios'), href: '/relatorios', icon: BarChart3 });
+        }
+
+        if (canView('metrics.view')) {
+            items.push({
+                name: t('sidebar.metrics', 'Métricas e Tracking'),
+                href: '/metricas',
+                icon: Activity,
+            });
         }
 
         items.push({ separator: true });

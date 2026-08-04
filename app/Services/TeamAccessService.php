@@ -82,6 +82,7 @@ class TeamAccessService
             'financeiro.view' => true,
             'produtos.view' => true,
             'relatorios.view' => true,
+            'metrics.view' => true,
             'integracoes.view' => true,
             'email_marketing.view' => true,
             'api_pagamentos.view' => true,

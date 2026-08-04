@@ -240,6 +240,7 @@ class AppServiceProvider extends ServiceProvider
         Event::subscribe(SendApiApplicationWebhookListener::class);
         Event::subscribe(UtmifyEventSubscriber::class);
         Event::subscribe(MetaConversionsEventSubscriber::class);
+        Event::subscribe(\App\Listeners\MetricsTrackingEventSubscriber::class);
         Event::subscribe(SpedyEventSubscriber::class);
         Event::subscribe(CademiEventSubscriber::class);
         Event::subscribe(\App\Listeners\IntegraxEventSubscriber::class);

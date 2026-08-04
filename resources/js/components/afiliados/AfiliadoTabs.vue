@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { Link, usePage } from '@inertiajs/vue3';
-import { UserPlus, LayoutDashboard, CircleDollarSign, BarChart3, Package } from 'lucide-vue-next';
+import { UserPlus, LayoutDashboard, CircleDollarSign, BarChart3, Package, ChartNoAxesCombined } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
 
@@ -15,6 +15,7 @@ const isMeusProdutos = computed(() => path.value === '/produtos/afiliados');
 const isDashboard = computed(() => path.value === '/produtos/afiliados/dashboard');
 const isVendas = computed(() => path.value === '/produtos/afiliados/vendas');
 const isRelatorios = computed(() => path.value === '/produtos/afiliados/relatorios');
+const isMetricas = computed(() => path.value === '/produtos/afiliados/metricas' || path.value.startsWith('/produtos/afiliados/metricas/'));
 const isPainelProduto = computed(() => /^\/produtos\/[^/]+\/painel-afiliado/.test(path.value));
 
 const navClass = computed(() => {
@@ -53,6 +54,10 @@ function linkClass(active) {
         <Link href="/produtos/afiliados/relatorios" :class="linkClass(isRelatorios)">
             <BarChart3 class="h-4 w-4 shrink-0" aria-hidden="true" />
             {{ t('affiliate.tab_reports', 'Relatórios') }}
+        </Link>
+        <Link href="/produtos/afiliados/metricas" :class="linkClass(isMetricas)">
+            <ChartNoAxesCombined class="h-4 w-4 shrink-0" aria-hidden="true" />
+            {{ t('affiliate.tab_metrics', 'Métricas') }}
         </Link>
         <span
             v-if="isPainelProduto"

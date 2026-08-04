@@ -30,6 +30,8 @@ use App\Services\EfiPixRecorrenteService;
 use App\Services\GeoIp;
 use App\Services\MinimumChargeService;
 use App\Services\Meta\MetaTrackingService;
+use App\Services\MetricsTracking\MetricsCaptureService;
+use App\Models\MetricsEvent;
 use App\Services\PaymentService;
 use App\Services\PhysicalProductAccess;
 use App\Services\PushinPayPixRecorrenteService;
@@ -379,6 +381,32 @@ class CheckoutController extends Controller
                 (string) ($resolved['currency'] ?? 'BRL'),
                 $request->fullUrl(),
             );
+
+            // Tracking interno (falha isolada — não impacta checkout / UTMify / Meta).
+            try {
+                $metricsKey = app(MetricsCaptureService::class)->capture($request, [
+                    'event_name' => MetricsEvent::CHECKOUT_VIEW,
+                    'event_id' => 'chk-view:'.$sessionToken,
+                    'product_id' => $product->id,
+                    'tenant_id' => $product->tenant_id,
+                    'offer_id' => $resolved['offer']?->id,
+                    'plan_id' => $resolved['plan']?->id,
+                    'checkout_session_id' => $checkoutSession->id,
+                    'affiliate_ref' => $affiliateRef !== '' ? $affiliateRef : null,
+                    'destination_url' => $request->fullUrl(),
+                ]);
+                if (is_string($metricsKey) && $metricsKey !== '') {
+                    if (\Illuminate\Support\Facades\Schema::hasColumn('checkout_sessions', 'metrics_session_key')) {
+                        $checkoutSession->metrics_session_key = $metricsKey;
+                        $checkoutSession->save();
+                    }
+                    $payload['metrics_session_key'] = $metricsKey;
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('metrics.checkout_view_failed', [
+                    'message' => $e->getMessage(),
+                ]);
+            }
         }
         $payload['checkout_session_token'] = $sessionToken;
 
@@ -574,6 +602,7 @@ class CheckoutController extends Controller
             'phone' => [$phoneRequiredForCheckout ? 'required' : 'nullable', 'string', 'max:24'],
             'coupon_code' => ['nullable', 'string', 'max:64'],
             'affiliate_ref' => ['nullable', 'string', 'max:32'],
+            'metrics_session_key' => ['nullable', 'uuid'],
         ];
         foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
             $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
@@ -817,6 +846,32 @@ class CheckoutController extends Controller
         $orderMetadata = $this->mergeCheckoutSessionMetaTracking($orderMetadata, $validated['checkout_session_token'] ?? null);
         $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated, $product);
 
+        $metricsSessionKey = null;
+        if (isset($validated['metrics_session_key']) && is_string($validated['metrics_session_key']) && $validated['metrics_session_key'] !== '') {
+            $metricsSessionKey = $validated['metrics_session_key'];
+        } elseif ($request->cookie((string) config('metrics_tracking.cookie_session', 'gf_msid'))) {
+            $metricsSessionKey = (string) $request->cookie((string) config('metrics_tracking.cookie_session', 'gf_msid'));
+        } else {
+            $token = $validated['checkout_session_token'] ?? null;
+            if (is_string($token) && $token !== '' && \Illuminate\Support\Facades\Schema::hasColumn('checkout_sessions', 'metrics_session_key')) {
+                $metricsSessionKey = CheckoutSession::where('session_token', $token)->value('metrics_session_key');
+            }
+        }
+        if (is_string($metricsSessionKey) && $metricsSessionKey !== '') {
+            $orderMetadata['metrics_session_key'] = $metricsSessionKey;
+            try {
+                app(MetricsCaptureService::class)->capture($request, [
+                    'event_name' => MetricsEvent::CHECKOUT_STARTED,
+                    'event_id' => 'chk-start:'.$validated['checkout_session_token'],
+                    'session_key' => $metricsSessionKey,
+                    'product_id' => $product->id,
+                    'tenant_id' => $tenantId,
+                    'affiliate_ref' => $validated['affiliate_ref'] ?? null,
+                ]);
+            } catch (\Throwable) {
+            }
+        }
+
         $orderPayload = [
             'tenant_id' => $tenantId,
             'user_id' => $user->id,
@@ -846,6 +901,12 @@ class CheckoutController extends Controller
 
         $createOrderAndItems = function (array $payload) use ($product, $amount, $productOfferId, $subscriptionPlanId, $selectedBumps) {
             $order = Order::create($payload);
+            if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'metrics_session_key')) {
+                $ms = is_array($payload['metadata'] ?? null) ? ($payload['metadata']['metrics_session_key'] ?? null) : null;
+                if (is_string($ms) && $ms !== '') {
+                    $order->forceFill(['metrics_session_key' => $ms])->save();
+                }
+            }
             OrderItem::create([
                 'order_id' => $order->id,
                 'product_id' => $product->id,
@@ -1823,6 +1884,7 @@ class CheckoutController extends Controller
             $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
         }
         $rules['affiliate_ref'] = ['nullable', 'string', 'max:32'];
+        $rules['metrics_session_key'] = ['nullable', 'uuid'];
         $draftKey = 'cajupay_draft.'.$request->input('polling_token');
         $draftPreview = is_string($draftKey) ? Cache::get('cajupay_draft.'.$request->input('polling_token')) : null;
         $draftProductId = is_array($draftPreview) ? ($draftPreview['product_id'] ?? null) : null;

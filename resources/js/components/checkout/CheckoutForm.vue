@@ -21,6 +21,7 @@ import { loadCajuPaySdk } from '@/composables/useCajuPaySdk';
 import { isValidCpf } from '@/utils/brazilianDocuments.js';
 import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
 import { trackCheckoutPurchase } from '@/composables/useCheckoutPurchaseTracking.js';
+import { getMetricsSessionKey } from '@/lib/metricsTracking.js';
 
 const STORAGE_KEY = 'checkout_draft';
 
@@ -286,6 +287,12 @@ function appendUtmsAndAffiliate(payload) {
         payload.affiliate_ref = ref;
     }
     Object.assign(payload, getMetaCookiePayload());
+    try {
+        const msid = getMetricsSessionKey();
+        if (msid) payload.metrics_session_key = msid;
+    } catch (_) {
+        // tracking interno opcional
+    }
     return payload;
 }
 
