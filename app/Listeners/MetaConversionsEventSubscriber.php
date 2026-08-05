@@ -7,6 +7,7 @@ use App\Jobs\MetaConversionsSendPurchaseJob;
 use App\Services\MetaPurchaseTrackingDiagnostics;
 use App\Support\IntegrationJobDispatch;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\Log;
 
 class MetaConversionsEventSubscriber
 {
@@ -24,14 +25,22 @@ class MetaConversionsEventSubscriber
     {
         $orderId = (int) $event->order->id;
 
-        if (IntegrationJobDispatch::shouldDispatchSync()) {
-            MetaConversionsSendPurchaseJob::dispatchSync($orderId);
-        } else {
-            MetaConversionsSendPurchaseJob::dispatch($orderId)
-                ->onQueue((string) config('meta_tracking.queue', 'meta-tracking'))
-                ->afterResponse();
-        }
+        try {
+            if (IntegrationJobDispatch::shouldDispatchSync()) {
+                MetaConversionsSendPurchaseJob::dispatchSync($orderId);
+            } else {
+                MetaConversionsSendPurchaseJob::dispatch($orderId)
+                    ->onQueue((string) config('meta_tracking.queue', 'meta-tracking'))
+                    ->afterResponse();
+            }
 
-        app(MetaPurchaseTrackingDiagnostics::class)->logQueueHintOnDispatch($orderId);
+            app(MetaPurchaseTrackingDiagnostics::class)->logQueueHintOnDispatch($orderId);
+        } catch (\Throwable $e) {
+            // Não abortar a cadeia de listeners (métricas, NF, Cademi, etc.).
+            Log::warning('MetaConversionsEventSubscriber: send failed (listeners continue)', [
+                'order_id' => $orderId,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 }

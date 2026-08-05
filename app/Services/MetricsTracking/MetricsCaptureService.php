@@ -334,14 +334,18 @@ class MetricsCaptureService
         }
     }
 
-    public function recordOrderEvent(Order $order, string $eventName, ?string $conversionStatus = null): void
-    {
+    public function recordOrderEvent(
+        Order $order,
+        string $eventName,
+        ?string $conversionStatus = null,
+        ?\DateTimeInterface $occurredAt = null,
+    ): void {
         if (! $this->enabled()) {
             return;
         }
 
         try {
-            $this->recordOrderEventUnsafe($order, $eventName, $conversionStatus);
+            $this->recordOrderEventUnsafe($order, $eventName, $conversionStatus, $occurredAt);
         } catch (\Throwable $e) {
             Log::warning('metrics.order_event_failed', [
                 'order_id' => $order->id,
@@ -351,8 +355,12 @@ class MetricsCaptureService
         }
     }
 
-    private function recordOrderEventUnsafe(Order $order, string $eventName, ?string $conversionStatus): void
-    {
+    private function recordOrderEventUnsafe(
+        Order $order,
+        string $eventName,
+        ?string $conversionStatus,
+        ?\DateTimeInterface $occurredAt = null,
+    ): void {
         $sessionKey = null;
         if (Schema::hasColumn('orders', 'metrics_session_key')) {
             $sessionKey = $order->metrics_session_key;
@@ -371,9 +379,13 @@ class MetricsCaptureService
             return;
         }
 
+        $occurred = $occurredAt
+            ? \Illuminate\Support\Carbon::parse($occurredAt)
+            : ($order->updated_at?->copy() ?? now());
+
         $seconds = null;
         if ($session?->first_touch_at) {
-            $seconds = max(0, $session->first_touch_at->diffInSeconds(now()));
+            $seconds = max(0, $session->first_touch_at->diffInSeconds($occurred));
         }
 
         $status = $conversionStatus ?? match ($eventName) {
@@ -448,11 +460,11 @@ class MetricsCaptureService
                 'gateway' => $order->gateway ?? null,
                 'status' => $order->status,
             ],
-            'occurred_at' => now(),
+            'occurred_at' => $occurred,
         ]);
 
         if ($eventName === MetricsEvent::PAYMENT_APPROVED && $session) {
-            $session->converted_at = $session->converted_at ?? now();
+            $session->converted_at = $session->converted_at ?? $occurred;
             $session->save();
         }
     }

@@ -866,19 +866,23 @@ class CheckoutController extends Controller
                 );
             }
         }
+
+        // Sempre tentar CHECKOUT_STARTED: capture gera UUID novo se a key estiver ausente/inválida.
+        try {
+            $capturedKey = app(MetricsCaptureService::class)->capture($request, [
+                'event_name' => MetricsEvent::CHECKOUT_STARTED,
+                'event_id' => 'chk-start:'.$validated['checkout_session_token'],
+                'session_key' => $metricsSessionKey,
+                'product_id' => $product->id,
+                'tenant_id' => $tenantId,
+                'affiliate_ref' => $validated['affiliate_ref'] ?? null,
+            ]);
+            $metricsSessionKey = $this->resolveValidMetricsSessionKey($capturedKey) ?? $metricsSessionKey;
+        } catch (\Throwable) {
+        }
+
         if (is_string($metricsSessionKey) && $metricsSessionKey !== '') {
             $orderMetadata['metrics_session_key'] = $metricsSessionKey;
-            try {
-                app(MetricsCaptureService::class)->capture($request, [
-                    'event_name' => MetricsEvent::CHECKOUT_STARTED,
-                    'event_id' => 'chk-start:'.$validated['checkout_session_token'],
-                    'session_key' => $metricsSessionKey,
-                    'product_id' => $product->id,
-                    'tenant_id' => $tenantId,
-                    'affiliate_ref' => $validated['affiliate_ref'] ?? null,
-                ]);
-            } catch (\Throwable) {
-            }
         }
 
         $orderPayload = [

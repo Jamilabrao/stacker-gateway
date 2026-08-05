@@ -173,13 +173,23 @@ class UtmifyEventSubscriber
         string $queue
     ): void {
         if (IntegrationJobDispatch::shouldDispatchSync()) {
-            UtmifySendOrderJob::dispatchSync(
-                $integrationId,
-                $orderId,
-                $utmifyStatus,
-                $approvedAt,
-                $refundedAt
-            );
+            try {
+                UtmifySendOrderJob::dispatchSync(
+                    $integrationId,
+                    $orderId,
+                    $utmifyStatus,
+                    $approvedAt,
+                    $refundedAt
+                );
+            } catch (\Throwable $e) {
+                // Não abortar a cadeia de listeners (métricas, NF, Cademi, etc.).
+                Log::warning('UtmifyEventSubscriber: sync send failed (listeners continue)', [
+                    'utmify_integration_id' => $integrationId,
+                    'order_id' => $orderId,
+                    'status' => $utmifyStatus,
+                    'message' => $e->getMessage(),
+                ]);
+            }
 
             return;
         }
