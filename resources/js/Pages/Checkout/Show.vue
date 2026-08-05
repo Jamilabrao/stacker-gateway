@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onUnmounted, toRef, provide } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, toRef, provide } from 'vue';
 import { getMetaEntries } from '@/lib/metaTracking/browserPixel.js';
 import { Head } from '@inertiajs/vue3';
 import { AlertCircle, CheckCircle2 } from 'lucide-vue-next';
@@ -20,6 +20,8 @@ import { trackMetricsEvent } from '@/lib/metricsTracking.js';
 defineOptions({ layout: null });
 
 const PREVIEW_MESSAGE_TYPE = 'checkout-builder-preview-config';
+const PREVIEW_READY_TYPE = 'checkout-builder-preview-ready';
+const PREVIEW_STORAGE_KEY = 'checkout-builder-live-preview-v1';
 
 const props = defineProps({
     product: { type: Object, required: true },
@@ -64,17 +66,73 @@ const props = defineProps({
 });
 
 const previewConfig = ref(null);
+const previewEpoch = ref(0);
 const conversionPixelsRef = ref(null);
 provide('checkoutConversionPixelsRef', conversionPixelsRef);
 
-function onPreviewMessage(event) {
-    if (!props.checkout_builder_preview) return;
-    if (event.origin !== window.location.origin) return;
-    if (event?.data?.type !== PREVIEW_MESSAGE_TYPE || event.data.config == null) return;
-    previewConfig.value = event.data.config;
+const isBuilderPreview = computed(() => {
+    if (props.checkout_builder_preview) return true;
+    if (typeof window === 'undefined') return false;
+    try {
+        return new URLSearchParams(window.location.search).get('preview') === '1';
+    } catch (_) {
+        return false;
+    }
+});
+
+function applyPreviewConfig(config) {
+    if (config == null || typeof config !== 'object') return;
+    try {
+        const next = JSON.stringify(config);
+        const prev = previewConfig.value != null ? JSON.stringify(previewConfig.value) : '';
+        if (next === prev) return;
+    } catch (_) {}
+    previewConfig.value = config;
+    previewEpoch.value += 1;
 }
 
-/** Config ao vivo do Builder (postMessage); antes da primeira mensagem usa o config do servidor. */
+function announcePreviewReady() {
+    if (!isBuilderPreview.value || typeof window === 'undefined') return;
+    if (window.parent === window) return;
+    try {
+        window.parent.postMessage({ type: PREVIEW_READY_TYPE }, '*');
+    } catch (_) {}
+}
+
+function onPreviewMessage(event) {
+    if (!isBuilderPreview.value) return;
+    const fromParent = event.source === window.parent;
+    const sameOrigin = event.origin === window.location.origin;
+    if (!fromParent && !sameOrigin) return;
+    if (event?.data?.type !== PREVIEW_MESSAGE_TYPE || event.data.config == null) return;
+    applyPreviewConfig(event.data.config);
+}
+
+function readPreviewFromStorage() {
+    try {
+        const raw = localStorage.getItem(PREVIEW_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed?.config == null) return;
+        applyPreviewConfig(parsed.config);
+    } catch (_) {}
+}
+
+let previewPollTimer = null;
+
+/** Listener no setup (não só no onMounted) para não perder postMessage se o parent disparar no @load do iframe antes do mount. */
+if (typeof window !== 'undefined') {
+    if (isBuilderPreview.value) {
+        window.addEventListener('message', onPreviewMessage);
+        window.__applyCheckoutBuilderPreview = applyPreviewConfig;
+        readPreviewFromStorage();
+    }
+    if (props.meta_tracking_debug) {
+        window.__GETFY_META_TRACKING_DEBUG__ = true;
+    }
+}
+
+/** Config ao vivo do Builder (postMessage / localStorage / bridge); antes da primeira mensagem usa o config do servidor. */
 const effectiveConfig = computed(() => {
     if (previewConfig.value != null) {
         return previewConfig.value;
@@ -82,18 +140,45 @@ const effectiveConfig = computed(() => {
     return props.config;
 });
 
-/** Listener no setup (não só no onMounted) para não perder postMessage se o parent disparar no @load do iframe antes do mount. */
-if (typeof window !== 'undefined') {
-    if (props.checkout_builder_preview) {
-        window.addEventListener('message', onPreviewMessage);
+/** Chave visual: força remount controlado só no modo preview quando o config muda. */
+const previewRemountKey = computed(() => {
+    if (!isBuilderPreview.value) return 'checkout';
+    try {
+        return `p-${previewEpoch.value}-${JSON.stringify({
+            a: effectiveConfig.value?.appearance,
+            t: effectiveConfig.value?.timer,
+            n: effectiveConfig.value?.sales_notification,
+            f: effectiveConfig.value?.customer_fields,
+            s: effectiveConfig.value?.summary,
+            y: effectiveConfig.value?.youtube_url,
+            yp: effectiveConfig.value?.youtube_position,
+            sb: effectiveConfig.value?.support_button,
+            ft: effectiveConfig.value?.footer,
+            ep: effectiveConfig.value?.exit_popup?.enabled,
+            rv: effectiveConfig.value?.reviews,
+        })}`;
+    } catch (_) {
+        return `p-${previewEpoch.value}`;
     }
-    if (props.meta_tracking_debug) {
-        window.__GETFY_META_TRACKING_DEBUG__ = true;
-    }
-}
+});
+
+onMounted(() => {
+    if (!isBuilderPreview.value) return;
+    announcePreviewReady();
+    readPreviewFromStorage();
+    previewPollTimer = window.setInterval(readPreviewFromStorage, 200);
+    [40, 160, 400].forEach((ms) => setTimeout(() => announcePreviewReady(), ms));
+});
 onUnmounted(() => {
-    if (typeof window !== 'undefined' && props.checkout_builder_preview) {
+    if (typeof window !== 'undefined' && isBuilderPreview.value) {
         window.removeEventListener('message', onPreviewMessage);
+        if (window.__applyCheckoutBuilderPreview === applyPreviewConfig) {
+            delete window.__applyCheckoutBuilderPreview;
+        }
+    }
+    if (previewPollTimer) {
+        clearInterval(previewPollTimer);
+        previewPollTimer = null;
     }
 });
 
@@ -262,6 +347,7 @@ function onConversionPixelsReady() {
     </Head>
     <div
         id="getfy-checkout-root"
+        :key="previewRemountKey"
         data-checkout="page"
         class="min-h-screen transition-colors duration-300"
         :style="{ backgroundColor }"
@@ -339,7 +425,7 @@ function onConversionPixelsReady() {
                             :affiliate-ref="affiliate_ref || ''"
                             :checkout-session-token="checkout_session_token || ''"
                             :turnstile="turnstile || {}"
-                            :checkout-builder-preview="checkout_builder_preview"
+                            :checkout-builder-preview="isBuilderPreview"
                             :order-bumps="order_bumps || []"
                             v-model:order-bump-ids="selectedOrderBumpIds"
                             :primary-color="primaryColor"
