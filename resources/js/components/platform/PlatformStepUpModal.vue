@@ -53,7 +53,7 @@ function submit() {
 <template>
     <div
         v-if="open"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        class="fixed inset-0 z-[100002] flex items-center justify-center bg-black/50 p-4"
         @click.self="emit('close')"
     >
         <div
