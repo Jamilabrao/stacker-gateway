@@ -238,9 +238,10 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(BoletoGenerated::class, SendPanelPushOnBoletoGenerated::class);
         Event::subscribe(WebhookEventSubscriber::class);
         Event::subscribe(SendApiApplicationWebhookListener::class);
+        // Métricas antes de UTMify/Meta: falha sync em integração não pode impedir payment_approved.
+        Event::subscribe(\App\Listeners\MetricsTrackingEventSubscriber::class);
         Event::subscribe(UtmifyEventSubscriber::class);
         Event::subscribe(MetaConversionsEventSubscriber::class);
-        Event::subscribe(\App\Listeners\MetricsTrackingEventSubscriber::class);
         Event::subscribe(SpedyEventSubscriber::class);
         Event::subscribe(CademiEventSubscriber::class);
         Event::subscribe(\App\Listeners\IntegraxEventSubscriber::class);
