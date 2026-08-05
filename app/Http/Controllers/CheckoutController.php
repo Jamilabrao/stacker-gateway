@@ -547,6 +547,8 @@ class CheckoutController extends Controller
 
     public function process(Request $request): RedirectResponse|JsonResponse
     {
+        $this->forgetInvalidMetricsSessionKey($request);
+
         $product = Product::findOrFail($request->input('product_id'));
         if (! $product->isAvailableForPurchase()) {
             if ($request->expectsJson()) {
@@ -846,15 +848,22 @@ class CheckoutController extends Controller
         $orderMetadata = $this->mergeCheckoutSessionMetaTracking($orderMetadata, $validated['checkout_session_token'] ?? null);
         $orderMetadata = $this->mergeCheckoutSessionUtmsIntoOrderMetadata($orderMetadata, $validated['checkout_session_token'] ?? null, $validated, $product);
 
-        $metricsSessionKey = null;
-        if (isset($validated['metrics_session_key']) && is_string($validated['metrics_session_key']) && $validated['metrics_session_key'] !== '') {
-            $metricsSessionKey = $validated['metrics_session_key'];
-        } elseif ($request->cookie((string) config('metrics_tracking.cookie_session', 'gf_msid'))) {
-            $metricsSessionKey = (string) $request->cookie((string) config('metrics_tracking.cookie_session', 'gf_msid'));
-        } else {
+        $metricsSessionKey = $this->resolveValidMetricsSessionKey(
+            isset($validated['metrics_session_key']) && is_string($validated['metrics_session_key'])
+                ? $validated['metrics_session_key']
+                : null
+        );
+        if ($metricsSessionKey === null) {
+            $metricsSessionKey = $this->resolveValidMetricsSessionKey(
+                (string) ($request->cookie((string) config('metrics_tracking.cookie_session', 'gf_msid')) ?? '')
+            );
+        }
+        if ($metricsSessionKey === null) {
             $token = $validated['checkout_session_token'] ?? null;
             if (is_string($token) && $token !== '' && \Illuminate\Support\Facades\Schema::hasColumn('checkout_sessions', 'metrics_session_key')) {
-                $metricsSessionKey = CheckoutSession::where('session_token', $token)->value('metrics_session_key');
+                $metricsSessionKey = $this->resolveValidMetricsSessionKey(
+                    CheckoutSession::where('session_token', $token)->value('metrics_session_key')
+                );
             }
         }
         if (is_string($metricsSessionKey) && $metricsSessionKey !== '') {
@@ -903,7 +912,8 @@ class CheckoutController extends Controller
             $order = Order::create($payload);
             if (\Illuminate\Support\Facades\Schema::hasColumn('orders', 'metrics_session_key')) {
                 $ms = is_array($payload['metadata'] ?? null) ? ($payload['metadata']['metrics_session_key'] ?? null) : null;
-                if (is_string($ms) && $ms !== '') {
+                $ms = $this->resolveValidMetricsSessionKey($ms);
+                if ($ms !== null) {
                     $order->forceFill(['metrics_session_key' => $ms])->save();
                 }
             }
@@ -1867,6 +1877,8 @@ class CheckoutController extends Controller
      */
     public function cajupayConfirmOrder(Request $request): JsonResponse
     {
+        $this->forgetInvalidMetricsSessionKey($request);
+
         $rules = [
             'polling_token' => ['required', 'string', 'size:32'],
             'website' => ['nullable', 'string', 'max:255'],
@@ -2683,6 +2695,34 @@ class CheckoutController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Tracking interno é opcional: valor inválido não pode bloquear o pagamento.
+     */
+    private function forgetInvalidMetricsSessionKey(Request $request): void
+    {
+        if (! $request->exists('metrics_session_key')) {
+            return;
+        }
+
+        $value = $request->input('metrics_session_key');
+        if ($value === null || $value === '') {
+            return;
+        }
+
+        if (! is_string($value) || ! Str::isUuid($value)) {
+            $request->merge(['metrics_session_key' => null]);
+        }
+    }
+
+    private function resolveValidMetricsSessionKey(mixed $candidate): ?string
+    {
+        if (! is_string($candidate) || $candidate === '') {
+            return null;
+        }
+
+        return Str::isUuid($candidate) ? $candidate : null;
     }
 
     /**
