@@ -19,6 +19,7 @@ use App\Models\ProductOrderBump;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Services\PaymentService;
+use App\Services\MemberAccessGrantService;
 use App\Services\MinimumChargeService;
 use App\Services\PhysicalProductAccess;
 use App\Services\ProductApprovalService;
@@ -932,12 +933,12 @@ class ProdutosController extends Controller
         return back()->with('success', 'Produto reenviado para análise. Ele permanecerá indisponível para venda até nova aprovação.');
     }
 
-    public function addAluno(Request $request, Product $produto)
+    public function addAluno(Request $request, Product $produto, MemberAccessGrantService $memberAccessGrant)
     {
         $this->authorizeProduct($produto);
         $validated = $request->validate(['email' => ['required', 'email', 'exists:users,email']]);
         $user = User::where('email', $validated['email'])->whereIn('role', User::buyerRoleValues())->firstOrFail();
-        $produto->users()->syncWithoutDetaching([$user->id]);
+        $memberAccessGrant->grant($user, $produto);
 
         return back()->with('success', 'Acesso concedido.');
     }

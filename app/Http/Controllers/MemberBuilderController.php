@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use App\Services\MemberAreaResolver;
+use App\Services\MemberAccessGrantService;
 use App\Services\MemberCommentService;
 use App\Services\StorageService;
 use App\Services\GamificationService;
@@ -1193,7 +1194,7 @@ class MemberBuilderController extends Controller
     /**
      * Criar novo aluno (nome, email, senha), dar acesso ao produto e opcionalmente adicionar à turma.
      */
-    public function storeNewAluno(Request $request, Product $produto): JsonResponse|RedirectResponse
+    public function storeNewAluno(Request $request, Product $produto, MemberAccessGrantService $memberAccessGrant): JsonResponse|RedirectResponse
     {
         $this->authorizeProduct($produto);
         $validated = $request->validate([
@@ -1219,7 +1220,7 @@ class MemberBuilderController extends Controller
             'role' => User::ROLE_CLIENTE,
             'tenant_id' => null,
         ]);
-        $produto->users()->attach($user->id);
+        $memberAccessGrant->grant($user, $produto);
         if ($turmaId) {
             MemberTurma::find($turmaId)->users()->syncWithoutDetaching([$user->id]);
         }

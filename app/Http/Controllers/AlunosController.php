@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\AccessEmailService;
+use App\Services\MemberAccessGrantService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -164,7 +165,7 @@ class AlunosController extends Controller
         ]);
     }
 
-    public function store(Request $request, AccessEmailService $accessEmailService): JsonResponse
+    public function store(Request $request, AccessEmailService $accessEmailService, MemberAccessGrantService $memberAccessGrant): JsonResponse
     {
         $tenantId = auth()->user()->tenant_id;
         $validated = $request->validate([
@@ -188,13 +189,16 @@ class AlunosController extends Controller
             'tenant_id' => null,
         ]);
 
-        foreach ($productIds as $pid) {
-            $user->products()->syncWithoutDetaching([$pid]);
+        $products = ! empty($productIds)
+            ? Product::whereIn('id', $productIds)->get()
+            : collect();
+
+        foreach ($products as $product) {
+            $memberAccessGrant->grant($user, $product);
         }
 
         $emailsSent = 0;
-        if ($sendAccessEmail && ! empty($productIds)) {
-            $products = Product::whereIn('id', $productIds)->get();
+        if ($sendAccessEmail && $products->isNotEmpty()) {
             foreach ($products as $product) {
                 if ($accessEmailService->sendForUserProduct($user, $product)->success) {
                     $emailsSent++;
@@ -214,7 +218,7 @@ class AlunosController extends Controller
         ]);
     }
 
-    public function update(Request $request, User $aluno): JsonResponse
+    public function update(Request $request, User $aluno, MemberAccessGrantService $memberAccessGrant): JsonResponse
     {
         $tenantId = auth()->user()->tenant_id;
         if (! $aluno->isCliente()) {
@@ -242,9 +246,21 @@ class AlunosController extends Controller
         $tenantProductIds = $this->tenantProductIds($tenantId);
         $productIds = $validated['product_ids'] ?? [];
         $productIds = array_values(array_intersect($productIds, $tenantProductIds));
-        $currentIds = $aluno->products()->forTenant($tenantId)->pluck('products.id')->toArray();
-        $aluno->products()->detach($currentIds);
-        $aluno->products()->attach($productIds);
+        $currentIds = $aluno->products()->forTenant($tenantId)->pluck('products.id')->map(fn ($id) => (string) $id)->all();
+        $productIds = array_map('strval', $productIds);
+
+        $removedIds = array_values(array_diff($currentIds, $productIds));
+        if ($removedIds !== []) {
+            $removedProducts = Product::whereIn('id', $removedIds)->get();
+            foreach ($removedProducts as $product) {
+                $memberAccessGrant->revoke($aluno, $product);
+            }
+        }
+
+        $products = Product::whereIn('id', $productIds)->get();
+        foreach ($products as $product) {
+            $memberAccessGrant->grant($aluno, $product);
+        }
 
         return response()->json([
             'success' => true,
@@ -286,7 +302,7 @@ class AlunosController extends Controller
         ]);
     }
 
-    public function import(Request $request, AccessEmailService $accessEmailService): JsonResponse
+    public function import(Request $request, AccessEmailService $accessEmailService, MemberAccessGrantService $memberAccessGrant): JsonResponse
     {
         $tenantId = auth()->user()->tenant_id;
         $request->validate([
@@ -378,12 +394,12 @@ class AlunosController extends Controller
                     'tenant_id' => null,
                 ]);
 
-                foreach ($productIds as $pid) {
-                    $user->products()->syncWithoutDetaching([$pid]);
+                $products = Product::whereIn('id', $productIds)->get();
+                foreach ($products as $product) {
+                    $memberAccessGrant->grant($user, $product);
                 }
 
-                if ($sendAccessEmail && ! empty($productIds)) {
-                    $products = Product::whereIn('id', $productIds)->get();
+                if ($sendAccessEmail && $products->isNotEmpty()) {
                     foreach ($products as $product) {
                         if ($accessEmailService->sendForUserProduct($user, $product)->success) {
                             $emailsSent++;
@@ -430,7 +446,7 @@ class AlunosController extends Controller
         return null;
     }
 
-    public function removeProduct(User $aluno, Product $produto): JsonResponse
+    public function removeProduct(User $aluno, Product $produto, MemberAccessGrantService $memberAccessGrant): JsonResponse
     {
         $tenantId = auth()->user()->tenant_id;
         if (! $aluno->isCliente()) {
@@ -439,7 +455,7 @@ class AlunosController extends Controller
         if ($produto->tenant_id !== $tenantId) {
             abort(403);
         }
-        $aluno->products()->detach($produto->id);
+        $memberAccessGrant->revoke($aluno, $produto);
         $remaining = $aluno->products()->where(fn ($q) => $q->forTenant($tenantId))->count();
         return response()->json([
             'success' => true,
