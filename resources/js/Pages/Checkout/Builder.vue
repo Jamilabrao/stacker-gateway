@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, onMounted, nextTick, toRaw } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue';
 import { useForm, Link } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import { useSidebar } from '@/composables/useSidebar';
@@ -224,20 +224,74 @@ const previewIframeUrl = computed(() => {
 });
 
 const PREVIEW_MESSAGE_TYPE = 'checkout-builder-preview-config';
+const PREVIEW_READY_TYPE = 'checkout-builder-preview-ready';
+const PREVIEW_STORAGE_KEY = 'checkout-builder-live-preview-v1';
 const previewIframeRef = ref(null);
-const previewDebounceMs = 200;
+const previewDebounceMs = 80;
+
+function clonePreviewConfig() {
+    const config = JSON.parse(JSON.stringify(toRaw(configForm)));
+    if (props.config?.upsell) config.upsell = props.config.upsell;
+    if (props.config?.downsell) config.downsell = props.config.downsell;
+    return config;
+}
+
+function persistPreviewConfig(config) {
+    try {
+        localStorage.setItem(
+            PREVIEW_STORAGE_KEY,
+            JSON.stringify({ t: Date.now(), config })
+        );
+    } catch (_) {}
+}
+
+function applyPreviewToIframeWindow(win, config) {
+    if (!win) return false;
+    let applied = false;
+
+    try {
+        if (typeof win.__applyCheckoutBuilderPreview === 'function') {
+            win.__applyCheckoutBuilderPreview(config);
+            applied = true;
+        }
+    } catch (_) {}
+
+    try {
+        win.postMessage({ type: PREVIEW_MESSAGE_TYPE, config }, '*');
+        applied = true;
+    } catch (_) {}
+
+    /** Fallback visual imediato (mesma origem): força bg/primary no DOM do iframe. */
+    try {
+        const doc = win.document;
+        const root = doc?.getElementById('getfy-checkout-root');
+        const appearance = config?.appearance || {};
+        if (root && appearance.background_color) {
+            root.style.backgroundColor = appearance.background_color;
+            applied = true;
+        }
+        if (doc && appearance.primary_color) {
+            doc.documentElement.style.setProperty('--checkout-preview-primary', appearance.primary_color);
+            const buttons = doc.querySelectorAll('[data-checkout="form"] button[type="submit"], [style*="background"]');
+            buttons.forEach((el) => {
+                if (el instanceof HTMLElement && el.tagName === 'BUTTON' && el.type === 'submit') {
+                    el.style.backgroundColor = appearance.primary_color;
+                }
+            });
+        }
+    } catch (_) {}
+
+    return applied;
+}
 
 function sendPreviewConfig() {
-    const win = previewIframeRef.value?.contentWindow;
-    if (!win || !previewIframeUrl.value) return;
-    try {
-        const config = JSON.parse(JSON.stringify(toRaw(configForm)));
-        if (props.config?.upsell) config.upsell = props.config.upsell;
-        if (props.config?.downsell) config.downsell = props.config.downsell;
-        const payload = { type: PREVIEW_MESSAGE_TYPE, config };
-        /** `*` evita falha quando a origem efetiva do iframe difere da URL do src (redirect, www, etc.). O iframe valida `event.origin`. */
-        win.postMessage(payload, '*');
-    } catch (_) {}
+    const iframeEl = previewIframeRef.value;
+    const win = iframeEl?.contentWindow;
+    if (!previewIframeUrl.value) return;
+    const config = clonePreviewConfig();
+    persistPreviewConfig(config);
+    if (!win) return;
+    applyPreviewToIframeWindow(win, config);
 }
 
 let previewDebounceTimer = null;
@@ -249,24 +303,38 @@ function schedulePreviewUpdate() {
     }, previewDebounceMs);
 }
 
-/** Snapshot estável: `watch` em `reactive()` nem sempre dispara em todas as mutações aninhadas; stringify garante o disparo. */
 watch(
-    () => JSON.stringify(toRaw(configForm)),
+    () => JSON.stringify(configForm),
     () => schedulePreviewUpdate()
 );
+
+function onPreviewBridgeMessage(event) {
+    if (event?.data?.type !== PREVIEW_READY_TYPE) return;
+    if (event.source !== previewIframeRef.value?.contentWindow) return;
+    sendPreviewConfig();
+    [40, 160, 400].forEach((ms) => setTimeout(() => sendPreviewConfig(), ms));
+}
 
 const { setExpanded } = useSidebar();
 const { t } = useI18n();
 function onPreviewIframeLoad() {
     sendPreviewConfig();
-    /** Reenvios: o listener no checkout pode registrar depois do primeiro postMessage no evento load. */
-    [30, 120, 400].forEach((ms) => setTimeout(() => sendPreviewConfig(), ms));
+    [30, 120, 400, 1000, 2000].forEach((ms) => setTimeout(() => sendPreviewConfig(), ms));
 }
 
 onMounted(() => {
     setExpanded(false);
+    window.addEventListener('message', onPreviewBridgeMessage);
     schedulePreviewUpdate();
     nextTick(() => sendPreviewConfig());
+});
+
+onUnmounted(() => {
+    window.removeEventListener('message', onPreviewBridgeMessage);
+    if (previewDebounceTimer) clearTimeout(previewDebounceTimer);
+    try {
+        localStorage.removeItem(PREVIEW_STORAGE_KEY);
+    } catch (_) {}
 });
 
 const previewViewMode = ref('desktop');
@@ -299,6 +367,9 @@ const inputClass =
             <!-- Sidebar esquerda: rolagem apenas aqui -->
             <div
                 class="min-h-0 w-full flex-1 space-y-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] lg:flex-none lg:shrink-0 lg:w-[380px]"
+                @input="schedulePreviewUpdate"
+                @change="schedulePreviewUpdate"
+                @click="schedulePreviewUpdate"
             >
                 <!-- Tabs -->
                 <div

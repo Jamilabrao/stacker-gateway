@@ -34,9 +34,9 @@ const props = defineProps({
     formatPrice: { type: Function, default: (v, c) => String(v) },
 });
 
-const appearance = props.config?.appearance ?? {};
-const primaryColor = appearance.primary_color || '#7427F1';
-const sideBanners = appearance.side_banners ?? [];
+const appearance = computed(() => props.config?.appearance ?? {});
+const primaryColor = computed(() => appearance.value.primary_color || '#7427F1');
+const sideBanners = computed(() => appearance.value.side_banners ?? []);
 const footerConfig = computed(() => props.config?.footer ?? {});
 const footerEnabled = computed(() => footerConfig.value?.enabled === true);
 const footerLogoUrl = computed(() => String(footerConfig.value?.logo_url ?? '').trim());
