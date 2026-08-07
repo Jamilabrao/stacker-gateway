@@ -183,6 +183,36 @@ return [
                 ['key' => 'sandbox', 'label' => 'Sandbox', 'type' => 'boolean'],
             ],
         ],
+        'linaopenx' => [
+            'slug' => 'linaopenx',
+            'name' => 'Lina OpenX',
+            'image' => 'images/gateways/lina.jpg',
+            /** Sem o plugin `linaopenx` instalado/ativo: card no Financeiro + modal; config e checkout bloqueados. */
+            'requires_plugin' => 'linaopenx',
+            'methods' => ['open_finance'],
+            'scope' => 'national',
+            'country' => 'br',
+            'country_name' => 'Brasil',
+            'country_flag' => 'brasil.png',
+            'signup_url' => 'https://linaopenx.com.br',
+            'driver' => \App\Gateways\LinaOpenx\LinaOpenxDriver::class,
+            'credential_keys' => [
+                ['key' => 'client_id', 'label' => 'Client ID (OAuth)', 'type' => 'text'],
+                ['key' => 'client_secret', 'label' => 'Client Secret (OAuth)', 'type' => 'password'],
+                ['key' => 'sandbox', 'label' => 'Homologação (HML): só se as credenciais forem do IAM hml.linaob.com.br', 'type' => 'boolean'],
+                ['key' => 'sub_tenant_id', 'label' => 'Sub-tenant ID (opcional, ex.: newpay ou UUID)', 'type' => 'text', 'optional' => true],
+                ['key' => 'token_url', 'label' => 'URL do token OAuth (opcional)', 'type' => 'text', 'optional' => true],
+                ['key' => 'api_base_url', 'label' => 'URL base da API Embedded Payment Manager (opcional)', 'type' => 'text', 'optional' => true],
+                ['key' => 'webhook_secret', 'label' => 'Segredo do webhook (HMAC)', 'type' => 'password', 'optional' => true],
+                // Credor (recebedor): obrigatório na API white-label Lina para criar pagamento
+                ['key' => 'creditor_name', 'label' => 'Credor: nome (obrigatório para checkout Open Finance)', 'type' => 'text'],
+                ['key' => 'creditor_cpf_cnpj', 'label' => 'Credor: CPF/CNPJ (obrigatório)', 'type' => 'text'],
+                ['key' => 'creditor_ispb', 'label' => 'Credor: ISPB do banco (8 dígitos, obrigatório)', 'type' => 'text'],
+                ['key' => 'creditor_issuer', 'label' => 'Credor: agência (1 a 4 dígitos, obrigatório)', 'type' => 'text'],
+                ['key' => 'creditor_number', 'label' => 'Credor: número da conta (sem dígito ou com, só números, obrigatório)', 'type' => 'text'],
+                ['key' => 'creditor_account_type', 'label' => 'Credor: tipo de conta: CACC (corrente), SVGS (poupança) ou TRAN', 'type' => 'text', 'optional' => true],
+            ],
+        ],
     ],
 
     /*
@@ -201,6 +231,7 @@ return [
         'mercadopago',
         'pagarme',
         'stripe',
+        'linaopenx',
     ],
 
     /*
@@ -213,6 +244,7 @@ return [
         'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
         'pix_auto' => ['efi', 'pushinpay'],
+        'open_finance' => ['linaopenx'],
         'crypto' => [],
     ],
 ];

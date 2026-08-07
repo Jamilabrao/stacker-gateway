@@ -13,13 +13,14 @@ class EffectiveMerchantFees
     public const API_ORDER_SOURCES = ['api', 'api_checkout_pro'];
 
     /** @var list<string> */
-    private const RULE_KEYS = ['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
+    private const RULE_KEYS = ['pix', 'api_pix', 'pixgo', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
 
     /**
      * @return array{
      *     pix: array{percent: float, fixed: float},
      *     api_pix: array{percent: float, fixed: float},
      *     pixgo: array{percent: float, fixed: float},
+     *     open_finance: array{percent: float, fixed: float},
      *     card: array{percent: float, fixed: float},
      *     apple_pay: array{percent: float, fixed: float},
      *     google_pay: array{percent: float, fixed: float},
@@ -37,6 +38,7 @@ class EffectiveMerchantFees
             'pix' => ['percent' => 0.0, 'fixed' => 0.0],
             'api_pix' => ['percent' => 0.0, 'fixed' => 0.0],
             'pixgo' => ['percent' => 0.0, 'fixed' => 0.0],
+            'open_finance' => ['percent' => 0.0, 'fixed' => 0.0],
             'card' => ['percent' => 0.0, 'fixed' => 0.0],
             'apple_pay' => ['percent' => 0.0, 'fixed' => 0.0],
             'google_pay' => ['percent' => 0.0, 'fixed' => 0.0],
@@ -60,6 +62,10 @@ class EffectiveMerchantFees
         // Legado: sem bloco `pixgo`, herda PIX checkout (comportamento anterior).
         if (! isset($raw['pixgo']) || ! is_array($raw['pixgo'])) {
             $base['pixgo'] = $base['pix'];
+        }
+        // Legado: sem bloco `open_finance`, herda PIX (comportamento anterior à taxa dedicada).
+        if (! isset($raw['open_finance']) || ! is_array($raw['open_finance'])) {
+            $base['open_finance'] = $base['pix'];
         }
         // Wallets CajuPay: sem bloco próprio, herdam taxa de cartão checkout.
         if (! isset($raw['apple_pay']) || ! is_array($raw['apple_pay'])) {
@@ -132,6 +138,7 @@ class EffectiveMerchantFees
      *     pix: array{percent: float, fixed: float},
      *     api_pix: array{percent: float, fixed: float},
      *     pixgo: array{percent: float, fixed: float},
+     *     open_finance: array{percent: float, fixed: float},
      *     card: array{percent: float, fixed: float},
      *     apple_pay: array{percent: float, fixed: float},
      *     google_pay: array{percent: float, fixed: float},
@@ -179,6 +186,10 @@ class EffectiveMerchantFees
             && self::overrideBlockIsExplicit($rawOverrides, 'pix')) {
             $effective['pixgo'] = $effective['pix'];
         }
+        if (! self::overrideBlockIsExplicit($rawOverrides, 'open_finance')
+            && self::overrideBlockIsExplicit($rawOverrides, 'pix')) {
+            $effective['open_finance'] = $effective['pix'];
+        }
         if (! self::overrideBlockIsExplicit($rawOverrides, 'apple_pay')
             && self::overrideBlockIsExplicit($rawOverrides, 'card')) {
             $effective['apple_pay'] = $effective['card'];
@@ -207,13 +218,14 @@ class EffectiveMerchantFees
     }
 
     /**
-     * @param  'pix'|'card'|'apple_pay'|'google_pay'|'boleto'|'withdrawal'|'pix_auto'  $method
+     * @param  'pix'|'open_finance'|'card'|'apple_pay'|'google_pay'|'boleto'|'withdrawal'|'pix_auto'  $method
      * @return array{fee: float, net: float, gross: float, percent: float, fixed: float}
      */
     public static function calculateSaleFee(int $tenantId, string $method, float $gross, ?string $source = null): array
     {
         $map = [
             'pix' => 'pix',
+            'open_finance' => 'open_finance',
             'card' => 'card',
             'apple_pay' => 'apple_pay',
             'google_pay' => 'google_pay',
@@ -221,7 +233,7 @@ class EffectiveMerchantFees
             'pix_auto' => 'pix',
         ];
         $key = $map[$method] ?? $method;
-        if (! in_array($key, ['pix', 'card', 'apple_pay', 'google_pay', 'boleto'], true)) {
+        if (! in_array($key, ['pix', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto'], true)) {
             $key = 'pix';
         }
         $rules = self::forTenant($tenantId);

@@ -31,6 +31,7 @@ const feeMethodRows = [
     { key: 'pix', label: 'PIX' },
     { key: 'api_pix', label: 'API — PIX' },
     { key: 'pixgo', label: 'PixGo' },
+    { key: 'open_finance', label: 'Open Finance' },
     { key: 'card', label: 'Cartão' },
     { key: 'apple_pay', label: 'Apple Pay' },
     { key: 'google_pay', label: 'Google Pay' },
@@ -573,14 +574,27 @@ function submitPaymentMethods() {
 
 const gatewaySidebarOpen = ref(false);
 const selectedGatewaySlug = ref(null);
+const pluginLockedModalOpen = ref(false);
+const pluginLockedGateway = ref(null);
 
 function openGatewaySidebar(slug) {
     if (slug === 'cajupay') {
         cajupaySidebarOpen.value = true;
         return;
     }
+    const g = (props.gateways || []).find((x) => x.slug === slug);
+    if (g?.plugin_locked) {
+        pluginLockedGateway.value = g;
+        pluginLockedModalOpen.value = true;
+        return;
+    }
     selectedGatewaySlug.value = slug;
     gatewaySidebarOpen.value = true;
+}
+
+function closePluginLockedModal() {
+    pluginLockedModalOpen.value = false;
+    pluginLockedGateway.value = null;
 }
 
 const cajupaySidebarOpen = ref(false);
@@ -664,6 +678,7 @@ const feeForm = useForm({
         pix: feeBlock('pix'),
         api_pix: feeBlock('api_pix'),
         pixgo: feeBlock('pixgo'),
+        open_finance: feeBlock('open_finance'),
         card: feeBlock('card'),
         apple_pay: feeBlock('apple_pay'),
         google_pay: feeBlock('google_pay'),
@@ -744,6 +759,7 @@ function settlementBlock(key) {
 /** Linhas da aba Liquidação (D+N / reserva por canal). */
 const settlementMethodRows = [
     { key: 'pix', label: 'PIX' },
+    { key: 'open_finance', label: 'Open Finance' },
     { key: 'card', label: 'Cartão' },
     { key: 'apple_pay', label: 'Apple Pay' },
     { key: 'google_pay', label: 'Google Pay' },
@@ -1759,6 +1775,54 @@ function submitSettlement() {
             @close="closeGatewaySidebar"
             @saved="onGatewaySaved"
         />
+
+        <Teleport to="body">
+            <div
+                v-if="pluginLockedModalOpen"
+                class="fixed inset-0 z-[80] flex items-center justify-center p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="plugin-locked-title"
+            >
+                <div class="absolute inset-0 bg-zinc-950/50 backdrop-blur-[2px]" @click="closePluginLockedModal" />
+                <div
+                    class="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                    <div class="border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+                        <h2 id="plugin-locked-title" class="text-base font-semibold text-zinc-900 dark:text-white">
+                            {{ pluginLockedGateway?.plugin_locked_title || 'Plugin necessário' }}
+                        </h2>
+                    </div>
+                    <div class="space-y-3 px-5 py-4 text-sm text-zinc-600 dark:text-zinc-300">
+                        <p>
+                            {{
+                                pluginLockedGateway?.plugin_locked_message ||
+                                'Este adquirente exige um plugin instalado e ativo. Fale com o suporte para obter o módulo.'
+                            }}
+                        </p>
+                        <p v-if="pluginLockedGateway?.plugin_name" class="text-xs text-zinc-500 dark:text-zinc-400">
+                            Plugin: <span class="font-medium text-zinc-700 dark:text-zinc-200">{{ pluginLockedGateway.plugin_name }}</span>
+                            <template v-if="pluginLockedGateway.requires_plugin">
+                                ({{ pluginLockedGateway.requires_plugin }})
+                            </template>
+                        </p>
+                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                            Após a instalação, ative o plugin em
+                            <span class="font-medium">Gerenciar plugins</span>
+                            e volte aqui para configurar o adquirente.
+                        </p>
+                    </div>
+                    <div class="flex justify-end gap-2 border-t border-zinc-100 px-5 py-3 dark:border-zinc-800">
+                        <Button type="button" variant="secondary" @click="closePluginLockedModal">
+                            Fechar
+                        </Button>
+                        <Button type="button" @click="router.visit('/plataforma/gerenciar-plugins')">
+                            Ver plugins
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
 
         <PlatformStepUpModal
             :open="gatewayToggleStepUpOpen"

@@ -145,6 +145,7 @@ Route::get('/cron', function () {
 })->middleware('throttle:60,1')->name('cron.url');
 
 Route::middleware('throttle:60,1')->group(function () {
+    Route::post('/webhooks/gateways/linaopenx', [\App\Http\Controllers\Webhooks\LinaOpenxWebhookController::class, 'handle'])->name('webhooks.linaopenx');
     Route::post('/webhooks/gateways/spacepag', [\App\Http\Controllers\Webhooks\SpacepagWebhookController::class, 'handle'])->name('webhooks.spacepag');
     Route::post('/webhooks/gateways/woovi', [\App\Http\Controllers\Webhooks\WooviWebhookController::class, 'handle'])->name('webhooks.woovi');
     Route::post('/webhooks/gateways/stripe', [\App\Http\Controllers\Webhooks\StripeWebhookController::class, 'handle'])->name('webhooks.stripe');
@@ -190,6 +191,8 @@ Route::get('/coproducao/convite/{token}', [\App\Http\Controllers\CoproductionInv
 
 Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'])->name('checkout.show')->where('slug', '[a-z0-9]{6,16}');
 Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'pixPage'])->name('checkout.pix');
+Route::get('/checkout/lina/return/{order}', [\App\Http\Controllers\CheckoutController::class, 'linaReturn'])->name('checkout.lina.return')->where('order', '[0-9]+');
+Route::get('/checkout/lina/aguardar', [\App\Http\Controllers\CheckoutController::class, 'linaWaitPage'])->name('checkout.lina.wait');
 Route::get('/checkout/boleto', [\App\Http\Controllers\CheckoutController::class, 'boletoPage'])->name('checkout.boleto');
 Route::get('/checkout/order-status', [\App\Http\Controllers\CheckoutController::class, 'orderStatus'])->name('checkout.order-status')->middleware('throttle:30,1');
 Route::post('/checkout/shipping-quote', [\App\Http\Controllers\CheckoutController::class, 'shippingQuote'])

@@ -8,6 +8,7 @@ use App\Gateways\GatewayRegistry;
 use App\Models\GatewayCredential;
 use App\Models\Setting;
 use App\Services\CajuPay\CajuPayWebhookBootstrapService;
+use App\Support\GatewayPluginRequirement;
 use App\Support\GatewayWebhookUrl;
 use App\Support\PlatformConfigContext;
 use App\Services\PlatformAuditService;
@@ -38,6 +39,10 @@ class GatewaysController extends Controller
         $gateway = GatewayRegistry::get($slug);
         if (!$gateway) {
             abort(404, 'Gateway não encontrado.');
+        }
+
+        if ($locked = $this->pluginLockedResponse($slug)) {
+            return $locked;
         }
 
         $tenantId = PlatformConfigContext::settingsTenantId();
@@ -160,6 +165,10 @@ class GatewaysController extends Controller
         $gateway = GatewayRegistry::get($slug);
         if (!$gateway) {
             abort(404, 'Gateway não encontrado.');
+        }
+
+        if ($locked = $this->pluginLockedResponse($slug)) {
+            return $locked;
         }
 
         $this->validatePlatformStepUp($request);
@@ -325,6 +334,10 @@ class GatewaysController extends Controller
             abort(404, 'Gateway não encontrado.');
         }
 
+        if ($locked = $this->pluginLockedResponse($slug)) {
+            return $locked;
+        }
+
         $this->validatePlatformStepUp($request);
 
         $validated = $request->validate([
@@ -389,6 +402,10 @@ class GatewaysController extends Controller
         $gateway = GatewayRegistry::get($slug);
         if (!$gateway) {
             abort(404, 'Gateway não encontrado.');
+        }
+
+        if ($locked = $this->pluginLockedResponse($slug)) {
+            return $locked;
         }
 
         $credentialKeys = collect($gateway['credential_keys'] ?? []);
@@ -485,6 +502,9 @@ class GatewaysController extends Controller
             if (! $ok && $slug === 'woovi') {
                 $failMessage = 'Falha na autenticação. Em testes, marque “Sandbox” e use um AppID do painel de sandbox; o AppID de produção só vale com Sandbox desmarcado.';
             }
+            if (! $ok && $slug === 'linaopenx') {
+                $failMessage = 'Falha na autenticação Lina. Use Client ID/Secret corretos e deixe “Homologação (HML)” desmarcado se as credenciais forem de produção (iam.linaob.com.br). Marque HML só para iam.hml.linaob.com.br.';
+            }
 
             return response()->json([
                 'success' => $ok,
@@ -516,6 +536,10 @@ class GatewaysController extends Controller
         $gateway = GatewayRegistry::get($slug);
         if (!$gateway) {
             abort(404, 'Gateway não encontrado.');
+        }
+
+        if ($locked = $this->pluginLockedResponse($slug)) {
+            return $locked;
         }
 
         $certificateKey = $gateway['certificate_key'] ?? null;
@@ -633,6 +657,8 @@ class GatewaysController extends Controller
         return array_map(function ($g) use ($credentialBySlug) {
             $cred = $credentialBySlug->get($g['slug'] ?? '');
             $image = $g['image'] ?? null;
+            $pluginUi = GatewayPluginRequirement::uiPropsForDefinition($g);
+
             return [
                 'slug' => $g['slug'],
                 'name' => $g['name'],
@@ -643,8 +669,26 @@ class GatewaysController extends Controller
                 'is_configured' => $cred !== null,
                 'is_connected' => $cred?->is_connected ?? false,
                 'is_enabled' => $cred === null ? true : ($cred->is_enabled ?? true),
+                'requires_plugin' => $pluginUi['requires_plugin'],
+                'plugin_locked' => $pluginUi['plugin_locked'],
+                'plugin_name' => $pluginUi['plugin_name'],
+                'plugin_locked_title' => $pluginUi['plugin_locked_title'],
+                'plugin_locked_message' => $pluginUi['plugin_locked_message'],
             ];
         }, $all);
+    }
+
+    private function pluginLockedResponse(string $slug): ?JsonResponse
+    {
+        if (GatewayPluginRequirement::isUnlocked($slug)) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => GatewayPluginRequirement::lockedUserMessage($slug),
+            'plugin_locked' => true,
+            'requires_plugin' => GatewayPluginRequirement::requiredPluginSlug(GatewayRegistry::get($slug) ?: null),
+        ], 403);
     }
 
     /**

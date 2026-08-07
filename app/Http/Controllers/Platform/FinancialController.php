@@ -291,7 +291,7 @@ class FinancialController extends Controller
             'merchant_fee_rules' => ['required', 'array'],
             'api_pix_enabled' => ['nullable', 'boolean'],
         ]);
-        $rules = ['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
+        $rules = ['pix', 'api_pix', 'pixgo', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
         foreach ($rules as $key) {
             $request->validate([
                 "merchant_fee_rules.$key" => ['nullable', 'array'],

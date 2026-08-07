@@ -67,7 +67,7 @@ class OrderCompletedWalletCreditor
         $bucket = match ($method) {
             'card', 'apple_pay', 'google_pay' => 'card',
             'boleto' => 'boleto',
-            'pix_auto', 'pix', null, '' => 'pix',
+            'pix_auto', 'pix', 'open_finance', null, '' => 'pix',
             default => 'pix',
         };
 
@@ -76,6 +76,7 @@ class OrderCompletedWalletCreditor
             'google_pay' => 'google_pay',
             'card' => 'card',
             'boleto' => 'boleto',
+            'open_finance' => 'open_finance',
             default => 'pix',
         };
 

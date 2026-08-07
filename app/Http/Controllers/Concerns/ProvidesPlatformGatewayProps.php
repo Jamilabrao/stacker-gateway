@@ -7,6 +7,7 @@ use App\Models\CajuPayAccount;
 use App\Models\GatewayCredential;
 use App\Models\Setting;
 use App\Support\GatewayInboundWebhookAuth;
+use App\Support\GatewayPluginRequirement;
 use App\Support\GatewayWebhookSecurityAlert;
 
 trait ProvidesPlatformGatewayProps
@@ -44,6 +45,7 @@ trait ProvidesPlatformGatewayProps
             $image = $g['image'] ?? null;
             $isCajuPayMulti = $slug === 'cajupay';
             $cajupayStatus = $isCajuPayMulti ? $this->cajupayGatewayStatus($tenantId) : null;
+            $pluginUi = GatewayPluginRequirement::uiPropsForDefinition($g);
 
             return [
                 'slug' => $slug,
@@ -68,6 +70,11 @@ trait ProvidesPlatformGatewayProps
                 'webhook_secret_configured' => $isCajuPayMulti
                     ? $cajupayStatus['webhook_secret_configured']
                     : ($cred && GatewayInboundWebhookAuth::webhookSecret($slug, $tenantId) !== null),
+                'requires_plugin' => $pluginUi['requires_plugin'],
+                'plugin_locked' => $pluginUi['plugin_locked'],
+                'plugin_name' => $pluginUi['plugin_name'],
+                'plugin_locked_title' => $pluginUi['plugin_locked_title'],
+                'plugin_locked_message' => $pluginUi['plugin_locked_message'],
             ];
         }, $all);
     }

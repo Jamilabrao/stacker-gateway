@@ -30,20 +30,19 @@ const emit = defineEmits(['click', 'toggle-enabled']);
 
 const isEnabled = computed(() => props.gateway.is_enabled !== false);
 
-const canToggleEnabled = computed(
-    () => props.showEnabledToggle && props.gateway.is_configured
-);
-
 const methodLabels = {
     pix: 'PIX',
     card: 'Cartão',
     boleto: 'Boleto',
     pix_auto: 'Pix Auto',
+    open_finance: 'Open Finance',
 };
 
 const methods = computed(() =>
     (props.gateway.methods || []).map((m) => methodLabels[m] || m)
 );
+
+const isPluginLocked = computed(() => props.gateway.plugin_locked === true);
 
 /** CajuPay: cartão + wallets no checkout SDK; chips extras junto a PIX/Cartão. */
 const methodChips = computed(() => {
@@ -84,6 +83,10 @@ const countries = computed(() => {
 });
 
 const hasMultipleCountries = computed(() => countries.value != null);
+
+const canToggleEnabled = computed(
+    () => props.showEnabledToggle && props.gateway.is_configured && !isPluginLocked.value
+);
 </script>
 
 <template>
@@ -169,6 +172,12 @@ const hasMultipleCountries = computed(() => countries.value != null);
                     {{ gateway.name }}
                 </span>
                 <PixInOutBadges :slug="gateway.slug" />
+                <span
+                    v-if="isPluginLocked"
+                    class="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                >
+                    Plugin
+                </span>
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-1.5">
                 <span
@@ -182,7 +191,13 @@ const hasMultipleCountries = computed(() => countries.value != null);
             <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2">
                 <div class="flex items-center gap-2 text-xs">
                     <span
-                        v-if="gateway.is_configured && !isEnabled"
+                        v-if="isPluginLocked"
+                        class="text-amber-700 dark:text-amber-300"
+                    >
+                        Plugin necessário
+                    </span>
+                    <span
+                        v-else-if="gateway.is_configured && !isEnabled"
                         class="text-rose-600 dark:text-rose-400"
                     >
                         Desativado

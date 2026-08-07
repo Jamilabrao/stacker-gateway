@@ -18,7 +18,11 @@ import {
 defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
-    users: { type: Object, default: () => ({ data: [], links: [], total: 0, from: null, to: null, per_page: 25 }) },
+    // LengthAwarePaginator serializa como objeto { data, links, total, ... }; legacy pode mandar array.
+    users: {
+        type: [Object, Array],
+        default: () => ({ data: [], links: [], total: 0, from: null, to: null, per_page: 25 }),
+    },
     q: { type: String, default: null },
     status: { type: String, default: null },
     sort_by: { type: String, default: null },
@@ -44,8 +48,29 @@ const props = defineProps({
 const page = usePage();
 const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
 
-const usersList = computed(() => (Array.isArray(props.users?.data) ? props.users.data : []));
+const usersList = computed(() => {
+    if (Array.isArray(props.users?.data)) {
+        return props.users.data;
+    }
+    if (Array.isArray(props.users)) {
+        return props.users;
+    }
+    return [];
+});
 const paginationLinks = computed(() => (Array.isArray(props.users?.links) ? props.users.links : []));
+const usersMeta = computed(() => {
+    if (props.users && typeof props.users === 'object' && !Array.isArray(props.users)) {
+        return props.users;
+    }
+    const total = usersList.value.length;
+    return {
+        total,
+        from: total ? 1 : null,
+        to: total || null,
+        current_page: 1,
+        per_page: Number(props.per_page) || 25,
+    };
+});
 
 /** Exibe WhatsApp no modal no formato BR (sem DDI 55). */
 function formatPhoneForInput(phone) {
@@ -291,6 +316,9 @@ function computeEffectiveFeesPreview(draftOverrides) {
         if (!overrideBlockIsExplicit(draftOverrides, 'pixgo') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
             effective.pixgo = { ...effective.pix };
         }
+        if (!overrideBlockIsExplicit(draftOverrides, 'open_finance') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
+            effective.open_finance = { ...effective.pix };
+        }
         if (!overrideBlockIsExplicit(draftOverrides, 'apple_pay') && overrideBlockIsExplicit(draftOverrides, 'card')) {
             effective.apple_pay = { ...effective.card };
         }
@@ -344,6 +372,7 @@ function defaultFeeOverrides() {
         pix: { percent: '', fixed: '' },
         api_pix: { percent: '', fixed: '' },
         pixgo: { percent: '', fixed: '' },
+        open_finance: { percent: '', fixed: '' },
         card: { percent: '', fixed: '' },
         apple_pay: { percent: '', fixed: '' },
         google_pay: { percent: '', fixed: '' },
@@ -356,6 +385,7 @@ const feeOverrideRows = [
     { key: 'pix', label: 'PIX (checkout)' },
     { key: 'api_pix', label: 'PIX (API)', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
     { key: 'pixgo', label: 'PixGo', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
+    { key: 'open_finance', label: 'Open Finance', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
     { key: 'card', label: 'Cartão' },
     { key: 'apple_pay', label: 'Apple Pay', inheritHint: 'Valor atual; edite para personalizar (senão acompanha Cartão)' },
     { key: 'google_pay', label: 'Google Pay', inheritHint: 'Valor atual; edite para personalizar (senão acompanha Cartão)' },
@@ -363,10 +393,11 @@ const feeOverrideRows = [
     { key: 'withdrawal', label: 'Saque' },
 ];
 
-const feeRuleKeys = ['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
+const feeRuleKeys = ['pix', 'api_pix', 'pixgo', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
 
 const settlementOverrideRows = [
     { key: 'pix', label: 'PIX' },
+    { key: 'open_finance', label: 'Open Finance' },
     { key: 'card', label: 'Cartão' },
     { key: 'apple_pay', label: 'Apple Pay' },
     { key: 'google_pay', label: 'Google Pay' },
@@ -376,7 +407,7 @@ const settlementOverrideRows = [
 function mergeFeeOverrides(raw) {
     const d = defaultFeeOverrides();
     if (!raw || typeof raw !== 'object') return d;
-    for (const k of ['pix', 'api_pix', 'pixgo', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal']) {
+    for (const k of ['pix', 'api_pix', 'pixgo', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal']) {
         if (raw[k] && typeof raw[k] === 'object') {
             if (raw[k].percent != null && raw[k].percent !== '') {
                 d[k].percent = formatPercentForInput(raw[k].percent);
@@ -390,6 +421,7 @@ function mergeFeeOverrides(raw) {
 function defaultSettlementOverrides() {
     return {
         pix: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
+        open_finance: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
         card: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
         apple_pay: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
         google_pay: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
@@ -400,7 +432,7 @@ function defaultSettlementOverrides() {
 function mergeSettlementOverrides(raw) {
     const d = defaultSettlementOverrides();
     if (!raw || typeof raw !== 'object') return d;
-    for (const k of ['pix', 'card', 'apple_pay', 'google_pay', 'boleto']) {
+    for (const k of ['pix', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto']) {
         if (raw[k] && typeof raw[k] === 'object') {
             if (raw[k].days_to_available != null && raw[k].days_to_available !== '') {
                 d[k].days_to_available = raw[k].days_to_available;
@@ -583,6 +615,9 @@ function updateMerchantFeeField(key, field, value) {
         }
         if (!feeKeysTouched.value.pixgo && !overrideBlockIsExplicit(savedFeeOverrides.value, 'pixgo')) {
             fees = { ...fees, pixgo: { ...nextBlock } };
+        }
+        if (!feeKeysTouched.value.open_finance && !overrideBlockIsExplicit(savedFeeOverrides.value, 'open_finance')) {
+            fees = { ...fees, open_finance: { ...nextBlock } };
         }
     }
     if (key === 'card') {
@@ -1220,11 +1255,11 @@ function formatBlockUntilForInput(iso) {
         </div>
 
         <div
-            v-if="users.total > 0"
+            v-if="usersMeta.total > 0"
             class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
         >
             <p class="text-sm text-zinc-500 dark:text-zinc-400">
-                Exibindo {{ users.from ?? 0 }}–{{ users.to ?? 0 }} de {{ users.total }} infoprodutores
+                Exibindo {{ usersMeta.from ?? 0 }}–{{ usersMeta.to ?? 0 }} de {{ usersMeta.total }} infoprodutores
             </p>
             <div v-if="paginationLinks.length > 3" class="flex flex-wrap gap-1">
                 <Link

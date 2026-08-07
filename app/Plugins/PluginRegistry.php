@@ -117,6 +117,24 @@ class PluginRegistry
         return array_values(array_filter($installed, fn ($p) => $p['is_enabled']));
     }
 
+    /**
+     * Plugin no disco, registrado e ativo (is_enabled).
+     */
+    public static function isActive(string $slug): bool
+    {
+        $slug = trim($slug);
+        if ($slug === '') {
+            return false;
+        }
+        foreach (self::enabled() as $plugin) {
+            if (($plugin['slug'] ?? '') === $slug) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function enable(string $slug): bool
     {
         self::syncFromDisk();

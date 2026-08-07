@@ -40,6 +40,7 @@ use App\Services\Shipping\ShippingQuoteService;
 use App\Services\StorageService;
 use App\Services\Checkout\CheckoutAbuseGuard;
 use App\Services\CouponCheckoutService;
+use App\Services\LinaOpenx\LinaOpenxCheckoutService;
 use Illuminate\Support\Facades\Schema;
 use App\Support\CajuPayBrowserSdk;
 use App\Support\CheckoutCardContract;
@@ -581,7 +582,8 @@ class CheckoutController extends Controller
             ? $paymentService->getFirstAvailableGatewayForMethod($product->tenant_id, 'card', $product)
             : null;
         $requireCpf = (($customerFields['cpf'] ?? false) && $displayCurrency === 'BRL')
-            || ($firstCardGatewayForRules === 'pagarme' && $displayCurrency === 'BRL');
+            || ($firstCardGatewayForRules === 'pagarme' && $displayCurrency === 'BRL')
+            || $paymentMethodForRules === 'open_finance';
         $phoneRequiredForCheckout = ($customerFields['phone'] ?? false)
             || ($paymentMethodForRules === 'pix' && $firstPixGateway === 'pagarme');
 
@@ -591,7 +593,7 @@ class CheckoutController extends Controller
             'subscription_plan_id' => ['nullable', 'exists:subscription_plans,id'],
             'order_bump_ids' => ['nullable', 'array'],
             'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
-            'payment_method' => ['required', 'string', 'in:pix,card,boleto,pix_auto,apple_pay,google_pay'],
+            'payment_method' => ['required', 'string', 'in:pix,card,boleto,pix_auto,apple_pay,google_pay,open_finance'],
             'checkout_session_token' => ['required', 'string', 'max:64'],
             'idempotency_key' => ['nullable', 'string', 'max:128'],
             'website' => ['nullable', 'string', 'max:255'],
@@ -1028,6 +1030,73 @@ class CheckoutController extends Controller
             } catch (\Throwable $e) {
                 $this->rollbackFailedOrder($order, $e);
                 $msg = $e->getMessage() ?: 'Não foi possível gerar o PIX. Tente novamente.';
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => $msg,
+                    ], 422);
+                }
+                if ($request->header('X-Inertia')) {
+                    return back()->withErrors(['payment_method' => $msg])->withInput();
+                }
+
+                return back()->with('error', $msg);
+            }
+        }
+
+        if ($paymentMethod === 'open_finance') {
+            $order = $createOrderAndItems(array_merge($orderPayload, [
+                'status' => 'pending',
+                'gateway' => null,
+                'gateway_id' => null,
+                'payment_method' => 'open_finance',
+                'metadata' => array_merge($orderMetadata, ['checkout_payment_method' => 'open_finance']),
+            ]));
+            $order->load('orderItems');
+            event(new OrderPending($order));
+            try {
+                $linaService = app(LinaOpenxCheckoutService::class);
+                $linaResult = $linaService->startPaymentForOrder(
+                    $order,
+                    $validated,
+                    (string) ($product->name ?? ('Pedido #'.$order->id))
+                );
+                $updateCheckoutSession($order->fresh() ?? $order);
+                $afterPurchase = $product->checkout_config['redirect_after_purchase'] ?? null;
+                $afterPurchase = ! empty($afterPurchase) && is_string($afterPurchase) ? $afterPurchase : null;
+                $waitToken = Str::random(32);
+                session()->put('lina_display.'.$waitToken, [
+                    'order_id' => $order->id,
+                    'checkout_session_token' => $validated['checkout_session_token'] ?? null,
+                    'amount' => $totalAmount,
+                    'product_name' => $product->name,
+                    'checkout_slug' => $checkoutSlug,
+                    'redirect_after_purchase' => $afterPurchase,
+                    'customer_name' => $validated['name'] ?? null,
+                    'customer_email' => $validated['email'] ?? null,
+                    'customer_phone' => $validated['phone'] ?? null,
+                    'created_at' => time(),
+                    'transaction_id' => $linaResult['transaction_id'] ?? null,
+                ]);
+                $portalUrl = $linaResult['redirect_url'];
+
+                if ($request->expectsJson()) {
+                    return $this->idempotencyReturn($idempotencyKey, response()->json([
+                        'success' => true,
+                        'payment_method' => 'open_finance',
+                        'order_id' => $order->id,
+                        'transaction_id' => $linaResult['transaction_id'] ?? null,
+                        'redirect_url' => $portalUrl,
+                        'wait_token' => $waitToken,
+                        'external_redirect' => true,
+                    ]));
+                }
+
+                return $this->idempotencyReturn($idempotencyKey, redirect()->away($portalUrl));
+            } catch (\Throwable $e) {
+                $this->rollbackFailedOrder($order, $e);
+                $msg = $e->getMessage() ?: 'Não foi possível iniciar o pagamento Open Finance. Tente novamente.';
+                $msg = str_ireplace(['Lina OpenX', 'LinaOpenX', 'Lina'], 'Open Finance', $msg);
                 if ($request->expectsJson()) {
                     return response()->json([
                         'success' => false,
@@ -1672,6 +1741,141 @@ class CheckoutController extends Controller
             'customer_phone' => $stored['customer_phone'] ?? null,
             'created_at' => $createdAt,
             'expiry_seconds' => self::PIX_EXPIRY_SECONDS,
+            'conversion_pixels' => $conversionPixels,
+        ]);
+    }
+
+    /**
+     * Retorno do portal white-label Lina (redirect assinado).
+     * Query: paymentLinkId (Lina) + assinatura Laravel em order.
+     */
+    public function linaReturn(Request $request, Order $order): RedirectResponse|Response
+    {
+        if (! $request->hasValidSignatureWhileIgnoring([
+            'paymentLinkId',
+            'payment_link_id',
+            'paymentRequestId',
+            'payment_request_id',
+            'paymentId',
+            'payment_id',
+            'id',
+            'error',
+            'error_description',
+            'state',
+        ])) {
+            abort(403, 'Link de retorno inválido ou expirado.');
+        }
+
+        $paymentLinkId = $request->query('paymentLinkId')
+            ?? $request->query('payment_link_id')
+            ?? $request->query('paymentRequestId')
+            ?? $request->query('payment_request_id');
+        $paymentLinkId = is_string($paymentLinkId) ? trim($paymentLinkId) : null;
+
+        try {
+            $result = app(LinaOpenxCheckoutService::class)->handleReturn($order, $paymentLinkId);
+            $order = $result['order'];
+        } catch (\Throwable $e) {
+            Log::warning('CheckoutController linaReturn: falha', [
+                'order_id' => $order->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        $order->refresh();
+        if ($order->status === 'completed') {
+            $config = $this->getOrderCheckoutConfig($order);
+            $upsell = $config['upsell'] ?? [];
+            if (! empty($upsell['enabled']) && ! empty($upsell['products']) && is_array($upsell['products'])) {
+                $upsellToken = Str::random(64);
+                Cache::put('upsell_token.'.$upsellToken, [
+                    'order_id' => $order->id,
+                    'gateway' => 'open_finance',
+                ], now()->addMinutes(60));
+
+                return redirect()->route('checkout.upsell', ['token' => $upsellToken]);
+            }
+            $customRedirect = $config['redirect_after_purchase'] ?? null;
+            if (is_string($customRedirect) && trim($customRedirect) !== '') {
+                $url = SafeUrl::normalizeCheckoutRedirect($customRedirect);
+                if ($url !== null) {
+                    return redirect()->away($url);
+                }
+            }
+            $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
+
+            return redirect()->route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
+        }
+
+        $waitToken = Str::random(32);
+        session()->put('lina_display.'.$waitToken, [
+            'order_id' => $order->id,
+            'checkout_session_token' => CheckoutSession::where('order_id', $order->id)->orderByDesc('id')->value('session_token'),
+            'amount' => (float) $order->amount,
+            'product_name' => $order->product?->name,
+            'checkout_slug' => $order->getCheckoutSlug(),
+            'redirect_after_purchase' => $this->getOrderCheckoutConfig($order)['redirect_after_purchase'] ?? null,
+            'customer_name' => $order->user?->name,
+            'customer_email' => $order->email,
+            'customer_phone' => $order->phone,
+            'created_at' => time(),
+            'transaction_id' => $order->gateway_id,
+        ]);
+
+        return redirect()->route('checkout.lina.wait', ['token' => $waitToken]);
+    }
+
+    /**
+     * Página de espera Open Finance (poll de status após retorno ou se o portal ainda processa).
+     *
+     * @return RedirectResponse|Response
+     */
+    public function linaWaitPage(Request $request)
+    {
+        $token = $request->query('token');
+        if (! $token || ! is_string($token)) {
+            return redirect()->route('login')->with('error', 'Link inválido ou expirado.');
+        }
+
+        $stored = session('lina_display.'.$token);
+        if (! is_array($stored)) {
+            return redirect()->route('login')->with('error', 'Sessão Open Finance expirada. Tente novamente no checkout.');
+        }
+
+        $orderId = (int) ($stored['order_id'] ?? 0);
+        $order = Order::with('product', 'productOffer', 'subscriptionPlan', 'user')->find($orderId);
+        if (! $order) {
+            session()->forget('lina_display.'.$token);
+
+            return redirect()->route('login')->with('error', 'Pedido não encontrado.');
+        }
+
+        if ($order->status === 'completed') {
+            return redirect()->route('checkout.thank-you', [
+                'order_id' => $order->id,
+                'next' => ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login',
+            ]);
+        }
+
+        $amount = (float) ($stored['amount'] ?? $order->amount);
+        $conversionPixels = AffiliateConversionPixels::forOrder($order);
+        $checkoutSessionToken = (string) ($stored['checkout_session_token'] ?? CheckoutSession::where('order_id', $orderId)->orderByDesc('id')->value('session_token') ?? '');
+
+        return Inertia::render('Checkout/OpenFinance', [
+            'token' => $token,
+            'order_id' => $orderId,
+            'checkout_session_token' => $checkoutSessionToken,
+            'amount' => $amount,
+            'amount_formatted' => 'R$ '.number_format($amount, 2, ',', '.'),
+            'product_name' => $stored['product_name'] ?? $order->product?->name,
+            'checkout_slug' => $stored['checkout_slug'] ?? $order->getCheckoutSlug(),
+            'redirect_after_purchase' => $stored['redirect_after_purchase'] ?? null,
+            'customer_name' => $stored['customer_name'] ?? $order->user?->name,
+            'customer_email' => $stored['customer_email'] ?? $order->email,
+            'customer_phone' => $stored['customer_phone'] ?? $order->phone,
+            'created_at' => (int) ($stored['created_at'] ?? time()),
+            'expiry_seconds' => 1800,
+            'status' => $order->status,
             'conversion_pixels' => $conversionPixels,
         ]);
     }
@@ -2323,6 +2527,9 @@ class CheckoutController extends Controller
             $stored = session('cajupay_display.'.$token);
         }
         if (! is_array($stored)) {
+            $stored = session('lina_display.'.$token);
+        }
+        if (! is_array($stored)) {
             return response()->json(['status' => 'not_found'], 404);
         }
 
@@ -2351,6 +2558,16 @@ class CheckoutController extends Controller
                     $order->refresh();
                 } catch (\Throwable $e) {
                     \Illuminate\Support\Facades\Log::debug('CheckoutController orderStatus: falha poll CajuPay SDK', [
+                        'order_id' => $order->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            } elseif ($gatewaySlug === 'linaopenx' || $order->payment_method === 'open_finance') {
+                try {
+                    app(LinaOpenxCheckoutService::class)->tryCompleteFromApi($order);
+                    $order->refresh();
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::debug('CheckoutController orderStatus: falha poll Lina OpenX', [
                         'order_id' => $order->id,
                         'error' => $e->getMessage(),
                     ]);

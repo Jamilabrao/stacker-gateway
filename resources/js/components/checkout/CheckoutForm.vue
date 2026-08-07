@@ -375,7 +375,12 @@ async function completeApprovedPurchase(orderId, redirectUrl, triggerType = 'app
 
 const customerFields = computed(() => props.config?.customer_fields ?? { name: true, cpf: true, phone: true, coupon: false });
 const showName = computed(() => customerFields.value.name !== false);
-const showCpf = computed(() => customerFields.value.cpf === true && props.displayCurrency === 'BRL');
+const showCpf = computed(() => {
+    if (form.payment_method === 'open_finance') {
+        return true;
+    }
+    return customerFields.value.cpf === true && props.displayCurrency === 'BRL';
+});
 const showPhone = computed(() => customerFields.value.phone === true);
 const showCouponByConfig = computed(() => customerFields.value.coupon === true);
 const showCouponField = computed(() => showCouponByConfig.value || Boolean(props.prefillCoupon));
@@ -419,17 +424,17 @@ const isCajupayCheckoutUi = computed(() => isCajuPaySdkFlow.value);
 const hidePrimarySubmitForCajupayWallet = computed(() => isCajuPayWalletSdk.value);
 
 const primarySubmitButtonLabel = computed(() => {
-    const pt = props.t;
     const pm = form.payment_method;
-    if (pm === 'pix') return pt('checkout.gerar_pix');
-    if (pm === 'pix_auto') return pt('checkout.gerar_pix_auto') || 'Gerar PIX (renovação automática)';
-    if (pm === 'boleto') return pt('checkout.gerar_boleto') || 'Gerar boleto';
+    if (pm === 'pix') return tf('checkout.gerar_pix', 'Gerar PIX');
+    if (pm === 'pix_auto') return tf('checkout.gerar_pix_auto', 'Gerar PIX (renovação automática)');
+    if (pm === 'open_finance') return tf('checkout.pagar_open_finance', 'Pagar com Open Finance');
+    if (pm === 'boleto') return tf('checkout.gerar_boleto', 'Gerar boleto');
     if (pm === 'apple_pay' || pm === 'google_pay') return 'Continuar';
     if (pm === 'card') {
         if (isCardGatewayAsaas.value && asaasCardStep.value === 1) return 'Continuar';
-        return pt('checkout.pagar_cartao') || 'Pagar com cartão';
+        return tf('checkout.pagar_cartao', 'Pagar com cartão');
     }
-    return pt('checkout.submit_button');
+    return tf('checkout.submit_button', 'Concluir compra');
 });
 const cardPagarmePublicKey = computed(() => {
     const k = props.cardGatewayKeys?.pagarme;
@@ -520,7 +525,7 @@ const turnstileActive = computed(() => {
     const mode = cfg.mode || 'pix_boleto';
     if (mode === 'disabled') return false;
     if (mode === 'all_payments') return true;
-    return ['pix', 'boleto', 'pix_auto'].includes(form.payment_method);
+    return ['pix', 'boleto', 'pix_auto', 'open_finance'].includes(form.payment_method);
 });
 
 watch(
@@ -766,7 +771,7 @@ watch(
             } else {
                 showEditForm.value = true;
             }
-        } else if (method === 'pix' || method === 'boleto') {
+        } else if (method === 'pix' || method === 'boleto' || method === 'open_finance') {
             showEditForm.value = true;
         } else if (method === 'card' || method === 'apple_pay' || method === 'google_pay') {
             if ((form.email || '').trim().length > 0 && (form.email || '').includes('@')) {
@@ -783,6 +788,7 @@ watch(
     () => Object.keys(form.errors || {}).length,
     (count) => {
         if (count > 0 && (form.payment_method === 'pix' || form.payment_method === 'pix_auto' || form.payment_method === 'boleto'
+            || form.payment_method === 'open_finance'
             || isCardGatewayPagarme.value)) {
             showEditForm.value = true;
         }
@@ -2177,7 +2183,7 @@ function submit() {
         payment_method: paymentMethod,
         email: form.email,
         name: showName.value ? form.name : '',
-        cpf: showCpf.value ? (form.cpf || '').replace(/\D/g, '') : '',
+        cpf: (showCpf.value || paymentMethod === 'open_finance') ? (form.cpf || '').replace(/\D/g, '') : '',
         phone: showPhone.value ? form.country_code + phoneDigits.value : '',
         coupon_code: (form.coupon_code || '').trim() || null,
         idempotency_key: checkoutIdempotencyKey.value,
@@ -2209,6 +2215,45 @@ function submit() {
         payload.shipping_state = (form.address_state || '').trim().slice(0, 2).toUpperCase();
     }
     appendUtmsAndAffiliate(payload);
+
+    if (paymentMethod === 'open_finance') {
+        const cpfDigits = (payload.cpf || '').replace(/\D/g, '');
+        if (cpfDigits.length < 11) {
+            checkoutSubmitting.value = false;
+            form.setError('cpf', 'Informe um CPF válido para pagar com Open Finance.');
+            showEditForm.value = true;
+            return;
+        }
+        axios.post('/checkout', payload, {
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-XSRF-TOKEN': getCsrfToken(),
+            },
+            withCredentials: true,
+        })
+            .then((res) => {
+                const data = res?.data;
+                if (data && data.success && data.redirect_url) {
+                    window.location.href = data.redirect_url;
+                    return;
+                }
+                form.setError('payment_method', data?.message || 'Não foi possível iniciar o Open Finance.');
+            })
+            .catch((err) => {
+                const msg = err?.response?.data?.message
+                    || err?.response?.data?.errors?.payment_method?.[0]
+                    || err?.response?.data?.errors?.cpf?.[0]
+                    || 'Não foi possível iniciar o Open Finance. Tente novamente.';
+                form.setError('payment_method', typeof msg === 'string' ? msg : 'Não foi possível iniciar o Open Finance.');
+                showEditForm.value = true;
+            })
+            .finally(() => {
+                checkoutSubmitting.value = false;
+            });
+        return;
+    }
+
     form.transform(() => payload).post('/checkout', {
         onError: (errors) => {
             const msg = errors?.payment_method

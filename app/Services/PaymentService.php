@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Support\GatewayApiCredentials;
+use App\Support\GatewayPluginRequirement;
 use App\Support\GatewayWebhookUrl;
 use Illuminate\Support\Facades\Log;
 
@@ -343,6 +344,7 @@ class PaymentService
             'card' => $pick('card'),
             'boleto' => $pick('boleto'),
             'pix_auto' => $pick('pix_auto'),
+            'open_finance' => $pick('open_finance'),
         ];
     }
 
@@ -447,6 +449,7 @@ class PaymentService
             'card' => ['id' => 'card', 'label' => 'Cartão'],
             'boleto' => ['id' => 'boleto', 'label' => 'Boleto'],
             'pix_auto' => ['id' => 'pix_auto', 'label' => 'PIX automático'],
+            'open_finance' => ['id' => 'open_finance', 'label' => 'Open Finance'],
         ];
 
         foreach ($methodConfig as $methodKey => $meta) {
@@ -486,6 +489,9 @@ class PaymentService
                 }
                 $gateway = GatewayRegistry::get($slug);
                 if (! $gateway || ! in_array($methodKey, $gateway['methods'] ?? [], true)) {
+                    continue;
+                }
+                if (! GatewayPluginRequirement::isUnlocked($slug)) {
                     continue;
                 }
                 if ($methodKey === 'card') {
@@ -539,8 +545,8 @@ class PaymentService
     {
         $tenantId = $product->tenant_id;
         $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
-        $out = ['pix' => false, 'card' => false, 'boleto' => false, 'pix_auto' => false, 'apple_pay' => false, 'google_pay' => false];
-        foreach (['pix', 'card', 'boleto', 'pix_auto'] as $methodKey) {
+        $out = ['pix' => false, 'card' => false, 'boleto' => false, 'pix_auto' => false, 'apple_pay' => false, 'google_pay' => false, 'open_finance' => false];
+        foreach (['pix', 'card', 'boleto', 'pix_auto', 'open_finance'] as $methodKey) {
             if ($methodKey === 'pix_auto' && $plan === null) {
                 continue;
             }
@@ -565,6 +571,9 @@ class PaymentService
                 }
                 $gateway = GatewayRegistry::get($slug);
                 if ($gateway && in_array($methodKey, $gateway['methods'] ?? [], true)) {
+                    if (! GatewayPluginRequirement::isUnlocked($slug)) {
+                        continue;
+                    }
                     $out[$methodKey] = true;
                     break;
                 }
@@ -630,6 +639,10 @@ class PaymentService
      */
     private function resolveGatewayPaymentContext(?int $tenantId, string $gatewaySlug): ?array
     {
+        if (! GatewayPluginRequirement::isUnlocked($gatewaySlug)) {
+            return null;
+        }
+
         if ($gatewaySlug === 'cajupay') {
             $account = app(CajuPayAccountResolver::class)->resolveForTenant($tenantId);
             if ($account === null) {

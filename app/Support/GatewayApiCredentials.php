@@ -28,6 +28,8 @@ final class GatewayApiCredentials
             'pushinpay' => trim((string) ($credentials['api_key'] ?? '')) !== '',
             'woovi' => trim((string) ($credentials['app_id'] ?? '')) !== '',
             'spacepag' => trim((string) ($credentials['api_key'] ?? '')) !== '',
+            'linaopenx' => trim((string) ($credentials['client_id'] ?? '')) !== ''
+                && trim((string) ($credentials['client_secret'] ?? '')) !== '',
             default => true,
         };
     }

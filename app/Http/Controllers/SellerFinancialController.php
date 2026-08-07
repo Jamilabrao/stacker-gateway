@@ -223,6 +223,7 @@ class SellerFinancialController extends Controller
             'withdrawal_minimum_gross_brl' => $withdrawalMinimumGross,
             'settlement_preview' => [
                 'pix' => EffectiveSettlementRules::forTenantMethod($tenantId, 'pix'),
+                'open_finance' => EffectiveSettlementRules::forTenantMethod($tenantId, 'open_finance'),
                 'card' => EffectiveSettlementRules::forTenantMethod($tenantId, 'card'),
                 'apple_pay' => EffectiveSettlementRules::forTenantMethod($tenantId, 'apple_pay'),
                 'google_pay' => EffectiveSettlementRules::forTenantMethod($tenantId, 'google_pay'),

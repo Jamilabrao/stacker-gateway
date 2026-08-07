@@ -98,7 +98,7 @@ export function normalizeMerchantFeeOverridesForSubmit(fees) {
     return Object.keys(out).length ? out : null;
 }
 
-const SETTLEMENT_OVERRIDE_KEYS = ['pix', 'card', 'apple_pay', 'google_pay', 'boleto'];
+const SETTLEMENT_OVERRIDE_KEYS = ['pix', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto'];
 
 /**
  * Overrides opcionais de liquidação (infoprodutor): só envia campos preenchidos.

@@ -84,7 +84,8 @@ class ProcessPaymentWebhook implements ShouldQueue
         if ($isRejectEvent && in_array($this->status, ['rejected', 'refused', 'failed'], true)) {
             if ($order->status === 'pending') {
                 $skipReconfirm = $this->gatewaySlug === 'cajupay' && $this->event === 'checkout.payment.failed';
-                if (! $skipReconfirm && ! $this->reconfirmGatewayStatus($order, ['cancelled'])) {
+                // Lina (e outros) mapeiam RJCT → rejected; vários drivers usam cancelled para falha.
+                if (! $skipReconfirm && ! $this->reconfirmGatewayStatus($order, ['cancelled', 'rejected'])) {
                     return;
                 }
                 $order->update(['status' => 'rejected']);
@@ -130,6 +131,19 @@ class ProcessPaymentWebhook implements ShouldQueue
             ->first();
         if ($order !== null) {
             return $order;
+        }
+
+        if ($this->gatewaySlug === 'linaopenx') {
+            $order = Order::query()
+                ->where('gateway', 'linaopenx')
+                ->where(function ($q) {
+                    $q->where('metadata->lina_payment_request_id', $this->transactionId)
+                        ->orWhere('metadata->payment_request_id', $this->transactionId);
+                })
+                ->first();
+            if ($order !== null) {
+                return $order;
+            }
         }
 
         if ($this->gatewaySlug === 'mercadopago') {
@@ -179,6 +193,12 @@ class ProcessPaymentWebhook implements ShouldQueue
             return true;
         }
         if ($this->gatewaySlug === 'stripe' && $this->event === 'payment_intent.succeeded') {
+            return true;
+        }
+        if ($this->gatewaySlug === 'linaopenx' && in_array($this->event, [
+            'order.paid',
+            'payment.paid',
+        ], true)) {
             return true;
         }
         if ($this->gatewaySlug === 'cajupay' && in_array($this->event, [
@@ -299,6 +319,8 @@ class ProcessPaymentWebhook implements ShouldQueue
                         $order,
                         $apiStatus
                     );
+                } elseif ($this->gatewaySlug === 'linaopenx' && ($apiStatus === null || $apiStatus === 'pending')) {
+                    $this->releasePaidBranchForRetry(10, 'lina_reconfirm_pending', $order, $apiStatus);
                 }
 
                 return;
@@ -577,12 +599,15 @@ class ProcessPaymentWebhook implements ShouldQueue
     {
         $meta = is_array($order->metadata ?? null) ? $order->metadata : [];
         $m = $meta['checkout_payment_method'] ?? null;
-        if (in_array($m, ['pix', 'card', 'boleto', 'pix_auto'], true)) {
+        if (in_array($m, ['pix', 'card', 'boleto', 'pix_auto', 'open_finance'], true)) {
             return $m;
         }
         $g = (string) ($order->gateway ?? '');
         if ($g === 'stripe') {
             return 'card';
+        }
+        if ($g === 'linaopenx') {
+            return 'open_finance';
         }
 
         return 'pix';

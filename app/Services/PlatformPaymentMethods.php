@@ -18,6 +18,7 @@ class PlatformPaymentMethods
         'pix_auto',
         'apple_pay',
         'google_pay',
+        'open_finance',
     ];
 
     /**
@@ -88,6 +89,7 @@ class PlatformPaymentMethods
             ['key' => 'pix_auto', 'label' => 'PIX automático', 'hint' => 'Assinaturas com débito recorrente'],
             ['key' => 'apple_pay', 'label' => 'Apple Pay', 'hint' => 'Wallet via CajuPay (iOS)'],
             ['key' => 'google_pay', 'label' => 'Google Pay', 'hint' => 'Wallet via CajuPay (Android/desktop)'],
+            ['key' => 'open_finance', 'label' => 'Open Finance', 'hint' => 'Pagamento autorizado no app do banco'],
         ];
     }
 }

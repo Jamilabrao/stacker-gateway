@@ -64,6 +64,10 @@ export const gatewayMethodComponents = {
         apple_pay: DefaultMethodCard,
         google_pay: DefaultMethodCard,
     },
+    linaopenx: {
+        open_finance: DefaultMethodCard,
+        pix: DefaultMethodCard,
+    },
 };
 
 /**

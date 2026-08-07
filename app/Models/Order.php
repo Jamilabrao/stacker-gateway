@@ -167,6 +167,7 @@ class Order extends Model
         return match ($m) {
             'pix' => 'PIX',
             'pix_auto' => 'PIX automático',
+            'open_finance' => 'Open Finance',
             'card' => 'Cartão',
             'apple_pay' => 'Apple Pay',
             'google_pay' => 'Google Pay',
@@ -249,7 +250,7 @@ class Order extends Model
 
         return match ($column) {
             'credit_card', 'creditcard', 'card' => 'card',
-            'pix', 'pix_auto', 'boleto', 'apple_pay', 'google_pay' => $column,
+            'pix', 'pix_auto', 'boleto', 'apple_pay', 'google_pay', 'open_finance' => $column,
             default => null,
         };
     }
@@ -260,6 +261,9 @@ class Order extends Model
             return 'Outro';
         }
         $g = strtolower($gateway);
+        if ($g === 'linaopenx') {
+            return 'Open Finance';
+        }
         if (in_array($g, ['spacepag'], true) || str_contains($g, 'pix')) {
             return 'PIX';
         }
@@ -286,7 +290,10 @@ class Order extends Model
         if ($method === 'pix_auto') {
             $method = 'pix';
         }
-        if (in_array($method, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
+        if ($method === 'open_finance') {
+            return 'pix';
+        }
+        if (in_array($method, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi', 'linaopenx'], true)) {
             $method = 'pix';
         }
         if (in_array($method, ['pix', 'card', 'boleto'], true)) {
@@ -297,7 +304,7 @@ class Order extends Model
         if ($gateway === '') {
             return 'outro';
         }
-        if (str_contains($gateway, 'pix') || in_array($gateway, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
+        if ($gateway === 'linaopenx' || str_contains($gateway, 'pix') || in_array($gateway, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
             return 'pix';
         }
         if ($gateway === 'card' || str_contains($gateway, 'cartao') || str_contains($gateway, 'cartão') || str_contains($gateway, 'credito')) {

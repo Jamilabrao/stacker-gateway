@@ -530,6 +530,7 @@ const settlementCards = computed(() => {
     const sp = props.settlement_preview || {};
     const rows = [
         { key: 'pix', label: 'PIX', accent: 'from-sky-500/20 to-cyan-500/10 text-sky-700 dark:text-sky-300' },
+        { key: 'open_finance', label: 'Open Finance', accent: 'from-teal-500/20 to-emerald-500/10 text-teal-800 dark:text-teal-200' },
         { key: 'card', label: 'Cartão', accent: 'from-violet-500/20 to-purple-500/10 text-violet-700 dark:text-violet-300' },
         { key: 'apple_pay', label: 'Apple Pay', accent: 'from-zinc-400/25 to-zinc-500/15 text-zinc-800 dark:text-zinc-200' },
         { key: 'google_pay', label: 'Google Pay', accent: 'from-blue-500/15 to-indigo-500/10 text-indigo-800 dark:text-indigo-200' },

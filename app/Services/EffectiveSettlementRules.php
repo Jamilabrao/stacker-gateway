@@ -8,7 +8,7 @@ use App\Models\User;
 class EffectiveSettlementRules
 {
     /** Chaves de método com regras próprias de D+N / reserva (checkout + carteiras). */
-    public const SETTLEMENT_METHOD_KEYS = ['pix', 'card', 'apple_pay', 'google_pay', 'boleto'];
+    public const SETTLEMENT_METHOD_KEYS = ['pix', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto'];
 
     /**
      * @return array<string, array{days_to_available: int, reserve_percent: float, reserve_hold_days: int}>
@@ -34,12 +34,16 @@ class EffectiveSettlementRules
             $base[$k]['reserve_percent'] = min(100, max(0, (float) ($raw[$k]['reserve_percent'] ?? 0)));
             $base[$k]['reserve_hold_days'] = max(0, min(365, (int) ($raw[$k]['reserve_hold_days'] ?? 0)));
         }
+        // Legado: sem liquidação Open Finance, herda D+N/reserva do PIX.
+        if (! isset($raw['open_finance']) || ! is_array($raw['open_finance'])) {
+            $base['open_finance'] = $base['pix'];
+        }
 
         return $base;
     }
 
     /**
-     * @param  'pix'|'card'|'apple_pay'|'google_pay'|'boleto'  $methodKey
+     * @param  'pix'|'open_finance'|'card'|'apple_pay'|'google_pay'|'boleto'  $methodKey
      * @return array{days_to_available: int, reserve_percent: float, reserve_hold_days: int}
      */
     public static function forTenantMethod(int $tenantId, string $methodKey): array
