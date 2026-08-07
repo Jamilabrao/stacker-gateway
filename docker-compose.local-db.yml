@@ -11,10 +11,17 @@
 # - Postgres: 5433 -> 5432 no container (ajuste LOCALDB_PG_PORT se precisar)
 # - Redis: 6379 -> 6379 (ajuste LOCALDB_REDIS_PORT se a 6379 estiver ocupada)
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${LOCALDB_PG_PORT:-5433}:5432"
     environment:
@@ -32,6 +39,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${LOCALDB_REDIS_PORT:-6379}:6379"
     command:
