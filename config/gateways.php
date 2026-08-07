@@ -203,7 +203,7 @@ return [
                 ['key' => 'sub_tenant_id', 'label' => 'Sub-tenant ID (opcional, ex.: newpay ou UUID)', 'type' => 'text', 'optional' => true],
                 ['key' => 'token_url', 'label' => 'URL do token OAuth (opcional)', 'type' => 'text', 'optional' => true],
                 ['key' => 'api_base_url', 'label' => 'URL base da API Embedded Payment Manager (opcional)', 'type' => 'text', 'optional' => true],
-                ['key' => 'webhook_secret', 'label' => 'Segredo do webhook (HMAC)', 'type' => 'password', 'optional' => true],
+                ['key' => 'webhook_secret', 'label' => 'Segredo do webhook (HMAC, opcional — painel Lina)', 'type' => 'password', 'optional' => true],
                 // Credor (recebedor): obrigatório na API white-label Lina para criar pagamento
                 ['key' => 'creditor_name', 'label' => 'Credor: nome (obrigatório para checkout Open Finance)', 'type' => 'text'],
                 ['key' => 'creditor_cpf_cnpj', 'label' => 'Credor: CPF/CNPJ (obrigatório)', 'type' => 'text'],
