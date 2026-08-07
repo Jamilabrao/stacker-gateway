@@ -307,6 +307,12 @@ elif [ ! -f "$ROOT_DIR/.env" ]; then
   echo "Aviso: .env ausente — stacker-agent precisa de STACKER_AGENT_TOKEN em $ROOT_DIR/.env" >&2
 fi
 
+# Preserva / reconcilia GETFY_DB_* (nunca regenera user se volume Postgres existe).
+if [ -f docker/ensure-db-credentials.sh ]; then
+  chmod +x docker/ensure-db-credentials.sh 2>/dev/null || true
+  sh docker/ensure-db-credentials.sh || echo "Aviso: ensure-db-credentials falhou." >&2
+fi
+
 # Soft-upgrade: single+debug enche o disco (já vimos 40GB+ em storage/logs).
 harden_host_log_env() {
   local envf="$ROOT_DIR/.env"

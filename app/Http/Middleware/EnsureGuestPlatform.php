@@ -18,18 +18,18 @@ class EnsureGuestPlatform
             return redirect()->route('plataforma.dashboard');
         }
 
-        // Não enviar para route('login'): o middleware guest redireciona quem já está logado para /dashboard
-        // e a mensagem de erro se perde — o utilizador parece “voltar ao painel do vendedor” sem explicação.
+        // Utilizador autenticado sem acesso ao painel da plataforma: não revelar rotas
+        // internas nem o papel da conta (anti-enumeração / anti-reconhecimento de operação).
         if ($user->canAccessSellerPanel()) {
             return redirect('/dashboard')->with(
                 'error',
-                'Você está logado como infoprodutor. Para o painel da plataforma (/plataforma), saia da conta (menu ou /logout) e entre com a conta de operador em /plataforma/login.'
+                'Acesso não permitido com esta sessão. Saia da conta e tente novamente se tiver outro acesso.'
             );
         }
 
         return redirect('/area-membros')->with(
             'error',
-            'Esta conta não acessa o painel da plataforma. Use a conta de operador em /plataforma/login.'
+            'Acesso não permitido com esta sessão.'
         );
     }
 }

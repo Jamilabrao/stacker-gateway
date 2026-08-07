@@ -89,15 +89,15 @@ class LoginController extends Controller
 
         if (Auth::attempt($request->only('email', 'password'), (bool) $request->boolean('remember'))) {
             $user = Auth::user();
+            // Contas do painel operador não entram por /login — resposta idêntica a senha errada
+            // (não revelar existência de conta de operador nem o path /plataforma/login).
             if ($user && $user->canAccessPlatformPanel()) {
                 Auth::logout();
                 $request->session()->invalidate();
                 $request->session()->regenerateToken();
 
                 return back()->withErrors([
-                    'email' => app()->environment('local')
-                        ? 'Esta conta é do painel operador. Acesse /plataforma/login.'
-                        : 'Credenciais inválidas.',
+                    'email' => 'Credenciais inválidas.',
                 ])->onlyInput('email');
             }
             if ($user && $user->canAccessSellerPanel() && $user->sellerAccountAccessBlocked()) {

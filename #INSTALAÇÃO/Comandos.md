@@ -176,6 +176,21 @@ sh docker/diagnose-installation-health.sh --fix-demo-off --restart-workers
 
 O script verifica: `GETFY_DEMO_MODE`, URLs em `stack.env`, containers, filas Redis, `payments:diagnose-mercadopago` e últimas linhas do `laravel.log`.
 
+### Update quebrou banco (521) — credenciais regeneradas
+
+**Sintoma:** após `update.sh`, Cloudflare **521**, log com `password authentication failed` / `role does not exist` / `Banco indisponível`.
+
+**Causa (corrigida no código):** `.docker/stack.env` com `GETFY_DB_USERNAME`/`PASSWORD` vazios e o update gerava um user novo, sem criar no volume Postgres antigo.
+
+**Prevenção atual:** `docker/ensure-db-credentials.sh` (chamado em todo `up.sh`/`update.sh`):
+- **nunca** gera user aleatório se o volume Postgres já existe;
+- se faltar senha, redefine a senha do role existente (ex. `getfy`) e grava no `stack.env`;
+- **nunca** roda `compose down -v` (dados preservados).
+
+Se ainda cair o site em instalação antiga, use o bloco de recuperação single-user acimaComandos** (role `getfy`).
+
+---
+
 ### Site fora (522) após update — migration de e-mail duplicado
 
 Sintoma: Cloudflare **522**, container `getfy-app-1` em **Restarting**, log com `normalize_users_email_unique` / `users_email_lower_unique` / `duplicate key`.

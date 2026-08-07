@@ -118,6 +118,8 @@ if [ "$STACKER_MANAGED" = "1" ]; then
     fi
   done
   STACK_ENV="$INSTALL_DIR/.docker/stack.env"
+  $SUDO chmod +x docker/ensure-db-credentials.sh docker/up.sh 2>/dev/null || true
+  $SUDO sh docker/ensure-db-credentials.sh || true
   $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_SKIP_DOCKER_BUILD=1 GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
   if [ -f "$INSTALL_DIR/agent/Dockerfile" ]; then
     echo ""
@@ -157,9 +159,11 @@ fi
 
 echo ""
 echo "=== Reiniciando stack Docker ==="
-$SUDO chmod +x docker/detect-compose-files.sh 2>/dev/null || true
+$SUDO chmod +x docker/detect-compose-files.sh docker/ensure-db-credentials.sh docker/up.sh 2>/dev/null || true
 COMPOSE_FILES="$($SUDO sh docker/detect-compose-files.sh)"
 echo "Compose: $COMPOSE_FILES"
+# Garante DB antes do up (e no próprio up.sh de novo)
+$SUDO sh docker/ensure-db-credentials.sh || true
 $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
 
 echo ""

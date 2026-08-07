@@ -12,6 +12,7 @@ if [ ! -f "$ENV_FILE" ]; then
   APP_URL="${GETFY_APP_URL:-http://localhost}"
   WEBHOOK_PUBLIC="${GETFY_WEBHOOK_PUBLIC_URL:-$APP_URL}"
 
+  # Só na 1ª instalação (sem stack.env). Se já houver volume, ensure-db-credentials ajusta.
   U="getfy_$(tr -dc 'a-z0-9' < /dev/urandom | head -c 8)"
   P="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
 
@@ -39,44 +40,13 @@ GETFY_APP_ENV=production
 GETFY_APP_DEBUG=false
 GETFY_COMPOSE_PROJECT_NAME=$(basename "$ROOT_DIR")
 EOF
-else
-  # Instalação existente: só preenche se user/senha estiverem ausentes ou vazios.
-  # Nunca regenera só por ainda serem o default "getfy" — o volume Postgres já foi
-  # inicializado com essas credenciais; trocá-las no stack.env derruba a origem (521/522).
-  NEED_U=0
-  NEED_P=0
-  if ! grep -Eq '^\s*GETFY_DB_USERNAME\s*=\s*\S' "$ENV_FILE"; then
-    NEED_U=1
-  fi
-  if ! grep -Eq '^\s*GETFY_DB_PASSWORD\s*=\s*\S' "$ENV_FILE"; then
-    NEED_P=1
-  fi
-  if [ "$NEED_U" = "1" ] || [ "$NEED_P" = "1" ]; then
-    U="getfy_$(tr -dc 'a-z0-9' < /dev/urandom | head -c 8)"
-    P="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
-    TMP="$(mktemp)"
-    awk -v U="$U" -v P="$P" -v need_u="$NEED_U" -v need_p="$NEED_P" '
-      BEGIN { u=0; p=0 }
-      $0 ~ /^GETFY_DB_USERNAME=/ {
-        if (need_u == "1") { print "GETFY_DB_USERNAME=" U; u=1; next }
-        print; u=1; next
-      }
-      $0 ~ /^GETFY_DB_PASSWORD=/ {
-        if (need_p == "1") { print "GETFY_DB_PASSWORD=" P; p=1; next }
-        print; p=1; next
-      }
-      { print }
-      END {
-        if (need_u == "1" && !u) print "GETFY_DB_USERNAME=" U
-        if (need_p == "1" && !p) print "GETFY_DB_PASSWORD=" P
-      }
-    ' "$ENV_FILE" > "$TMP"
-    mv "$TMP" "$ENV_FILE"
-    echo "Aviso: GETFY_DB_USERNAME/PASSWORD estavam vazios em $ENV_FILE — valores gerados." >&2
-  elif grep -Eq '^\s*GETFY_DB_USERNAME\s*=\s*getfy\s*$' "$ENV_FILE" \
-    || grep -Eq '^\s*GETFY_DB_PASSWORD\s*=\s*getfy\s*$' "$ENV_FILE"; then
-    echo "Aviso: $ENV_FILE ainda usa GETFY_DB_USERNAME/PASSWORD default (getfy). Mantido para não quebrar o Postgres existente." >&2
-  fi
+fi
+
+# Alinha/recupera DB: NUNCA gera user aleatório se o volume Postgres já existe.
+# (Bug antigo: stack.env sem U/P → gerava getfy_xxx → 521 no update).
+if [ -f docker/ensure-db-credentials.sh ]; then
+  chmod +x docker/ensure-db-credentials.sh 2>/dev/null || true
+  sh docker/ensure-db-credentials.sh
 fi
 
 if [ -f "$ENV_FILE" ] && ! grep -Eq '^\s*GETFY_COMPOSE_PROJECT_NAME\s*=' "$ENV_FILE" 2>/dev/null; then
@@ -90,7 +60,7 @@ if [ -f "$ENV_FILE" ] && ! grep -Eq '^\s*GETFY_WEBHOOK_PUBLIC_URL\s*=' "$ENV_FIL
   echo "GETFY_WEBHOOK_PUBLIC_URL=${GETFY_WEBHOOK_PUBLIC_URL:-$VAL_APP}" >> "$ENV_FILE"
 fi
 
-# Normaliza banco para PostgreSQL em atualizações de ambientes legados.
+# Normaliza host/porta (não toca USERNAME/PASSWORD).
 TMP_DB="$(mktemp)"
 awk '
   BEGIN { c=0; h=0; p=0 }
@@ -105,6 +75,11 @@ awk '
   }
 ' "$ENV_FILE" > "$TMP_DB"
 mv "$TMP_DB" "$ENV_FILE"
+
+# Revalida credenciais após normalização de host
+if [ -f docker/ensure-db-credentials.sh ]; then
+  sh docker/ensure-db-credentials.sh
+fi
 
 # Sempre produção (install/update e deploy Docker).
 TMP_PROD="$(mktemp)"
@@ -137,6 +112,25 @@ STACKER_SUPPORT_WHATSAPP=
 EOF
 fi
 
+# Espelha GETFY_DB_* no .env do host (evita compose/app sem senha após update)
+if [ -f .env ] && [ -f "$ENV_FILE" ]; then
+  for var in GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD; do
+    val="$(grep -E "^[[:space:]]*${var}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+    if [ -n "$val" ]; then
+      if grep -Eq "^[[:space:]]*${var}[[:space:]]*=" .env 2>/dev/null; then
+        TMP_E="$(mktemp)"
+        awk -v k="$var" -v v="$val" '
+          $0 ~ "^[[:space:]]*" k "[[:space:]]*=" { print k "=" v; next }
+          { print }
+        ' .env > "$TMP_E"
+        mv "$TMP_E" .env
+      else
+        echo "${var}=${val}" >> .env
+      fi
+    fi
+  done
+fi
+
 # Compose interpola ${STACKER_AGENT_TOKEN} a partir de stack.env — sincroniza do .env raiz.
 if [ -f .env ]; then
   for var in STACKER_AGENT_TOKEN STACKER_API_URL STACKER_RELEASE_SIGNING_KEY; do
@@ -167,9 +161,12 @@ for f in $COMPOSE_FILES; do
 done
 IFS="$OLD_IFS"
 
+# NUNCA usa "down -v". Volumes (postgres/redis/storage) são preservados.
 UP_ARGS="-d --remove-orphans"
 if [ "${GETFY_SKIP_DOCKER_BUILD:-0}" != "1" ]; then
   UP_ARGS="--build ${UP_ARGS}"
 fi
 
+echo "docker compose up (volumes Postgres/Redis preservados)..."
+# shellcheck disable=SC2086
 docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up $UP_ARGS
