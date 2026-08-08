@@ -430,10 +430,12 @@ function scheduleStackerAgentRestart(gatewayRoot) {
         `cd "${gatewayRoot}"`,
         'sh docker/ensure-host-dotenv.sh 2>/dev/null || true',
         'set -a && . .docker/stack.env && set +a',
+        'unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD',
         'PROJECT="${GETFY_COMPOSE_PROJECT_NAME:-getfy}"',
         'FILES="$(sh docker/detect-compose-files.sh)"',
         'ARGS=""',
         'for f in $FILES; do ARGS="$ARGS -f $f"; done',
+        'sh docker/ensure-db-credentials.sh 2>/dev/null || true',
         'docker compose -p "$PROJECT" --project-directory /gateway $ARGS --env-file /gateway/.docker/stack.env --env-file /gateway/.env build stacker-agent',
         'docker compose -p "$PROJECT" --project-directory /gateway $ARGS --env-file /gateway/.docker/stack.env --env-file /gateway/.env up -d stacker-agent',
     ].join(' && ');

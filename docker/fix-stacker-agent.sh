@@ -88,6 +88,9 @@ mask_token() {
 
 # POSIX: sem arrays bash — wrapper para docker compose
 dc() {
+  # stack.env primeiro; .env depois só para STACKER_*.
+  # GETFY_DB_* devem estar sincronizados (ensure-db-credentials / fix espelha stack→.env).
+  unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
   docker compose -p "$PROJECT" --project-directory "$HOST_DIR" \
     -f "$COMPOSE_FILE" \
     --env-file "$STACK_ENV" \

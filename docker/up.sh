@@ -44,6 +44,8 @@ fi
 
 # Alinha/recupera DB: NUNCA gera user aleatório se o volume Postgres já existe.
 # (Bug antigo: stack.env sem U/P → gerava getfy_xxx → 521 no update).
+# Exports na shell root sobrescrevem --env-file e reintroduzem user fantasma.
+unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
 if [ -f docker/ensure-db-credentials.sh ]; then
   chmod +x docker/ensure-db-credentials.sh 2>/dev/null || true
   sh docker/ensure-db-credentials.sh
@@ -112,10 +114,10 @@ STACKER_SUPPORT_WHATSAPP=
 EOF
 fi
 
-# Espelha GETFY_DB_* no .env do host (evita compose/app sem senha após update)
+# Espelha GETFY_DB_* no .env do host (evita compose/app com user fantasma após update)
 if [ -f .env ] && [ -f "$ENV_FILE" ]; then
   for var in GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD; do
-    val="$(grep -E "^[[:space:]]*${var}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+    val="$(grep -E "^[[:space:]]*${var}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" || true)"
     if [ -n "$val" ]; then
       if grep -Eq "^[[:space:]]*${var}[[:space:]]*=" .env 2>/dev/null; then
         TMP_E="$(mktemp)"
@@ -168,5 +170,59 @@ if [ "${GETFY_SKIP_DOCKER_BUILD:-0}" != "1" ]; then
 fi
 
 echo "docker compose up (volumes Postgres/Redis preservados)..."
+# Nunca deixe GETFY_DB_* da shell sobrescrever o --env-file (causa role fantasma / 522).
+unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
+
+read_stack_kv() {
+  key="$1"
+  grep -E "^[[:space:]]*${key}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//' || true
+}
+
+DB_SNAP_USER="$(read_stack_kv GETFY_DB_USERNAME)"
+DB_SNAP_PASS="$(read_stack_kv GETFY_DB_PASSWORD)"
+
 # shellcheck disable=SC2086
 docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up $UP_ARGS
+
+# Pós-up: revalida login real e espelha as 3 fontes (stack.env / .env / volume).
+if [ -f docker/ensure-db-credentials.sh ]; then
+  sleep 3
+  if ! sh docker/ensure-db-credentials.sh; then
+    echo "ERRO: PostgreSQL no ar, mas credenciais inválidas após compose up." >&2
+    echo "Corriga com: sh docker/recover-stack.sh" >&2
+    exit 1
+  fi
+
+  DB_NOW_USER="$(read_stack_kv GETFY_DB_USERNAME)"
+  DB_NOW_PASS="$(read_stack_kv GETFY_DB_PASSWORD)"
+
+  NEED_RECREATE=0
+  if [ "$DB_SNAP_USER" != "$DB_NOW_USER" ] || [ "$DB_SNAP_PASS" != "$DB_NOW_PASS" ]; then
+    NEED_RECREATE=1
+    echo "ensure-db-credentials alterou GETFY_DB_* no stack.env."
+  fi
+
+  # Mesmo com stack.env estável: Compose pode ter interpolado .env fantasma.
+  APP_DB_USER="$(docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" exec -T app printenv DB_USERNAME 2>/dev/null | tr -d '\r\n' || true)"
+  if [ -n "$APP_DB_USER" ] && [ -n "$DB_NOW_USER" ] && [ "$APP_DB_USER" != "$DB_NOW_USER" ]; then
+    NEED_RECREATE=1
+    echo "Container app tem DB_USERNAME=$APP_DB_USER (stack.env=$DB_NOW_USER) — divergência."
+  fi
+
+  if [ "$NEED_RECREATE" -eq 1 ]; then
+    echo "Recriando app/workers/postgres com credenciais corrigidas..."
+    RECREATE_LIST=""
+    for svc in app postgres queue scheduler worker worker-payments worker-webhooks-out worker-webhooks-in worker-payouts worker-meta-tracking worker-utmify-tracking worker-integrax-sms; do
+      # shellcheck disable=SC2086
+      if docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" config --services 2>/dev/null | grep -qx "$svc"; then
+        RECREATE_LIST="$RECREATE_LIST $svc"
+      fi
+    done
+    if [ -n "$(echo "$RECREATE_LIST" | tr -d ' ')" ]; then
+      unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
+      # shellcheck disable=SC2086
+      docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up -d --force-recreate --no-deps $RECREATE_LIST
+      echo "Serviços recriados:$RECREATE_LIST"
+    fi
+  fi
+fi

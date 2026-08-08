@@ -57,7 +57,10 @@ if (!(Test-Path $envFile)) {
     }
 } else {
     $content = Get-Content $envFile -Raw
-    $needsRotate = $content -match '^\s*GETFY_DB_USERNAME\s*=\s*(getfy)?\s*$' -or $content -match '^\s*GETFY_DB_PASSWORD\s*=\s*(getfy)?\s*$'
+    # Só gera credenciais novas se USERNAME/PASSWORD estiverem vazios.
+    # NÃO rotaciona username "getfy" em stack já existente (quebra volume Postgres → 522).
+    $needsRotate = $content -match '(?m)^\s*GETFY_DB_USERNAME\s*=\s*$' -or $content -match '(?m)^\s*GETFY_DB_PASSWORD\s*=\s*$' `
+        -or $content -notmatch '(?m)^\s*GETFY_DB_USERNAME\s*=' -or $content -notmatch '(?m)^\s*GETFY_DB_PASSWORD\s*='
     if ($needsRotate) {
         $dbUser = New-RandomDbUser
         $dbPass = New-RandomSecret 32

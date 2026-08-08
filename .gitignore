@@ -36,6 +36,12 @@ Docs Gateways
 /public/build
 /.docker/app.key
 /.docker/pwa_vapid.env
+/.docker/stack.env
+/.docker/setup.done
+/.docker/app.url
+/.docker/Caddyfile.domains
+/.docker/compose-profile
+/.docker/certs/
 /storage/stacker/
 /agent/node_modules
 /dist-releases
