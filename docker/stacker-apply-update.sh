@@ -308,9 +308,14 @@ elif [ ! -f "$ROOT_DIR/.env" ]; then
 fi
 
 # Preserva / reconcilia GETFY_DB_* (nunca regenera user se volume Postgres existe).
+# Falha = aborta o apply (evita recreate do app com user fantasma → 522).
+unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
 if [ -f docker/ensure-db-credentials.sh ]; then
   chmod +x docker/ensure-db-credentials.sh 2>/dev/null || true
-  sh docker/ensure-db-credentials.sh || echo "Aviso: ensure-db-credentials falhou." >&2
+  if ! sh docker/ensure-db-credentials.sh; then
+    echo "FATAL: ensure-db-credentials falhou — apply abortado." >&2
+    exit 1
+  fi
 fi
 
 # Soft-upgrade: single+debug enche o disco (já vimos 40GB+ em storage/logs).
@@ -373,8 +378,13 @@ fi
 
 COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" --project-directory "$COMPOSE_WORK_DIR" $COMPOSE_ARGS --env-file "$ENV_FILE_ABS")
 if [ -f "$ROOT_DIR/.env" ]; then
+  # .env depois: só para STACKER_* etc. GETFY_DB_* já foram espelhados do stack.env
+  # por ensure-db-credentials — se divergirem, stack.env venceu na sync.
   COMPOSE+=(--env-file "$ROOT_DIR/.env")
 fi
+# Shell exports de DB_* sobrescrevem qualquer --env-file.
+unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
+unset DB_USERNAME DB_PASSWORD DB_HOST DB_PORT DB_DATABASE DB_CONNECTION 2>/dev/null || true
 
 echo "=== Rebuild imagem app ==="
 echo "Build context: $COMPOSE_WORK_DIR"

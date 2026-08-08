@@ -103,7 +103,10 @@ else
 fi
 echo ""
 
-echo "=== 5) Sincronizar .env do host (Compose lê .env na raiz) ==="
+echo "=== 5) Sincronizar .env do host (Compose lê .env — deve espelhar GETFY_DB_* do stack.env) ==="
+if [ -f docker/ensure-db-credentials.sh ]; then
+  sh docker/ensure-db-credentials.sh || true
+fi
 if [ -f docker/ensure-host-dotenv.sh ]; then
   sh docker/ensure-host-dotenv.sh
 else
@@ -121,6 +124,24 @@ else
   else
     echo ".env já existe ($(wc -c < .env | tr -d ' ') bytes)"
   fi
+fi
+# Espelha GETFY_DB_* do stack.env → .env (evita dual --env-file com user fantasma).
+if [ -f .env ] && [ -f "$ENV_FILE" ]; then
+  for var in GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD; do
+    val="$(grep -E "^[[:space:]]*${var}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+    val="$(printf '%s' "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//')"
+    [ -n "$val" ] || continue
+    if grep -Eq "^[[:space:]]*${var}[[:space:]]*=" .env 2>/dev/null; then
+      tmp="$(mktemp)"
+      awk -v k="$var" -v v="$val" '
+        $0 ~ "^[[:space:]]*" k "[[:space:]]*=" { print k "=" v; next }
+        { print }
+      ' .env > "$tmp" && mv "$tmp" .env
+    else
+      echo "${var}=${val}" >> .env
+    fi
+  done
+  echo "GETFY_DB_* sincronizados stack.env → .env"
 fi
 echo ""
 

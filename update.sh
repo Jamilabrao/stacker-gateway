@@ -119,8 +119,15 @@ if [ "$STACKER_MANAGED" = "1" ]; then
   done
   STACK_ENV="$INSTALL_DIR/.docker/stack.env"
   $SUDO chmod +x docker/ensure-db-credentials.sh docker/up.sh 2>/dev/null || true
-  $SUDO sh docker/ensure-db-credentials.sh || true
-  $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_SKIP_DOCKER_BUILD=1 GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+  # Export GETFY_DB_* da shell sobrescreve --env-file e pode reintroduzir user fantasma.
+  unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
+  if ! $SUDO sh docker/ensure-db-credentials.sh; then
+    echo "ERRO: credenciais PostgreSQL inválidas — update abortado (não vou recriar o app com user fantasma)." >&2
+    echo "Recupere com: cd \"$INSTALL_DIR\" && sh docker/recover-stack.sh" >&2
+    exit 1
+  fi
+  $SUDO env -u GETFY_DB_CONNECTION -u GETFY_DB_HOST -u GETFY_DB_PORT -u GETFY_DB_DATABASE -u GETFY_DB_USERNAME -u GETFY_DB_PASSWORD \
+    GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_SKIP_DOCKER_BUILD=1 GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
   if [ -f "$INSTALL_DIR/agent/Dockerfile" ]; then
     echo ""
     echo "=== Rebuild do stacker-agent (se houver mudanças no agente) ==="
@@ -162,9 +169,16 @@ echo "=== Reiniciando stack Docker ==="
 $SUDO chmod +x docker/detect-compose-files.sh docker/ensure-db-credentials.sh docker/up.sh 2>/dev/null || true
 COMPOSE_FILES="$($SUDO sh docker/detect-compose-files.sh)"
 echo "Compose: $COMPOSE_FILES"
-# Garante DB antes do up (e no próprio up.sh de novo)
-$SUDO sh docker/ensure-db-credentials.sh || true
-$SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
+# Export GETFY_DB_* da shell sobrescreve --env-file e pode reintroduzir user fantasma.
+unset GETFY_DB_CONNECTION GETFY_DB_HOST GETFY_DB_PORT GETFY_DB_DATABASE GETFY_DB_USERNAME GETFY_DB_PASSWORD 2>/dev/null || true
+# Garante DB antes do up (e no próprio up.sh de novo). Falha = aborta o update.
+if ! $SUDO sh docker/ensure-db-credentials.sh; then
+  echo "ERRO: credenciais PostgreSQL inválidas — update abortado (não vou recriar o app com user fantasma)." >&2
+  echo "Recupere com: cd \"$INSTALL_DIR\" && sh docker/recover-stack.sh" >&2
+  exit 1
+fi
+$SUDO env -u GETFY_DB_CONNECTION -u GETFY_DB_HOST -u GETFY_DB_PORT -u GETFY_DB_DATABASE -u GETFY_DB_USERNAME -u GETFY_DB_PASSWORD \
+  GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
 
 echo ""
 echo "=== Push PWA (VAPID) ==="
