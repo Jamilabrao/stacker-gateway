@@ -213,7 +213,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('push:process-schedule')->everyMinute();
         $schedule->command('conquistas:reconcile')->dailyAt('03:30');
         $schedule->command('metrics:aggregate-daily --sync')->dailyAt('01:15');
-        $schedule->command('logs:prune --days='.(int) env('LOG_DAILY_DAYS', 7).' --max-mb=50')->dailyAt('03:45');
+        // Logs: daily + a cada 6h (evita flood diurno encher disco antes do prune noturno).
+        $logsPrune = 'logs:prune --days='.(int) env('LOG_DAILY_DAYS', 7).' --max-mb=50 --max-total-mb=200';
+        $schedule->command($logsPrune)->dailyAt('03:45');
+        $schedule->command($logsPrune)->everySixHours();
         $schedule->command('queue:prune-failed --hours=168')->dailyAt('04:00');
         $schedule->job(new \App\Jobs\QueueHeartbeatJob)->everyMinute();
     })

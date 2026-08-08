@@ -318,44 +318,13 @@ if [ -f docker/ensure-db-credentials.sh ]; then
   fi
 fi
 
-# Soft-upgrade: single+debug enche o disco (já vimos 40GB+ em storage/logs).
-harden_host_log_env() {
-  local envf="$ROOT_DIR/.env"
-  [ -f "$envf" ] || return 0
-  set_kv() {
-    local key="$1" val="$2"
-    if grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$envf" 2>/dev/null; then
-      local tmp
-      tmp="$(mktemp)"
-      awk -v k="$key" -v v="$val" '
-        $0 ~ "^[[:space:]]*" k "[[:space:]]*=" { print k "=" v; next }
-        { print }
-      ' "$envf" > "$tmp"
-      mv "$tmp" "$envf"
-    else
-      echo "${key}=${val}" >> "$envf"
-    fi
-  }
-  local stack level
-  stack="$(grep -E '^[[:space:]]*LOG_STACK[[:space:]]*=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/[\"'\'']//g;s/\r//g;s/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
-  level="$(grep -E '^[[:space:]]*LOG_LEVEL[[:space:]]*=' "$envf" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/[\"'\'']//g;s/\r//g;s/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
-  if [ -z "$stack" ] || [ "$stack" = "single" ]; then
-    set_kv LOG_STACK daily
-    echo "LOG_STACK=daily (antes: ${stack:-ausente})"
-  fi
-  if [ -z "$level" ] || [ "$level" = "debug" ]; then
-    set_kv LOG_LEVEL warning
-    echo "LOG_LEVEL=warning (antes: ${level:-ausente})"
-  fi
-  if ! grep -Eq '^[[:space:]]*LOG_DAILY_DAYS[[:space:]]*=' "$envf" 2>/dev/null; then
-    set_kv LOG_DAILY_DAYS 7
-  fi
-  if ! grep -Eq '^[[:space:]]*LOG_CHANNEL[[:space:]]*=' "$envf" 2>/dev/null; then
-    set_kv LOG_CHANNEL stack
-  fi
-}
-echo "=== Hardening LOG_* no .env do host ==="
-harden_host_log_env || true
+# Soft-upgrade + limpeza cedo: se disco estiver cheio, liberar storage/logs antes do rebuild.
+# Script é idempotente; roda de novo no final com app up (artisan).
+if [ -f docker/cleanup-storage-logs.sh ]; then
+  chmod +x docker/cleanup-storage-logs.sh 2>/dev/null || true
+  echo "=== Limpeza storage/logs (pré-rebuild) ==="
+  bash docker/cleanup-storage-logs.sh || true
+fi
 
 if [ ! -f "$ROOT_DIR/.env" ]; then
   echo "Aviso: $ROOT_DIR/.env ausente — compose pode falhar no stacker-agent; seguindo rebuild." >&2
@@ -540,7 +509,16 @@ else
   echo "docker/prune-docker-images.sh ausente — pulando."
 fi
 
-echo "=== Limpeza de logs Laravel (storage) ==="
-"${COMPOSE[@]}" exec -T app php artisan logs:prune --days="${LOG_DAILY_DAYS:-7}" --max-mb=50 || true
+# Só storage/logs + failed jobs + harden LOG_* — nunca down -v / DB / volumes.
+echo "=== Limpeza segura storage/logs (pós-update) ==="
+if [ -f docker/cleanup-storage-logs.sh ]; then
+  chmod +x docker/cleanup-storage-logs.sh 2>/dev/null || true
+  LOG_DAILY_DAYS="${LOG_DAILY_DAYS:-7}" \
+    GETFY_COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-getfy}" \
+    bash docker/cleanup-storage-logs.sh || true
+else
+  echo "cleanup-storage-logs.sh ausente — prune mínimo via artisan."
+  "${COMPOSE[@]}" exec -T app php artisan logs:prune --days="${LOG_DAILY_DAYS:-7}" --max-mb=50 --max-total-mb=200 || true
+fi
 
 echo "=== Stacker apply update concluído ==="

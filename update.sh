@@ -41,6 +41,34 @@ run_docker_prune() {
   fi
 }
 
+# Hardening LOG_* no .env (single+debug) SEM limpar volume ainda —
+# precisa rodar ANTES do compose up para containers herdarem daily/warning.
+run_host_log_harden_only() {
+  if [ ! -f docker/cleanup-storage-logs.sh ]; then
+    return 0
+  fi
+  echo ""
+  echo "=== Hardening LOG_* no .env (antes do recreate) ==="
+  $SUDO chmod +x docker/cleanup-storage-logs.sh 2>/dev/null || true
+  # Roda o script completo: se app ainda está up limpa logs; se down, volume/host.
+  $SUDO env LOG_DAILY_DAYS="${LOG_DAILY_DAYS:-7}" \
+    bash docker/cleanup-storage-logs.sh || true
+}
+
+# Só storage/logs + failed jobs + harden LOG_* no .env.
+# Nunca: down -v, volume rm, Postgres, storage/app, stack.env.
+run_storage_logs_cleanup() {
+  echo ""
+  echo "=== Limpeza segura storage/logs (sem tocar DB/volumes) ==="
+  if [ -f docker/cleanup-storage-logs.sh ]; then
+    $SUDO chmod +x docker/cleanup-storage-logs.sh 2>/dev/null || true
+    $SUDO env LOG_DAILY_DAYS="${LOG_DAILY_DAYS:-7}" \
+      bash docker/cleanup-storage-logs.sh || true
+  else
+    echo "docker/cleanup-storage-logs.sh ausente — pulando."
+  fi
+}
+
 if [ ! -d "$INSTALL_DIR" ]; then
   echo "Diretório não encontrado: $INSTALL_DIR" >&2
   exit 1
@@ -126,6 +154,8 @@ if [ "$STACKER_MANAGED" = "1" ]; then
     echo "Recupere com: cd \"$INSTALL_DIR\" && sh docker/recover-stack.sh" >&2
     exit 1
   fi
+  # Hardens LOG_* + limpa logs gigantes antes do recreate (evita herdar single/debug).
+  run_host_log_harden_only
   $SUDO env -u GETFY_DB_CONNECTION -u GETFY_DB_HOST -u GETFY_DB_PORT -u GETFY_DB_DATABASE -u GETFY_DB_USERNAME -u GETFY_DB_PASSWORD \
     GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_SKIP_DOCKER_BUILD=1 GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
   if [ -f "$INSTALL_DIR/agent/Dockerfile" ]; then
@@ -134,6 +164,7 @@ if [ "$STACKER_MANAGED" = "1" ]; then
     $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$STACK_ENV" build stacker-agent
     $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$STACK_ENV" up -d stacker-agent
   fi
+  run_storage_logs_cleanup
   run_docker_prune
   echo ""
   echo "Atualização local concluída. Releases remotas: portal Stacker ou admin."
@@ -177,6 +208,8 @@ if ! $SUDO sh docker/ensure-db-credentials.sh; then
   echo "Recupere com: cd \"$INSTALL_DIR\" && sh docker/recover-stack.sh" >&2
   exit 1
 fi
+# Hardens LOG_* + limpa logs gigantes antes do recreate (evita herdar single/debug).
+run_host_log_harden_only
 $SUDO env -u GETFY_DB_CONNECTION -u GETFY_DB_HOST -u GETFY_DB_PORT -u GETFY_DB_DATABASE -u GETFY_DB_USERNAME -u GETFY_DB_PASSWORD \
   GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
 
@@ -204,6 +237,7 @@ $SUDO sh docker/verify-workers.sh || true
 
 $SUDO bash docker/ensure-stacker-agent.sh 2>/dev/null || true
 
+run_storage_logs_cleanup
 run_docker_prune
 
 echo ""
