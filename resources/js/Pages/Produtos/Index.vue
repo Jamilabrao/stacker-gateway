@@ -179,32 +179,39 @@ function pluginActions(productId) {
                                     {{ p.is_active ? 'Ativo' : 'Inativo' }}
                                 </span>
                                 <span
-                                    v-if="p.approval"
+                                    v-if="p.approval && p.approval.status !== 'approved'"
                                     :class="[
-                                        'inline-block rounded px-2 py-0.5 text-xs font-medium',
+                                        'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium',
                                         p.approval.status === 'pending'
                                             ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
-                                            : p.approval.status === 'rejected'
-                                              ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                                              : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+                                            : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
                                     ]"
                                     :title="p.approval.description"
                                 >
                                     {{ p.approval.label }}
                                 </span>
+                                <span
+                                    v-else-if="p.approval?.status === 'approved'"
+                                    class="inline-flex items-center rounded-md bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                                    :title="p.approval.description"
+                                >
+                                    {{ p.approval.label }}
+                                </span>
                             </div>
-                            <p
+                            <div
                                 v-if="p.approval?.status === 'pending'"
-                                class="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                                class="mt-2 rounded-lg border border-amber-200/80 bg-amber-50/90 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100"
                             >
-                                Produto em análise — ainda não disponível para venda.
-                            </p>
-                            <p
+                                <p class="font-medium">Checkout offline até a aprovação</p>
+                                <p class="mt-0.5 opacity-90">Você pode editar o produto; o link `/c/…` só vende depois da análise da plataforma.</p>
+                            </div>
+                            <div
                                 v-else-if="p.approval?.status === 'rejected'"
-                                class="mt-1 text-xs text-red-600 dark:text-red-300"
+                                class="mt-2 rounded-lg border border-red-200/80 bg-red-50/90 px-2.5 py-2 text-xs text-red-900 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-100"
                             >
-                                Motivo: {{ p.approval.reason || 'Consulte o painel de edição.' }}
-                            </p>
+                                <p class="font-medium">Não aprovado — checkout offline</p>
+                                <p class="mt-0.5 opacity-90">Motivo: {{ p.approval.reason || 'Consulte o painel de edição.' }}</p>
+                            </div>
                         </div>
                         <div class="relative shrink-0" :data-product-menu="p.id">
                             <button
@@ -274,7 +281,7 @@ function pluginActions(productId) {
                         {{ formatBRL(p.price_brl ?? p.price) }}
                     </p>
                     <a
-                        v-if="p.checkout_slug"
+                        v-if="p.checkout_slug && p.available_for_purchase"
                         :href="`/c/${p.checkout_slug}`"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -282,6 +289,13 @@ function pluginActions(productId) {
                     >
                         Ver checkout →
                     </a>
+                    <span
+                        v-else-if="p.checkout_slug && !p.available_for_purchase"
+                        class="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500"
+                        :title="p.approval?.description || 'Checkout offline'"
+                    >
+                        Checkout offline
+                    </span>
                 </div>
             </div>
         </div>

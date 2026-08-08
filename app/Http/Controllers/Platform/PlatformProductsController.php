@@ -117,7 +117,7 @@ class PlatformProductsController extends Controller
             return redirect()->back()->with('error', $e->getMessage());
         }
 
-        return redirect()->back()->with('success', 'O produto foi aprovado com sucesso. A ativação permanece sob controle do seller ou do administrador.');
+        return redirect()->back()->with('success', 'Produto aprovado e checkout liberado. O produto foi ativado automaticamente (se não estiver bloqueado).');
     }
 
     public function reject(Request $request, Product $product): RedirectResponse

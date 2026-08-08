@@ -537,6 +537,23 @@ function checkoutUrl(slug) {
 }
 const mainCheckoutUrl = computed(() => checkoutUrl(props.produto.checkout_slug));
 const hasCheckoutLink = computed(() => !!props.produto.checkout_slug);
+const checkoutOffline = computed(() => {
+    const status = props.produto.approval?.status;
+    if (status && status !== 'approved') return true;
+    return props.produto.available_for_purchase === false;
+});
+const checkoutOfflineHint = computed(() => {
+    if (props.produto.approval?.status === 'pending') {
+        return 'Checkout offline: este produto está em análise. O link só vende após a aprovação da plataforma.';
+    }
+    if (props.produto.approval?.status === 'rejected') {
+        return 'Checkout offline: produto não aprovado. Ajuste e reenvie para análise.';
+    }
+    if (!props.produto.is_active) {
+        return 'Checkout offline: ative o produto para disponibilizar o link de venda.';
+    }
+    return 'Checkout offline no momento.';
+});
 
 const INTERVAL_LABELS = {
     weekly: 'Semanal',
@@ -1326,27 +1343,41 @@ function submit() {
                                 </div>
                                 <div
                                     v-if="produto.approval && produto.approval.status !== 'approved'"
-                                    class="mt-3 rounded-xl border px-4 py-3 text-sm"
+                                    class="mt-3 rounded-xl border px-4 py-3 text-sm shadow-sm"
                                     :class="
                                         produto.approval.status === 'rejected'
-                                            ? 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-100'
-                                            : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100'
+                                            ? 'border-red-200 bg-gradient-to-br from-red-50 to-white text-red-900 dark:border-red-900/50 dark:from-red-950/40 dark:to-zinc-900 dark:text-red-100'
+                                            : 'border-amber-200 bg-gradient-to-br from-amber-50 to-white text-amber-950 dark:border-amber-900/50 dark:from-amber-950/40 dark:to-zinc-900 dark:text-amber-100'
                                     "
                                 >
-                                    <p class="font-semibold">{{ produto.approval.label }}</p>
-                                    <p class="mt-1 text-xs opacity-90">{{ produto.approval.description }}</p>
-                                    <p v-if="produto.approval.reason" class="mt-2 text-xs">
-                                        <span class="font-medium">Motivo da não aprovação:</span>
-                                        {{ produto.approval.reason }}
-                                    </p>
-                                    <button
-                                        v-if="produto.approval.can_resubmit"
-                                        type="button"
-                                        class="mt-3 inline-flex rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 dark:bg-white dark:text-zinc-900"
-                                        @click="resubmitForReview"
-                                    >
-                                        Reenviar para análise
-                                    </button>
+                                    <div class="flex items-start gap-3">
+                                        <span
+                                            class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
+                                            :class="
+                                                produto.approval.status === 'rejected'
+                                                    ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200'
+                                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                                            "
+                                        >
+                                            !
+                                        </span>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="font-semibold">{{ produto.approval.label }} — checkout offline</p>
+                                            <p class="mt-1 text-xs opacity-90">{{ produto.approval.description }}</p>
+                                            <p v-if="produto.approval.reason" class="mt-2 rounded-lg bg-black/5 px-2.5 py-1.5 text-xs dark:bg-white/5">
+                                                <span class="font-medium">Motivo:</span>
+                                                {{ produto.approval.reason }}
+                                            </p>
+                                            <button
+                                                v-if="produto.approval.can_resubmit"
+                                                type="button"
+                                                class="mt-3 inline-flex rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 dark:bg-white dark:text-zinc-900"
+                                                @click="resubmitForReview"
+                                            >
+                                                Reenviar para análise
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div class="flex flex-col items-start lg:pt-0">
@@ -2868,6 +2899,14 @@ function submit() {
 
                 <!-- Lista de links -->
                 <div class="mt-6">
+                    <div
+                        v-if="checkoutOffline"
+                        class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100"
+                    >
+                        <p class="font-semibold">Checkout ainda não está público</p>
+                        <p class="mt-1 text-xs opacity-90">{{ checkoutOfflineHint }}</p>
+                        <p class="mt-1 font-mono text-[11px] opacity-75">Os links abaixo existem, mas o visitante não compra até a liberação.</p>
+                    </div>
                     <template v-if="allCheckoutLinks.length === 0">
                         <div class="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zinc-200 bg-zinc-50/50 px-6 py-16 text-center dark:border-zinc-600 dark:bg-zinc-800/30">
                             <span class="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-200/80 text-zinc-400 dark:bg-zinc-700/80 dark:text-zinc-500">
@@ -2902,6 +2941,7 @@ function submit() {
                                 </div>
                                 <div class="flex shrink-0 items-center gap-2">
                                     <a
+                                        v-if="!checkoutOffline"
                                         :href="getCheckoutLinkUrl(item)"
                                         target="_blank"
                                         rel="noopener noreferrer"
@@ -2909,6 +2949,13 @@ function submit() {
                                     >
                                         Abrir
                                     </a>
+                                    <span
+                                        v-else
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-400 dark:border-zinc-600 dark:text-zinc-500"
+                                        :title="checkoutOfflineHint"
+                                    >
+                                        Offline
+                                    </span>
                                     <button
                                         type="button"
                                         class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"

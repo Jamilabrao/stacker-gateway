@@ -691,6 +691,12 @@ function buildSettingsPayload() {
             legal_cookie_banner_enabled: data.legal_cookie_banner_enabled,
         };
     }
+    if (activeTab.value === 'recursos') {
+        return {
+            physical_products_enabled: data.physical_products_enabled,
+            auto_approve_products: data.auto_approve_products,
+        };
+    }
     if (activeTab.value === 'seguranca') {
         return {
             checkout_turnstile_site_key: data.checkout_turnstile_site_key,
@@ -699,7 +705,6 @@ function buildSettingsPayload() {
             registration_turnstile_enabled: data.registration_turnstile_enabled,
             registration_email_verification_enabled: data.registration_email_verification_enabled,
             allow_new_infoproducers: data.allow_new_infoproducers,
-            auto_approve_products: data.auto_approve_products,
             account_manager_auto_assign_mode: data.account_manager_auto_assign_mode,
         };
     }
@@ -1489,6 +1494,51 @@ const selectClass =
                                 </span>
                             </span>
                         </label>
+                    </section>
+
+                    <section class="overflow-hidden rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 class="text-base font-semibold text-zinc-900 dark:text-white">Aprovação de produtos</h2>
+                                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                                    Controle se novos produtos de infoprodutores precisam de análise da plataforma antes do checkout ir ao ar.
+                                </p>
+                            </div>
+                            <span
+                                class="inline-flex shrink-0 rounded-full px-2.5 py-1 text-xs font-medium"
+                                :class="
+                                    form.auto_approve_products === '0'
+                                        ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
+                                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'
+                                "
+                            >
+                                {{
+                                    form.auto_approve_products === '0'
+                                        ? 'Análise manual'
+                                        : 'Liberação automática'
+                                }}
+                            </span>
+                        </div>
+                        <label class="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-600 dark:bg-zinc-800/80">
+                            <input
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]"
+                                :checked="form.auto_approve_products === '0'"
+                                @change="form.auto_approve_products = $event.target.checked ? '0' : '1'"
+                            />
+                            <span>
+                                <span class="block text-sm font-medium text-zinc-900 dark:text-white">Exigir aprovação de novos produtos</span>
+                                <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
+                                    Com esta opção ativa, cada produto novo fica em análise: o infoprodutor pode editar à vontade, mas o link de checkout
+                                    <code class="text-[11px]">/c/…</code> só fica online depois da aprovação do admin (e é ativado no mesmo momento).
+                                    Se a plataforma rejeitar, o seller vê o motivo e pode reenviar.
+                                </span>
+                            </span>
+                        </label>
+                        <ul class="mt-4 space-y-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            <li>• Fila de análise em <strong class="font-medium text-zinc-700 dark:text-zinc-300">Plataforma → Produtos</strong></li>
+                            <li>• Desativada: produtos novos são liberados automaticamente (comportamento padrão)</li>
+                        </ul>
                     </section>
                 </div>
             </Transition>

@@ -24,7 +24,8 @@ use App\Support\PublicAppUrl;
 use App\Support\SellerDashboardTemplate;
 use App\Support\SellerPanelSupportSettings;
 use App\Support\ReferralProgramSettings;
-use App\Support\InfoproducerRegistrationSettings;
+use App\Support\ProductApprovalSettings;
+use App\Services\ProductApprovalService;
 use App\Support\MemberAreaAdminPreview;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -317,6 +318,9 @@ class HandleInertiaRequests extends Middleware
                 : 0,
             'physical_products_enabled_effective' => $user && $user->canAccessSellerPanel()
                 ? PhysicalProductAccess::globalEnabled()
+                : false,
+            'product_approval_required' => $user && $user->canAccessSellerPanel()
+                ? (ProductApprovalService::columnsReady() && ! ProductApprovalSettings::autoApproveEnabled())
                 : false,
             'seller_panel_support' => $user && $user->canAccessSellerPanel()
                 ? SellerPanelSupportSettings::publicConfig()

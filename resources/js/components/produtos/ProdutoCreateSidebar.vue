@@ -124,6 +124,8 @@ watch(
             step.value = 1;
             selectedType.value = null;
             form.reset();
+        } else if (page.props.product_approval_required) {
+            form.is_active = false;
         }
     }
 );
@@ -347,8 +349,21 @@ function safePluginSectionHtml(html) {
                             </p>
                         </div>
                         <div class="flex items-center gap-2">
-                            <Toggle v-model="form.is_active" :label="t('products.create.active_product', 'Produto ativo')" />
+                            <Toggle
+                                v-model="form.is_active"
+                                :label="t('products.create.active_product', 'Produto ativo')"
+                                :disabled="page.props.product_approval_required === true"
+                            />
                         </div>
+                        <p
+                            v-if="page.props.product_approval_required"
+                            class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100"
+                        >
+                            <span class="font-semibold">Entra em análise da plataforma.</span>
+                            Você poderá editar normalmente; o checkout
+                            <code class="text-[11px]">/c/…</code>
+                            só fica online após a aprovação do admin (aí o produto é ativado automaticamente).
+                        </p>
                         <!-- Área para plugins -->
                         <div v-if="pluginFormSections?.length" class="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
                             <template v-for="(section, idx) in pluginFormSections" :key="idx">

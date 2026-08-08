@@ -88,7 +88,7 @@ function setProductActive(product, active) {
 function approveProduct(product) {
     if (
         !confirm(
-            `Deseja aprovar este produto e permitir sua disponibilização para venda?\n\n"${product.name}"`
+            `Aprovar este produto?\n\n"${product.name}"\n\nO checkout será liberado e o produto será ativado automaticamente (exceto se estiver bloqueado).`
         )
     ) {
         return;
@@ -191,8 +191,10 @@ function approvalLabel(status) {
                     Produtos
                 </h1>
                 <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    Todos os produtos dos infoprodutores. Aprovação libera a venda; ativação controla a disponibilidade.
-                    Bloqueie para impedir checkout e vendas via API (área do aluno e pedidos antigos não são apagados).
+                    Fila de análise dos produtos dos infoprodutores. Com a aprovação manual ativa em
+                    <strong class="font-medium text-zinc-800 dark:text-zinc-200">Configurações → Recursos</strong>,
+                    <strong class="font-medium text-zinc-800 dark:text-zinc-200">aprovar</strong> libera o checkout e ativa o produto
+                    (se não estiver bloqueado). Rejeitar mantém o link offline e notifica o seller.
                 </p>
             </div>
         </div>

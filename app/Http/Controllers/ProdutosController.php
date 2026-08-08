@@ -1274,6 +1274,7 @@ class ProdutosController extends Controller
             'price_eur' => $priceEur,
             'price_usd' => $priceUsd,
             'is_active' => $p->is_active,
+            'available_for_purchase' => $p->isAvailableForPurchase(),
             'approval' => app(ProductApprovalService::class)->sellerFacingStatus($p),
             'conversion_pixels' => $p->conversion_pixels,
             'shipping_store_id' => $p->shipping_store_id,

@@ -159,7 +159,7 @@ class ProductApprovalFlowTest extends TestCase
         $this->get(route('checkout.show', ['slug' => $product->checkout_slug]))->assertNotFound();
     }
 
-    public function test_admin_approves_pending_product_without_forcing_active(): void
+    public function test_admin_approves_pending_product_and_activates_checkout(): void
     {
         Bus::fake([SendProductApprovedMailJob::class]);
         Setting::set(ProductApprovalSettings::KEY, '0', null);
@@ -184,10 +184,37 @@ class ProductApprovalFlowTest extends TestCase
         $this->assertSame($admin->id, (int) $product->reviewed_by);
         $this->assertNotNull($product->reviewed_at);
         $this->assertNull($product->approval_reason);
-        $this->assertFalse((bool) $product->is_active);
-        $this->assertFalse($product->isAvailableForPurchase());
+        $this->assertTrue((bool) $product->is_active);
+        $this->assertTrue($product->isAvailableForPurchase());
 
         Bus::assertDispatched(SendProductApprovedMailJob::class);
+    }
+
+    public function test_admin_approve_does_not_activate_when_admin_blocked(): void
+    {
+        Bus::fake([SendProductApprovedMailJob::class]);
+        Setting::set(ProductApprovalSettings::KEY, '0', null);
+        $admin = $this->platformAdmin();
+        $seller = $this->seller();
+
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'name' => 'Aprovar Bloqueado',
+            'type' => Product::TYPE_LINK,
+            'is_active' => false,
+            'admin_blocked' => true,
+            'approval_status' => Product::APPROVAL_PENDING,
+            'approval_source' => null,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.produtos.approve', $product))
+            ->assertRedirect();
+
+        $product->refresh();
+        $this->assertSame(Product::APPROVAL_APPROVED, $product->approval_status);
+        $this->assertFalse((bool) $product->is_active);
+        $this->assertFalse($product->isAvailableForPurchase());
     }
 
     public function test_admin_rejects_with_reason_and_forces_inactive(): void

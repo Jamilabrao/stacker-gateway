@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 
 /**
- * Fluxo de análise de produtos (aprovação ≠ ativação).
+ * Fluxo de análise de produtos.
+ * Em modo manual: create → pending (checkout offline) → admin approve ativa e libera o link.
  */
 class ProductApprovalService
 {
@@ -94,12 +95,15 @@ class ProductApprovalService
             }
 
             $from = $locked->approval_status;
+            $activate = ! (bool) $locked->admin_blocked;
             $locked->forceFill([
                 'approval_status' => Product::APPROVAL_APPROVED,
                 'approval_source' => Product::APPROVAL_SOURCE_MANUAL,
                 'approval_reason' => null,
                 'reviewed_by' => $admin->id,
                 'reviewed_at' => now(),
+                // Libera o checkout: seller não precisa reativar após a aprovação do admin.
+                'is_active' => $activate,
             ])->save();
 
             PlatformAuditService::log('products.approved', [
@@ -109,6 +113,7 @@ class ProductApprovalService
                 'from' => $from,
                 'to' => Product::APPROVAL_APPROVED,
                 'reviewed_by' => $admin->id,
+                'is_active' => $activate ? '1' : '0',
             ], $request);
 
             SendProductApprovedMailJob::dispatch($locked->id);
@@ -260,21 +265,23 @@ class ProductApprovalService
             Product::APPROVAL_PENDING => [
                 'status' => Product::APPROVAL_PENDING,
                 'label' => 'Em análise',
-                'description' => 'Este produto está sendo analisado pela equipe da plataforma e ainda não está disponível para venda.',
+                'description' => 'Este produto está sendo analisado pela equipe da plataforma. O link de checkout permanece offline até a aprovação.',
                 'reason' => null,
                 'can_resubmit' => false,
             ],
             Product::APPROVAL_REJECTED => [
                 'status' => Product::APPROVAL_REJECTED,
                 'label' => 'Não aprovado',
-                'description' => 'Este produto não foi aprovado. Consulte o motivo informado pela equipe da plataforma.',
+                'description' => 'Este produto não foi aprovado. Ajuste o conteúdo e reenvie para análise. O checkout permanece offline.',
                 'reason' => $product->approval_reason,
                 'can_resubmit' => true,
             ],
             default => [
                 'status' => Product::APPROVAL_APPROVED,
                 'label' => 'Aprovado',
-                'description' => 'Este produto foi aprovado e pode ser disponibilizado para venda, desde que esteja ativo.',
+                'description' => (bool) $product->is_active && ! (bool) $product->admin_blocked
+                    ? 'Este produto foi aprovado e o checkout está disponível para venda.'
+                    : 'Este produto foi aprovado. Ative-o para disponibilizar o link de venda (se estiver inativo).',
                 'reason' => null,
                 'can_resubmit' => false,
             ],
