@@ -96,7 +96,7 @@ echo "Compose: $COMPOSE_FILES"
 $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" GETFY_APP_ENV=production GETFY_APP_DEBUG=false sh docker/up.sh
 
 echo ""
-echo "=== Push PWA (VAPID) ==="
+echo "=== Push PWA (VAPID) + caches Laravel ==="
 COMPOSE_EXEC_ARGS=""
 for f in $COMPOSE_FILES; do
   if [ -n "$f" ]; then
@@ -104,12 +104,24 @@ for f in $COMPOSE_FILES; do
   fi
 done
 ENV_FILE="$INSTALL_DIR/.env"
-if [ -f "$ENV_FILE" ]; then
-  $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$ENV_FILE" exec -T app php artisan pwa:ensure-vapid || true
-  $SUDO docker compose $COMPOSE_EXEC_ARGS --env-file "$ENV_FILE" exec -T app php artisan config:clear || true
-else
-  $SUDO docker compose $COMPOSE_EXEC_ARGS exec -T app php artisan pwa:ensure-vapid || true
-  $SUDO docker compose $COMPOSE_EXEC_ARGS exec -T app php artisan config:clear || true
+STACK_ENV_FILE="$INSTALL_DIR/.docker/stack.env"
+COMPOSE_ENV_ARGS=""
+if [ -f "$STACK_ENV_FILE" ]; then
+  COMPOSE_ENV_ARGS="--env-file $STACK_ENV_FILE"
+elif [ -f "$ENV_FILE" ]; then
+  COMPOSE_ENV_ARGS="--env-file $ENV_FILE"
+fi
+# shellcheck disable=SC2086
+$SUDO docker compose $COMPOSE_EXEC_ARGS $COMPOSE_ENV_ARGS exec -T app php artisan pwa:ensure-vapid || true
+# shellcheck disable=SC2086
+$SUDO docker compose $COMPOSE_EXEC_ARGS $COMPOSE_ENV_ARGS exec -T app php artisan optimize:clear || true
+
+echo ""
+echo "=== Health check pós-atualização ==="
+$SUDO chmod +x docker/post-update-healthcheck.sh 2>/dev/null || true
+if ! $SUDO env GETFY_COMPOSE_FILES="$COMPOSE_FILES" sh docker/post-update-healthcheck.sh "$COMPOSE_FILES"; then
+  echo "Health check falhou — a stack pode estar parcial. Veja os comandos de diagnóstico acima." >&2
+  exit 1
 fi
 
 echo ""

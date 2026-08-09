@@ -379,6 +379,17 @@ if [ "${#COMPOSE_UP_SERVICES[@]}" -eq 0 ]; then
   exit 1
 fi
 
+# Antes de recriar o app: para órfãos (libera portas). Se o recreate falhar, religa.
+# Após sucesso, remove de fato. Volumes e serviços do compose ativo (incl. Caddy válido) ficam.
+ORPHAN_STOPPED_FILE="$(mktemp)"
+if [ -f docker/remove-stale-compose-orphans.sh ]; then
+  chmod +x docker/remove-stale-compose-orphans.sh 2>/dev/null || true
+  echo "=== Parando containers órfãos do compose anterior (se houver) ==="
+  : > "$ORPHAN_STOPPED_FILE"
+  GETFY_ORPHANS_MODE=stop GETFY_ORPHANS_STOPPED_LIST="$ORPHAN_STOPPED_FILE" \
+    sh docker/remove-stale-compose-orphans.sh "$ENV_FILE_ABS" "$COMPOSE_FILES" || true
+fi
+
 # Recria serviços que usam getfy_app:latest — sem hardcode de "queue"
 # (compose padrão tem app/scheduler/worker-*; caddy/no-redis têm queue).
 # Nunca inclui caddy aqui — recrear o proxy derruba 80/443.
@@ -396,6 +407,10 @@ done
 if [ "$has_app" -ne 1 ]; then
   echo "FATAL: serviço 'app' não encontrado para recreate." >&2
   echo "Serviços no compose: ${COMPOSE_UP_SERVICES[*]}" >&2
+  if [ -f "$ORPHAN_STOPPED_FILE" ]; then
+    while read -r cid; do [ -n "$cid" ] && docker start "$cid" >/dev/null 2>&1 || true; done < "$ORPHAN_STOPPED_FILE"
+    rm -f "$ORPHAN_STOPPED_FILE"
+  fi
   exit 1
 fi
 
@@ -462,10 +477,30 @@ for svc in "${RECREATE_SERVICES[@]}"; do
 done
 
 echo "=== Recriando app com imagem nova ==="
-"${COMPOSE[@]}" up -d --force-recreate --no-deps "${APP_ONLY[@]}"
+if ! "${COMPOSE[@]}" up -d --force-recreate --no-deps "${APP_ONLY[@]}"; then
+  echo "FATAL: falha ao recriar app — religando órfãos parados." >&2
+  if [ -f "$ORPHAN_STOPPED_FILE" ]; then
+    while read -r cid; do [ -n "$cid" ] && docker start "$cid" >/dev/null 2>&1 || true; done < "$ORPHAN_STOPPED_FILE"
+    rm -f "$ORPHAN_STOPPED_FILE"
+  fi
+  exit 1
+fi
 
 echo "=== Aguardando app ficar saudável ==="
-wait_for_app_http
+if ! wait_for_app_http; then
+  echo "FATAL: app não respondeu — religando órfãos parados." >&2
+  if [ -f "$ORPHAN_STOPPED_FILE" ]; then
+    while read -r cid; do [ -n "$cid" ] && docker start "$cid" >/dev/null 2>&1 || true; done < "$ORPHAN_STOPPED_FILE"
+    rm -f "$ORPHAN_STOPPED_FILE"
+  fi
+  exit 1
+fi
+
+# App OK — remove órfãos de fato
+if [ -f docker/remove-stale-compose-orphans.sh ]; then
+  GETFY_ORPHANS_MODE=remove sh docker/remove-stale-compose-orphans.sh "$ENV_FILE_ABS" "$COMPOSE_FILES" || true
+fi
+rm -f "$ORPHAN_STOPPED_FILE"
 
 ensure_caddy_proxy
 
@@ -477,13 +512,22 @@ fi
 echo "=== Garantindo demais serviços (sem recreate / sem tocar no Caddy) ==="
 "${COMPOSE[@]}" up -d --remove-orphans --no-recreate "${COMPOSE_UP_SERVICES[@]}"
 
-echo "=== Migrate + config clear ==="
+echo "=== Migrate + optimize:clear ==="
 if "${COMPOSE[@]}" exec -T app php artisan migrate --force; then
   :
 else
   echo "Aviso: migrate falhou (schema pode já estar atualizado)." >&2
 fi
-"${COMPOSE[@]}" exec -T app php artisan config:clear || true
+"${COMPOSE[@]}" exec -T app php artisan optimize:clear || true
+
+echo "=== Health check pós-atualização ==="
+if [ -f docker/post-update-healthcheck.sh ]; then
+  chmod +x docker/post-update-healthcheck.sh 2>/dev/null || true
+  if ! GETFY_COMPOSE_FILES="$COMPOSE_FILES" sh docker/post-update-healthcheck.sh "$COMPOSE_FILES"; then
+    echo "FATAL: health check falhou após apply." >&2
+    exit 1
+  fi
+fi
 
 echo "=== Verificando versão em runtime ==="
 HOST_VERSION="$(tr -d ' \n\r' < VERSION)"
