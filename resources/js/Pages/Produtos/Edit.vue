@@ -62,7 +62,7 @@ const DEFAULT_EMAIL_TEMPLATE = {
     logo_url: '',
     from_name: '',
     subject: 'Seu acesso a {nome_produto}',
-    body_html: '<p>Olá, {nome_cliente}!</p><p>Obrigado por adquirir <strong>{nome_produto}</strong>.</p><p>Clique no botão abaixo para fazer login e ver todos os seus produtos em Minha área:</p><p><a href="{link_acesso}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Fazer login</a></p><p style="font-size:14px;color:#64748b;">Ou copie e cole no navegador: {link_acesso}</p><p>Qualquer dúvida, responda este e-mail.</p>',
+    body_html: '<p>Olá, {nome_cliente}!</p><p>Obrigado por adquirir <strong>{nome_produto}</strong>.</p><p>Clique no botão abaixo para fazer login e ver todos os seus produtos em Minha área:</p><p><a href="{link_acesso}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Fazer login</a></p><p style="font-size:14px;color:#64748b;">Ou copie e cole no navegador: {link_acesso}</p><p style="margin-top:16px;font-size:14px;color:#334155;"><strong>E-mail:</strong> {email_cliente}<br/><strong>Senha:</strong> {senha}</p><p style="font-size:13px;color:#64748b;">Se você não tiver senha, use <a href="{link_esqueci_senha}">Esqueci minha senha</a> para criar uma nova.</p><p>Qualquer dúvida, responda este e-mail.</p>',
 };
 
 const PIXEL_TABS = computed(() => [
@@ -139,6 +139,7 @@ const pme = props.produto.checkout_config?.payment_methods_enabled ?? {};
 const form = useForm({
     name: props.produto.name,
     notification_name: props.produto.notification_name ?? '',
+    support_email: props.produto.support_email ?? '',
     description: props.produto.description ?? '',
     type: props.produto.type,
     billing_type: props.produto.billing_type ?? 'one_time',
@@ -1096,6 +1097,7 @@ const submitOptions = {
 function appendCoreProductFields(fd) {
     fd.append('name', form.name);
     fd.append('notification_name', form.notification_name ?? '');
+    fd.append('support_email', form.support_email ?? '');
     fd.append('description', form.description ?? '');
     fd.append('type', form.type);
     fd.append('billing_type', form.billing_type);
@@ -1323,6 +1325,25 @@ function submit() {
                                     </p>
                                     <p v-if="form.errors.notification_name" class="mt-1.5 text-sm text-red-600 dark:text-red-400">
                                         {{ form.errors.notification_name }}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                        E-mail para Suporte
+                                    </label>
+                                    <input
+                                        v-model="form.support_email"
+                                        type="email"
+                                        maxlength="255"
+                                        placeholder="suporte@suaempresa.com"
+                                        :class="inputClass"
+                                    />
+                                    <p class="mt-1 text-xs text-zinc-500">
+                                        Este e-mail será informado ao comprador para entrar em contato
+                                        (se deixado em branco será usado o padrão do infoprodutor).
+                                    </p>
+                                    <p v-if="form.errors.support_email" class="mt-1.5 text-sm text-red-600 dark:text-red-400">
+                                        {{ form.errors.support_email }}
                                     </p>
                                 </div>
                                 <div>
@@ -2410,10 +2431,13 @@ function submit() {
                                 <p class="mt-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                                     Placeholders: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{nome_cliente}</code>,
                                     <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{nome_produto}</code>,
-                                    <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{link_acesso}</code>,
+                                    <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{link_acesso}</code>
+                                    (tela de login da plataforma),
                                     <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{email_cliente}</code>,
                                     <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{senha}</code>
-                                    (preenchido apenas para área de membros quando uma senha é enviada ao cliente).
+                                    (área de membros, quando disponível),
+                                    <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-700">{link_esqueci_senha}</code>
+                                    (para o aluno criar uma nova senha).
                                 </p>
                             </div>
                         </div>

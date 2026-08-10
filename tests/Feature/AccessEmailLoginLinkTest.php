@@ -13,7 +13,7 @@ use Tests\TestCase;
 
 class AccessEmailLoginLinkTest extends TestCase
 {
-    public function test_member_area_access_email_uses_signed_magic_link(): void
+    public function test_member_area_access_email_uses_platform_login_link(): void
     {
         Mail::fake();
         $this->seedPlatformSmtp();
@@ -42,15 +42,13 @@ class AccessEmailLoginLinkTest extends TestCase
         $this->assertTrue($result->success);
 
         Mail::assertSent(AccessGrantedMail::class, function (AccessGrantedMail $mail) {
-            return str_contains($mail->htmlBody, '/access')
-                && str_contains($mail->htmlBody, 'signature=')
-                && ! str_contains($mail->htmlBody, 'href="http://localhost/login"');
+            return str_contains($mail->htmlBody, 'href="http://localhost/login"')
+                && ! str_contains($mail->htmlBody, 'signature=')
+                && ! str_contains($mail->htmlBody, '/access');
         });
 
         $link = $service->getAccessLinkForOrder($order->fresh());
-        $this->assertStringContainsString('/access', $link);
-        $this->assertStringContainsString('signature=', $link);
-        $this->assertStringNotContainsString('/login', parse_url($link, PHP_URL_PATH) ?: '');
+        $this->assertSame('http://localhost/login', $link);
     }
 
     private function seedPlatformSmtp(): void

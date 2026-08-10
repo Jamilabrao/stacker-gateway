@@ -14,6 +14,8 @@ const SAMPLE = {
   nome_produto: 'Meu Curso',
   link_acesso: 'https://exemplo.com/login',
   email_cliente: 'maria@exemplo.com',
+  senha: 'SenhaExemplo123',
+  link_esqueci_senha: 'https://exemplo.com/esqueci-senha',
 };
 
 function replacePlaceholders(text) {
@@ -22,7 +24,9 @@ function replacePlaceholders(text) {
     .replace(/\{nome_cliente\}/g, SAMPLE.nome_cliente)
     .replace(/\{nome_produto\}/g, SAMPLE.nome_produto)
     .replace(/\{link_acesso\}/g, SAMPLE.link_acesso)
-    .replace(/\{email_cliente\}/g, SAMPLE.email_cliente);
+    .replace(/\{email_cliente\}/g, SAMPLE.email_cliente)
+    .replace(/\{senha\}/g, SAMPLE.senha)
+    .replace(/\{link_esqueci_senha\}/g, SAMPLE.link_esqueci_senha);
 }
 
 const previewSubject = computed(() => replacePlaceholders(props.subject));
