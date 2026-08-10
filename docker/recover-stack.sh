@@ -182,8 +182,19 @@ HINT
 fi
 
 echo "=== 6) Rebuild app (limites PHP na imagem) + subir stack ==="
+# Libera portas de serviços removidos do compose atual (ex.: caddy órfão vs app:80).
+# Não remove volumes nem serviços presentes no compose (Caddy válido permanece).
+if [ -f docker/remove-stale-compose-orphans.sh ]; then
+  chmod +x docker/remove-stale-compose-orphans.sh 2>/dev/null || true
+  sh docker/remove-stale-compose-orphans.sh "$ENV_FILE" "$COMPOSE_FILE" || true
+fi
 dc build app
-dc up -d --force-recreate --no-deps app queue
+# queue só existe em compose caddy/no-redis; no standard use app + workers.
+if dc config --services 2>/dev/null | grep -qx queue; then
+  dc up -d --force-recreate --no-deps app queue
+else
+  dc up -d --force-recreate --no-deps app
+fi
 echo ""
 
 echo "Aguardando app (health /up, até 3 min)..."
@@ -206,6 +217,10 @@ if [ "$COMPOSE_FILE" = "docker-compose.caddy.yml" ]; then
   dc up -d --force-recreate --no-deps caddy
 fi
 dc up -d --remove-orphans
+echo ""
+
+echo "=== Caches Laravel (optimize:clear) ==="
+dc exec -T app php artisan optimize:clear || true
 echo ""
 
 echo "Aguardando estabilização (5s)..."

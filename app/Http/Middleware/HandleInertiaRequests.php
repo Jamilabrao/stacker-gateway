@@ -18,6 +18,7 @@ use App\Services\MemberAreaResolver;
 use App\Services\PhysicalProductAccess;
 use App\Support\BrandingAssetUrls;
 use App\Support\DemoMode;
+use App\Support\InfoproducerRegistrationSettings;
 use App\Support\LoginTemplate;
 use App\Support\PanelColorScheme;
 use App\Support\PublicAppUrl;

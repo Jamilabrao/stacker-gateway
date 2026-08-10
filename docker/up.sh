@@ -7,14 +7,81 @@ cd "$ROOT_DIR"
 mkdir -p .docker
 
 ENV_FILE=".docker/stack.env"
+
+# Detecta cluster Postgres já provisionado (volume com PG_VERSION).
+postgres_data_volume_exists() {
+  if ! command -v docker >/dev/null 2>&1; then
+    return 1
+  fi
+  vol=""
+  if docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx 'getfy_postgres_data'; then
+    vol="getfy_postgres_data"
+  else
+    vol="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '_postgres_data$' | grep -Ev '^(gateway|stacker-gateway)_' | head -1 || true)"
+  fi
+  [ -n "$vol" ] || return 1
+  docker run --rm -v "${vol}:/var/lib/postgresql/data" alpine \
+    test -f /var/lib/postgresql/data/PG_VERSION 2>/dev/null
+}
+
+# Recupera U/P de .env ou volume env — NUNCA inventa se o cluster já existe.
+recover_existing_db_creds() {
+  u=""; p=""
+  if [ -f .env ]; then
+    u="$(grep -E '^[[:space:]]*(GETFY_DB_USERNAME|DB_USERNAME)[[:space:]]*=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+    p="$(grep -E '^[[:space:]]*(GETFY_DB_PASSWORD|DB_PASSWORD)[[:space:]]*=' .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+  fi
+  if [ -z "$u" ] || [ -z "$p" ]; then
+    env_vol=""
+    if docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx 'getfy_getfy_env'; then
+      env_vol="getfy_getfy_env"
+    else
+      env_vol="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep '_getfy_env$' | grep -Ev '^(gateway|stacker-gateway)_' | head -1 || true)"
+    fi
+    if [ -n "$env_vol" ]; then
+      raw="$(docker run --rm -v "${env_vol}:/v" alpine cat /v/stack.env 2>/dev/null || true)"
+      if [ -n "$raw" ]; then
+        tmp="$(mktemp)"
+        printf '%s\n' "$raw" > "$tmp"
+        [ -n "$u" ] || u="$(grep -E '^[[:space:]]*(GETFY_DB_USERNAME|DB_USERNAME)[[:space:]]*=' "$tmp" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+        [ -n "$p" ] || p="$(grep -E '^[[:space:]]*(GETFY_DB_PASSWORD|DB_PASSWORD)[[:space:]]*=' "$tmp" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
+        rm -f "$tmp"
+      fi
+    fi
+  fi
+  if [ -n "$u" ] && [ -n "$p" ]; then
+    RECOVERED_DB_USER="$u"
+    RECOVERED_DB_PASS="$p"
+    return 0
+  fi
+  return 1
+}
+
 if [ ! -f "$ENV_FILE" ]; then
   HTTP_PORT="${GETFY_HTTP_PORT:-80}"
   APP_URL="${GETFY_APP_URL:-http://localhost}"
   WEBHOOK_PUBLIC="${GETFY_WEBHOOK_PUBLIC_URL:-$APP_URL}"
 
-  # Só na 1ª instalação (sem stack.env). Se já houver volume, ensure-db-credentials ajusta.
-  U="getfy_$(tr -dc 'a-z0-9' < /dev/urandom | head -c 8)"
-  P="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
+  U=""
+  P=""
+  if postgres_data_volume_exists; then
+    # Instalação existente sem stack.env no host — NUNCA gerar user/senha novos.
+    echo "AVISO: .docker/stack.env ausente, mas volume PostgreSQL existe."
+    if recover_existing_db_creds; then
+      U="$RECOVERED_DB_USER"
+      P="$RECOVERED_DB_PASS"
+      echo "Credenciais recuperadas de .env/volume (user=$U). Nenhuma role nova foi gerada."
+    else
+      echo "ERRO: cluster PostgreSQL existente e nenhuma credencial em .env/volume." >&2
+      echo "Abortando para não sobrescrever POSTGRES_USER/PASSWORD com valores aleatórios." >&2
+      echo "Recupere com: sh docker/recover-stack.sh" >&2
+      exit 1
+    fi
+  else
+    # Só na 1ª instalação (sem stack.env e sem cluster).
+    U="getfy_$(tr -dc 'a-z0-9' < /dev/urandom | head -c 8)"
+    P="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
+  fi
 
   cat > "$ENV_FILE" <<EOF
 GETFY_DB_CONNECTION=pgsql
@@ -40,6 +107,7 @@ GETFY_APP_ENV=production
 GETFY_APP_DEBUG=false
 GETFY_COMPOSE_PROJECT_NAME=$(basename "$ROOT_DIR")
 EOF
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
 fi
 
 # Alinha/recupera DB: NUNCA gera user aleatório se o volume Postgres já existe.
@@ -178,11 +246,46 @@ read_stack_kv() {
   grep -E "^[[:space:]]*${key}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//;s/^"//;s/"$//;s/^'"'"'//;s/'"'"'$//' || true
 }
 
+# Órfãos ANTES do up (libera portas). Sequência segura:
+#   1) stop only → libera 80/443 sem apagar o container
+#   2) compose up
+#   3) se up OK → remove (rm) os órfãos
+#   4) se up falhar → docker start nos CIDs parados (rollback de disponibilidade)
+ORPHAN_STOPPED_FILE="$(mktemp)"
+rollback_stopped_orphans() {
+  if [ ! -f "$ORPHAN_STOPPED_FILE" ]; then
+    return 0
+  fi
+  echo "Rollback: tentando religar containers órfãos parados (up falhou)..." >&2
+  while read -r cid; do
+    [ -n "$cid" ] || continue
+    docker start "$cid" >/dev/null 2>&1 || true
+  done < "$ORPHAN_STOPPED_FILE"
+}
+
+if [ -f docker/remove-stale-compose-orphans.sh ]; then
+  chmod +x docker/remove-stale-compose-orphans.sh 2>/dev/null || true
+  : > "$ORPHAN_STOPPED_FILE"
+  GETFY_ORPHANS_MODE=stop GETFY_ORPHANS_STOPPED_LIST="$ORPHAN_STOPPED_FILE" \
+    sh docker/remove-stale-compose-orphans.sh "$ENV_FILE" "$COMPOSE_FILES" || true
+fi
+
 DB_SNAP_USER="$(read_stack_kv GETFY_DB_USERNAME)"
 DB_SNAP_PASS="$(read_stack_kv GETFY_DB_PASSWORD)"
 
 # shellcheck disable=SC2086
-docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up $UP_ARGS
+if ! docker compose $COMPOSE_ARGS --env-file "$ENV_FILE" up $UP_ARGS; then
+  echo "ERRO: docker compose up falhou." >&2
+  rollback_stopped_orphans
+  rm -f "$ORPHAN_STOPPED_FILE"
+  exit 1
+fi
+
+# Up OK — agora remove de fato os órfãos (já parados).
+if [ -f docker/remove-stale-compose-orphans.sh ]; then
+  GETFY_ORPHANS_MODE=remove sh docker/remove-stale-compose-orphans.sh "$ENV_FILE" "$COMPOSE_FILES" || true
+fi
+rm -f "$ORPHAN_STOPPED_FILE"
 
 # Pós-up: revalida login real e espelha as 3 fontes (stack.env / .env / volume).
 if [ -f docker/ensure-db-credentials.sh ]; then
