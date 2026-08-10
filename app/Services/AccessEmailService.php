@@ -18,7 +18,6 @@ class AccessEmailService
 {
     public function __construct(
         protected TenantMailConfigService $mailConfig,
-        protected MemberAreaResolver $memberAreaResolver,
     ) {}
 
     public function sendForOrder(Order $order, bool $force = false): AccessEmailSendResult
@@ -87,6 +86,7 @@ class AccessEmailService
 
         $customerName = $order->user?->name ?? explode('@', $customerEmail)[0] ?? 'Cliente';
         $linkAcesso = $this->resolveAccessLinkForProduct($product, $order->user);
+        $linkEsqueciSenha = $this->resolveForgotPasswordLink();
 
         if (config('app.debug') && $product->type === Product::TYPE_AREA_MEMBROS) {
             Log::debug('AccessEmailService: link_acesso', ['order_id' => $order->id, 'link' => $linkAcesso]);
@@ -142,12 +142,16 @@ class AccessEmailService
             $bodyHtml = $this->buildExternalMemberAreaPendingBody($customerName, $product->name);
         } else {
             $bodyHtmlBeforeReplace = $bodyHtml;
+            $senhaDisplay = $senha !== ''
+                ? $senha
+                : 'Não disponível — use Esqueci minha senha na tela de login';
             $replace = [
                 '{nome_cliente}' => $customerName,
                 '{nome_produto}' => $product->name,
                 '{link_acesso}' => $linkAcesso,
                 '{email_cliente}' => $customerEmail,
-                '{senha}' => $senha,
+                '{senha}' => $senhaDisplay,
+                '{link_esqueci_senha}' => $linkEsqueciSenha,
             ];
             $subject = str_replace(array_keys($replace), array_values($replace), $subject);
             $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
@@ -155,11 +159,12 @@ class AccessEmailService
             if (is_string($brandingLogo) && $brandingLogo !== '') {
                 $bodyHtml = $this->prependLogoToBody($brandingLogo, $bodyHtml);
             }
-            if ($product->type === Product::TYPE_AREA_MEMBROS
-                && $senha !== ''
-                && ! str_contains($bodyHtmlBeforeReplace, '{senha}')
-            ) {
-                $bodyHtml = $this->appendMemberAreaPasswordCredentialsBlock($bodyHtml, $customerEmail, $senha);
+            if ($product->type === Product::TYPE_AREA_MEMBROS) {
+                if ($senha !== '' && ! str_contains($bodyHtmlBeforeReplace, '{senha}')) {
+                    $bodyHtml = $this->appendMemberAreaPasswordCredentialsBlock($bodyHtml, $customerEmail, $senha);
+                } elseif ($senha === '' && ! str_contains($bodyHtmlBeforeReplace, '{link_esqueci_senha}')) {
+                    $bodyHtml = $this->appendMemberAreaForgotPasswordBlock($bodyHtml, $customerEmail, $linkEsqueciSenha);
+                }
             }
         }
 
@@ -419,14 +424,11 @@ class AccessEmailService
 
     /**
      * Link usado no e-mail de acesso e na página de obrigado.
+     * Área de membros: sempre a tela de login da plataforma (aluno vê todos os produtos).
      */
     public function resolveAccessLinkForProduct(Product $product, ?User $user = null): string
     {
         if ($product->type === Product::TYPE_AREA_MEMBROS) {
-            if ($user instanceof User) {
-                return $this->resolveMemberAreaMagicLink($product, $user);
-            }
-
             return $this->resolvePlatformLoginLink();
         }
 
@@ -468,13 +470,16 @@ class AccessEmailService
 
         $customerName = $user->name ?: explode('@', $customerEmail)[0] ?? 'Cliente';
         $linkAcesso = $this->resolveAccessLinkForProduct($product, $user);
+        $linkEsqueciSenha = $this->resolveForgotPasswordLink();
+        $bodyHtmlBeforeReplace = $bodyHtml;
 
         $replace = [
             '{nome_cliente}' => $customerName,
             '{nome_produto}' => $product->name,
             '{link_acesso}' => $linkAcesso,
             '{email_cliente}' => $customerEmail,
-            '{senha}' => '',
+            '{senha}' => 'Não disponível — use Esqueci minha senha na tela de login',
+            '{link_esqueci_senha}' => $linkEsqueciSenha,
         ];
         $subject = str_replace(array_keys($replace), array_values($replace), $subject);
         $bodyHtml = str_replace(array_keys($replace), array_values($replace), $bodyHtml);
@@ -484,6 +489,12 @@ class AccessEmailService
             $bodyHtml = $this->prependLogoToBody($brandingLogo, $bodyHtml);
         } elseif (! empty($template['logo_url'])) {
             $bodyHtml = $this->prependLogoToBody($template['logo_url'], $bodyHtml);
+        }
+
+        if ($product->type === Product::TYPE_AREA_MEMBROS
+            && ! str_contains($bodyHtmlBeforeReplace, '{link_esqueci_senha}')
+        ) {
+            $bodyHtml = $this->appendMemberAreaForgotPasswordBlock($bodyHtml, $customerEmail, $linkEsqueciSenha);
         }
 
         return $this->sendAccessMailableWithFallback($subject, $bodyHtml, $customerEmail, $product->tenant_id, $template, $product);
@@ -501,14 +512,14 @@ class AccessEmailService
         return '';
     }
 
-    private function resolveMemberAreaMagicLink(Product $product, User $user): string
-    {
-        return $this->memberAreaResolver->signedMagicAccessUrl($product, $user);
-    }
-
     private function resolvePlatformLoginLink(): string
     {
         return rtrim(PublicAppUrl::base(), '/').'/login';
+    }
+
+    private function resolveForgotPasswordLink(): string
+    {
+        return rtrim(PublicAppUrl::base(), '/').'/esqueci-senha';
     }
 
     private function prependLogoToBody(string $logoUrl, string $bodyHtml): string
@@ -524,9 +535,21 @@ class AccessEmailService
     {
         $block = '<div style="margin:24px 0 0;padding:20px;background:#fffbeb;border:1px solid #f59e0b;border-radius:8px;">'
             .'<p style="margin:0 0 10px;font-size:14px;line-height:1.5;color:#92400e;"><strong>Guarde seus dados de acesso</strong></p>'
-            .'<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">O botão de acesso acima entra automaticamente na sua conta. Se você sair ou usar outro aparelho, faça login na área de membros com:</p>'
+            .'<p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#78350f;">Use o botão acima para abrir a tela de login. Depois, entre com:</p>'
             .'<p style="margin:0 0 10px;font-size:14px;color:#0f172a;"><strong>E-mail:</strong> '.e($email).'</p>'
             .'<p style="margin:0;font-size:15px;color:#0f172a;font-family:Consolas,\'Courier New\',monospace;font-weight:600;letter-spacing:0.02em;word-break:break-all;"><strong>Senha:</strong> '.e($password).'</p>'
+            .'</div>';
+
+        return $bodyHtml.$block;
+    }
+
+    private function appendMemberAreaForgotPasswordBlock(string $bodyHtml, string $email, string $forgotPasswordUrl): string
+    {
+        $block = '<div style="margin:24px 0 0;padding:20px;background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;">'
+            .'<p style="margin:0 0 10px;font-size:14px;line-height:1.5;color:#1e3a8a;"><strong>Crie sua senha de acesso</strong></p>'
+            .'<p style="margin:0 0 12px;font-size:14px;line-height:1.5;color:#1e40af;">Se você ainda não tem uma senha, clique em <strong>Esqueci minha senha</strong> na tela de login (ou no botão abaixo). Você receberá um link por e-mail para criar uma nova senha.</p>'
+            .'<p style="margin:0 0 16px;font-size:14px;color:#0f172a;"><strong>E-mail da conta:</strong> '.e($email).'</p>'
+            .'<p style="margin:0;text-align:center;"><a href="'.e($forgotPasswordUrl).'" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;border-radius:8px;">Esqueci minha senha</a></p>'
             .'</div>';
 
         return $bodyHtml.$block;

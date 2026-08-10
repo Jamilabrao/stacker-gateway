@@ -4,19 +4,13 @@ namespace App\Services\Integrax;
 
 use App\Models\CheckoutSession;
 use App\Models\Order;
-use App\Models\PlatformIntegraxSetting;
 use App\Models\Product;
 use App\Models\User;
-use App\Services\MemberAreaResolver;
 use App\Support\PublicAppUrl;
 use Illuminate\Support\Facades\URL;
 
 class IntegraxMessageBuilder
 {
-    public function __construct(
-        private MemberAreaResolver $memberAreaResolver
-    ) {}
-
     /**
      * @return array<string, string>
      */
@@ -95,26 +89,20 @@ class IntegraxMessageBuilder
 
     private function resolveAccessLink(?Product $product, ?User $user): string
     {
-        if (! $product || ! $user) {
-            return rtrim(PublicAppUrl::base(), '/').'/login';
+        $login = rtrim(PublicAppUrl::base(), '/').'/login';
+
+        if (! $product) {
+            return $login;
         }
 
         if ($product->type === Product::TYPE_LINK) {
             $config = $product->checkout_config ?? [];
             $link = $config['deliverable_link'] ?? '';
 
-            return is_string($link) && $link !== '' ? $link : rtrim(PublicAppUrl::base(), '/').'/login';
+            return is_string($link) && $link !== '' ? $link : $login;
         }
 
-        if ($product->type === Product::TYPE_AREA_MEMBROS) {
-            return $this->resolveMemberAreaMagicLink($product, $user);
-        }
-
-        return rtrim(PublicAppUrl::base(), '/').'/login';
-    }
-
-    private function resolveMemberAreaMagicLink(Product $product, User $user): string
-    {
-        return $this->memberAreaResolver->signedMagicAccessUrl($product, $user);
+        // Área de membros: login da plataforma (aluno vê todos os produtos).
+        return $login;
     }
 }
