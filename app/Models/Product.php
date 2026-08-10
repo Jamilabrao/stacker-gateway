@@ -41,6 +41,7 @@ class Product extends Model
         'tenant_id',
         'name',
         'notification_name',
+        'support_email',
         'slug',
         'checkout_slug',
         'checkout_config',

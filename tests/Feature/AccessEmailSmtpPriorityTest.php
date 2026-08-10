@@ -127,6 +127,60 @@ class AccessEmailSmtpPriorityTest extends TestCase
         });
     }
 
+    public function test_uses_product_support_email_over_seller_and_footer(): void
+    {
+        Mail::fake();
+
+        $seller = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+            'email' => 'seller-login@test.com',
+            'name' => 'Seller Nome',
+        ]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        Setting::set('smtp_host', 'smtp.example.com', null);
+        Setting::set('smtp_port', '587', null);
+        Setting::set('smtp_username', 'contato@asgardpay.com.br', null);
+        Setting::set('smtp_password', encrypt('secret'), null);
+        Setting::set('smtp_encryption', 'tls', null);
+        Setting::set('email_provider', 'smtp', null);
+        Setting::set('mail_from_address', 'plataforma@getfy.test', null);
+        Setting::set('mail_from_name', 'Plataforma Global', null);
+
+        $buyer = User::factory()->create(['tenant_id' => $seller->id, 'email' => 'buyer-product-support@test.com']);
+
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'type' => Product::TYPE_AREA_MEMBROS,
+            'checkout_slug' => 'curso-sup-geral',
+            'support_email' => 'suporte-produto@loja.test',
+            'checkout_config' => [
+                'footer' => ['support_email' => 'suporte-footer@loja.test'],
+            ],
+        ]);
+
+        $order = Order::create([
+            'tenant_id' => $seller->id,
+            'user_id' => $buyer->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 50,
+            'email' => 'buyer-product-support@test.com',
+        ]);
+
+        $result = app(\App\Services\AccessEmailService::class)->sendForOrder($order, true);
+
+        $this->assertTrue($result->success);
+        Mail::assertSent(AccessGrantedMail::class, function (AccessGrantedMail $mail) {
+            $this->assertStringContainsString('suporte-produto@loja.test', $mail->htmlBody);
+            $this->assertStringContainsString('Qualquer dúvida, fale com', $mail->htmlBody);
+            $this->assertStringNotContainsString('suporte-footer@loja.test', $mail->htmlBody);
+            $this->assertStringNotContainsString('seller-login@test.com', $mail->htmlBody);
+
+            return true;
+        });
+    }
+
     public function test_ignores_default_noreply_from_when_smtp_username_is_mailbox(): void
     {
         Mail::fake();

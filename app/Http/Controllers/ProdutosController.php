@@ -142,6 +142,7 @@ class ProdutosController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'notification_name' => ['nullable', 'string', 'max:80'],
+            'support_email' => ['nullable', 'email', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes())],
@@ -158,6 +159,12 @@ class ProdutosController extends Controller
         if (array_key_exists('notification_name', $validated)) {
             $nn = HtmlSanitizer::plainText($validated['notification_name'] ?? '', 80);
             $validated['notification_name'] = $nn !== '' ? $nn : null;
+        }
+        if (array_key_exists('support_email', $validated)) {
+            $supportEmail = strtolower(trim((string) ($validated['support_email'] ?? '')));
+            $validated['support_email'] = ($supportEmail !== '' && filter_var($supportEmail, FILTER_VALIDATE_EMAIL))
+                ? $supportEmail
+                : null;
         }
         if (array_key_exists('description', $validated)) {
             $validated['description'] = HtmlSanitizer::plainTextMultiline($validated['description'], 20000) ?: null;
@@ -578,6 +585,7 @@ class ProdutosController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'notification_name' => ['nullable', 'string', 'max:80'],
+            'support_email' => ['nullable', 'email', 'max:255'],
             'description' => ['nullable', 'string'],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes($produto))],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
@@ -655,6 +663,12 @@ class ProdutosController extends Controller
         if (array_key_exists('notification_name', $validated)) {
             $nn = HtmlSanitizer::plainText($validated['notification_name'] ?? '', 80);
             $validated['notification_name'] = $nn !== '' ? $nn : null;
+        }
+        if (array_key_exists('support_email', $validated)) {
+            $supportEmail = strtolower(trim((string) ($validated['support_email'] ?? '')));
+            $validated['support_email'] = ($supportEmail !== '' && filter_var($supportEmail, FILTER_VALIDATE_EMAIL))
+                ? $supportEmail
+                : null;
         }
         if (array_key_exists('description', $validated)) {
             $validated['description'] = HtmlSanitizer::plainTextMultiline($validated['description'], 20000) ?: null;
@@ -1259,6 +1273,8 @@ class ProdutosController extends Controller
         return [
             'id' => $p->id,
             'name' => $p->name,
+            'notification_name' => $p->notification_name,
+            'support_email' => $p->support_email,
             'slug' => $p->slug,
             'checkout_slug' => $p->checkout_slug,
             'description' => $p->description,
