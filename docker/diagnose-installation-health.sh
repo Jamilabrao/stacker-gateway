@@ -67,7 +67,7 @@ sh docker/verify-workers.sh 2>/dev/null || true
 echo ""
 
 echo "=== Profundidade das filas Redis ==="
-for q in payments webhooks-inbound webhooks-outbound webhooks payouts; do
+for q in payments webhooks-inbound webhooks-outbound webhooks payouts metrics-tracking; do
   len="$(dc exec -T redis redis-cli LLEN "queues:$q" 2>/dev/null | tr -d '\r' || echo '?')"
   echo "  queues:$q = $len"
 done
@@ -103,7 +103,7 @@ if [ "$RESTART_WORKERS" -eq 1 ]; then
       dc restart app scheduler queue
       ;;
     *)
-      dc restart app scheduler worker-webhooks-in worker-payments worker-webhooks-out worker-payouts 2>/dev/null \
+      dc restart app scheduler worker-webhooks-in worker-payments worker-webhooks-out worker-payouts worker-metrics-tracking 2>/dev/null \
         || dc restart app scheduler worker-webhooks-in worker-payments
       ;;
   esac

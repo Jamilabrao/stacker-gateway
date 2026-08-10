@@ -66,7 +66,7 @@ is_running() {
 
 case "$PROFILE" in
   standard)
-    for svc in app postgres redis scheduler worker-payments worker-webhooks-out worker-webhooks-in worker-payouts; do
+    for svc in app postgres redis scheduler worker-payments worker-webhooks-out worker-webhooks-in worker-payouts worker-metrics-tracking; do
       if is_running "$svc"; then
         echo "OK: $svc em execução"
       else
@@ -101,7 +101,7 @@ esac
 echo ""
 echo "=== Profundidade das filas ==="
 
-CRITICAL_QUEUES="payments webhooks-outbound webhooks-inbound webhooks payouts"
+CRITICAL_QUEUES="payments webhooks-outbound webhooks-inbound webhooks payouts metrics-tracking"
 STUCK_TOTAL=0
 
 if [ "$QUEUE_CONN" = "redis" ] && is_running redis; then

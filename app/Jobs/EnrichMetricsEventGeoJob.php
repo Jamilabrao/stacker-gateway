@@ -34,10 +34,22 @@ class EnrichMetricsEventGeoJob implements ShouldQueue
 
         $geo = $resolver->resolve($this->ip, $event->ip_hash);
         if (! $geo) {
-            $event->geo_enriched = true;
-            $event->save();
+            // IP privado/reservado sem fallback: não há o que enriquecer.
+            // Falha transitória do provider (IP público): não marcar geo_enriched
+            // para permitir nova tentativa em job/reprocessamento futuro.
+            $isPublic = (bool) filter_var(
+                $this->ip,
+                FILTER_VALIDATE_IP,
+                FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+            );
+            if (! $isPublic) {
+                $event->geo_enriched = true;
+                $event->save();
 
-            return;
+                return;
+            }
+
+            throw new \RuntimeException('metrics.geo.lookup_failed_for_public_ip');
         }
 
         $event->fill([

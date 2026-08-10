@@ -36,7 +36,7 @@ fi
 echo ""
 echo "=== Logs workers / queue (últimas 30 linhas) ==="
 if [ "$COMPOSE_FILE" = "docker-compose.yml" ]; then
-  for svc in worker-payments worker-webhooks-out worker-webhooks-in worker-payouts scheduler; do
+  for svc in worker-payments worker-webhooks-out worker-webhooks-in worker-payouts worker-metrics-tracking scheduler; do
     echo "--- $svc ---"
     docker compose $COMPOSE_ARGS logs "$svc" --tail 15 2>/dev/null || true
   done
