@@ -28,6 +28,10 @@ const props = defineProps({
         type: Object,
         default: () => ({ status: 'all', q: '', per_page: 25 }),
     },
+    refund_requests_pending_count: {
+        type: Number,
+        default: 0,
+    },
 });
 
 const filterStatus = ref(props.filters?.status ?? 'all');
@@ -77,10 +81,24 @@ const filterChips = [
     { status: 'disputed', label: 'MED' },
     { status: 'refunded', label: 'Reembolsado' },
     { status: 'cancelled', label: 'Cancelado' },
+    { status: 'refund_requests', label: 'Reembolsos' },
 ];
+
+const isRefundRequestsFilter = computed(() => filterStatus.value === 'refund_requests');
+
+const refundRequestsPendingCount = computed(() => {
+    const fromProp = Number(props.refund_requests_pending_count ?? 0);
+    const fromBadge = Number(page.props.platform_admin_sidebar_badges?.transacoes ?? 0);
+    return Math.max(fromProp, fromBadge, 0);
+});
 
 function chipIsActive(chip) {
     return filterStatus.value === chip.status;
+}
+
+function chipBadge(chip) {
+    if (chip.status !== 'refund_requests') return 0;
+    return refundRequestsPendingCount.value > 0 ? refundRequestsPendingCount.value : 0;
 }
 
 function listQueryParams(extra = {}) {
@@ -413,7 +431,9 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
         <div>
             <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">Transações</h1>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Pedidos da plataforma por status (Aprovado, MED, Reembolsado, etc.). Saques estão em
+                Pedidos da plataforma por status (Aprovado, MED, Reembolsado, etc.). O filtro
+                <strong class="font-medium text-zinc-800 dark:text-zinc-200">Reembolsos</strong>
+                lista pedidos com solicitação do cliente ainda pendente (mesmo contador do menu). Saques estão em
                 <a href="/plataforma/saques" class="font-medium text-[var(--color-primary)] underline-offset-2 hover:underline"
                     >Saques</a
                 >. Aprovação manual apenas para pedidos pendentes.
@@ -432,6 +452,14 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
         >
             {{ page.props.flash.error }}
         </p>
+
+        <div
+            v-if="isRefundRequestsFilter"
+            class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+        >
+            Exibindo pedidos com <strong>solicitação de reembolso pendente</strong> do comprador.
+            A resolução fica no painel do vendedor em Vendas → Reembolsos; aqui você analisa o que gera o alerta do menu.
+        </div>
 
         <div
             class="space-y-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
@@ -457,6 +485,12 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                         @click="selectChip(chip)"
                     >
                         {{ chip.label }}
+                        <span
+                            v-if="chipBadge(chip) > 0"
+                            class="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                        >
+                            {{ chipBadge(chip) > 99 ? '99+' : chipBadge(chip) }}
+                        </span>
                     </button>
                 </div>
             </div>
@@ -540,6 +574,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             <th class="px-4 py-3">Infoprodutor</th>
                             <th class="px-4 py-3">Produto</th>
                             <th class="px-4 py-3">Status</th>
+                            <th v-if="isRefundRequestsFilter" class="px-4 py-3">Solicitação</th>
                             <th class="px-4 py-3">Método</th>
                             <th class="px-4 py-3 text-right">Valor (bruto)</th>
                             <th class="relative w-14 px-2 py-3"><span class="sr-only">Ações</span></th>
@@ -593,12 +628,30 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                                         {{ statusLabel(o.status) }}
                                     </span>
                                     <span
+                                        v-if="o.pending_refund_request"
+                                        class="inline-flex w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
+                                    >
+                                        Reembolso pendente
+                                    </span>
+                                    <span
                                         v-if="o.approved_manually"
                                         class="text-[10px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400"
                                     >
                                         Aprovação manual
                                     </span>
                                 </div>
+                            </td>
+                            <td v-if="isRefundRequestsFilter" class="max-w-[260px] px-4 py-3">
+                                <div class="text-xs text-zinc-500 dark:text-zinc-400">
+                                    {{
+                                        o.pending_refund_request?.created_at
+                                            ? new Date(o.pending_refund_request.created_at).toLocaleString('pt-BR')
+                                            : '—'
+                                    }}
+                                </div>
+                                <p class="mt-0.5 line-clamp-3 text-sm text-zinc-800 dark:text-zinc-200">
+                                    {{ o.pending_refund_request?.customer_reason || 'Sem motivo informado' }}
+                                </p>
                             </td>
                             <td class="max-w-[140px] px-4 py-3 text-zinc-600 dark:text-zinc-300">
                                 <span class="line-clamp-2">{{ o.payment_method_label }}</span>
@@ -624,8 +677,12 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             </td>
                         </tr>
                         <tr v-if="!rows.length">
-                            <td colspan="10" class="px-4 py-12 text-center text-zinc-500">
-                                Nenhuma transação encontrada com os filtros aplicados.
+                            <td :colspan="isRefundRequestsFilter ? 11 : 10" class="px-4 py-12 text-center text-zinc-500">
+                                {{
+                                    isRefundRequestsFilter
+                                        ? 'Nenhuma solicitação de reembolso pendente.'
+                                        : 'Nenhuma transação encontrada com os filtros aplicados.'
+                                }}
                             </td>
                         </tr>
                     </tbody>

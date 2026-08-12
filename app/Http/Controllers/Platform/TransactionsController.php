@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\CheckoutSession;
 use App\Models\MedDispute;
 use App\Models\Order;
+use App\Models\RefundRequest;
 use App\Models\Withdrawal;
 use App\Services\ManualOrderRefundService;
 use App\Services\OrderFeeBreakdownService;
 use App\Services\OrderManualApprovalService;
+use App\Services\Platform\PlatformAdminAlertCounts;
 use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformOrderAdminService;
@@ -60,6 +62,7 @@ class TransactionsController extends Controller
                 $request->query(),
                 $perPage
             );
+            $payload['refund_requests_pending_count'] = app(PlatformAdminAlertCounts::class)->refundRequestsPendingCount();
 
             return Inertia::render('Platform/Transactions/Index', $payload);
         }
@@ -71,8 +74,27 @@ class TransactionsController extends Controller
 
         if (Schema::hasTable('orders')) {
             $query = $this->baseOrdersQuery();
+            if ($status === PlatformTransactionsListing::STATUS_REFUND_REQUESTS) {
+                $query->with(['refundRequests' => function ($rr) {
+                    $rr->where('status', RefundRequest::STATUS_PENDING)->orderByDesc('id');
+                }]);
+            }
             PlatformTransactionsListing::applyStatusFilter($query, $status);
             PlatformTransactionsListing::applySearchFilter($query, $q);
+
+            if (
+                $status === PlatformTransactionsListing::STATUS_REFUND_REQUESTS
+                && Schema::hasTable('refund_requests')
+            ) {
+                $query->reorder()->orderByDesc(
+                    RefundRequest::query()
+                        ->select('created_at')
+                        ->whereColumn('refund_requests.order_id', 'orders.id')
+                        ->where('status', RefundRequest::STATUS_PENDING)
+                        ->orderByDesc('id')
+                        ->limit(1)
+                );
+            }
 
             $paginated = $query->paginate($perPage)->withQueryString();
             $openMedOrderIds = MedDispute::query()
@@ -92,6 +114,7 @@ class TransactionsController extends Controller
                 'q' => $q,
                 'per_page' => $perPage,
             ],
+            'refund_requests_pending_count' => app(PlatformAdminAlertCounts::class)->refundRequestsPendingCount(),
         ]);
     }
 
@@ -212,8 +235,33 @@ class TransactionsController extends Controller
         $arr['cajupay_account_badge'] = $cajupayBadge;
         $arr['can_manual_refund'] = OrderManualRefund::canManualRefund($o);
         $arr['manual_refund'] = OrderManualRefund::snapshot($o);
+        $arr['pending_refund_request'] = $this->mapPendingRefundRequest($o);
 
         return $arr;
+    }
+
+    /**
+     * @return array{id: int, status: string, customer_reason: ?string, created_at: ?string}|null
+     */
+    private function mapPendingRefundRequest(Order $o): ?array
+    {
+        if (! $o->relationLoaded('refundRequests')) {
+            return null;
+        }
+
+        $rr = $o->refundRequests
+            ->first(fn (RefundRequest $r) => $r->status === RefundRequest::STATUS_PENDING);
+
+        if ($rr === null) {
+            return null;
+        }
+
+        return [
+            'id' => $rr->id,
+            'status' => $rr->status,
+            'customer_reason' => $rr->customer_reason,
+            'created_at' => $rr->created_at?->toIso8601String(),
+        ];
     }
 
     private function cajupayAccountBadge(Order $order): ?string

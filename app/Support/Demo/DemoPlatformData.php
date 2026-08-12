@@ -69,7 +69,9 @@ class DemoPlatformData
         for ($i = 0; $i < 15; $i++) {
             $idx = ($seed + $i) % count(self::PRODUCT_NAMES);
             $orderStatus = self::STATUSES[($seed + $i) % count(self::STATUSES)];
-            if ($status !== 'all' && $orderStatus !== $status) {
+            if ($status === 'refund_requests') {
+                $orderStatus = 'completed';
+            } elseif ($status !== 'all' && $orderStatus !== $status) {
                 $orderStatus = $status === 'disputed' ? 'completed' : $status;
             }
 
@@ -77,7 +79,7 @@ class DemoPlatformData
             $fee = round($amount * 0.039, 2);
             $created = Carbon::now()->subHours($i * 3 + 2)->toIso8601String();
 
-            $items[] = [
+            $row = [
                 'id' => 900000 + $seed + $i,
                 'email' => 'cliente'.($i + 1).'@demo.exemplo',
                 'status' => $orderStatus,
@@ -100,7 +102,26 @@ class DemoPlatformData
                 'checkout_url' => url('/c/demo-produto'),
                 'has_open_med_dispute' => $orderStatus === 'completed' && $i === 2,
                 'created_at' => $created,
+                'pending_refund_request' => null,
             ];
+
+            if ($status === 'refund_requests' || ($orderStatus === 'completed' && $i % 5 === 0)) {
+                $row['pending_refund_request'] = [
+                    'id' => 7000 + $i,
+                    'status' => 'pending',
+                    'customer_reason' => 'Solicitação demo de reembolso #'.($i + 1),
+                    'created_at' => Carbon::now()->subHours($i + 1)->toIso8601String(),
+                ];
+            }
+
+            $items[] = $row;
+        }
+
+        if ($status === 'refund_requests') {
+            $items = array_values(array_filter(
+                $items,
+                fn (array $row) => ! empty($row['pending_refund_request'])
+            ));
         }
 
         if ($q !== '') {
