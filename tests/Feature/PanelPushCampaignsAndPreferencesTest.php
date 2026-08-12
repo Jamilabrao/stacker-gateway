@@ -124,6 +124,7 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
                 'sale_approved' => '0',
                 'show_product_name' => '1',
                 'show_sale_amount' => '0',
+                'sale_amount_mode' => 'net',
                 'show_payment_method' => '1',
             ])
             ->assertRedirect(route('profile.index'));
@@ -131,6 +132,24 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $this->assertFalse(UserPushPreferences::allowsEvent($seller->id, 'sale_approved'));
         $prefs = UserPushPreferences::forUserId($seller->id);
         $this->assertFalse($prefs['show_sale_amount']);
+        $this->assertSame('net', $prefs['sale_amount_mode']);
+    }
+
+    public function test_seller_can_prefer_net_sale_amount_in_push(): void
+    {
+        $seller = $this->seller();
+
+        $this->actingAs($seller)
+            ->from(route('profile.index'))
+            ->put(route('profile.push-preferences'), [
+                'show_sale_amount' => '1',
+                'sale_amount_mode' => 'net',
+            ])
+            ->assertRedirect(route('profile.index'));
+
+        $prefs = UserPushPreferences::forUserId($seller->id);
+        $this->assertTrue($prefs['show_sale_amount']);
+        $this->assertSame('net', $prefs['sale_amount_mode']);
     }
 
     public function test_product_notification_name_used_in_push_body(): void

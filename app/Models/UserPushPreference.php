@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class UserPushPreference extends Model
 {
+    public const SALE_AMOUNT_MODE_GROSS = 'gross';
+
+    public const SALE_AMOUNT_MODE_NET = 'net';
+
     protected $fillable = [
         'user_id',
         'sale_approved',
@@ -19,6 +23,7 @@ class UserPushPreference extends Model
         'system',
         'show_product_name',
         'show_sale_amount',
+        'sale_amount_mode',
         'show_payment_method',
     ];
 
@@ -37,6 +42,15 @@ class UserPushPreference extends Model
             'show_sale_amount' => 'boolean',
             'show_payment_method' => 'boolean',
         ];
+    }
+
+    public static function normalizeSaleAmountMode(mixed $value): string
+    {
+        $mode = is_string($value) ? strtolower(trim($value)) : '';
+
+        return $mode === self::SALE_AMOUNT_MODE_NET
+            ? self::SALE_AMOUNT_MODE_NET
+            : self::SALE_AMOUNT_MODE_GROSS;
     }
 
     public function user(): BelongsTo
@@ -62,6 +76,7 @@ class UserPushPreference extends Model
             'system' => true,
             'show_product_name' => true,
             'show_sale_amount' => true,
+            'sale_amount_mode' => self::SALE_AMOUNT_MODE_GROSS,
             'show_payment_method' => true,
         ];
     }

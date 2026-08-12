@@ -19,7 +19,7 @@ class OrderSalePushNotificationTest extends TestCase
 
         $this->assertSame('Venda aprovada (Cartão de crédito)', $order->saleApprovedPushTitle());
         $this->assertSame(
-            "Produto: curso do joão\nValor: R$ 47,00\nPagamento: Cartão de crédito",
+            "Produto: curso do joão\nValor bruto: R$ 47,00\nPagamento: Cartão de crédito",
             $order->saleApprovedPushBody()
         );
     }
@@ -35,7 +35,7 @@ class OrderSalePushNotificationTest extends TestCase
 
         $this->assertSame('Venda aprovada (PIX)', $order->saleApprovedPushTitle());
         $this->assertSame(
-            "Produto: E-book Premium\nValor: R$ 19,90\nPagamento: PIX",
+            "Produto: E-book Premium\nValor bruto: R$ 19,90\nPagamento: PIX",
             $order->saleApprovedPushBody()
         );
     }
