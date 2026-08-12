@@ -20,7 +20,7 @@ final class UserPushPreferences
     }
 
     /**
-     * @return array<string, bool>
+     * @return array<string, bool|string>
      */
     public static function forUserId(int $userId): array
     {
@@ -34,13 +34,16 @@ final class UserPushPreferences
             return $defaults;
         }
 
-        return array_merge($defaults, $row->only(array_keys($defaults)));
+        $prefs = array_merge($defaults, $row->only(array_keys($defaults)));
+        $prefs['sale_amount_mode'] = UserPushPreference::normalizeSaleAmountMode($prefs['sale_amount_mode'] ?? null);
+
+        return $prefs;
     }
 
     /**
      * Preferências efetivas para um tenant (dono + team usam tenant owner prefs quando aplicável).
      *
-     * @return array<string, bool>
+     * @return array<string, bool|string>
      */
     public static function forTenantOwner(int $tenantId): array
     {
@@ -71,7 +74,7 @@ final class UserPushPreferences
 
     /**
      * @param  array<string, mixed>  $input
-     * @return array<string, bool>
+     * @return array<string, bool|string>
      */
     public static function upsert(int $userId, array $input, ?Request $request = null): array
     {
@@ -82,9 +85,17 @@ final class UserPushPreferences
         $defaults = UserPushPreference::defaults();
         $data = ['user_id' => $userId];
         foreach ($defaults as $key => $default) {
-            if (array_key_exists($key, $input)) {
-                $data[$key] = filter_var($input[$key], FILTER_VALIDATE_BOOLEAN);
+            if (! array_key_exists($key, $input)) {
+                continue;
             }
+
+            if ($key === 'sale_amount_mode') {
+                $data[$key] = UserPushPreference::normalizeSaleAmountMode($input[$key]);
+
+                continue;
+            }
+
+            $data[$key] = filter_var($input[$key], FILTER_VALIDATE_BOOLEAN);
         }
 
         $pref = UserPushPreference::query()->updateOrCreate(['user_id' => $userId], $data);
@@ -93,6 +104,9 @@ final class UserPushPreferences
             'preferences' => $pref->only(array_keys($defaults)),
         ], $request);
 
-        return array_merge($defaults, $pref->only(array_keys($defaults)));
+        $prefs = array_merge($defaults, $pref->only(array_keys($defaults)));
+        $prefs['sale_amount_mode'] = UserPushPreference::normalizeSaleAmountMode($prefs['sale_amount_mode'] ?? null);
+
+        return $prefs;
     }
 }

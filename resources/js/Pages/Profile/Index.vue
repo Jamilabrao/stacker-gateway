@@ -27,6 +27,7 @@ const props = defineProps({
             system: true,
             show_product_name: true,
             show_sale_amount: true,
+            sale_amount_mode: 'gross',
             show_payment_method: true,
         }),
     },
@@ -59,11 +60,17 @@ const pushForm = useForm({
     system: !!props.push_preferences.system,
     show_product_name: !!props.push_preferences.show_product_name,
     show_sale_amount: !!props.push_preferences.show_sale_amount,
+    sale_amount_mode: props.push_preferences.sale_amount_mode === 'net' ? 'net' : 'gross',
     show_payment_method: !!props.push_preferences.show_payment_method,
 });
 
 function submitPushPreferences() {
     pushForm.put('/meu-perfil/preferencias-push', { preserveScroll: true });
+}
+
+function setSaleAmountMode(mode) {
+    pushForm.sale_amount_mode = mode === 'net' ? 'net' : 'gross';
+    pushForm.show_sale_amount = true;
 }
 
 const avatarUrl = computed(() => {
@@ -368,6 +375,56 @@ function submitPassword() {
                         <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_product_name" type="checkbox" class="rounded" /> Nome do produto</label>
                         <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_sale_amount" type="checkbox" class="rounded" /> Valor</label>
                         <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_payment_method" type="checkbox" class="rounded" /> Forma de pagamento</label>
+                    </div>
+                    <div
+                        v-if="pushForm.show_sale_amount"
+                        class="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-900/40"
+                    >
+                        <p class="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                            Qual valor exibir
+                        </p>
+                        <div class="grid gap-2 sm:grid-cols-2">
+                            <label
+                                class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition"
+                                :class="
+                                    pushForm.sale_amount_mode === 'gross'
+                                        ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5 text-zinc-900 dark:text-white'
+                                        : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200'
+                                "
+                            >
+                                <input
+                                    type="radio"
+                                    name="sale_amount_mode"
+                                    class="mt-0.5"
+                                    :checked="pushForm.sale_amount_mode === 'gross'"
+                                    @change="setSaleAmountMode('gross')"
+                                />
+                                <span>
+                                    <span class="font-medium">Valor bruto</span>
+                                    <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">Total pago pelo cliente</span>
+                                </span>
+                            </label>
+                            <label
+                                class="flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition"
+                                :class="
+                                    pushForm.sale_amount_mode === 'net'
+                                        ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5 text-zinc-900 dark:text-white'
+                                        : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200'
+                                "
+                            >
+                                <input
+                                    type="radio"
+                                    name="sale_amount_mode"
+                                    class="mt-0.5"
+                                    :checked="pushForm.sale_amount_mode === 'net'"
+                                    @change="setSaleAmountMode('net')"
+                                />
+                                <span>
+                                    <span class="font-medium">Valor líquido</span>
+                                    <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">Após taxas da plataforma</span>
+                                </span>
+                            </label>
+                        </div>
                     </div>
                 </div>
                 <Button type="submit" :disabled="pushForm.processing">

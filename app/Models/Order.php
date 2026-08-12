@@ -218,8 +218,16 @@ class Order extends Model
             $lines[] = 'Produto: '.$displayName;
         }
         if (! empty($prefs['show_sale_amount'])) {
-            $amount = number_format((float) $this->amount, 2, ',', '.');
-            $lines[] = 'Valor: R$ '.$amount;
+            $mode = \App\Models\UserPushPreference::normalizeSaleAmountMode($prefs['sale_amount_mode'] ?? null);
+            $breakdown = $this->salePushAmountBreakdown();
+            $value = $mode === \App\Models\UserPushPreference::SALE_AMOUNT_MODE_NET
+                ? (float) $breakdown['net']
+                : (float) $breakdown['gross'];
+            $amount = number_format($value, 2, ',', '.');
+            $label = $mode === \App\Models\UserPushPreference::SALE_AMOUNT_MODE_NET
+                ? 'Valor líquido'
+                : 'Valor bruto';
+            $lines[] = $label.': R$ '.$amount;
         }
         if (! empty($prefs['show_payment_method'])) {
             $lines[] = 'Pagamento: '.$this->paymentMethodPushLabel();
@@ -230,6 +238,27 @@ class Order extends Model
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @return array{gross: float, net: float}
+     */
+    private function salePushAmountBreakdown(): array
+    {
+        $fallback = (float) $this->amount;
+        try {
+            $breakdown = \App\Services\OrderFeeBreakdownService::forOrder($this);
+
+            return [
+                'gross' => (float) ($breakdown['gross'] ?? $fallback),
+                'net' => (float) ($breakdown['net'] ?? $fallback),
+            ];
+        } catch (\Throwable) {
+            return [
+                'gross' => $fallback,
+                'net' => $fallback,
+            ];
+        }
     }
 
     /**

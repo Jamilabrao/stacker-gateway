@@ -54,6 +54,7 @@ class ProfileController extends Controller
             'system' => ['nullable', 'boolean'],
             'show_product_name' => ['nullable', 'boolean'],
             'show_sale_amount' => ['nullable', 'boolean'],
+            'sale_amount_mode' => ['nullable', 'string', 'in:gross,net'],
             'show_payment_method' => ['nullable', 'boolean'],
         ]);
 
