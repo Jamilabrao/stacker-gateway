@@ -193,20 +193,21 @@ class Order extends Model
         return $this->paymentMethodDisplayLabel();
     }
 
-    public function saleApprovedPushTitle(): string
+    public function saleApprovedPushTitle(bool $isOrderBump = false): string
     {
         $prefs = \App\Support\UserPushPreferences::forTenantOwner((int) ($this->tenant_id ?? 0));
+        $base = $isOrderBump ? 'Venda aprovada — Order bump' : 'Venda aprovada';
         if (! empty($prefs['show_payment_method'])) {
-            return 'Venda aprovada ('.$this->paymentMethodPushLabel().')';
+            return $base.' ('.$this->paymentMethodPushLabel().')';
         }
 
-        return 'Venda aprovada';
+        return $base;
     }
 
-    public function saleApprovedPushBody(): string
+    public function saleApprovedPushBody(?OrderItem $item = null, bool $isOrderBump = false): string
     {
         $prefs = \App\Support\UserPushPreferences::forTenantOwner((int) ($this->tenant_id ?? 0));
-        $product = $this->product;
+        $product = $item?->product ?? $this->product;
         $displayName = null;
         if ($product) {
             $custom = trim((string) ($product->notification_name ?? ''));
@@ -214,17 +215,20 @@ class Order extends Model
         }
 
         $lines = [];
+        if ($isOrderBump) {
+            $lines[] = 'Order bump';
+        }
         if (! empty($prefs['show_product_name']) && $displayName) {
             $lines[] = 'Produto: '.$displayName;
         }
         if (! empty($prefs['show_sale_amount'])) {
-            $mode = \App\Models\UserPushPreference::normalizeSaleAmountMode($prefs['sale_amount_mode'] ?? null);
-            $breakdown = $this->salePushAmountBreakdown();
-            $value = $mode === \App\Models\UserPushPreference::SALE_AMOUNT_MODE_NET
+            $mode = UserPushPreference::normalizeSaleAmountMode($prefs['sale_amount_mode'] ?? null);
+            $breakdown = $this->salePushAmountBreakdownForItem($item);
+            $value = $mode === UserPushPreference::SALE_AMOUNT_MODE_NET
                 ? (float) $breakdown['net']
                 : (float) $breakdown['gross'];
             $amount = number_format($value, 2, ',', '.');
-            $label = $mode === \App\Models\UserPushPreference::SALE_AMOUNT_MODE_NET
+            $label = $mode === UserPushPreference::SALE_AMOUNT_MODE_NET
                 ? 'Valor líquido'
                 : 'Valor bruto';
             $lines[] = $label.': R$ '.$amount;
@@ -234,10 +238,56 @@ class Order extends Model
         }
 
         if ($lines === []) {
-            return 'Você recebeu uma nova venda aprovada.';
+            return $isOrderBump
+                ? 'Você recebeu uma nova venda de Order bump.'
+                : 'Você recebeu uma nova venda aprovada.';
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Uma mensagem por produto principal e uma por cada order bump do pedido.
+     *
+     * @return list<array{title: string, body: string, event_key: string, is_order_bump: bool}>
+     */
+    public function saleApprovedPushMessages(): array
+    {
+        try {
+            $this->loadMissing(['product', 'orderItems.product']);
+        } catch (\Throwable) {
+            // Pedidos em memória (ex.: testes unitários) podem não ter conexão.
+        }
+
+        $items = ($this->relationLoaded('orderItems') ? $this->orderItems : collect())
+            ->sortBy(fn (OrderItem $item) => (int) ($item->position ?? 0))
+            ->values();
+
+        if ($items->isEmpty()) {
+            return [[
+                'title' => $this->saleApprovedPushTitle(false),
+                'body' => $this->saleApprovedPushBody(null, false),
+                'event_key' => 'sale_'.$this->id,
+                'is_order_bump' => false,
+            ]];
+        }
+
+        $messages = [];
+        foreach ($items as $item) {
+            $isBump = (int) ($item->position ?? 0) > 0;
+            $eventKey = $isBump
+                ? 'sale_'.$this->id.'_bump_'.$item->id
+                : 'sale_'.$this->id;
+
+            $messages[] = [
+                'title' => $this->saleApprovedPushTitle($isBump),
+                'body' => $this->saleApprovedPushBody($item, $isBump),
+                'event_key' => $eventKey,
+                'is_order_bump' => $isBump,
+            ];
+        }
+
+        return $messages;
     }
 
     /**
@@ -259,6 +309,33 @@ class Order extends Model
                 'net' => $fallback,
             ];
         }
+    }
+
+    /**
+     * @return array{gross: float, net: float}
+     */
+    private function salePushAmountBreakdownForItem(?OrderItem $item): array
+    {
+        if ($item === null) {
+            return $this->salePushAmountBreakdown();
+        }
+
+        $itemGross = round((float) $item->amount, 2);
+        $orderBreakdown = $this->salePushAmountBreakdown();
+        $orderGross = (float) $orderBreakdown['gross'];
+        if ($orderGross <= 0.0) {
+            return [
+                'gross' => $itemGross,
+                'net' => $itemGross,
+            ];
+        }
+
+        $ratio = $itemGross / $orderGross;
+
+        return [
+            'gross' => $itemGross,
+            'net' => round((float) $orderBreakdown['net'] * $ratio, 2),
+        ];
     }
 
     /**
