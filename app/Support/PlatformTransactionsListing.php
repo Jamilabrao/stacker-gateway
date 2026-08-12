@@ -10,7 +10,10 @@ use Illuminate\Support\Facades\Schema;
  */
 final class PlatformTransactionsListing
 {
-    public const STATUS_OPTIONS = ['all', 'pending', 'completed', 'disputed', 'cancelled', 'refunded'];
+    public const STATUS_OPTIONS = ['all', 'pending', 'completed', 'disputed', 'cancelled', 'refunded', 'refund_requests'];
+
+    /** Pedidos com solicitação de reembolso do cliente ainda pendente (badge do menu). */
+    public const STATUS_REFUND_REQUESTS = 'refund_requests';
 
     /** @var list<int> */
     public const PER_PAGE_OPTIONS = [25, 50, 100];
@@ -42,9 +45,25 @@ final class PlatformTransactionsListing
      */
     public static function applyStatusFilter(Builder $query, string $status): void
     {
-        if ($status !== 'all') {
-            $query->where('orders.status', $status);
+        if ($status === 'all') {
+            return;
         }
+
+        if ($status === self::STATUS_REFUND_REQUESTS) {
+            if (! Schema::hasTable('refund_requests')) {
+                $query->whereRaw('1 = 0');
+
+                return;
+            }
+
+            $query->whereHas('refundRequests', function ($rr) {
+                $rr->where('status', \App\Models\RefundRequest::STATUS_PENDING);
+            });
+
+            return;
+        }
+
+        $query->where('orders.status', $status);
     }
 
     /**
