@@ -18,27 +18,32 @@ class SendPanelPushOnOrderCompleted
         $order = $event->order;
 
         try {
-            $order->loadMissing('product');
-            $title = $order->saleApprovedPushTitle();
-            $body = $order->saleApprovedPushBody();
-            $url = url('/vendas?order=' . $order->id);
+            $order->loadMissing(['product', 'orderItems.product']);
+            $url = url('/vendas?order='.$order->id);
+            $messages = $order->saleApprovedPushMessages();
+            $sentTotal = 0;
 
-            $sent = $this->panelPushService->sendAndPersistToTenant(
-                $order->tenant_id,
-                'sale_approved',
-                $title,
-                $body,
-                $url,
-                'sale_' . $order->id
-            );
+            foreach ($messages as $message) {
+                $sent = $this->panelPushService->sendAndPersistToTenant(
+                    $order->tenant_id,
+                    'sale_approved',
+                    $message['title'],
+                    $message['body'],
+                    $url,
+                    $message['event_key']
+                );
+                $sentTotal += $sent;
 
-            Log::info('SendPanelPushOnOrderCompleted: push de venda aprovada', [
-                'order_id' => $order->id,
-                'tenant_id' => $order->tenant_id,
-                'sent' => $sent,
-            ]);
+                Log::info('SendPanelPushOnOrderCompleted: push de venda aprovada', [
+                    'order_id' => $order->id,
+                    'tenant_id' => $order->tenant_id,
+                    'event_key' => $message['event_key'],
+                    'is_order_bump' => $message['is_order_bump'],
+                    'sent' => $sent,
+                ]);
+            }
 
-            if ($sent === 0) {
+            if ($sentTotal === 0) {
                 $subscriptionCount = PanelPushSubscription::query()
                     ->where('tenant_id', $order->tenant_id)
                     ->count();
@@ -48,6 +53,7 @@ class SendPanelPushOnOrderCompleted
                         'order_id' => $order->id,
                         'tenant_id' => $order->tenant_id,
                         'subscription_count' => $subscriptionCount,
+                        'messages' => count($messages),
                     ]);
                 }
             }
