@@ -4,7 +4,7 @@ import { useForm } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import ProfileTotpSection from '@/components/profile/ProfileTotpSection.vue';
-import { Camera, Lock, Loader2 } from 'lucide-vue-next';
+import { Camera, IdCard, Lock, Loader2 } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutInfoprodutor });
 
@@ -12,6 +12,10 @@ const props = defineProps({
     user: {
         type: Object,
         required: true,
+    },
+    registration: {
+        type: Object,
+        default: () => ({}),
     },
     totp_enabled: { type: Boolean, default: false },
     push_preferences: {
@@ -38,7 +42,6 @@ const avatarPreview = ref(null);
 
 const profileForm = useForm({
     name: props.user.name,
-    email: props.user.email,
     username: props.user.username ?? '',
     avatar: null,
 });
@@ -108,6 +111,26 @@ function submitPassword() {
         onSuccess: () => passwordForm.reset(),
     });
 }
+
+function snap(value) {
+    if (value === null || value === undefined || value === '') {
+        return '—';
+    }
+    return value;
+}
+
+function formatDateTime(iso) {
+    if (!iso) {
+        return '—';
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+        return '—';
+    }
+    return date.toLocaleString('pt-BR');
+}
+
+const documentLabel = computed(() => (props.registration?.person_type === 'pj' ? 'CNPJ' : 'CPF'));
 </script>
 
 <template>
@@ -117,7 +140,7 @@ function submitPassword() {
                 Meu perfil
             </h1>
             <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Atualize sua foto, nome, e-mail e senha.
+                Atualize sua foto, nome e senha. E-mail e CPF/CNPJ não podem ser alterados.
             </p>
         </div>
 
@@ -196,19 +219,15 @@ function submitPassword() {
                             </label>
                             <input
                                 id="profile-email"
-                                v-model="profileForm.email"
+                                :value="user.email"
                                 type="email"
-                                required
+                                disabled
+                                readonly
                                 autocomplete="email"
-                                maxlength="255"
-                                class="mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 placeholder-zinc-400 shadow-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
-                                placeholder="seu@email.com"
+                                class="mt-1.5 block w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-zinc-500 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-400"
                             />
-                            <p
-                                v-if="profileForm.errors.email"
-                                class="mt-1 text-sm text-red-600 dark:text-red-400"
-                            >
-                                {{ profileForm.errors.email }}
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                O e-mail de cadastro não pode ser alterado.
                             </p>
                         </div>
                         <div>
@@ -247,6 +266,71 @@ function submitPassword() {
                     </form>
                 </div>
             </div>
+        </div>
+
+        <div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/50">
+            <div class="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700 sm:px-8">
+                <div class="flex items-center gap-2">
+                    <span
+                        class="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                    >
+                        <IdCard class="h-4 w-4" />
+                    </span>
+                    <div>
+                        <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">
+                            Dados de cadastro
+                        </h2>
+                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                            E-mail e CPF/CNPJ não são editáveis.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <dl class="grid gap-4 p-6 text-sm sm:grid-cols-2 sm:p-8">
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">Nome</dt>
+                    <dd class="mt-0.5 text-zinc-900 dark:text-white">{{ snap(registration.name) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">E-mail</dt>
+                    <dd class="mt-0.5 break-all text-zinc-900 dark:text-white">{{ snap(registration.email) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">WhatsApp</dt>
+                    <dd class="mt-0.5 flex flex-wrap items-center gap-2 text-zinc-900 dark:text-white">
+                        <span>{{ snap(registration.whatsapp || registration.phone) }}</span>
+                        <a
+                            v-if="registration.whatsapp_url"
+                            :href="registration.whatsapp_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="inline-flex items-center rounded-lg bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500"
+                        >
+                            Abrir WhatsApp
+                        </a>
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">{{ documentLabel }}</dt>
+                    <dd class="mt-0.5 font-mono text-zinc-900 dark:text-white">{{ snap(registration.document) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">Nascimento</dt>
+                    <dd class="mt-0.5 text-zinc-900 dark:text-white">{{ snap(registration.birth_date) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">Cadastrado em</dt>
+                    <dd class="mt-0.5 text-zinc-900 dark:text-white">{{ formatDateTime(registration.created_at) }}</dd>
+                </div>
+                <div>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">KYC revisado em</dt>
+                    <dd class="mt-0.5 text-zinc-900 dark:text-white">{{ formatDateTime(registration.kyc_reviewed_at) }}</dd>
+                </div>
+                <div class="sm:col-span-2">
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">Endereço</dt>
+                    <dd class="mt-0.5 text-zinc-900 dark:text-white">{{ snap(registration.address_line) }}</dd>
+                </div>
+            </dl>
         </div>
 
         <!-- Card: Alterar senha -->
@@ -359,18 +443,19 @@ function submitPassword() {
                 Vale para todos os dispositivos inscritos. Dados pessoais do comprador nunca são enviados no push.
             </p>
             <form class="mt-4 space-y-4" @submit.prevent="submitPushPreferences">
-                <div class="grid gap-3 sm:grid-cols-2">
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.sale_approved" type="checkbox" class="rounded" /> Venda aprovada</label>
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.pix_generated" type="checkbox" class="rounded" /> PIX gerado</label>
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.boleto_generated" type="checkbox" class="rounded" /> Boleto gerado</label>
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.withdrawal_paid" type="checkbox" class="rounded" /> Saque pago</label>
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.affiliate_sale_approved" type="checkbox" class="rounded" /> Comissão de afiliado</label>
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.affiliate_enrollment_approved" type="checkbox" class="rounded" /> Afiliação aprovada</label>
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.daily_summary" type="checkbox" class="rounded" /> Resumo diário de vendas</label>
-                    <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.system" type="checkbox" class="rounded" /> Comunicados administrativos</label>
+                <div>
+                    <p class="mb-2 text-sm font-medium">Avisos de venda</p>
+                    <div class="grid gap-3 sm:grid-cols-3">
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.sale_approved" type="checkbox" class="rounded" /> Venda aprovada</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.pix_generated" type="checkbox" class="rounded" /> PIX gerado</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.boleto_generated" type="checkbox" class="rounded" /> Boleto gerado</label>
+                    </div>
                 </div>
-                <div class="border-t border-zinc-100 pt-4 dark:border-zinc-700">
-                    <p class="mb-2 text-sm font-medium">Dados na notificação de venda</p>
+                <div class="rounded-xl border border-zinc-100 bg-zinc-50/70 p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
+                    <p class="mb-1 text-sm font-medium">Dados na notificação</p>
+                    <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                        A mesma escolha vale para Venda aprovada, PIX gerado e Boleto gerado.
+                    </p>
                     <div class="grid gap-3 sm:grid-cols-3">
                         <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_product_name" type="checkbox" class="rounded" /> Nome do produto</label>
                         <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.show_sale_amount" type="checkbox" class="rounded" /> Valor</label>
@@ -378,7 +463,7 @@ function submitPassword() {
                     </div>
                     <div
                         v-if="pushForm.show_sale_amount"
-                        class="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-600 dark:bg-zinc-900/40"
+                        class="mt-3 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-600 dark:bg-zinc-800"
                     >
                         <p class="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                             Qual valor exibir
@@ -425,6 +510,16 @@ function submitPassword() {
                                 </span>
                             </label>
                         </div>
+                    </div>
+                </div>
+                <div>
+                    <p class="mb-2 text-sm font-medium">Outros avisos</p>
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.withdrawal_paid" type="checkbox" class="rounded" /> Saque pago</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.affiliate_sale_approved" type="checkbox" class="rounded" /> Comissão de afiliado</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.affiliate_enrollment_approved" type="checkbox" class="rounded" /> Afiliação aprovada</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.daily_summary" type="checkbox" class="rounded" /> Resumo diário de vendas</label>
+                        <label class="flex items-center gap-2 text-sm"><input v-model="pushForm.system" type="checkbox" class="rounded" /> Comunicados administrativos</label>
                     </div>
                 </div>
                 <Button type="submit" :disabled="pushForm.processing">
