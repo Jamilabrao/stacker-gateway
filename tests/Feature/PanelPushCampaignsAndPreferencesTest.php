@@ -177,6 +177,85 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $this->assertStringNotContainsString('Nome Interno', $body);
     }
 
+    public function test_content_preferences_apply_to_sale_pix_and_boleto_push(): void
+    {
+        $seller = $this->seller();
+        UserPushPreferences::upsert($seller->id, [
+            'show_product_name' => false,
+            'show_sale_amount' => true,
+            'sale_amount_mode' => 'gross',
+            'show_payment_method' => false,
+        ]);
+
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'name' => 'Curso Secreto',
+            'checkout_slug' => 'cursoshared01',
+        ]);
+
+        $pixOrder = new Order([
+            'tenant_id' => $seller->id,
+            'amount' => 80,
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+        $pixOrder->setRelation('product', $product);
+
+        $boletoOrder = new Order([
+            'tenant_id' => $seller->id,
+            'amount' => 80,
+            'metadata' => ['checkout_payment_method' => 'boleto'],
+        ]);
+        $boletoOrder->setRelation('product', $product);
+
+        $saleBody = $pixOrder->saleApprovedPushBody();
+        $pixBody = $pixOrder->pixGeneratedPushBody();
+        $boletoBody = $boletoOrder->boletoGeneratedPushBody();
+
+        foreach ([$saleBody, $pixBody, $boletoBody] as $body) {
+            $this->assertStringContainsString('Valor bruto: R$ 80,00', $body);
+            $this->assertStringNotContainsString('Curso Secreto', $body);
+            $this->assertStringNotContainsString('Pagamento:', $body);
+        }
+
+        $this->assertSame('Venda aprovada', $pixOrder->saleApprovedPushTitle());
+        $this->assertSame('PIX gerado', $pixOrder->pixGeneratedPushTitle());
+        $this->assertSame('Boleto gerado', $boletoOrder->boletoGeneratedPushTitle());
+    }
+
+    public function test_empty_content_preferences_use_generic_fallback_on_all_three_pushes(): void
+    {
+        $seller = $this->seller();
+        UserPushPreferences::upsert($seller->id, [
+            'show_product_name' => false,
+            'show_sale_amount' => false,
+            'show_payment_method' => false,
+        ]);
+
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'name' => 'Curso Secreto',
+            'checkout_slug' => 'cursoempty01',
+        ]);
+
+        $order = new Order([
+            'tenant_id' => $seller->id,
+            'amount' => 80,
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+        $order->setRelation('product', $product);
+
+        $this->assertSame('Você recebeu uma nova venda aprovada.', $order->saleApprovedPushBody());
+        $this->assertSame('PIX gerado — aguardando pagamento.', $order->pixGeneratedPushBody());
+
+        $boletoOrder = new Order([
+            'tenant_id' => $seller->id,
+            'amount' => 80,
+            'metadata' => ['checkout_payment_method' => 'boleto'],
+        ]);
+        $boletoOrder->setRelation('product', $product);
+        $this->assertSame('Boleto gerado — aguardando pagamento.', $boletoOrder->boletoGeneratedPushBody());
+    }
+
     public function test_daily_summary_does_not_duplicate_and_scopes_tenant(): void
     {
         if (! Schema::hasTable('panel_push_daily_summary_logs') || ! Schema::hasTable('orders')) {

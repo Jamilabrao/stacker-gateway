@@ -18,10 +18,13 @@ class SendPanelPushOnPixGenerated
         $order = $event->order;
 
         try {
-            $productName = $order->product?->name ?? 'Produto';
-            $amount = number_format((float) $order->amount, 2, ',', '.');
-            $title = 'PIX gerado!';
-            $body = "{$productName} - R$ {$amount} - Aguardando pagamento";
+            try {
+                $order->loadMissing(['product']);
+            } catch (\Throwable) {
+                // Pedidos em memória (ex.: testes) podem não ter conexão.
+            }
+            $title = $order->pixGeneratedPushTitle();
+            $body = $order->pixGeneratedPushBody();
             $url = url('/vendas');
 
             $sent = $this->panelPushService->sendAndPersistToTenant(

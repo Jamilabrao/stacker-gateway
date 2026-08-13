@@ -195,7 +195,7 @@ class Order extends Model
 
     public function saleApprovedPushTitle(bool $isOrderBump = false): string
     {
-        $prefs = \App\Support\UserPushPreferences::forTenantOwner((int) ($this->tenant_id ?? 0));
+        $prefs = $this->salePushContentPreferences();
         $base = $isOrderBump ? 'Venda aprovada — Order bump' : 'Venda aprovada';
         if (! empty($prefs['show_payment_method'])) {
             return $base.' ('.$this->paymentMethodPushLabel().')';
@@ -206,36 +206,11 @@ class Order extends Model
 
     public function saleApprovedPushBody(?OrderItem $item = null, bool $isOrderBump = false): string
     {
-        $prefs = \App\Support\UserPushPreferences::forTenantOwner((int) ($this->tenant_id ?? 0));
-        $product = $item?->product ?? $this->product;
-        $displayName = null;
-        if ($product) {
-            $custom = trim((string) ($product->notification_name ?? ''));
-            $displayName = $custom !== '' ? $custom : (string) $product->name;
-        }
-
         $lines = [];
         if ($isOrderBump) {
             $lines[] = 'Order bump';
         }
-        if (! empty($prefs['show_product_name']) && $displayName) {
-            $lines[] = 'Produto: '.$displayName;
-        }
-        if (! empty($prefs['show_sale_amount'])) {
-            $mode = UserPushPreference::normalizeSaleAmountMode($prefs['sale_amount_mode'] ?? null);
-            $breakdown = $this->salePushAmountBreakdownForItem($item);
-            $value = $mode === UserPushPreference::SALE_AMOUNT_MODE_NET
-                ? (float) $breakdown['net']
-                : (float) $breakdown['gross'];
-            $amount = number_format($value, 2, ',', '.');
-            $label = $mode === UserPushPreference::SALE_AMOUNT_MODE_NET
-                ? 'Valor líquido'
-                : 'Valor bruto';
-            $lines[] = $label.': R$ '.$amount;
-        }
-        if (! empty($prefs['show_payment_method'])) {
-            $lines[] = 'Pagamento: '.$this->paymentMethodPushLabel();
-        }
+        $lines = array_merge($lines, $this->salePushContentLines($item));
 
         if ($lines === []) {
             return $isOrderBump
@@ -244,6 +219,26 @@ class Order extends Model
         }
 
         return implode("\n", $lines);
+    }
+
+    public function pixGeneratedPushTitle(): string
+    {
+        return $this->pendingPaymentPushTitle('PIX gerado');
+    }
+
+    public function pixGeneratedPushBody(): string
+    {
+        return $this->pendingPaymentPushBody('PIX gerado — aguardando pagamento.');
+    }
+
+    public function boletoGeneratedPushTitle(): string
+    {
+        return $this->pendingPaymentPushTitle('Boleto gerado');
+    }
+
+    public function boletoGeneratedPushBody(): string
+    {
+        return $this->pendingPaymentPushBody('Boleto gerado — aguardando pagamento.');
     }
 
     /**
@@ -288,6 +283,75 @@ class Order extends Model
         }
 
         return $messages;
+    }
+
+    /**
+     * Preferências de conteúdo compartilhadas entre venda aprovada, PIX gerado e boleto gerado.
+     *
+     * @return array<string, bool|string>
+     */
+    private function salePushContentPreferences(): array
+    {
+        return \App\Support\UserPushPreferences::forTenantOwner((int) ($this->tenant_id ?? 0));
+    }
+
+    /**
+     * Linhas de produto, valor e forma de pagamento — mesmas regras para os três tipos de push.
+     *
+     * @return list<string>
+     */
+    private function salePushContentLines(?OrderItem $item = null): array
+    {
+        $prefs = $this->salePushContentPreferences();
+        $product = $item?->product ?? $this->product;
+        $displayName = null;
+        if ($product) {
+            $custom = trim((string) ($product->notification_name ?? ''));
+            $displayName = $custom !== '' ? $custom : (string) $product->name;
+        }
+
+        $lines = [];
+        if (! empty($prefs['show_product_name']) && $displayName) {
+            $lines[] = 'Produto: '.$displayName;
+        }
+        if (! empty($prefs['show_sale_amount'])) {
+            $mode = UserPushPreference::normalizeSaleAmountMode($prefs['sale_amount_mode'] ?? null);
+            $breakdown = $this->salePushAmountBreakdownForItem($item);
+            $value = $mode === UserPushPreference::SALE_AMOUNT_MODE_NET
+                ? (float) $breakdown['net']
+                : (float) $breakdown['gross'];
+            $amount = number_format($value, 2, ',', '.');
+            $label = $mode === UserPushPreference::SALE_AMOUNT_MODE_NET
+                ? 'Valor líquido'
+                : 'Valor bruto';
+            $lines[] = $label.': R$ '.$amount;
+        }
+        if (! empty($prefs['show_payment_method'])) {
+            $lines[] = 'Pagamento: '.$this->paymentMethodPushLabel();
+        }
+
+        return $lines;
+    }
+
+    private function pendingPaymentPushTitle(string $base): string
+    {
+        $prefs = $this->salePushContentPreferences();
+        if (! empty($prefs['show_payment_method'])) {
+            return $base.' ('.$this->paymentMethodPushLabel().')';
+        }
+
+        return $base;
+    }
+
+    private function pendingPaymentPushBody(string $emptyFallback): string
+    {
+        $lines = $this->salePushContentLines();
+        if ($lines === []) {
+            return $emptyFallback;
+        }
+        $lines[] = 'Aguardando pagamento';
+
+        return implode("\n", $lines);
     }
 
     /**

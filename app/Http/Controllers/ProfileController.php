@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\StorageService;
 use App\Support\HtmlSanitizer;
+use App\Support\MerchantProfileSnapshot;
 use App\Support\RemoteStorage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -31,6 +32,7 @@ class ProfileController extends Controller
                 'username' => $user->username,
                 'avatar_url' => $user->avatar ? app(StorageService::class)->url($user->avatar) : null,
             ],
+            'registration' => MerchantProfileSnapshot::forUser($user, maskDocuments: false),
             'totp_enabled' => PlatformTotpService::isEnabledFor($user),
             'push_preferences' => \App\Support\UserPushPreferences::forUserId((int) $user->id),
         ]);
@@ -72,20 +74,14 @@ class ProfileController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user)],
             'username' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('users', 'username')->ignore($user)],
             'avatar' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
         ], [
-            'email.unique' => 'Este e-mail já está em uso por outra conta.',
             'username.unique' => 'Este nome de usuário já está em uso.',
         ]);
 
         $user->name = HtmlSanitizer::plainText($validated['name'], 255);
         $user->username = $validated['username'] ?: null;
-        if ($user->email !== $validated['email']) {
-            $user->email = $validated['email'];
-            $user->email_verified_at = null;
-        }
 
         if ($request->hasFile('avatar')) {
             try {

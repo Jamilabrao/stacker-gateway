@@ -110,4 +110,40 @@ class OrderSalePushNotificationTest extends TestCase
 
         $this->assertSame('Cartão de crédito', $order->paymentMethodPushLabel());
     }
+
+    public function test_pix_generated_push_uses_same_content_fields_as_sale(): void
+    {
+        $order = new Order([
+            'amount' => 19.90,
+            'tenant_id' => 1,
+            'metadata' => ['checkout_payment_method' => 'pix'],
+        ]);
+        $order->setRelation('product', new Product(['name' => 'E-book Premium']));
+
+        $this->assertSame('PIX gerado (PIX)', $order->pixGeneratedPushTitle());
+        $this->assertSame(
+            "Produto: E-book Premium\nValor bruto: R$ 19,90\nPagamento: PIX\nAguardando pagamento",
+            $order->pixGeneratedPushBody()
+        );
+    }
+
+    public function test_boleto_generated_push_uses_same_content_fields_as_sale(): void
+    {
+        $order = new Order([
+            'amount' => 120.00,
+            'tenant_id' => 1,
+            'metadata' => ['checkout_payment_method' => 'boleto'],
+        ]);
+        $order->setRelation('product', new Product([
+            'name' => 'Nome Interno',
+            'notification_name' => 'Mentoria VIP',
+        ]));
+
+        $this->assertSame('Boleto gerado (Boleto)', $order->boletoGeneratedPushTitle());
+        $this->assertSame(
+            "Produto: Mentoria VIP\nValor bruto: R$ 120,00\nPagamento: Boleto\nAguardando pagamento",
+            $order->boletoGeneratedPushBody()
+        );
+        $this->assertStringNotContainsString('Nome Interno', $order->boletoGeneratedPushBody());
+    }
 }
