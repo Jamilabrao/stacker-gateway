@@ -34,31 +34,47 @@ class EnrichMetricsEventGeoJob implements ShouldQueue
 
         $geo = $resolver->resolve($this->ip, $event->ip_hash);
         if (! $geo) {
-            $event->geo_enriched = true;
-            $event->save();
+            // IP privado não resolve; marca como feito para não reenfileirar. IP público falhou: deixa retry.
+            $isPublic = (bool) filter_var($this->ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+            if (! $isPublic) {
+                $event->geo_enriched = true;
+                $event->save();
+            }
 
             return;
         }
 
         $event->fill([
-            'country' => $geo['country'],
-            'region' => $geo['region'],
-            'city' => $geo['city'],
-            'latitude' => $geo['latitude'],
-            'longitude' => $geo['longitude'],
-            'isp' => $geo['isp'],
-            'timezone' => $geo['timezone'],
+            'country' => $geo['country'] ?: $event->country,
+            'region' => $geo['region'] ?: $event->region,
+            'city' => $geo['city'] ?: $event->city,
+            'latitude' => $geo['latitude'] ?? $event->latitude,
+            'longitude' => $geo['longitude'] ?? $event->longitude,
+            'isp' => $geo['isp'] ?: $event->isp,
+            'timezone' => $geo['timezone'] ?: $event->timezone,
             'geo_enriched' => true,
         ])->save();
+
+        $payload = [
+            'country' => $event->country,
+            'region' => $event->region,
+            'city' => $event->city,
+        ];
 
         if ($event->metrics_session_id) {
             MetricsSession::query()->whereKey($event->metrics_session_id)->where(function ($q) {
                 $q->whereNull('country')->orWhere('country', '');
-            })->update([
-                'country' => $geo['country'],
-                'region' => $geo['region'],
-                'city' => $geo['city'],
-            ]);
+            })->update($payload);
+
+            MetricsEvent::query()
+                ->where('metrics_session_id', $event->metrics_session_id)
+                ->where(function ($q) {
+                    $q->whereNull('country')->orWhere('country', '');
+                })
+                ->update(array_merge($payload, [
+                    'latitude' => $event->latitude,
+                    'longitude' => $event->longitude,
+                ]));
         }
     }
 

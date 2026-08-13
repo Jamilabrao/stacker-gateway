@@ -7,6 +7,7 @@ use App\Models\MetricsEvent;
 use App\Models\MetricsSession;
 use App\Models\Product;
 use App\Models\User;
+use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -488,6 +489,7 @@ class MetricsAnalyticsService
      */
     public function timeseries(?int $tenantId, ?Carbon $start, ?Carbon $end, array $filters = [], bool $platformScope = false): array
     {
+        $filters = $this->applyTimeseriesGroupBy($filters, $start, $end);
         $groupBy = $filters['group_by'] ?? 'day';
         if ($groupBy === 'day' && $this->shouldUseDailyStats($filters, $start, $end)) {
             $fromDaily = $this->timeseriesFromDailyStats($tenantId, $start, $end, $filters, $platformScope);
@@ -496,7 +498,107 @@ class MetricsAnalyticsService
             }
         }
 
-        return $this->timeseriesFromLive($tenantId, $start, $end, $filters, $platformScope);
+        $rows = $this->timeseriesFromLive($tenantId, $start, $end, $filters, $platformScope);
+
+        if ($groupBy === 'hour' && $this->isSingleDayRange($start, $end)) {
+            return $this->fillHourlyBuckets($rows);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Hoje/ontem (e qualquer intervalo de 1 dia civil) agrupam por hora para o gráfico ter 24 pontos.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    private function applyTimeseriesGroupBy(array $filters, ?Carbon $start, ?Carbon $end): array
+    {
+        $groupBy = $filters['group_by'] ?? 'day';
+        if ($groupBy === 'day' && $this->isSingleDayRange($start, $end)) {
+            $filters['group_by'] = 'hour';
+        }
+
+        return $filters;
+    }
+
+    private function isSingleDayRange(?Carbon $start, ?Carbon $end): bool
+    {
+        if (! $start || ! $end) {
+            return false;
+        }
+
+        $tz = (string) config('app.timezone', 'America/Sao_Paulo');
+
+        return $start->copy()->timezone($tz)->toDateString()
+            === $end->copy()->timezone($tz)->toDateString();
+    }
+
+    /**
+     * Completa 0h–23h para o gráfico de um único dia não colapsar em 1 ponto.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function fillHourlyBuckets(array $rows): array
+    {
+        $byHour = [];
+        foreach ($rows as $row) {
+            $hour = $this->parseHourBucket((string) ($row['bucket'] ?? ''));
+            if ($hour === null) {
+                continue;
+            }
+            $byHour[$hour] = $row;
+        }
+
+        $filled = [];
+        for ($h = 0; $h <= 23; $h++) {
+            $row = $byHour[$h] ?? [
+                'visitors' => 0,
+                'clicks' => 0,
+                'conversions' => 0,
+                'revenue' => 0.0,
+                'pix_created' => 0,
+            ];
+            $visitors = (int) ($row['visitors'] ?? 0);
+            $conversions = (int) ($row['conversions'] ?? 0);
+            $filled[] = [
+                'bucket' => $h.'h',
+                'visitors' => $visitors,
+                'clicks' => (int) ($row['clicks'] ?? 0),
+                'conversions' => $conversions,
+                'revenue' => round((float) ($row['revenue'] ?? 0), 2),
+                'pix_created' => (int) ($row['pix_created'] ?? 0),
+                'conversion_rate' => $visitors > 0
+                    ? round(($conversions / $visitors) * 100, 2)
+                    : 0.0,
+            ];
+        }
+
+        return $filled;
+    }
+
+    private function parseHourBucket(string $bucket): ?int
+    {
+        $bucket = trim($bucket);
+        if (preg_match('/\b(\d{1,2})h\b/i', $bucket, $m) === 1) {
+            $hour = (int) $m[1];
+
+            return ($hour >= 0 && $hour <= 23) ? $hour : null;
+        }
+        if (preg_match('/\s(\d{1,2}):/', $bucket, $m) === 1) {
+            $hour = (int) $m[1];
+
+            return ($hour >= 0 && $hour <= 23) ? $hour : null;
+        }
+        if (preg_match('/^\d{1,2}$/', $bucket) === 1) {
+            $hour = (int) $bucket;
+
+            return ($hour >= 0 && $hour <= 23) ? $hour : null;
+        }
+
+        return null;
     }
 
     /**
@@ -578,18 +680,14 @@ class MetricsAnalyticsService
         $groupBy = $filters['group_by'] ?? 'day';
         $driver = DB::connection()->getDriverName();
         $col = match ($groupBy) {
-            'hour' => $driver === 'pgsql'
-                ? "to_char(occurred_at, 'YYYY-MM-DD HH24:00')"
-                : "DATE_FORMAT(occurred_at, '%Y-%m-%d %H:00')",
+            'hour' => SqlDialect::hourExpression('occurred_at'),
             'week' => $driver === 'pgsql'
                 ? "to_char(date_trunc('week', occurred_at), 'YYYY-MM-DD')"
                 : "DATE_FORMAT(DATE_SUB(occurred_at, INTERVAL WEEKDAY(occurred_at) DAY), '%Y-%m-%d')",
             'month' => $driver === 'pgsql'
                 ? "to_char(occurred_at, 'YYYY-MM')"
                 : "DATE_FORMAT(occurred_at, '%Y-%m')",
-            default => $driver === 'pgsql'
-                ? "to_char(occurred_at, 'YYYY-MM-DD')"
-                : 'DATE(occurred_at)',
+            default => SqlDialect::dateExpression('occurred_at'),
         };
 
         $raw = $this->eventsQuery($tenantId, $start, $end, $filters, $platformScope)
@@ -629,18 +727,14 @@ class MetricsAnalyticsService
         }
 
         $sessionCol = match ($groupBy) {
-            'hour' => $driver === 'pgsql'
-                ? "to_char(first_touch_at, 'YYYY-MM-DD HH24:00')"
-                : "DATE_FORMAT(first_touch_at, '%Y-%m-%d %H:00')",
+            'hour' => SqlDialect::hourExpression('first_touch_at'),
             'week' => $driver === 'pgsql'
                 ? "to_char(date_trunc('week', first_touch_at), 'YYYY-MM-DD')"
                 : "DATE_FORMAT(DATE_SUB(first_touch_at, INTERVAL WEEKDAY(first_touch_at) DAY), '%Y-%m-%d')",
             'month' => $driver === 'pgsql'
                 ? "to_char(first_touch_at, 'YYYY-MM')"
                 : "DATE_FORMAT(first_touch_at, '%Y-%m')",
-            default => $driver === 'pgsql'
-                ? "to_char(first_touch_at, 'YYYY-MM-DD')"
-                : 'DATE(first_touch_at)',
+            default => SqlDialect::dateExpression('first_touch_at'),
         };
 
         $visitorRows = $this->sessionsQuery($tenantId, $start, $end, $filters, $platformScope)

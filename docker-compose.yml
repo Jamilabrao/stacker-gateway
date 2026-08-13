@@ -306,7 +306,7 @@ services:
       - "php"
       - "artisan"
       - "queue:work"
-      - "--queue=utmify-tracking"
+      - "--queue=utmify-tracking,metrics-tracking"
       - "--sleep=1"
       - "--tries=10"
       - "--timeout=60"
