@@ -50,7 +50,15 @@ function formatSeconds(s) {
     return `${(n / 3600).toFixed(1)} h`;
 }
 
-const categories = computed(() => props.timeseries.map((r) => r.bucket));
+const isHourly = computed(() => props.period === 'hoje' || props.period === 'ontem');
+const categories = computed(() => props.timeseries.map((r) => {
+    const bucket = String(r.bucket || '');
+    if (isHourly.value || /^\d{1,2}h$/i.test(bucket)) {
+        return bucket.toLowerCase().endsWith('h') ? bucket : `${Number(bucket)}h`;
+    }
+    const parts = bucket.split('-');
+    return parts.length === 3 ? `${parts[2]}/${parts[1]}` : bucket;
+}));
 const seriesVisitors = computed(() => [
     { name: 'Visitantes', data: props.timeseries.map((r) => r.visitors) },
     { name: 'Cliques', data: props.timeseries.map((r) => r.clicks) },
@@ -65,7 +73,14 @@ const chartOpts = computed(() => ({
     chart: { type: 'area', toolbar: { show: false }, background: 'transparent' },
     dataLabels: { enabled: false },
     stroke: { curve: 'smooth', width: 2 },
-    xaxis: { categories: categories.value, labels: { style: { colors: isDark.value ? '#a1a1aa' : '#71717a' } } },
+    xaxis: {
+        categories: categories.value,
+        labels: {
+            style: { colors: isDark.value ? '#a1a1aa' : '#71717a', fontSize: isHourly.value ? '11px' : '12px' },
+            rotate: isHourly.value ? -45 : 0,
+            hideOverlappingLabels: true,
+        },
+    },
     yaxis: { labels: { style: { colors: isDark.value ? '#a1a1aa' : '#71717a' } } },
     legend: { labels: { colors: isDark.value ? '#e4e4e7' : '#27272a' } },
     grid: { borderColor: isDark.value ? '#3f3f46' : '#e4e4e7' },
@@ -146,11 +161,11 @@ function onProductChange(e) {
             <div class="grid gap-4 lg:grid-cols-2">
                 <div :class="[innerPanelClass, 'p-4']">
                     <h3 class="mb-3 text-sm font-semibold text-zinc-900 dark:text-white">Visitantes, cliques e conversões</h3>
-                    <VueApexCharts type="area" height="280" :options="chartOpts" :series="seriesVisitors" />
+                    <VueApexCharts :key="`visitors-${period}`" type="area" height="280" :options="chartOpts" :series="seriesVisitors" />
                 </div>
                 <div :class="[innerPanelClass, 'p-4']">
                     <h3 class="mb-3 text-sm font-semibold text-zinc-900 dark:text-white">Receita e PIX gerados</h3>
-                    <VueApexCharts type="line" height="280" :options="revenueOpts" :series="seriesRevenue" />
+                    <VueApexCharts :key="`revenue-${period}`" type="line" height="280" :options="revenueOpts" :series="seriesRevenue" />
                 </div>
             </div>
 

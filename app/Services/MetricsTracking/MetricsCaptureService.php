@@ -64,9 +64,10 @@ class MetricsCaptureService
 
         $ua = (string) ($payload['user_agent'] ?? $request->userAgent() ?? '');
         $client = MetricsClientParser::fromUserAgent($ua);
-        $ip = (string) ($payload['ip'] ?? $request->ip() ?? '');
+        $ip = (string) ($payload['ip'] ?? MetricsClientParser::resolveClientIp($request));
         $ipHash = MetricsClientParser::hashIp($ip);
         $ipMasked = MetricsClientParser::maskIp($ip);
+        $cfGeo = MetricsClientParser::geoFromCloudflareHeaders($request);
 
         $tracking = MetricsClientParser::trackingFromRequest(
             $request,
@@ -130,6 +131,9 @@ class MetricsCaptureService
                 'user_agent' => Str::limit($ua, 1024, ''),
                 'ip_hash' => $ipHash,
                 'ip_masked' => $ipMasked,
+                'country' => $cfGeo['country'] ?? null,
+                'region' => $cfGeo['region'] ?? null,
+                'city' => $cfGeo['city'] ?? null,
                 'first_touch_at' => $now,
                 'last_touch_at' => $now,
                 'events_count' => 0,
@@ -137,6 +141,7 @@ class MetricsCaptureService
             ]);
         } else {
             $this->mergeStickyAttribution($session, $tracking, $payload, $affiliateRef, $campaignCode, $productId, $tenantId);
+            $this->fillSessionGeoIfEmpty($session, $cfGeo);
             $session->last_touch_at = $now;
             $session->save();
         }
@@ -181,9 +186,12 @@ class MetricsCaptureService
             'user_agent' => $session->user_agent,
             'ip_hash' => $ipHash,
             'ip_masked' => $ipMasked,
-            'country' => $session->country,
-            'region' => $session->region,
-            'city' => $session->city,
+            'country' => $session->country ?: ($cfGeo['country'] ?? null),
+            'region' => $session->region ?: ($cfGeo['region'] ?? null),
+            'city' => $session->city ?: ($cfGeo['city'] ?? null),
+            'latitude' => $cfGeo['latitude'] ?? null,
+            'longitude' => $cfGeo['longitude'] ?? null,
+            'timezone' => $cfGeo['timezone'] ?? null,
             'conversion_status' => $payload['conversion_status'] ?? null,
             'amount' => $payload['amount'] ?? null,
             'currency' => $payload['currency'] ?? null,
@@ -255,6 +263,22 @@ class MetricsCaptureService
 
         $merged = array_merge(is_array($session->tracking_params) ? $session->tracking_params : [], $tracking);
         $session->tracking_params = $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $geo
+     */
+    private function fillSessionGeoIfEmpty(MetricsSession $session, ?array $geo): void
+    {
+        if (! is_array($geo)) {
+            return;
+        }
+
+        foreach (['country', 'region', 'city'] as $field) {
+            if (empty($session->{$field}) && ! empty($geo[$field])) {
+                $session->{$field} = $geo[$field];
+            }
+        }
     }
 
     /**

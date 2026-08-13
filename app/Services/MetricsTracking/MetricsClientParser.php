@@ -55,6 +55,117 @@ class MetricsClientParser
         ];
     }
 
+    /**
+     * IP do visitante sem alterar TrustProxies.
+     * Cloudflare: CF-Connecting-IP; demais: Request::ip() (X-Forwarded-For se o proxy for confiável).
+     */
+    public static function resolveClientIp(Request $request): string
+    {
+        foreach (['CF-Connecting-IP', 'True-Client-IP'] as $header) {
+            $candidate = trim((string) $request->headers->get($header, ''));
+            if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_IP)) {
+                return $candidate;
+            }
+        }
+
+        return trim((string) ($request->ip() ?? ''));
+    }
+
+    /**
+     * Geolocalização já enviada pelo Cloudflare (não substitui ip-api; preenche na hora).
+     * País (CF-IPCountry) vem no plano gratuito. Cidade/estado/lat exigem
+     * Managed Transform "Add visitor location headers".
+     *
+     * @return array{
+     *   country:?string,region:?string,city:?string,
+     *   latitude:?float,longitude:?float,timezone:?string
+     * }|null
+     */
+    public static function geoFromCloudflareHeaders(Request $request): ?array
+    {
+        $countryCode = strtoupper(trim((string) $request->headers->get('CF-IPCountry', '')));
+        if ($countryCode === 'XX' || $countryCode === 'T1' || preg_match('/^[A-Z]{2}$/', $countryCode) !== 1) {
+            $countryCode = '';
+        }
+
+        $city = self::decodeCfHeader($request->headers->get('CF-IPCity'));
+        $region = self::decodeCfHeader($request->headers->get('CF-Region'))
+            ?: self::decodeCfHeader($request->headers->get('CF-Region-Code'));
+        $timezone = self::decodeCfHeader($request->headers->get('CF-Timezone'));
+        $latitude = self::parseCfCoordinate($request->headers->get('CF-IPLatitude'));
+        $longitude = self::parseCfCoordinate($request->headers->get('CF-IPLongitude'));
+
+        if ($countryCode === '' && $city === null && $region === null && $latitude === null && $longitude === null) {
+            return null;
+        }
+
+        return [
+            'country' => $countryCode !== '' ? self::countryNameFromIso($countryCode) : null,
+            'region' => $region,
+            'city' => $city,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'timezone' => $timezone,
+        ];
+    }
+
+    public static function countryNameFromIso(string $iso): string
+    {
+        $iso = strtoupper(trim($iso));
+        $names = [
+            'BR' => 'Brazil',
+            'US' => 'United States',
+            'PT' => 'Portugal',
+            'ES' => 'Spain',
+            'AR' => 'Argentina',
+            'MX' => 'Mexico',
+            'CO' => 'Colombia',
+            'CL' => 'Chile',
+            'PE' => 'Peru',
+            'UY' => 'Uruguay',
+            'PY' => 'Paraguay',
+            'BO' => 'Bolivia',
+            'EC' => 'Ecuador',
+            'VE' => 'Venezuela',
+            'GB' => 'United Kingdom',
+            'DE' => 'Germany',
+            'FR' => 'France',
+            'IT' => 'Italy',
+            'CA' => 'Canada',
+            'AU' => 'Australia',
+            'JP' => 'Japan',
+            'CN' => 'China',
+            'IN' => 'India',
+            'AO' => 'Angola',
+            'MZ' => 'Mozambique',
+        ];
+
+        return $names[$iso] ?? $iso;
+    }
+
+    private static function decodeCfHeader(mixed $value): ?string
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+
+        $decoded = rawurldecode($raw);
+        $decoded = trim($decoded);
+
+        return $decoded !== '' ? Str::limit($decoded, 120, '') : null;
+    }
+
+    private static function parseCfCoordinate(mixed $value): ?float
+    {
+        $raw = trim((string) $value);
+        if ($raw === '' || ! is_numeric($raw)) {
+            return null;
+        }
+
+        return round((float) $raw, 7);
+    }
+
     public static function hashIp(?string $ip): ?string
     {
         $ip = trim((string) $ip);

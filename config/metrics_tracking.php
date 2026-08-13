@@ -10,6 +10,11 @@ return [
 
     'queue' => env('METRICS_TRACKING_QUEUE', 'metrics-tracking'),
 
+    /**
+     * Geo: na captura usa headers Cloudflare (CF-IPCountry / CF-IPCity) se existirem.
+     * O job EnrichMetricsEventGeoJob completa lat/lng via ip-api na fila acima.
+     */
+
     /** Cache de geolocalização por IP (horas). */
     'geo_cache_ttl_hours' => (int) env('METRICS_GEO_CACHE_TTL_HOURS', 168),
 
