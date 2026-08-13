@@ -30,6 +30,7 @@ class ProfileController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'username' => $user->username,
+                'trade_name' => $user->trade_name,
                 'avatar_url' => $user->avatar ? app(StorageService::class)->url($user->avatar) : null,
             ],
             'registration' => MerchantProfileSnapshot::forUser($user, maskDocuments: false),
@@ -74,6 +75,7 @@ class ProfileController extends Controller
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'trade_name' => ['nullable', 'string', 'max:255'],
             'username' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('users', 'username')->ignore($user)],
             'avatar' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
         ], [
@@ -81,6 +83,9 @@ class ProfileController extends Controller
         ]);
 
         $user->name = HtmlSanitizer::plainText($validated['name'], 255);
+        $user->trade_name = ($trade = HtmlSanitizer::plainText($validated['trade_name'] ?? '', 255)) !== ''
+            ? $trade
+            : null;
         $user->username = $validated['username'] ?: null;
 
         if ($request->hasFile('avatar')) {

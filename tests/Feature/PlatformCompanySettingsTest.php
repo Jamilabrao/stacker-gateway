@@ -145,6 +145,7 @@ class PlatformCompanySettingsTest extends TestCase
             'role' => User::ROLE_INFOPRODUTOR,
             'name' => 'João Vendedor',
             'email' => 'joao@seller.test',
+            'trade_name' => 'Loja do João',
         ]);
         $seller->forceFill(['tenant_id' => $seller->id])->save();
 
@@ -152,7 +153,11 @@ class PlatformCompanySettingsTest extends TestCase
         Setting::set(PlatformCompanySettings::KEY_CNPJ, '11222333000181', null);
         Setting::set(PlatformCompanySettings::KEY_CHECKOUT_NOTICE_ENABLED, '1', null);
         Setting::set(LegalDocumentsService::SETTING_PRIVACY_EMAIL, 'contato@plataforma.test', null);
-        Setting::set(PlatformCompanySettings::KEY_CHECKOUT_NOTICE, PlatformCompanySettings::DEFAULT_CHECKOUT_NOTICE, null);
+        Setting::set(
+            PlatformCompanySettings::KEY_CHECKOUT_NOTICE,
+            PlatformCompanySettings::DEFAULT_CHECKOUT_NOTICE."\nVendido por {empresa}.",
+            null
+        );
 
         $product = $this->createTestProduct([
             'tenant_id' => $seller->id,
@@ -172,8 +177,10 @@ class PlatformCompanySettingsTest extends TestCase
                 $this->assertStringContainsString('11.222.333/0001-81', $notice);
                 $this->assertStringContainsString('João Vendedor', $notice);
                 $this->assertStringContainsString('joao@seller.test', $notice);
+                $this->assertStringContainsString('Loja do João', $notice);
                 $this->assertStringNotContainsString('{cnpj}', $notice);
                 $this->assertStringNotContainsString('{infoprodutor}', $notice);
+                $this->assertStringNotContainsString('{empresa}', $notice);
 
                 return true;
             }));

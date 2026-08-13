@@ -63,6 +63,7 @@ class User extends Authenticatable
         'payout_settings',
         'birth_date',
         'company_name',
+        'trade_name',
         'legal_representative_cpf',
         'address_zip',
         'address_street',

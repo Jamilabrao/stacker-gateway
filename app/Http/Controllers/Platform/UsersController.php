@@ -195,6 +195,7 @@ class UsersController extends Controller
             return [
                 'id' => $u->id,
                 'name' => $u->name,
+                'trade_name' => $u->trade_name,
                 'email' => $u->email,
                 'phone' => Schema::hasColumn('users', 'phone') ? ($u->phone ?? null) : null,
                 'avatar_url' => $u->avatar ? app(\App\Services\StorageService::class)->url($u->avatar) : null,

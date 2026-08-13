@@ -36,6 +36,7 @@ TXT;
         ['token' => '{plataforma}', 'label' => 'Nome da plataforma'],
         ['token' => '{infoprodutor}', 'label' => 'Nome do infoprodutor vendedor'],
         ['token' => '{email_infoprodutor}', 'label' => 'E-mail do infoprodutor vendedor'],
+        ['token' => '{empresa}', 'label' => 'Nome comercial (Empresa) do infoprodutor'],
     ];
 
     public static function legalName(): string
@@ -165,6 +166,7 @@ TXT;
     {
         $seller = self::sellerForTenant($tenantId);
         $cnpj = self::cnpjFormatted();
+        $tradeName = trim((string) ($seller?->trade_name ?? ''));
         $map = [
             '{email_infoprodutor}' => trim((string) ($seller?->email ?? '')),
             '{nome do infoprodutor}' => trim((string) ($seller?->name ?? '')),
@@ -173,6 +175,7 @@ TXT;
             '{razão social}' => self::legalName(),
             '{infoprodutor}' => trim((string) ($seller?->name ?? '')),
             '{plataforma}' => self::platformName(),
+            '{empresa}' => $tradeName,
             '{cnpj}' => $cnpj,
             '{email}' => self::platformContactEmail(),
         ];
