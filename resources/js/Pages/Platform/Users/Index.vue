@@ -1093,7 +1093,7 @@ function formatBlockUntilForInput(iso) {
         </div>
 
         <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
-            <table class="w-full min-w-[960px] text-left text-sm">
+            <table class="w-full min-w-[1080px] text-left text-sm">
                 <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-400">
                     <tr>
                         <th class="w-10 px-3 py-3">
@@ -1106,6 +1106,7 @@ function formatBlockUntilForInput(iso) {
                             />
                         </th>
                         <th class="px-4 py-3">Nome</th>
+                        <th class="px-4 py-3">Empresa</th>
                         <th class="px-4 py-3">E-mail</th>
                         <th class="px-4 py-3">Documento</th>
                         <th class="px-4 py-3">Status</th>
@@ -1195,6 +1196,9 @@ function formatBlockUntilForInput(iso) {
                             >
                                 MED Zero
                             </span>
+                        </td>
+                        <td class="max-w-[180px] truncate px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                            {{ u.trade_name || '—' }}
                         </td>
                         <td class="max-w-[200px] truncate px-4 py-3 text-zinc-600 dark:text-zinc-300">{{ u.email }}</td>
                         <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">{{ u.document || '—' }}</td>

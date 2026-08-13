@@ -18,6 +18,7 @@ const fallbackPlaceholders = [
     { token: '{plataforma}', label: 'Nome da plataforma' },
     { token: '{infoprodutor}', label: 'Nome do infoprodutor vendedor' },
     { token: '{email_infoprodutor}', label: 'E-mail do infoprodutor vendedor' },
+    { token: '{empresa}', label: 'Nome comercial (Empresa) do infoprodutor' },
 ];
 
 const placeholderList = computed(() =>
@@ -74,6 +75,7 @@ function previewReplace(template) {
         ['{razão social}', props.form.platform_legal_name || 'Razão social'],
         ['{infoprodutor}', 'Nome do infoprodutor'],
         ['{plataforma}', 'Nome da plataforma'],
+        ['{empresa}', 'Nome Comercial'],
         ['{cnpj}', props.form.platform_cnpj || '00.000.000/0000-00'],
         ['{email}', 'contato@plataforma.com'],
     ];

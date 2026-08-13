@@ -92,4 +92,33 @@ class SellerProfileRegistrationTest extends TestCase
         $this->assertSame('Maria Oliveira', $seller->name);
         $this->assertSame('mariaoliveira', $seller->username);
     }
+
+    public function test_profile_can_save_trade_name(): void
+    {
+        if (! Schema::hasColumn('users', 'trade_name')) {
+            $this->markTestSkipped('trade_name column');
+        }
+
+        $seller = $this->seller();
+
+        $this->actingAs($seller)
+            ->from(route('profile.index'))
+            ->post(route('profile.update'), [
+                'name' => 'Maria Silva',
+                'trade_name' => '  Academia Digital  ',
+                'username' => 'mariasilva',
+            ])
+            ->assertRedirect(route('profile.index'));
+
+        $seller->refresh();
+        $this->assertSame('Academia Digital', $seller->trade_name);
+
+        $this->actingAs($seller)
+            ->get(route('profile.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Profile/Index')
+                ->where('user.trade_name', 'Academia Digital')
+            );
+    }
 }

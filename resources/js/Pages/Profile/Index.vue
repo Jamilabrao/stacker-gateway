@@ -42,6 +42,7 @@ const avatarPreview = ref(null);
 
 const profileForm = useForm({
     name: props.user.name,
+    trade_name: props.user.trade_name ?? '',
     username: props.user.username ?? '',
     avatar: null,
 });
@@ -140,7 +141,7 @@ const documentLabel = computed(() => (props.registration?.person_type === 'pj' ?
                 Meu perfil
             </h1>
             <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-                Atualize sua foto, nome e senha. E-mail e CPF/CNPJ não podem ser alterados.
+                Atualize sua foto, nome, empresa e senha. E-mail e CPF/CNPJ não podem ser alterados.
             </p>
         </div>
 
@@ -208,6 +209,32 @@ const documentLabel = computed(() => (props.registration?.person_type === 'pj' ?
                                 class="mt-1 text-sm text-red-600 dark:text-red-400"
                             >
                                 {{ profileForm.errors.name }}
+                            </p>
+                        </div>
+                        <div>
+                            <label
+                                for="profile-trade-name"
+                                class="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+                            >
+                                Empresa
+                            </label>
+                            <input
+                                id="profile-trade-name"
+                                v-model="profileForm.trade_name"
+                                type="text"
+                                maxlength="255"
+                                autocomplete="organization"
+                                class="mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 placeholder-zinc-400 shadow-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
+                                placeholder="Nome comercial"
+                            />
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                Nome comercial usado no aviso do checkout (variável {empresa}), quando o aviso estiver ativo.
+                            </p>
+                            <p
+                                v-if="profileForm.errors.trade_name"
+                                class="mt-1 text-sm text-red-600 dark:text-red-400"
+                            >
+                                {{ profileForm.errors.trade_name }}
                             </p>
                         </div>
                         <div>
