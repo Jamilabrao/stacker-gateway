@@ -70,4 +70,21 @@ final class BrazilianDocuments
 
         return $dv2 === (int) $d[13];
     }
+
+    public static function formatCnpj(?string $value): string
+    {
+        $d = self::digits($value);
+        if (strlen($d) !== 14) {
+            return $d;
+        }
+
+        return sprintf(
+            '%s.%s.%s/%s-%s',
+            substr($d, 0, 2),
+            substr($d, 2, 3),
+            substr($d, 5, 3),
+            substr($d, 8, 4),
+            substr($d, 12, 2)
+        );
+    }
 }

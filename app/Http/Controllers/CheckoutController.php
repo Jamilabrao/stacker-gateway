@@ -47,6 +47,7 @@ use App\Support\CheckoutCardContract;
 use App\Support\CheckoutPaymentConsumer;
 use App\Support\CheckoutTranslations;
 use App\Support\CheckoutTurnstileSettings;
+use App\Support\PlatformCompanySettings;
 use App\Support\SafeUrl;
 use App\Support\GatewayWebhookUrl;
 use Illuminate\Http\JsonResponse;
@@ -417,6 +418,7 @@ class CheckoutController extends Controller
         $payload['affiliate_ref'] = $affiliateRef;
         $payload['meta_tracking_debug'] = config('meta_tracking.debug');
         $payload['turnstile'] = CheckoutTurnstileSettings::publicConfig();
+        $payload['platform_checkout_notice'] = PlatformCompanySettings::resolvedCheckoutNoticeForTenant($product->tenant_id);
 
         return Inertia::render('Checkout/Show', $payload);
     }

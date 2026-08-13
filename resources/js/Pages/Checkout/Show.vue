@@ -63,6 +63,8 @@ const props = defineProps({
     affiliate_ref: { type: String, default: '' },
     /** Quando true, loga motivos de tracking Meta no console do browser. */
     meta_tracking_debug: { type: Boolean, default: false },
+    /** Aviso legal da plataforma no final do checkout (já interpolado). Vazio = não exibe. */
+    platform_checkout_notice: { type: String, default: '' },
 });
 
 const previewConfig = ref(null);
@@ -494,6 +496,14 @@ function onConversionPixelsReady() {
 
             <!-- Vídeo YouTube em baixo da página (quando a posição for "bottom") -->
             <CheckoutYoutube v-if="(effectiveConfig?.youtube_position ?? 'top') === 'bottom'" :url="effectiveConfig?.youtube_url" class="mt-8" />
+
+            <p
+                v-if="platform_checkout_notice"
+                data-checkout="platform-notice"
+                class="mx-auto mt-8 max-w-3xl whitespace-pre-line text-center text-xs leading-relaxed text-gray-500"
+            >
+                {{ platform_checkout_notice }}
+            </p>
         </div>
 
         <SalesNotification

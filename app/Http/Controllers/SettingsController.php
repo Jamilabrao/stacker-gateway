@@ -19,6 +19,8 @@ use App\Support\InfoproducerRegistrationSettings;
 use App\Support\AccountManagerSettings;
 use App\Support\ProductApprovalSettings;
 use App\Support\SellerPanelSupportSettings;
+use App\Support\PlatformCompanySettings;
+use App\Support\BrazilianDocuments;
 use App\Services\InstallationPublicUrlService;
 use App\Services\Stacker\ContainerRestartRequestService;
 use App\Support\DockerSetupState;
@@ -146,6 +148,7 @@ class SettingsController extends Controller
                 ...($tenantId === null ? ProductApprovalSettings::forSettingsForm() : []),
                 ...($tenantId === null ? AccountManagerSettings::forSettingsForm() : []),
                 ...($tenantId === null ? SellerPanelSupportSettings::forSettingsForm() : []),
+                ...($tenantId === null ? PlatformCompanySettings::forSettingsForm() : []),
                 ...($tenantId === null ? [
                     'legal_privacy_policy_html' => $legalForm['legal_privacy_policy_html'],
                     'legal_terms_of_use_html' => $legalForm['legal_terms_of_use_html'],
@@ -218,6 +221,23 @@ class SettingsController extends Controller
             'legal_terms_of_use_html' => ['nullable', 'string', 'max:200000'],
             'legal_privacy_contact_email' => ['nullable', 'email', 'max:255'],
             'legal_cookie_banner_enabled' => ['nullable', 'boolean'],
+            'platform_legal_name' => ['nullable', 'string', 'max:255'],
+            'platform_cnpj' => [
+                'nullable',
+                'string',
+                'max:18',
+                function (string $attribute, mixed $value, \Closure $fail): void {
+                    $raw = trim((string) $value);
+                    if ($raw === '') {
+                        return;
+                    }
+                    if (! BrazilianDocuments::isValidCnpj($raw)) {
+                        $fail('Informe um CNPJ válido.');
+                    }
+                },
+            ],
+            'platform_checkout_notice_enabled' => ['nullable', 'boolean'],
+            'platform_checkout_notice' => ['nullable', 'string', 'max:5000'],
         ]);
 
         $tenantId = PlatformConfigContext::settingsTenantId();
@@ -307,6 +327,7 @@ class SettingsController extends Controller
             }
 
             SellerPanelSupportSettings::persistFromValidated($validated);
+            PlatformCompanySettings::persistFromValidated($validated);
         }
 
         if ($tenantId === null && array_key_exists('physical_products_enabled', $validated)) {
@@ -333,6 +354,12 @@ class SettingsController extends Controller
             'seller_panel_support_url',
             'seller_panel_support_icon',
             'seller_panel_support_color',
+        ];
+        $platformCompanyKeys = [
+            'platform_legal_name',
+            'platform_cnpj',
+            'platform_checkout_notice_enabled',
+            'platform_checkout_notice',
         ];
         $securityToggleKeys = [
             'login_turnstile_enabled',
@@ -383,6 +410,9 @@ class SettingsController extends Controller
                 continue;
             }
             if (in_array($key, $sellerPanelSupportKeys, true)) {
+                continue;
+            }
+            if (in_array($key, $platformCompanyKeys, true)) {
                 continue;
             }
             if (in_array($key, $securityToggleKeys, true)) {
