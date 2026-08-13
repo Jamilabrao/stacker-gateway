@@ -25,9 +25,10 @@ class ProcessPanelPushScheduleCommand extends Command
             $now = Carbon::now($tz);
             $target = DailySalesPushSettings::time(); // HH:mm
             [$h, $m] = array_map('intval', explode(':', $target));
-            if ((int) $now->format('H') === $h && (int) $now->format('i') === $m) {
+            $targetTime = $now->copy()->setTime($h, $m, 0);
+            if ($now->greaterThanOrEqualTo($targetTime)) {
                 $lockKey = 'daily_sales_push_dispatch:'.$now->toDateString();
-                if (Cache::add($lockKey, 1, now()->addHours(20))) {
+                if (Cache::add($lockKey, 1, now()->addHours(26))) {
                     ProcessDailySalesPushJob::dispatch();
                     $this->info('Resumo diário enfileirado.');
                 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessDailySalesPushJob;
 use App\Jobs\ProcessPanelPushCampaignJob;
 use App\Models\Order;
 use App\Models\PanelPushCampaign;
@@ -9,10 +10,12 @@ use App\Models\PanelPushDailySummaryLog;
 use App\Models\User;
 use App\Services\DailySalesPushService;
 use App\Services\PanelPushCampaignService;
+use App\Services\PanelPushService;
 use App\Support\DailySalesPushSettings;
 use App\Support\UserPushPreferences;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Tests\Concerns\UsesTestVapidKeys;
@@ -234,6 +237,86 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $this->assertSame(1, PanelPushDailySummaryLog::query()->where('tenant_id', $seller->id)->count());
         $this->assertSame(1, PanelPushDailySummaryLog::query()->where('tenant_id', $other->id)->count());
         $this->assertEquals(100, (float) PanelPushDailySummaryLog::query()->where('tenant_id', $seller->id)->value('orders_total'));
+    }
+
+    public function test_daily_summary_push_body_uses_today_count_and_platform_name(): void
+    {
+        if (! Schema::hasTable('panel_push_daily_summary_logs') || ! Schema::hasTable('orders')) {
+            $this->markTestSkipped('tabelas necessárias');
+        }
+
+        DailySalesPushSettings::persist([
+            'daily_sales_push_enabled' => true,
+            'daily_sales_push_time' => '20:00',
+            'daily_sales_push_timezone' => 'America/Sao_Paulo',
+            'daily_sales_push_only_when_has_sales' => true,
+        ]);
+
+        $seller = $this->seller();
+        $day = Carbon::now('America/Sao_Paulo')->startOfDay();
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'checkout_slug' => 'dailysumtoday',
+        ]);
+
+        $order = Order::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 100,
+            'currency' => 'BRL',
+            'payment_method' => 'pix',
+        ]);
+        Order::query()->whereKey($order->id)->update([
+            'created_at' => $day->copy()->addHours(10),
+            'updated_at' => $day->copy()->addHours(10),
+        ]);
+
+        $captured = [];
+        $this->mock(PanelPushService::class, function ($mock) use (&$captured) {
+            $mock->shouldReceive('sendAndPersistToTenant')
+                ->once()
+                ->andReturnUsing(function (...$args) use (&$captured) {
+                    $captured = $args;
+
+                    return 1;
+                });
+        });
+
+        app(DailySalesPushService::class)->processReferenceDate($day);
+
+        $this->assertNotEmpty($captured);
+        $this->assertSame('daily_sales_summary', $captured[1]);
+        $this->assertSame('Resumo de vendas do dia', $captured[2]);
+        $this->assertMatchesRegularExpression(
+            '/^Hoje você fez 1 venda, obrigado por usar a .+\.$/',
+            (string) $captured[3]
+        );
+    }
+
+    public function test_schedule_command_dispatches_daily_sales_after_configured_time(): void
+    {
+        Bus::fake([ProcessDailySalesPushJob::class]);
+        Cache::flush();
+
+        DailySalesPushSettings::persist([
+            'daily_sales_push_enabled' => true,
+            'daily_sales_push_time' => '20:00',
+            'daily_sales_push_timezone' => 'America/Sao_Paulo',
+            'daily_sales_push_only_when_has_sales' => true,
+        ]);
+
+        Carbon::setTestNow(Carbon::parse('2026-08-12 19:59:00', 'America/Sao_Paulo'));
+        $this->artisan('push:process-schedule')->assertSuccessful();
+        Bus::assertNotDispatched(ProcessDailySalesPushJob::class);
+
+        Carbon::setTestNow(Carbon::parse('2026-08-12 20:03:00', 'America/Sao_Paulo'));
+        $this->artisan('push:process-schedule')->assertSuccessful();
+        $this->artisan('push:process-schedule')->assertSuccessful();
+        Bus::assertDispatchedTimes(ProcessDailySalesPushJob::class, 1);
+
+        Carbon::setTestNow();
     }
 
     public function test_send_now_is_not_blocked_by_timezone_and_uses_utc(): void

@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Support\DailySalesPushSettings;
 use App\Support\UserPushPreferences;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -19,7 +20,7 @@ class DailySalesPushService
     ) {}
 
     /**
-     * Processa o resumo do dia operacional (ontem relativo ao horário de corte, ou data explícita).
+     * Processa o resumo do dia operacional (hoje no fuso configurado, ou data explícita).
      */
     public function processReferenceDate(?Carbon $referenceDate = null): int
     {
@@ -33,15 +34,15 @@ class DailySalesPushService
         $tz = DailySalesPushSettings::timezone();
         $day = $referenceDate
             ? $referenceDate->copy()->timezone($tz)->startOfDay()
-            : Carbon::now($tz)->subDay()->startOfDay();
+            : Carbon::now($tz)->startOfDay();
 
-        $startUtc = $day->copy()->timezone('UTC');
-        $endUtc = $day->copy()->endOfDay()->timezone('UTC');
+        $start = $day->copy()->startOfDay();
+        $end = $day->copy()->endOfDay();
         $dateKey = $day->toDateString();
 
         $rows = Order::query()
             ->where('status', 'completed')
-            ->whereBetween('updated_at', [$startUtc, $endUtc])
+            ->whereBetween('updated_at', [$start, $end])
             ->select([
                 'tenant_id',
                 DB::raw('COUNT(*) as orders_count'),
@@ -50,9 +51,15 @@ class DailySalesPushService
             ->groupBy('tenant_id')
             ->get();
 
+        Log::info('DailySalesPushService: processando resumo diário', [
+            'date' => $dateKey,
+            'timezone' => $tz,
+            'tenants_with_sales' => $rows->count(),
+        ]);
+
         $byTenantMethods = Order::query()
             ->where('status', 'completed')
-            ->whereBetween('updated_at', [$startUtc, $endUtc])
+            ->whereBetween('updated_at', [$start, $end])
             ->get(['tenant_id', 'payment_method', 'metadata', 'amount', 'gateway']);
 
         $methodsMap = [];
@@ -116,40 +123,43 @@ class DailySalesPushService
             return false;
         }
 
+        if (PanelPushDailySummaryLog::query()
+            ->where('tenant_id', $tenantId)
+            ->whereDate('reference_date', $dateKey)
+            ->exists()) {
+            return false;
+        }
+
         try {
-            PanelPushDailySummaryLog::query()->create([
-                'tenant_id' => $tenantId,
-                'reference_date' => $dateKey,
-                'orders_count' => $count,
-                'orders_total' => $total,
-                'by_method' => $byMethod,
-                'status' => 'sending',
-            ]);
-        } catch (\Throwable $e) {
-            // unique violation = já enviado
+            DB::transaction(function () use ($tenantId, $dateKey, $count, $total, $byMethod) {
+                PanelPushDailySummaryLog::query()->create([
+                    'tenant_id' => $tenantId,
+                    'reference_date' => $dateKey,
+                    'orders_count' => $count,
+                    'orders_total' => $total,
+                    'by_method' => $byMethod,
+                    'status' => 'sending',
+                ]);
+            });
+        } catch (UniqueConstraintViolationException $e) {
             Log::info('DailySalesPushService: já processado', [
                 'tenant_id' => $tenantId,
                 'date' => $dateKey,
             ]);
 
             return false;
+        } catch (\Throwable $e) {
+            Log::warning('DailySalesPushService: falha ao registrar resumo', [
+                'tenant_id' => $tenantId,
+                'date' => $dateKey,
+                'message' => $e->getMessage(),
+            ]);
+
+            return false;
         }
 
-        if ($count <= 0) {
-            $title = 'Resumo de vendas do dia';
-            $body = 'Hoje não foram registradas vendas aprovadas na sua operação.';
-        } else {
-            $formatted = number_format($total, 2, ',', '.');
-            $title = 'Resumo de vendas do dia';
-            $body = "Você realizou {$count} ".($count === 1 ? 'venda' : 'vendas')." hoje, totalizando R$ {$formatted}.";
-            if ($byMethod !== []) {
-                $parts = [];
-                foreach ($byMethod as $label => $qty) {
-                    $parts[] = "{$qty} via {$label}";
-                }
-                $body .= "\n".implode(' · ', $parts);
-            }
-        }
+        $title = 'Resumo de vendas do dia';
+        $body = $this->bodyForCount($count);
 
         $delivered = $this->panelPushService->sendAndPersistToTenant(
             $tenantId,
@@ -166,5 +176,17 @@ class DailySalesPushService
             ->update(['status' => $delivered > 0 ? 'sent' : 'no_subscription']);
 
         return true;
+    }
+
+    private function bodyForCount(int $count): string
+    {
+        $platform = trim((string) (BrandingEmailData::forTenant(null)['app_name'] ?? ''));
+        if ($platform === '') {
+            $platform = (string) config('getfy.app_name', config('app.name', 'Stacker'));
+        }
+
+        $vendas = $count === 1 ? 'venda' : 'vendas';
+
+        return "Hoje você fez {$count} {$vendas}, obrigado por usar a {$platform}.";
     }
 }
