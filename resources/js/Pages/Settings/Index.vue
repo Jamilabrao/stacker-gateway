@@ -24,6 +24,7 @@ import {
     Headset,
     Puzzle,
     Globe,
+    Building2,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
@@ -37,6 +38,7 @@ import DemoTab from '@/Pages/Settings/Tabs/DemoTab.vue';
 import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
 import SellerPanelSupportTab from '@/Pages/Settings/Tabs/SellerPanelSupportTab.vue';
 import PublicUrlTab from '@/Pages/Settings/Tabs/PublicUrlTab.vue';
+import PlatformDataTab from '@/Pages/Settings/Tabs/PlatformDataTab.vue';
 
 defineOptions({ layout: LayoutPlatform });
 
@@ -100,7 +102,7 @@ const props = defineProps({
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'lgpd', 'url_publica', 'cron', 'update', 'demo'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'lgpd', 'dados_plataforma', 'url_publica', 'cron', 'update', 'demo'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -201,6 +203,10 @@ const form = useForm({
     seller_panel_support_icon: props.settings.seller_panel_support_icon ?? 'whatsapp',
     seller_panel_support_icon_image: props.settings.seller_panel_support_icon_image ?? '',
     seller_panel_support_color: props.settings.seller_panel_support_color ?? '#25D366',
+    platform_legal_name: props.settings.platform_legal_name ?? '',
+    platform_cnpj: props.settings.platform_cnpj ?? '',
+    platform_checkout_notice_enabled: props.settings.platform_checkout_notice_enabled ?? '0',
+    platform_checkout_notice: props.settings.platform_checkout_notice ?? '',
 });
 
 const showCloudR2Override = ref(false);
@@ -228,6 +234,7 @@ const coreTabsStatic = [
     { id: 'suporte_painel', label: 'Suporte do painel', icon: Headset, group: 'operacao' },
     { id: 'seguranca', label: 'Segurança', icon: Shield, group: 'seguranca' },
     { id: 'lgpd', label: 'LGPD', icon: Scale, group: 'seguranca' },
+    { id: 'dados_plataforma', label: 'Dados da plataforma', icon: Building2, group: 'sistema' },
     { id: 'url_publica', label: 'URL pública', icon: Globe, group: 'sistema' },
     { id: 'cron', label: 'Cron', icon: Clock, group: 'sistema' },
     { id: 'update', label: 'Versão', icon: Tag, group: 'sistema' },
@@ -681,6 +688,18 @@ function syncSupportSettingsFromProps() {
     applySupportSettingsFromSettings(page.props.settings);
 }
 
+function applyPlatformCompanySettingsFromSettings(s) {
+    if (!s) return;
+    form.platform_legal_name = s.platform_legal_name ?? '';
+    form.platform_cnpj = s.platform_cnpj ?? '';
+    form.platform_checkout_notice_enabled = s.platform_checkout_notice_enabled ?? '0';
+    form.platform_checkout_notice = s.platform_checkout_notice ?? '';
+}
+
+function syncPlatformCompanySettingsFromProps() {
+    applyPlatformCompanySettingsFromSettings(page.props.settings);
+}
+
 function buildSettingsPayload() {
     const data = form.data();
     if (activeTab.value === 'lgpd') {
@@ -716,6 +735,14 @@ function buildSettingsPayload() {
             seller_panel_support_url: data.seller_panel_support_url,
             seller_panel_support_icon: data.seller_panel_support_icon,
             seller_panel_support_color: data.seller_panel_support_color,
+        };
+    }
+    if (activeTab.value === 'dados_plataforma') {
+        return {
+            platform_legal_name: data.platform_legal_name,
+            platform_cnpj: data.platform_cnpj,
+            platform_checkout_notice_enabled: data.platform_checkout_notice_enabled,
+            platform_checkout_notice: data.platform_checkout_notice,
         };
     }
     return {
@@ -798,6 +825,7 @@ function putSettings(payload, { onSuccess } = {}) {
                 syncLegalSettingsFromProps();
                 syncSecuritySettingsFromProps();
                 syncSupportSettingsFromProps();
+                syncPlatformCompanySettingsFromProps();
             },
             onFinish: () => {
                 form.transform((data) => data);
@@ -1568,6 +1596,23 @@ const selectClass =
             >
                 <div v-show="activeTab === 'suporte_painel'" class="space-y-6">
                     <SellerPanelSupportTab :form="form" />
+                </div>
+            </Transition>
+
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'dados_plataforma'" class="space-y-6">
+                    <PlatformDataTab
+                        :form="form"
+                        :notice-default="settings.platform_checkout_notice_default || ''"
+                        :placeholders="settings.platform_checkout_notice_placeholders || []"
+                    />
                 </div>
             </Transition>
 
