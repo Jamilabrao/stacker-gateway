@@ -23,8 +23,7 @@ class ProcessDailySalesPushJob implements ShouldQueue
         }
 
         $tz = DailySalesPushSettings::timezone();
-        // Resumo do dia que acabou de fechar (ontem no TZ configurado).
-        $reference = Carbon::now($tz)->subDay()->startOfDay();
+        $reference = Carbon::now($tz)->startOfDay();
         $service->processReferenceDate($reference);
     }
 }
