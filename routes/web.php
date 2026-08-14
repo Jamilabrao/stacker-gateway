@@ -570,6 +570,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/transacoes/pedidos/{order}/reembolsar', [\App\Http\Controllers\Platform\TransactionsController::class, 'refundOrder'])
             ->name('transacoes.pedidos.refund')
             ->middleware('throttle:10,1');
+        Route::post('/transacoes/pedidos/{order}/reembolso-manual', [\App\Http\Controllers\Platform\TransactionsController::class, 'refundOrderOffline'])
+            ->name('transacoes.pedidos.refund-offline')
+            ->middleware('throttle:10,1');
         Route::post('/transacoes/pedidos/{order}/marcar-med', [\App\Http\Controllers\Platform\TransactionsController::class, 'markDisputedOrder'])
             ->name('transacoes.pedidos.disputed')
             ->middleware('throttle:10,1');

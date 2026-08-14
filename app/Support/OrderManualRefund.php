@@ -20,6 +20,7 @@ class OrderManualRefund
      *     initiated_by_name: string,
      *     reason: string|null,
      *     refunded_at: string,
+     *     offline: bool,
      *     gateway_refund: array{status: string|null, note: string|null}
      * }
      */
@@ -33,6 +34,8 @@ class OrderManualRefund
             'initiated_by_name' => (string) $actor->name,
             'reason' => $reason !== '' ? $reason : null,
             'refunded_at' => now()->toIso8601String(),
+            'offline' => (bool) ($gatewayRefund['offline'] ?? false)
+                || (($gatewayRefund['status'] ?? null) === 'offline'),
             'gateway_refund' => [
                 'status' => isset($gatewayRefund['status']) ? (string) $gatewayRefund['status'] : null,
                 'note' => isset($gatewayRefund['note']) && $gatewayRefund['note'] !== null
@@ -50,6 +53,7 @@ class OrderManualRefund
      *     initiated_by_name: string,
      *     reason: string|null,
      *     refunded_at: string|null,
+     *     offline: bool,
      *     gateway_refund: array{status: string|null, note: string|null}
      * }|null
      */
@@ -62,6 +66,8 @@ class OrderManualRefund
         }
 
         $initiatedBy = (string) ($block['initiated_by'] ?? '');
+        $offline = ! empty($block['offline'])
+            || (($block['gateway_refund']['status'] ?? null) === 'offline');
 
         return [
             'initiated_by' => $initiatedBy,
@@ -78,6 +84,7 @@ class OrderManualRefund
             'refunded_at' => isset($block['refunded_at']) && $block['refunded_at'] !== ''
                 ? (string) $block['refunded_at']
                 : null,
+            'offline' => $offline,
             'gateway_refund' => [
                 'status' => isset($block['gateway_refund']['status'])
                     ? (string) $block['gateway_refund']['status']
@@ -87,5 +94,24 @@ class OrderManualRefund
                     : null,
             ],
         ];
+    }
+
+    public static function isOffline(Order $order): bool
+    {
+        $snap = self::snapshot($order);
+
+        return (bool) ($snap['offline'] ?? false);
+    }
+
+    public static function statusLabel(Order $order): string
+    {
+        return match ($order->status) {
+            'completed' => 'Aprovado',
+            'pending' => 'Pendente',
+            'disputed' => 'MED',
+            'cancelled' => 'Cancelado',
+            'refunded' => self::isOffline($order) ? 'Reembolso manual' : 'Reembolsado',
+            default => $order->status !== '' ? (string) $order->status : '—',
+        };
     }
 }

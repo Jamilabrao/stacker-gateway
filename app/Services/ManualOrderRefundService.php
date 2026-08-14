@@ -78,6 +78,45 @@ class ManualOrderRefundService
     }
 
     /**
+     * Reembolso já feito fora do sistema: não chama o gateway, debita a carteira e revoga o acesso.
+     *
+     * @return array{success: bool, message: string, gateway_status: string}
+     */
+    public function refundOffline(Order $order, User $actor, string $initiatedBy, ?string $reason = null): array
+    {
+        if (! OrderManualRefund::canManualRefund($order)) {
+            throw new InvalidArgumentException('Só é possível reembolsar pedidos pagos ou em MED.');
+        }
+
+        if (! in_array($initiatedBy, ['seller', 'platform'], true)) {
+            throw new InvalidArgumentException('Origem do reembolso inválida.');
+        }
+
+        $gw = [
+            'status' => 'offline',
+            'note' => 'Reembolso registrado manualmente (feito fora do sistema).',
+            'offline' => true,
+        ];
+
+        $manualRefundMeta = OrderManualRefund::buildMeta($actor, $initiatedBy, $reason, $gw);
+        $debitReason = $initiatedBy === 'platform' ? 'platform_offline_refund' : 'seller_offline_refund';
+
+        PlatformOrderAdminService::refundPaidOrDisputed($order, $manualRefundMeta, $debitReason);
+        $this->recordApprovedRefundRequest(
+            $order->fresh(),
+            $actor,
+            $reason ?: 'Reembolso manual (fora do sistema).',
+            $gw
+        );
+
+        return [
+            'success' => true,
+            'message' => 'Pedido #'.$order->id.' marcado como reembolso manual.',
+            'gateway_status' => 'offline',
+        ];
+    }
+
+    /**
      * Garante que o reembolso manual apareça em Vendas → Reembolsos (aba Aprovados).
      *
      * @param  array{status?: string, note?: string|null}  $gw

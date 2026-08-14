@@ -98,7 +98,7 @@ function rowStatusBadgeLabel(v) {
     if (v?.is_affiliate_commission) {
         return v.status_label ?? v.status ?? '–';
     }
-    return statusBadgeLabel(v.status);
+    return v.status_label ?? statusBadgeLabel(v.status);
 }
 
 function rowStatusBadgeClass(v) {
@@ -110,6 +110,9 @@ function rowStatusBadgeClass(v) {
             refunded: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
         };
         return map[v.status] ?? 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300';
+    }
+    if (v.status === 'refunded' && v.manual_refund?.offline) {
+        return 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300';
     }
     return statusBadgeClass(v.status);
 }
