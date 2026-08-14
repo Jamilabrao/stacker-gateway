@@ -181,6 +181,9 @@ class PlatformCompanySettingsTest extends TestCase
                 $this->assertStringNotContainsString('{cnpj}', $notice);
                 $this->assertStringNotContainsString('{infoprodutor}', $notice);
                 $this->assertStringNotContainsString('{empresa}', $notice);
+                $this->assertStringContainsString('{termos}', $notice);
+                $this->assertStringContainsString('{privacidade}', $notice);
+                $this->assertStringNotContainsString('<a ', $notice);
 
                 return true;
             }));
