@@ -11,6 +11,7 @@ import {
     CheckCircle,
     Ban,
     RotateCcw,
+    Banknote,
     AlertTriangle,
     Trash2,
 } from 'lucide-vue-next';
@@ -47,9 +48,17 @@ const menuEl = ref(null);
 const menuPos = ref({ top: 0, left: 0 });
 
 const refundModalOpen = ref(false);
+const refundMode = ref('gateway');
 const refundTargetId = ref(null);
 const refundReason = ref('');
+const refundTotpCode = ref('');
 const refundSubmitting = ref(false);
+
+const totpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
+const refundFormError = computed(() => {
+    const errors = page.props.errors || {};
+    return errors.totp_code || errors.reason || '';
+});
 
 const selectedIds = ref([]);
 const bulkDeleteOpen = ref(false);
@@ -123,7 +132,14 @@ function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 }
 
-function statusLabel(status) {
+function statusLabel(orderOrStatus) {
+    if (orderOrStatus && typeof orderOrStatus === 'object') {
+        if (orderOrStatus.status_label) return orderOrStatus.status_label;
+        if (orderOrStatus.status === 'refunded' && orderOrStatus.manual_refund?.offline) {
+            return 'Reembolso manual';
+        }
+        return statusLabel(orderOrStatus.status);
+    }
     const map = {
         completed: 'Aprovado',
         pending: 'Pendente',
@@ -131,13 +147,16 @@ function statusLabel(status) {
         cancelled: 'Cancelado',
         refunded: 'Reembolsado',
     };
-    return map[status] ?? status ?? '—';
+    return map[orderOrStatus] ?? orderOrStatus ?? '—';
 }
 
-function statusBadgeClass(status) {
+function statusBadgeClass(orderOrStatus) {
+    const status = orderOrStatus && typeof orderOrStatus === 'object' ? orderOrStatus.status : orderOrStatus;
+    const offline = Boolean(orderOrStatus && typeof orderOrStatus === 'object' && orderOrStatus.manual_refund?.offline);
     if (status === 'completed') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200';
     if (status === 'pending') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
     if (status === 'disputed') return 'bg-orange-100 text-orange-900 dark:bg-orange-900/30 dark:text-orange-100';
+    if (status === 'refunded' && offline) return 'bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-200';
     if (status === 'cancelled' || status === 'refunded') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200';
     return 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
 }
@@ -167,7 +186,7 @@ function approveQuerySuffix() {
     return s ? `?${s}` : '';
 }
 
-/** action: aprovar-manualmente | cancelar | reembolsar | marcar-med */
+/** action: aprovar-manualmente | cancelar | reembolsar | reembolso-manual | marcar-med */
 function orderActionUrl(action, id) {
     return `/plataforma/transacoes/pedidos/${id}/${action}${approveQuerySuffix()}`;
 }
@@ -182,42 +201,59 @@ function confirmCancel(id) {
     router.post(orderActionUrl('cancelar', id), {}, { preserveScroll: true });
 }
 
-function openRefundModal(id) {
+function openRefundModal(id, mode = 'gateway') {
     refundTargetId.value = id;
+    refundMode.value = mode;
     refundReason.value = '';
+    refundTotpCode.value = '';
     refundModalOpen.value = true;
 }
 
 function closeRefundModal() {
     refundModalOpen.value = false;
     refundTargetId.value = null;
+    refundMode.value = 'gateway';
     refundReason.value = '';
+    refundTotpCode.value = '';
 }
 
 function submitRefund() {
     const id = refundTargetId.value;
     const reason = refundReason.value?.trim() ?? '';
+    const offline = refundMode.value === 'offline';
     if (!id) return;
     if (reason.length < 3) {
         window.alert('Informe o motivo do reembolso (mínimo 3 caracteres).');
         return;
     }
+    const totp = (refundTotpCode.value || '').replace(/\D/g, '');
+    if (offline && totpEnabled.value && totp.length < 6) {
+        window.alert('Informe o código 2FA para confirmar o reembolso manual.');
+        return;
+    }
     refundSubmitting.value = true;
+    const payload = offline
+        ? (totpEnabled.value ? { reason, totp_code: totp } : { reason })
+        : { reason };
     router.post(
-        orderActionUrl('reembolsar', id),
-        { reason },
+        orderActionUrl(offline ? 'reembolso-manual' : 'reembolsar', id),
+        payload,
         {
             preserveScroll: true,
+            onSuccess: () => closeRefundModal(),
             onFinish: () => {
                 refundSubmitting.value = false;
-                closeRefundModal();
             },
         }
     );
 }
 
 function confirmRefund(id) {
-    openRefundModal(id);
+    openRefundModal(id, 'gateway');
+}
+
+function confirmOfflineRefund(id) {
+    openRefundModal(id, 'offline');
 }
 
 function confirmMed(id, wasPaid) {
@@ -623,9 +659,9 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             <td class="whitespace-nowrap px-4 py-3">
                                 <div class="flex flex-col gap-1">
                                     <span
-                                        :class="['inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium', statusBadgeClass(o.status)]"
+                                        :class="['inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium', statusBadgeClass(o)]"
                                     >
-                                        {{ statusLabel(o.status) }}
+                                        {{ statusLabel(o) }}
                                     </span>
                                     <span
                                         v-if="o.pending_refund_request"
@@ -775,6 +811,14 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                     </button>
                     <button
                         type="button"
+                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-amber-800 hover:bg-amber-50 dark:text-amber-200 dark:hover:bg-amber-950/30"
+                        @click="runMenuAction((r) => confirmOfflineRefund(r.id))"
+                    >
+                        <Banknote class="h-4 w-4 shrink-0" />
+                        Reembolso manual
+                    </button>
+                    <button
+                        type="button"
                         class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                         @click="runMenuAction((r) => confirmMed(r.id, true))"
                     >
@@ -790,6 +834,14 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                     >
                         <RotateCcw class="h-4 w-4 shrink-0" />
                         Reembolsar
+                    </button>
+                    <button
+                        type="button"
+                        class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-amber-800 hover:bg-amber-50 dark:text-amber-200 dark:hover:bg-amber-950/30"
+                        @click="runMenuAction((r) => confirmOfflineRefund(r.id))"
+                    >
+                        <Banknote class="h-4 w-4 shrink-0" />
+                        Reembolso manual
                     </button>
                 </template>
                 <div class="my-1 border-t border-zinc-200 dark:border-zinc-700" role="separator" />
@@ -814,10 +866,15 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
             <div class="absolute inset-0 bg-zinc-900/50 dark:bg-zinc-950/60" @click="closeRefundModal" />
             <div class="relative w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
                 <h3 id="platform-refund-modal-title" class="text-lg font-semibold text-zinc-900 dark:text-white">
-                    Reembolsar pedido
+                    {{ refundMode === 'offline' ? 'Reembolso manual' : 'Reembolsar pedido' }}
                 </h3>
                 <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                    O pedido será marcado como <strong>Reembolsado</strong>. O saldo do infoprodutor será debitado se houver crédito na carteira. O motivo ficará visível para o infoprodutor.
+                    <template v-if="refundMode === 'offline'">
+                        Use quando o reembolso já foi feito <strong>fora do sistema</strong> (por exemplo, se o reembolso no gateway falhou). O pedido ficará com status <strong>Reembolso manual</strong>, o cliente perderá o acesso ao material e o valor será debitado da carteira do infoprodutor.
+                    </template>
+                    <template v-else>
+                        O pedido será marcado como <strong>Reembolsado</strong>. O saldo do infoprodutor será debitado se houver crédito na carteira. O motivo ficará visível para o infoprodutor.
+                    </template>
                 </p>
                 <label class="mt-4 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                     Motivo do reembolso
@@ -830,6 +887,30 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                         placeholder="Descreva o motivo (visível ao infoprodutor)"
                     />
                 </label>
+                <div v-if="refundMode === 'offline'" class="mt-4 space-y-3">
+                    <p
+                        class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100"
+                    >
+                        Recomendamos ativar o 2FA em
+                        <a href="/plataforma/meu-perfil" class="font-semibold underline">Meu perfil</a>
+                        para proteger ações sensíveis como o reembolso manual.
+                    </p>
+                    <label v-if="totpEnabled" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                        Código 2FA
+                        <input
+                            v-model="refundTotpCode"
+                            type="text"
+                            inputmode="numeric"
+                            maxlength="6"
+                            autocomplete="one-time-code"
+                            class="mt-1.5 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm tracking-widest text-zinc-900 placeholder:text-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            placeholder="000000"
+                        />
+                    </label>
+                </div>
+                <p v-if="refundFormError" class="mt-3 text-sm text-red-600 dark:text-red-400">
+                    {{ refundFormError }}
+                </p>
                 <div class="mt-5 flex justify-end gap-2">
                     <button
                         type="button"
@@ -845,7 +926,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                         :disabled="refundSubmitting"
                         @click="submitRefund"
                     >
-                        {{ refundSubmitting ? 'Processando...' : 'Confirmar reembolso' }}
+                        {{ refundSubmitting ? 'Processando...' : (refundMode === 'offline' ? 'Confirmar reembolso manual' : 'Confirmar reembolso') }}
                     </button>
                 </div>
             </div>

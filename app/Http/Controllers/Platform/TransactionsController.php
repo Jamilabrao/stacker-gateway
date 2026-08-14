@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Platform;
 
+use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Controller;
 use App\Models\CheckoutSession;
 use App\Models\MedDispute;
@@ -30,6 +31,8 @@ use InvalidArgumentException;
 
 class TransactionsController extends Controller
 {
+    use RequiresPlatformStepUp;
+
     public function __construct(
         protected WithdrawalPixReceiptService $receiptService,
     ) {}
@@ -235,6 +238,7 @@ class TransactionsController extends Controller
         $arr['cajupay_account_badge'] = $cajupayBadge;
         $arr['can_manual_refund'] = OrderManualRefund::canManualRefund($o);
         $arr['manual_refund'] = OrderManualRefund::snapshot($o);
+        $arr['status_label'] = OrderManualRefund::statusLabel($o);
         $arr['pending_refund_request'] = $this->mapPendingRefundRequest($o);
 
         return $arr;
@@ -440,6 +444,49 @@ class TransactionsController extends Controller
         }
 
         PlatformAuditService::log('platform.order.refunded', [
+            'order_id' => $order->id,
+            'tenant_id' => $order->tenant_id,
+            'reason' => $validated['reason'],
+        ], $request);
+
+        return redirect()->route('plataforma.transacoes.index', $redirectParams)
+            ->with('success', $result['message']);
+    }
+
+    public function refundOrderOffline(Request $request, Order $order, ManualOrderRefundService $refundService): RedirectResponse
+    {
+        $redirectParams = $this->orderActionRedirectParams($request);
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'totp_code' => ['nullable', 'string', 'max:12'],
+        ], [
+            'reason.required' => 'Informe o motivo do reembolso manual para o infoprodutor.',
+            'reason.min' => 'O motivo deve ter pelo menos 3 caracteres.',
+        ]);
+
+        $this->validatePlatformStepUp($request);
+
+        try {
+            $result = $refundService->refundOffline(
+                $order,
+                $request->user(),
+                'platform',
+                $validated['reason']
+            );
+        } catch (InvalidArgumentException $e) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', 'Não foi possível registrar o reembolso manual: '.$e->getMessage());
+        }
+
+        if (! $result['success']) {
+            return redirect()->route('plataforma.transacoes.index', $redirectParams)
+                ->with('error', $result['message']);
+        }
+
+        PlatformAuditService::log('platform.order.refunded_offline', [
             'order_id' => $order->id,
             'tenant_id' => $order->tenant_id,
             'reason' => $validated['reason'],

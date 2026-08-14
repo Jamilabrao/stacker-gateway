@@ -57,6 +57,12 @@ function formatDate(value) {
 }
 
 function statusLabel(status) {
+    if (props.venda?.status_label) {
+        return props.venda.status_label;
+    }
+    if (status === 'refunded' && props.venda?.manual_refund?.offline) {
+        return 'Reembolso manual';
+    }
     const map = {
         completed: 'Pago',
         pending: 'Pendente',
@@ -212,7 +218,9 @@ const shippingDeliveryLabel = computed(() => {
                                 v-if="venda.status === 'refunded' && venda.manual_refund"
                                 class="space-y-2 rounded-xl border border-red-200 bg-red-50/80 px-3 py-3 dark:border-red-900/50 dark:bg-red-950/30"
                             >
-                                <p class="text-xs font-medium uppercase tracking-wide text-red-800 dark:text-red-200">Reembolso</p>
+                                <p class="text-xs font-medium uppercase tracking-wide text-red-800 dark:text-red-200">
+                                    {{ venda.manual_refund.offline ? 'Reembolso manual' : 'Reembolso' }}
+                                </p>
                                 <p class="text-sm text-red-900 dark:text-red-100">
                                     Por: <strong>{{ refundAuthorLabel(venda.manual_refund) }}</strong>
                                     <span v-if="venda.manual_refund.initiated_by_name">

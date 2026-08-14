@@ -362,6 +362,7 @@ class VendasController extends Controller
             : ($policy->isApiPixRestOrder($o) ? 'API PIX' : null);
         $arr['can_manual_refund'] = OrderManualRefund::canManualRefund($o);
         $arr['manual_refund'] = OrderManualRefund::snapshot($o);
+        $arr['status_label'] = $this->statusLabelForOrder($o);
         $arr['is_affiliate_sale'] = $o->isAffiliateSale();
         $arr['is_affiliate_commission'] = false;
         $arr['list_key'] = 'order:'.$o->id;
@@ -845,7 +846,7 @@ class VendasController extends Controller
                 'produto' => $this->productDisplayName($o),
                 'cliente' => $o->user?->name ?? $o->email ?? '–',
                 'email' => $o->email ?? '–',
-                'status' => $this->statusLabel($o->status),
+                'status' => $this->statusLabelForOrder($o),
                 'gateway' => $o->paymentMethodDisplayLabel(),
                 'valor_liquido' => number_format($net, 2, ',', '.'),
             ];
@@ -906,6 +907,15 @@ class VendasController extends Controller
         ];
 
         return $map[$status ?? ''] ?? ($status ?? '–');
+    }
+
+    private function statusLabelForOrder(Order $order): string
+    {
+        if ($order->status === 'refunded' && OrderManualRefund::isOffline($order)) {
+            return 'Reembolso manual';
+        }
+
+        return $this->statusLabel($order->status);
     }
 
     public function resendAccessEmail(Order $order, AccessEmailService $accessEmailService): JsonResponse

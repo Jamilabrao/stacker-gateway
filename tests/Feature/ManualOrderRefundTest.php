@@ -8,12 +8,17 @@ use App\Models\Order;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\OrderRefundGatewayBridge;
+use App\Services\Platform\PlatformTotpService;
+use App\Support\OrderManualRefund;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Schema;
+use Tests\Concerns\GeneratesTotpCodes;
 use Tests\TestCase;
 
 class ManualOrderRefundTest extends TestCase
 {
+    use GeneratesTotpCodes;
     protected function setUp(): void
     {
         parent::setUp();
@@ -320,5 +325,195 @@ class ManualOrderRefundTest extends TestCase
 
         $this->assertTrue($product->fresh()->hasMemberAreaAccess($buyer->fresh()));
         $this->assertTrue($product->users()->where('user_id', $buyer->id)->exists());
+    }
+
+    private function platformAdminWithTotp(): array
+    {
+        $admin = $this->platformAdmin();
+        $setup = PlatformTotpService::beginEnrollment($admin->fresh());
+        PlatformTotpService::confirmEnrollment(
+            $admin->fresh(),
+            $this->totpCodeForSecret($setup['secret'])
+        );
+
+        return ['admin' => $admin->fresh(), 'secret' => $setup['secret']];
+    }
+
+    public function test_offline_refund_does_not_require_totp_when_not_enabled(): void
+    {
+        $admin = $this->platformAdmin();
+        $merchant = $this->createMerchantWithWallet();
+        $order = $this->createCompletedOrder($merchant);
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.transacoes.pedidos.refund-offline', $order), [
+                'reason' => 'Estorno feito no painel do adquirente',
+            ])
+            ->assertRedirect();
+
+        $order->refresh();
+        $this->assertSame('refunded', $order->status);
+        $this->assertTrue(OrderManualRefund::isOffline($order));
+    }
+
+    public function test_offline_refund_requires_totp_code_when_enabled(): void
+    {
+        ['admin' => $admin] = $this->platformAdminWithTotp();
+        $merchant = $this->createMerchantWithWallet();
+        $order = $this->createCompletedOrder($merchant);
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.transacoes.pedidos.refund-offline', $order), [
+                'reason' => 'Estorno feito no painel do adquirente',
+            ])
+            ->assertSessionHasErrors('totp_code');
+
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_offline_refund_requires_reason(): void
+    {
+        ['admin' => $admin, 'secret' => $secret] = $this->platformAdminWithTotp();
+        $merchant = $this->createMerchantWithWallet();
+        $order = $this->createCompletedOrder($merchant);
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.transacoes.pedidos.refund-offline', $order), [
+                'totp_code' => $this->totpCodeForSecret($secret),
+            ])
+            ->assertSessionHasErrors('reason');
+
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_offline_refund_rejects_invalid_totp(): void
+    {
+        ['admin' => $admin] = $this->platformAdminWithTotp();
+        $merchant = $this->createMerchantWithWallet();
+        $order = $this->createCompletedOrder($merchant);
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.transacoes.pedidos.refund-offline', $order), [
+                'reason' => 'Estorno feito no painel do adquirente',
+                'totp_code' => '000000',
+            ])
+            ->assertSessionHasErrors('totp_code');
+
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_offline_refund_skips_gateway_debits_wallet_revokes_access_and_sets_status_label(): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        $this->mock(OrderRefundGatewayBridge::class, function ($mock) {
+            $mock->shouldNotReceive('tryRefund');
+        });
+
+        $merchant = $this->createMerchantWithWallet(95.0);
+        $buyer = User::factory()->create([
+            'role' => User::ROLE_ALUNO,
+            'email' => 'aluno-offline-refund@test.com',
+        ]);
+        $product = $this->createTestProduct(['tenant_id' => $merchant->id]);
+
+        $order = Order::create([
+            'tenant_id' => $merchant->id,
+            'user_id' => $buyer->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 100.0,
+            'gateway' => 'stripe',
+            'payment_method' => 'pix',
+            'approved_manually' => false,
+            'email' => $buyer->email,
+        ]);
+
+        if (Schema::hasTable('product_user')) {
+            $order->grantPurchasedProductAccessToBuyer();
+            $this->assertTrue($product->fresh()->hasMemberAreaAccess($buyer));
+        }
+
+        WalletTransaction::create([
+            'tenant_id' => $merchant->id,
+            'order_id' => $order->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE,
+            'amount_gross' => 100.00,
+            'amount_fee' => 5.00,
+            'amount_net' => 95.00,
+        ]);
+
+        ['admin' => $admin, 'secret' => $secret] = $this->platformAdminWithTotp();
+
+        $this->actingAs($admin)
+            ->post(route('plataforma.transacoes.pedidos.refund-offline', $order), [
+                'reason' => 'Reembolso falhou no gateway; feito no painel do adquirente',
+                'totp_code' => $this->totpCodeForSecret($secret),
+            ])
+            ->assertRedirect();
+
+        $order->refresh();
+        $this->assertSame('refunded', $order->status);
+        $this->assertTrue(OrderManualRefund::isOffline($order));
+        $this->assertSame('Reembolso manual', OrderManualRefund::statusLabel($order));
+        $this->assertSame('platform', $order->metadata['manual_refund']['initiated_by'] ?? null);
+        $this->assertTrue((bool) ($order->metadata['manual_refund']['offline'] ?? false));
+
+        $wallet = TenantWallet::query()->where('tenant_id', $merchant->id)->first();
+        $this->assertNotNull($wallet);
+        $this->assertEquals(0.0, (float) $wallet->available_pix);
+
+        $this->assertTrue(
+            WalletTransaction::query()
+                ->where('order_id', $order->id)
+                ->where('type', WalletTransaction::TYPE_DEBIT_REFUND)
+                ->exists()
+        );
+
+        if (Schema::hasTable('product_user')) {
+            $this->assertFalse($product->fresh()->hasMemberAreaAccess($buyer->fresh()));
+        }
+
+        $this->actingAs($admin)
+            ->get(route('plataforma.transacoes.index', ['q' => 'aluno-offline-refund@test.com']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Platform/Transactions/Index')
+                ->has('orders.data', 1)
+                ->where('orders.data.0.status_label', 'Reembolso manual')
+                ->where('orders.data.0.manual_refund.offline', true)
+            );
+    }
+
+    public function test_offline_refund_cannot_be_applied_to_pending_order(): void
+    {
+        ['admin' => $admin, 'secret' => $secret] = $this->platformAdminWithTotp();
+        $merchant = $this->createMerchantWithWallet();
+        $product = $this->createTestProduct(['tenant_id' => $merchant->id]);
+
+        $order = Order::create([
+            'tenant_id' => $merchant->id,
+            'user_id' => $merchant->id,
+            'product_id' => $product->id,
+            'status' => 'pending',
+            'amount' => 50.0,
+            'gateway' => 'stripe',
+            'approved_manually' => false,
+            'email' => 'pending-offline@test.com',
+        ]);
+
+        $this->actingAs($admin)
+            ->from(route('plataforma.transacoes.index'))
+            ->post(route('plataforma.transacoes.pedidos.refund-offline', $order), [
+                'reason' => 'Tentativa inválida em pedido pendente',
+                'totp_code' => $this->totpCodeForSecret($secret),
+            ])
+            ->assertRedirect(route('plataforma.transacoes.index'))
+            ->assertSessionHas('error');
+
+        $this->assertSame('pending', $order->fresh()->status);
     }
 }
