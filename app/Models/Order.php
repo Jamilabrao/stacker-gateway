@@ -321,10 +321,7 @@ class Order extends Model
                 ? (float) $breakdown['net']
                 : (float) $breakdown['gross'];
             $amount = number_format($value, 2, ',', '.');
-            $label = $mode === UserPushPreference::SALE_AMOUNT_MODE_NET
-                ? 'Valor líquido'
-                : 'Valor bruto';
-            $lines[] = $label.': R$ '.$amount;
+            $lines[] = 'Valor: R$ '.$amount;
         }
         if (! empty($prefs['show_payment_method'])) {
             $lines[] = 'Pagamento: '.$this->paymentMethodPushLabel();

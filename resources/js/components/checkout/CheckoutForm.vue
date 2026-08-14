@@ -22,6 +22,7 @@ import { isValidCpf } from '@/utils/brazilianDocuments.js';
 import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
 import { trackCheckoutPurchase } from '@/composables/useCheckoutPurchaseTracking.js';
 import { getMetricsSessionKey } from '@/lib/metricsTracking.js';
+import CheckoutPlatformNotice from './CheckoutPlatformNotice.vue';
 
 const STORAGE_KEY = 'checkout_draft';
 
@@ -222,6 +223,8 @@ const props = defineProps({
     /** Cloudflare Turnstile: { enabled, site_key, mode } */
     turnstile: { type: Object, default: () => ({ enabled: false, site_key: '', mode: 'pix_boleto' }) },
     checkoutBuilderPreview: { type: Boolean, default: false },
+    /** Aviso legal da plataforma (texto interpolado, com {termos}/{privacidade}). Vazio = Termos · Privacidade. */
+    platformCheckoutNotice: { type: String, default: '' },
 });
 
 /** iPhone / iPod / iPad (inclui iPadOS com UA de desktop). */
@@ -3317,12 +3320,18 @@ function submit() {
             <p class="mt-2 text-center text-xs text-gray-400">
                 Copyright © {{ new Date().getFullYear() }}. Todos os direitos reservados.
             </p>
-            <p class="mt-2 text-center text-xs text-gray-400">
-                <a href="/termos-de-uso" target="_blank" rel="noopener" class="underline hover:text-gray-600">Termos</a>
-                <span class="mx-1">·</span>
-                <a href="/politica-privacidade" target="_blank" rel="noopener" class="underline hover:text-gray-600">Privacidade</a>
-            </p>
         </footer>
+        <CheckoutPlatformNotice
+            v-if="platformCheckoutNotice"
+            data-checkout="platform-notice"
+            class="mt-4 text-center text-xs leading-relaxed text-gray-400 sm:mt-2"
+            :text="platformCheckoutNotice"
+        />
+        <p v-else class="mt-4 text-center text-xs text-gray-400 sm:mt-2">
+            <a href="/termos-de-uso" target="_blank" rel="noopener" class="underline hover:text-gray-600">Termos</a>
+            <span class="mx-1">·</span>
+            <a href="/politica-privacidade" target="_blank" rel="noopener" class="underline hover:text-gray-600">Privacidade</a>
+        </p>
 
         <!-- Modal pagamento recusado (cartão) -->
         <Teleport to="body">

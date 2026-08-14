@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import VueApexCharts from 'vue3-apexcharts';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
@@ -7,6 +7,7 @@ import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
 import AuroraStatCard from '@/components/aurora/AuroraStatCard.vue';
 import MetricsNav from '@/components/metrics/MetricsNav.vue';
 import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
+import { useThemeMode } from '@/composables/useThemeMode';
 import {
     Users, MousePointerClick, ShoppingCart, QrCode, BadgeCheck,
     Percent, CircleDollarSign, Wallet, Timer, TrendingUp,
@@ -34,10 +35,7 @@ const props = defineProps({
     tab: { type: String, default: 'dashboard' },
 });
 
-const isDark = ref(false);
-onMounted(() => {
-    isDark.value = document.documentElement.classList.contains('dark');
-});
+const { isDark } = useThemeMode();
 
 function money(v) {
     return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -86,12 +84,12 @@ const chartOpts = computed(() => ({
     grid: { borderColor: isDark.value ? '#3f3f46' : '#e4e4e7' },
     colors: ['#059669', '#2563eb', '#d97706'],
     fill: { type: 'gradient', gradient: { opacityFrom: 0.35, opacityTo: 0.05 } },
+    tooltip: { theme: isDark.value ? 'dark' : 'light' },
 }));
 
 const revenueOpts = computed(() => ({
     ...chartOpts.value,
-    colors: ['#059669', '#7c3aed'],
-    chart: { ...chartOpts.value.chart, type: 'line' },
+    colors: ['#059669', '#2563eb'],
 }));
 
 const deviceOpts = computed(() => ({
@@ -99,6 +97,7 @@ const deviceOpts = computed(() => ({
     labels: props.by_device.map((r) => r.label),
     legend: { position: 'bottom', labels: { colors: isDark.value ? '#e4e4e7' : '#27272a' } },
     colors: ['#059669', '#2563eb', '#d97706', '#db2777'],
+    tooltip: { theme: isDark.value ? 'dark' : 'light' },
 }));
 
 function onProductChange(e) {
@@ -165,7 +164,7 @@ function onProductChange(e) {
                 </div>
                 <div :class="[innerPanelClass, 'p-4']">
                     <h3 class="mb-3 text-sm font-semibold text-zinc-900 dark:text-white">Receita e PIX gerados</h3>
-                    <VueApexCharts :key="`revenue-${period}`" type="line" height="280" :options="revenueOpts" :series="seriesRevenue" />
+                    <VueApexCharts :key="`revenue-${period}`" type="area" height="280" :options="revenueOpts" :series="seriesRevenue" />
                 </div>
             </div>
 

@@ -21,7 +21,7 @@ final class PlatformCompanySettings
     public const KEY_CHECKOUT_NOTICE = 'platform_checkout_notice';
 
     public const DEFAULT_CHECKOUT_NOTICE = <<<'TXT'
-Ao concluir a compra na {plataforma}, você declara estar de acordo com os Termos de Uso e demais Políticas da empresa {razao_social}, inscrita no CNPJ {cnpj}.
+Ao concluir a compra na {plataforma}, você declara estar de acordo com os {termos} e a política de {privacidade} da empresa {razao_social}, inscrita no CNPJ {cnpj}.
 
 A responsabilidade pela oferta, entrega e qualidade do produto é de {infoprodutor}, que realiza a venda por meio da nossa plataforma, através do email {email_infoprodutor}.
 TXT;
@@ -37,6 +37,8 @@ TXT;
         ['token' => '{infoprodutor}', 'label' => 'Nome do infoprodutor vendedor'],
         ['token' => '{email_infoprodutor}', 'label' => 'E-mail do infoprodutor vendedor'],
         ['token' => '{empresa}', 'label' => 'Nome comercial (Empresa) do infoprodutor'],
+        ['token' => '{termos}', 'label' => 'Link clicável “Termos” para /termos-de-uso'],
+        ['token' => '{privacidade}', 'label' => 'Link clicável “Privacidade” para /politica-privacidade'],
     ];
 
     public static function legalName(): string
@@ -89,7 +91,8 @@ TXT;
     }
 
     /**
-     * Texto já interpolado para o checkout. Null quando desativado ou vazio.
+     * Texto interpolado para o checkout. Null quando desativado ou vazio.
+     * Mantém {termos} e {privacidade} para o front renderizar os links.
      */
     public static function resolvedCheckoutNoticeForTenant(?int $tenantId): ?string
     {
@@ -105,8 +108,7 @@ TXT;
             return null;
         }
 
-        $text = self::replaceCheckoutNoticePlaceholders($template, $tenantId);
-        $text = trim($text);
+        $text = trim(self::replaceCheckoutNoticePlaceholders($template, $tenantId));
 
         return $text !== '' ? $text : null;
     }

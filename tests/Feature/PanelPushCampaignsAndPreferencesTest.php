@@ -212,7 +212,9 @@ class PanelPushCampaignsAndPreferencesTest extends TestCase
         $boletoBody = $boletoOrder->boletoGeneratedPushBody();
 
         foreach ([$saleBody, $pixBody, $boletoBody] as $body) {
-            $this->assertStringContainsString('Valor bruto: R$ 80,00', $body);
+            $this->assertStringContainsString('Valor: R$ 80,00', $body);
+            $this->assertStringNotContainsString('bruto', $body);
+            $this->assertStringNotContainsString('líquido', $body);
             $this->assertStringNotContainsString('Curso Secreto', $body);
             $this->assertStringNotContainsString('Pagamento:', $body);
         }

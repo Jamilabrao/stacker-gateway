@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { Building2 } from 'lucide-vue-next';
 import { formatCnpjMask } from '@/utils/brazilianDocuments';
+import CheckoutPlatformNotice from '@/components/checkout/CheckoutPlatformNotice.vue';
 
 const props = defineProps({
     form: { type: Object, required: true },
@@ -19,6 +20,8 @@ const fallbackPlaceholders = [
     { token: '{infoprodutor}', label: 'Nome do infoprodutor vendedor' },
     { token: '{email_infoprodutor}', label: 'E-mail do infoprodutor vendedor' },
     { token: '{empresa}', label: 'Nome comercial (Empresa) do infoprodutor' },
+    { token: '{termos}', label: 'Link clicável “Termos” para /termos-de-uso' },
+    { token: '{privacidade}', label: 'Link clicável “Privacidade” para /politica-privacidade' },
 ];
 
 const placeholderList = computed(() =>
@@ -60,7 +63,7 @@ function applyDefaultNotice() {
         return;
     }
     props.form.platform_checkout_notice = props.noticeDefault
-        || `Ao concluir a compra na {plataforma}, você declara estar de acordo com os Termos de Uso e demais Políticas da empresa {razao_social}, inscrita no CNPJ {cnpj}.
+        || `Ao concluir a compra na {plataforma}, você declara estar de acordo com os {termos} e a política de {privacidade} da empresa {razao_social}, inscrita no CNPJ {cnpj}.
 
 A responsabilidade pela oferta, entrega e qualidade do produto é de {infoprodutor}, que realiza a venda por meio da nossa plataforma, através do email {email_infoprodutor}.`;
 }
@@ -157,7 +160,7 @@ const noticePreview = computed(() => previewReplace(props.form.platform_checkout
                         Exibir aviso no final do checkout
                     </span>
                     <span class="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
-                        Desativado: o checkout permanece como está. Ativado: a mensagem abaixo aparece no final da página de compra.
+                        Desativado: o checkout mostra Termos · Privacidade. Ativado: a mensagem abaixo substitui esses links no quadro do checkout.
                     </span>
                 </span>
             </label>
@@ -221,9 +224,10 @@ const noticePreview = computed(() => previewReplace(props.form.platform_checkout
                     <p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                         Pré-visualização
                     </p>
-                    <p class="mt-2 whitespace-pre-line text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
-                        {{ noticePreview }}
-                    </p>
+                    <CheckoutPlatformNotice
+                        class="mt-2 text-xs leading-relaxed text-zinc-600 dark:text-zinc-300 [&_a]:text-sky-700 dark:[&_a]:text-sky-300"
+                        :text="noticePreview"
+                    />
                 </div>
             </div>
         </div>
