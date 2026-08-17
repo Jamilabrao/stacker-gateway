@@ -7,6 +7,7 @@ use App\Models\RefundRequest;
 use App\Services\RefundRequestService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -51,6 +52,8 @@ class SellerRefundRequestsController extends Controller
         }
         try {
             $this->refundRequestService->approve($user, $refundRequest);
+        } catch (InvalidArgumentException $e) {
+            return back()->with('error', $e->getMessage());
         } catch (\Throwable $e) {
             report($e);
 

@@ -57,6 +57,8 @@ class RefundRequestService
             throw new \InvalidArgumentException('Pedido inválido.');
         }
 
+        SellerRefundBalanceGuard::assertSufficient($order);
+
         $gw = $this->gatewayBridge->tryRefund($order);
         $request->update([
             'gateway_refund_status' => $gw['status'],

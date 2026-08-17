@@ -282,13 +282,9 @@ class PlatformOrderAdminService
                 $totalFee += (float) $line->amount_fee;
 
                 if ($line->type === WalletTransaction::TYPE_CREDIT_SALE_PENDING) {
-                    $pending = (float) ($wallet->{$pendCol} ?? 0);
-                    $take = min($n, max(0, $pending));
-                    $wallet->{$pendCol} = round($pending - $take, 2);
+                    self::takeFromWalletBucket($wallet, $pendCol, $availCol, $n);
                 } elseif ($line->type === WalletTransaction::TYPE_CREDIT_SALE) {
-                    $available = (float) ($wallet->{$availCol} ?? 0);
-                    $take = min($n, max(0, $available));
-                    $wallet->{$availCol} = round($available - $take, 2);
+                    self::takeFromWalletBucket($wallet, $availCol, $pendCol, $n);
                 }
             }
 
@@ -467,6 +463,24 @@ class PlatformOrderAdminService
             'gateway_refund_status' => 'gateway_ok',
             'resolved_at' => now(),
         ]);
+    }
+
+    private static function takeFromWalletBucket(
+        TenantWallet $wallet,
+        string $primaryCol,
+        string $secondaryCol,
+        float $amount,
+    ): void {
+        $remaining = $amount;
+        $primary = (float) ($wallet->{$primaryCol} ?? 0);
+        $takePrimary = min($remaining, max(0, $primary));
+        $wallet->{$primaryCol} = round($primary - $takePrimary, 2);
+        $remaining = round($remaining - $takePrimary, 2);
+        if ($remaining > 0.0001) {
+            $secondary = (float) ($wallet->{$secondaryCol} ?? 0);
+            $takeSecondary = min($remaining, max(0, $secondary));
+            $wallet->{$secondaryCol} = round($secondary - $takeSecondary, 2);
+        }
     }
 
     private static function recalcWalletAggregates(TenantWallet $wallet): void

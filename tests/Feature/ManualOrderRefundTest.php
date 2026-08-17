@@ -516,4 +516,188 @@ class ManualOrderRefundTest extends TestCase
 
         $this->assertSame('pending', $order->fresh()->status);
     }
+
+    public function test_seller_cannot_refund_when_wallet_balance_is_insufficient(): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        $this->mock(OrderRefundGatewayBridge::class, function ($mock) {
+            $mock->shouldNotReceive('tryRefund');
+        });
+
+        $merchant = $this->createMerchantWithWallet(0);
+        $order = $this->createCompletedOrder($merchant, 100.0);
+
+        WalletTransaction::create([
+            'tenant_id' => $merchant->id,
+            'order_id' => $order->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE,
+            'amount_gross' => 100.00,
+            'amount_fee' => 5.00,
+            'amount_net' => 95.00,
+        ]);
+
+        $response = $this->actingAs($merchant)->postJson(route('vendas.refund-manually', $order), [
+            'reason' => 'Cliente pediu estorno',
+        ]);
+
+        $response->assertStatus(422)->assertJson([
+            'success' => false,
+            'message' => \App\Services\SellerRefundBalanceGuard::denialMessage(0.0, 95.0),
+        ]);
+        $this->assertSame('completed', $order->fresh()->status);
+        $this->assertFalse(
+            WalletTransaction::query()
+                ->where('order_id', $order->id)
+                ->where('type', WalletTransaction::TYPE_DEBIT_REFUND)
+                ->exists()
+        );
+    }
+
+    public function test_seller_cannot_refund_when_wallet_has_partial_balance(): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        $this->mock(OrderRefundGatewayBridge::class, function ($mock) {
+            $mock->shouldNotReceive('tryRefund');
+        });
+
+        $merchant = $this->createMerchantWithWallet(40.0);
+        $order = $this->createCompletedOrder($merchant, 100.0);
+
+        WalletTransaction::create([
+            'tenant_id' => $merchant->id,
+            'order_id' => $order->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE,
+            'amount_gross' => 100.00,
+            'amount_fee' => 5.00,
+            'amount_net' => 95.00,
+        ]);
+
+        $response = $this->actingAs($merchant)->postJson(route('vendas.refund-manually', $order), [
+            'reason' => 'Cliente pediu estorno',
+        ]);
+
+        $response->assertStatus(422)->assertJson([
+            'success' => false,
+            'message' => \App\Services\SellerRefundBalanceGuard::denialMessage(40.0, 95.0),
+        ]);
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
+    public function test_seller_can_refund_using_pending_wallet_balance(): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        $merchant = $this->createMerchantWithWallet(0);
+        TenantWallet::query()->where('tenant_id', $merchant->id)->update([
+            'pending_pix' => 95.0,
+            'pending_balance' => 95.0,
+        ]);
+        $order = $this->createCompletedOrder($merchant, 100.0);
+
+        WalletTransaction::create([
+            'tenant_id' => $merchant->id,
+            'order_id' => $order->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE_PENDING,
+            'amount_gross' => 100.00,
+            'amount_fee' => 5.00,
+            'amount_net' => 95.00,
+        ]);
+
+        $response = $this->actingAs($merchant)->postJson(route('vendas.refund-manually', $order), [
+            'reason' => 'Ainda em liquidação',
+        ]);
+
+        $response->assertOk()->assertJson(['success' => true]);
+        $this->assertSame('refunded', $order->fresh()->status);
+
+        $wallet = TenantWallet::query()->where('tenant_id', $merchant->id)->first();
+        $this->assertNotNull($wallet);
+        $this->assertEquals(0.0, (float) $wallet->pending_pix);
+        $this->assertEquals(0.0, (float) $wallet->available_pix);
+    }
+
+    public function test_platform_can_refund_when_seller_wallet_is_empty(): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions')) {
+            $this->markTestSkipped('wallet tables');
+        }
+
+        $admin = $this->platformAdmin();
+        $merchant = $this->createMerchantWithWallet(0);
+        $order = $this->createCompletedOrder($merchant, 100.0);
+
+        WalletTransaction::create([
+            'tenant_id' => $merchant->id,
+            'order_id' => $order->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE,
+            'amount_gross' => 100.00,
+            'amount_fee' => 5.00,
+            'amount_net' => 95.00,
+        ]);
+
+        $response = $this->actingAs($admin)->post(route('plataforma.transacoes.pedidos.refund', $order), [
+            'reason' => 'Chargeback com carteira zerada',
+        ]);
+
+        $response->assertRedirect();
+        $this->assertSame('refunded', $order->fresh()->status);
+    }
+
+    public function test_seller_cannot_approve_refund_request_without_wallet_cover(): void
+    {
+        if (! Schema::hasTable('tenant_wallets') || ! Schema::hasTable('wallet_transactions') || ! Schema::hasTable('refund_requests')) {
+            $this->markTestSkipped('wallet/refund_requests');
+        }
+
+        $this->mock(OrderRefundGatewayBridge::class, function ($mock) {
+            $mock->shouldNotReceive('tryRefund');
+        });
+
+        $merchant = $this->createMerchantWithWallet(0);
+        $buyer = User::factory()->create([
+            'role' => User::ROLE_ALUNO,
+            'email' => 'aluno-refund-balance@test.com',
+        ]);
+        $order = $this->createCompletedOrder($merchant, 100.0);
+        $order->update(['user_id' => $buyer->id, 'email' => $buyer->email]);
+
+        WalletTransaction::create([
+            'tenant_id' => $merchant->id,
+            'order_id' => $order->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE,
+            'amount_gross' => 100.00,
+            'amount_fee' => 5.00,
+            'amount_net' => 95.00,
+        ]);
+
+        $refundRequest = \App\Models\RefundRequest::query()->create([
+            'order_id' => $order->id,
+            'user_id' => $buyer->id,
+            'tenant_id' => $merchant->id,
+            'status' => \App\Models\RefundRequest::STATUS_PENDING,
+            'customer_reason' => 'Quero o dinheiro de volta',
+        ]);
+
+        $this->actingAs($merchant)
+            ->from(route('reembolsos.index'))
+            ->post(route('reembolsos.approve', $refundRequest))
+            ->assertRedirect(route('reembolsos.index'))
+            ->assertSessionHas('error', \App\Services\SellerRefundBalanceGuard::denialMessage(0.0, 95.0));
+
+        $this->assertSame('pending', $refundRequest->fresh()->status);
+        $this->assertSame('completed', $order->fresh()->status);
+    }
 }

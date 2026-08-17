@@ -12,8 +12,10 @@ use App\Jobs\PollCajuPayPixRefundJob;
 use App\Services\OrderRefundGatewayBridge;
 use App\Services\PlatformOrderAdminService;
 use App\Services\SellerActivityLogService;
+use App\Services\SellerRefundBalanceGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class PixController extends Controller
 {
@@ -90,6 +92,16 @@ class PixController extends Controller
         if (! in_array($orderModel->status, ['completed', 'disputed'], true)) {
             return response()->json([
                 'message' => 'Só é possível reembolsar pedidos pagos ou em MED.',
+                'order_id' => $orderModel->id,
+                'status' => $orderModel->status,
+            ], 422);
+        }
+
+        try {
+            SellerRefundBalanceGuard::assertSufficient($orderModel);
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
                 'order_id' => $orderModel->id,
                 'status' => $orderModel->status,
             ], 422);
