@@ -8,6 +8,7 @@ use App\Events\ProductDeleted;
 use App\Events\ProductDuplicated;
 use App\Events\ProductIndexLoading;
 use App\Events\ProductUpdated;
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\CademiIntegration;
 use App\Models\GatewayCredential;
 use App\Models\Product;
@@ -23,6 +24,7 @@ use App\Services\MemberAccessGrantService;
 use App\Services\MinimumChargeService;
 use App\Services\PhysicalProductAccess;
 use App\Services\ProductApprovalService;
+use App\Services\SellerActivityLogService;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Support\HtmlSanitizer;
@@ -38,6 +40,7 @@ use InvalidArgumentException;
 
 class ProdutosController extends Controller
 {
+    use LogsSellerActivity;
     /**
      * @return list<string>
      */
@@ -267,6 +270,10 @@ class ProdutosController extends Controller
         if (($product->approval_status ?? null) === Product::APPROVAL_PENDING) {
             $success = 'Produto em análise. Seu produto foi enviado para análise das regras internas da plataforma. Após a avaliação, você será informado sobre a aprovação ou sobre eventuais ajustes necessários.';
         }
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_CREATED, $product, [
+            'name' => $product->name,
+        ]);
 
         return redirect()->route('produtos.index')->with('success', $success);
     }
@@ -569,6 +576,10 @@ class ProdutosController extends Controller
                 'updated_at' => now(),
             ]);
         }
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_MEMBER_AREA_UPDATED, $produto, [
+            'name' => $produto->name,
+        ]);
 
         return response()->json(['ok' => true]);
     }
@@ -873,6 +884,10 @@ class ProdutosController extends Controller
             $url .= '?tab='.urlencode($tab);
         }
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_UPDATED, $produto, [
+            'name' => $produto->name,
+        ]);
+
         return redirect($url)->with('success', 'Produto atualizado.');
     }
 
@@ -885,6 +900,10 @@ class ProdutosController extends Controller
             $storage->delete($produto->image);
         }
         $produto->delete();
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_DELETED, $produto, [
+            'name' => $produto->name,
+        ]);
 
         return redirect()->route('produtos.index')->with('success', 'Produto removido.');
     }
@@ -932,6 +951,11 @@ class ProdutosController extends Controller
             $success = 'Produto duplicado e enviado para análise.';
         }
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_DUPLICATED, $newProduct, [
+            'name' => $newProduct->name,
+            'source_product_id' => $produto->id,
+        ]);
+
         return redirect()->route('produtos.index')->with('success', $success);
     }
 
@@ -945,6 +969,10 @@ class ProdutosController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_RESUBMITTED, $produto, [
+            'name' => $produto->name,
+        ]);
+
         return back()->with('success', 'Produto reenviado para análise. Ele permanecerá indisponível para venda até nova aprovação.');
     }
 
@@ -954,6 +982,11 @@ class ProdutosController extends Controller
         $validated = $request->validate(['email' => ['required', 'email', 'exists:users,email']]);
         $user = User::where('email', $validated['email'])->whereIn('role', User::buyerRoleValues())->firstOrFail();
         $memberAccessGrant->grant($user, $produto);
+
+        $this->logSellerActivity(SellerActivityLogService::STUDENT_PRODUCT_ADDED, $produto, [
+            'email' => $user->email,
+            'name' => $produto->name,
+        ]);
 
         return back()->with('success', 'Acesso concedido.');
     }
@@ -1014,6 +1047,10 @@ class ProdutosController extends Controller
         $validated['checkout_slug'] = ProductOffer::generateUniqueCheckoutSlug();
         ProductOffer::create($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_OFFER_CREATED, $produto, [
+            'name' => $validated['name'],
+        ]);
+
         return back()->with('success', 'Oferta adicionada.');
     }
 
@@ -1032,6 +1069,10 @@ class ProdutosController extends Controller
         $validated['price'] = MoneyDecimal::toFloat($validated['price']);
         $offer->update($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_OFFER_UPDATED, $offer, [
+            'name' => $offer->name,
+        ]);
+
         return back()->with('success', 'Oferta atualizada.');
     }
 
@@ -1042,6 +1083,10 @@ class ProdutosController extends Controller
             abort(404);
         }
         $offer->delete();
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_OFFER_DELETED, $offer, [
+            'name' => $offer->name,
+        ]);
 
         return back()->with('success', 'Oferta removida.');
     }
@@ -1077,6 +1122,10 @@ class ProdutosController extends Controller
         $validated['position'] = $maxPosition + 1;
         ProductOrderBump::create($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_ORDER_BUMP_CREATED, $produto, [
+            'name' => $validated['title'] ?? $produto->name,
+        ]);
+
         return back()->with('success', 'Order bump adicionado.');
     }
 
@@ -1111,6 +1160,10 @@ class ProdutosController extends Controller
             : null;
         $bump->update($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_ORDER_BUMP_UPDATED, $bump, [
+            'name' => $bump->title ?? $produto->name,
+        ]);
+
         return back()->with('success', 'Order bump atualizado.');
     }
 
@@ -1121,6 +1174,10 @@ class ProdutosController extends Controller
             abort(404);
         }
         $bump->delete();
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_ORDER_BUMP_DELETED, $bump, [
+            'name' => $bump->title ?? $produto->name,
+        ]);
 
         return back()->with('success', 'Order bump removido.');
     }
@@ -1145,6 +1202,10 @@ class ProdutosController extends Controller
         $validated['checkout_slug'] = SubscriptionPlan::generateUniqueCheckoutSlug();
         SubscriptionPlan::create($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_PLAN_CREATED, $produto, [
+            'name' => $validated['name'],
+        ]);
+
         return back()->with('success', 'Plano adicionado.');
     }
 
@@ -1164,6 +1225,10 @@ class ProdutosController extends Controller
         $validated['price'] = MoneyDecimal::toFloat($validated['price']);
         $plan->update($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_PLAN_UPDATED, $plan, [
+            'name' => $plan->name,
+        ]);
+
         return back()->with('success', 'Plano atualizado.');
     }
 
@@ -1174,6 +1239,10 @@ class ProdutosController extends Controller
             abort(404);
         }
         $plan->delete();
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_PLAN_DELETED, $plan, [
+            'name' => $plan->name,
+        ]);
 
         return back()->with('success', 'Plano removido.');
     }
@@ -1407,6 +1476,11 @@ class ProdutosController extends Controller
                 $produto->save();
             }
 
+            $this->logSellerActivity(SellerActivityLogService::PRODUCT_CHECKOUT_SLUG_GENERATED, $produto, [
+                'name' => $produto->name,
+                'type' => 'main',
+            ]);
+
             return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Link do checkout (produto base) gerado.');
         }
 
@@ -1417,6 +1491,11 @@ class ProdutosController extends Controller
                 $offer->save();
             }
 
+            $this->logSellerActivity(SellerActivityLogService::PRODUCT_CHECKOUT_SLUG_GENERATED, $produto, [
+                'name' => $produto->name,
+                'type' => 'offer',
+            ]);
+
             return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Link do checkout da oferta gerado.');
         }
 
@@ -1425,6 +1504,11 @@ class ProdutosController extends Controller
             $plan->checkout_slug = SubscriptionPlan::generateUniqueCheckoutSlug();
             $plan->save();
         }
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_CHECKOUT_SLUG_GENERATED, $produto, [
+            'name' => $produto->name,
+            'type' => 'plan',
+        ]);
 
         return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Link do checkout do plano gerado.');
     }
@@ -1447,11 +1531,21 @@ class ProdutosController extends Controller
             $offer = ProductOffer::where('id', $validated['offer_id'])->where('product_id', $produto->id)->firstOrFail();
             $offer->update(['checkout_slug' => null]);
 
+            $this->logSellerActivity(SellerActivityLogService::PRODUCT_CHECKOUT_SLUG_REMOVED, $produto, [
+                'name' => $produto->name,
+                'type' => 'offer',
+            ]);
+
             return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Checkout exclusivo da oferta removido; ela passará a usar o checkout principal.');
         }
 
         $plan = SubscriptionPlan::where('id', $validated['plan_id'])->where('product_id', $produto->id)->firstOrFail();
         $plan->update(['checkout_slug' => null]);
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_CHECKOUT_SLUG_REMOVED, $produto, [
+            'name' => $produto->name,
+            'type' => 'plan',
+        ]);
 
         return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Checkout exclusivo do plano removido; ele passará a usar o checkout principal.');
     }

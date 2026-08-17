@@ -129,8 +129,12 @@ class ManualOrderRefundService
         bool $pendingGateway = false,
     ): void {
         if (! Schema::hasTable('refund_requests') || ! $order->user_id) {
+            $this->logSellerRefundIfNeeded($order, $actor, $reason, $gw, $pendingGateway);
+
             return;
         }
+
+        $this->logSellerRefundIfNeeded($order, $actor, $reason, $gw, $pendingGateway);
 
         $customerReason = trim((string) ($reason ?? ''));
         if ($customerReason === '') {
@@ -168,5 +172,35 @@ class ManualOrderRefundService
             'customer_reason' => $customerReason,
             ...$payload,
         ]);
+    }
+
+    /**
+     * @param  array{status?: string, note?: string|null}  $gw
+     */
+    private function logSellerRefundIfNeeded(
+        Order $order,
+        User $actor,
+        ?string $reason,
+        array $gw,
+        bool $pendingGateway = false,
+    ): void {
+        if (! $actor->canAccessSellerPanel()) {
+            return;
+        }
+
+        SellerActivityLogService::record(
+            actor: $actor,
+            action: SellerActivityLogService::REFUND_COMPLETED,
+            targetType: Order::class,
+            targetId: $order->id,
+            metadata: array_filter([
+                'order_id' => $order->id,
+                'amount' => (float) ($order->amount ?? 0),
+                'reason' => $reason,
+                'gateway_status' => $gw['status'] ?? null,
+                'pending_gateway' => $pendingGateway ?: null,
+            ], fn ($v) => $v !== null && $v !== ''),
+            tenantId: (int) $order->tenant_id,
+        );
     }
 }

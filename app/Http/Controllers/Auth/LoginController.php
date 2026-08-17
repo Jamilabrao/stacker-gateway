@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\TeamAuditLog;
 use App\Services\MemberAreaResolver;
+use App\Services\SellerActivityLogService;
 use App\Services\Platform\PlatformTotpService;
 use App\Support\DockerSetupState;
 use App\Support\LoginTurnstileSettings;
@@ -133,6 +134,11 @@ class LoginController extends Controller
                     'ip' => $request->ip(),
                     'user_agent' => (string) $request->userAgent(),
                 ]);
+                SellerActivityLogService::record(
+                    actor: $user,
+                    action: SellerActivityLogService::AUTH_LOGIN,
+                    request: $request,
+                );
             }
             if ($user->canAccessSellerPanel()) {
                 $request->session()->put('panel_context', 'seller');
@@ -169,6 +175,11 @@ class LoginController extends Controller
                 'ip' => $request->ip(),
                 'user_agent' => (string) $request->userAgent(),
             ]);
+            SellerActivityLogService::record(
+                actor: $user,
+                action: SellerActivityLogService::AUTH_LOGOUT,
+                request: $request,
+            );
         }
         Auth::logout();
         $request->session()->invalidate();

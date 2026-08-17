@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Services\Platform\PlatformTotpService;
+use App\Services\SellerActivityLogService;
 use App\Services\StorageService;
 use App\Support\HtmlSanitizer;
 use App\Support\MerchantProfileSnapshot;
@@ -17,6 +19,7 @@ use Inertia\Response;
 
 class ProfileController extends Controller
 {
+    use LogsSellerActivity;
     public function index(Request $request): Response
     {
         $user = $request->user();
@@ -106,6 +109,11 @@ class ProfileController extends Controller
 
         $user->save();
 
+        $this->logSellerActivity(SellerActivityLogService::PROFILE_UPDATED, $user, [
+            'name' => $user->name,
+            'username' => $user->username,
+        ]);
+
         return redirect()->route('profile.index')->with('success', 'Perfil atualizado.');
     }
 
@@ -124,6 +132,10 @@ class ProfileController extends Controller
 
         $user->username = $validated['username'] ?: null;
         $user->save();
+
+        $this->logSellerActivity(SellerActivityLogService::PROFILE_USERNAME_UPDATED, $user, [
+            'username' => $user->username,
+        ]);
 
         return back()->with('success', 'Nome de usuário atualizado.');
     }
@@ -151,6 +163,8 @@ class ProfileController extends Controller
 
         $user->password = Hash::make($validated['password']);
         $user->save();
+
+        $this->logSellerActivity(SellerActivityLogService::PROFILE_PASSWORD_UPDATED, $user);
 
         return redirect()->route('profile.index')->with('success', 'Senha alterada.');
     }

@@ -602,6 +602,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::post('/verificacoes-kyc/usuario/{user}/aprovar', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'approve'])->name('kyc.approve')->middleware('throttle:30,1');
         Route::post('/verificacoes-kyc/usuario/{user}/rejeitar', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'reject'])->name('kyc.reject')->middleware('throttle:30,1');
 
+        Route::get('/log-infoprodutor', [\App\Http\Controllers\Platform\SellerActivityLogsController::class, 'index'])
+            ->name('seller-activity-logs.index');
+
         Route::get('/gerenciar-plugins', [\App\Http\Controllers\PluginsController::class, 'index'])->name('plugins.index');
         Route::get('/gerenciar-plugins/store-plugins-list', [\App\Http\Controllers\PluginsController::class, 'storePluginsList'])->name('plugins.store.list');
         Route::get('/gerenciar-plugins/store-plugin/{slug}', [\App\Http\Controllers\PluginStoreController::class, 'show'])->name('plugins.store.show')->where('slug', '[a-z0-9\-]+');

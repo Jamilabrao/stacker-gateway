@@ -6,6 +6,7 @@ use App\Models\ApiApplication;
 use App\Models\ApiKey;
 use App\Models\ApiWebhookDelivery;
 use App\Services\Api\ApiWebhookConfigService;
+use App\Services\SellerActivityLogService;
 use App\Support\ApiScopes;
 use App\Support\ApiWebhookEvents;
 use Illuminate\Http\JsonResponse;
@@ -108,6 +109,10 @@ class ApiApplicationsController extends Controller
         }
         $apiApplication->update($payload);
 
+        $this->logActivity(SellerActivityLogService::API_CREDENTIALS_ROTATED, $apiApplication, [
+            'public_key_masked' => self::maskPublicKey($publicKey),
+        ]);
+
         if (Schema::hasColumn($apiApplication->getTable(), 'legacy_api_key_sha256')) {
             $apiApplication->forceFill(['legacy_api_key_sha256' => hash('sha256', $plainKey)])->saveQuietly();
         }
@@ -145,6 +150,10 @@ class ApiApplicationsController extends Controller
                 'message' => 'Não foi possível revelar a secret. Regenere as chaves.',
             ], 422);
         }
+
+        $this->logActivity(SellerActivityLogService::API_SECRET_REVEALED, $apiApplication, [
+            'public_key_masked' => self::maskPublicKey($apiApplication->public_key),
+        ]);
 
         return response()->json(['secret_key' => $plain]);
     }
@@ -184,6 +193,12 @@ class ApiApplicationsController extends Controller
 
         ApiKey::query()->create($row);
 
+        $this->logActivity(SellerActivityLogService::API_KEY_CREATED, $apiApplication, [
+            'name' => $validated['name'],
+            'public_key_masked' => self::maskPublicKey($keyReveal['public_key']),
+            'scopes' => array_values(array_unique($validated['scopes'])),
+        ]);
+
         return redirect()
             ->route('api-applications.index')
             ->with('api_key_reveal', $keyReveal)
@@ -208,6 +223,13 @@ class ApiApplicationsController extends Controller
             'is_active' => (bool) ($validated['is_active'] ?? $apiKey->is_active),
         ]);
 
+        $this->logActivity(SellerActivityLogService::API_KEY_UPDATED, $apiKey, [
+            'name' => $apiKey->name,
+            'public_key_masked' => self::maskPublicKey($apiKey->public_key),
+            'scopes' => $apiKey->scopes ?? [],
+            'is_active' => (bool) $apiKey->is_active,
+        ]);
+
         return redirect()->route('api-applications.index')->with('success', 'Chave API atualizada.');
     }
 
@@ -226,6 +248,11 @@ class ApiApplicationsController extends Controller
             $payload['secret_encrypted'] = ApiKey::encryptSecretForStorage($secret);
         }
         $apiKey->update($payload);
+
+        $this->logActivity(SellerActivityLogService::API_KEY_ROTATED, $apiKey, [
+            'name' => $apiKey->name,
+            'public_key_masked' => self::maskPublicKey($publicKey),
+        ]);
 
         return redirect()
             ->route('api-applications.index')
@@ -255,6 +282,11 @@ class ApiApplicationsController extends Controller
             ], 422);
         }
 
+        $this->logActivity(SellerActivityLogService::API_KEY_SECRET_REVEALED, $apiKey, [
+            'name' => $apiKey->name,
+            'public_key_masked' => self::maskPublicKey($apiKey->public_key),
+        ]);
+
         return response()->json(['secret_key' => $plain]);
     }
 
@@ -262,6 +294,12 @@ class ApiApplicationsController extends Controller
     {
         $this->authorizeTenant($apiApplication);
         $this->assertApiKeyBelongsToApplication($apiApplication, $apiKey);
+
+        $this->logActivity(SellerActivityLogService::API_KEY_DELETED, $apiKey, [
+            'name' => $apiKey->name,
+            'public_key_masked' => self::maskPublicKey($apiKey->public_key),
+        ]);
+
         $apiKey->delete();
 
         return redirect()->route('api-applications.index')->with('success', 'Chave API removida.');
@@ -284,6 +322,7 @@ class ApiApplicationsController extends Controller
 
         if (! empty($validated['clear_webhook'])) {
             $this->webhookConfigService->clearWebhook($apiApplication);
+            $this->logActivity(SellerActivityLogService::API_WEBHOOK_CLEARED, $apiApplication);
 
             return redirect()->route('api-applications.index', ['tab' => 'webhooks'])
                 ->with('success', 'Webhook removido.');
@@ -313,6 +352,11 @@ class ApiApplicationsController extends Controller
         $redirect = redirect()->route('api-applications.index', ['tab' => 'webhooks'])
             ->with('success', 'Webhook atualizado.');
 
+        $this->logActivity(SellerActivityLogService::API_WEBHOOK_UPDATED, $apiApplication, [
+            'webhook_url' => is_string($url) ? $url : null,
+            'secret_changed' => strlen($webhookSecret) > 0,
+        ]);
+
         if ($result->revealedSecret !== null) {
             $redirect->with('webhook_secret_reveal', $result->revealedSecret);
         }
@@ -329,6 +373,8 @@ class ApiApplicationsController extends Controller
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        $this->logActivity(SellerActivityLogService::API_WEBHOOK_SECRET_ROTATED, $apiApplication);
 
         return response()->json(['webhook_secret' => $secret]);
     }
@@ -469,6 +515,26 @@ class ApiApplicationsController extends Controller
             'webhook_secret_reveal' => session('webhook_secret_reveal'),
             'webhook_secret_mask' => self::WEBHOOK_SECRET_MASK,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    private function logActivity(string $action, object $target, array $metadata = []): void
+    {
+        $actor = auth()->user();
+        if (! $actor instanceof \App\Models\User) {
+            return;
+        }
+
+        SellerActivityLogService::record(
+            actor: $actor,
+            action: $action,
+            targetType: $target::class,
+            targetId: $target->id ?? null,
+            metadata: $metadata,
+            source: 'panel',
+        );
     }
 
     private function authorizeTenant(ApiApplication $apiApplication): void

@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\KycDocument;
 use App\Models\User;
 use App\Services\PlatformEmailNotifications;
+use App\Services\SellerActivityLogService;
 use App\Support\KycUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -16,6 +18,7 @@ use Illuminate\Validation\ValidationException;
 
 class SellerKycController extends Controller
 {
+    use LogsSellerActivity;
     public function __construct(
         protected PlatformEmailNotifications $platformEmailNotifications
     ) {}
@@ -119,8 +122,16 @@ class SellerKycController extends Controller
         }
 
         if ($request->header('X-Inertia')) {
+            $this->logSellerActivity(SellerActivityLogService::KYC_DOCUMENT_UPLOADED, $subject, [
+                'kind' => $kind,
+            ]);
+
             return redirect(self::financeiroKycTabUrl())->with('success', 'Arquivo enviado. Envie os demais e clique em "Enviar para análise".');
         }
+
+        $this->logSellerActivity(SellerActivityLogService::KYC_DOCUMENT_UPLOADED, $subject, [
+            'kind' => $kind,
+        ]);
 
         return response()->json([
             'ok' => true,
@@ -243,6 +254,8 @@ class SellerKycController extends Controller
         ])->save();
 
         $this->platformEmailNotifications->kycSubmitted($subject->fresh());
+
+        $this->logSellerActivity(SellerActivityLogService::KYC_SUBMITTED, $subject);
 
         return redirect(self::financeiroKycTabUrl())->with('success', 'Documentos enviados. Aguarde a análise da plataforma.');
     }

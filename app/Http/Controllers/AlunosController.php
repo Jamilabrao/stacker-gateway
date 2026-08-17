@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\AccessEmailService;
 use App\Services\MemberAccessGrantService;
+use App\Services\SellerActivityLogService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +19,8 @@ use Inertia\Response;
 
 class AlunosController extends Controller
 {
+    use LogsSellerActivity;
+
     private const FILTER_OPTIONS = ['todos', 'novos_30'];
 
     private function tenantProductIds(?int $tenantId): array
@@ -206,6 +210,11 @@ class AlunosController extends Controller
             }
         }
 
+        $this->logSellerActivity(SellerActivityLogService::STUDENT_CREATED, $user, [
+            'email' => $user->email,
+            'products_count' => count($productIds),
+        ]);
+
         $message = 'Aluno cadastrado com sucesso.';
         if ($sendAccessEmail && $emailsSent > 0) {
             $message .= " E-mail de acesso enviado para {$emailsSent} produto(s).";
@@ -262,6 +271,11 @@ class AlunosController extends Controller
             $memberAccessGrant->grant($aluno, $product);
         }
 
+        $this->logSellerActivity(SellerActivityLogService::STUDENT_UPDATED, $aluno, [
+            'email' => $aluno->email,
+            'products_count' => count($productIds),
+        ]);
+
         return response()->json([
             'success' => true,
             'message' => 'Aluno atualizado com sucesso.',
@@ -284,6 +298,9 @@ class AlunosController extends Controller
         if (! $aluno->products()->forTenant($tenantId)->exists()) {
             abort(404);
         }
+        $this->logSellerActivity(SellerActivityLogService::STUDENT_DELETED, $aluno, [
+            'email' => $aluno->email,
+        ]);
         $aluno->products()->detach();
         $aluno->delete();
         return response()->json(['success' => true, 'message' => 'Aluno excluído com sucesso.']);
@@ -413,6 +430,14 @@ class AlunosController extends Controller
             }
         }
 
+        if ($created > 0) {
+            $this->logSellerActivity(SellerActivityLogService::STUDENT_IMPORTED, null, [
+                'created' => $created,
+                'skipped' => $skipped,
+                'products_count' => count($productIds),
+            ]);
+        }
+
         $message = "{$created} aluno(s) importado(s) com sucesso.";
         if ($skipped > 0) {
             $message .= " {$skipped} linha(s) ignorada(s).";
@@ -456,6 +481,11 @@ class AlunosController extends Controller
             abort(403);
         }
         $memberAccessGrant->revoke($aluno, $produto);
+        $this->logSellerActivity(SellerActivityLogService::STUDENT_PRODUCT_REMOVED, $aluno, [
+            'email' => $aluno->email,
+            'product_id' => $produto->id,
+            'product_name' => $produto->name,
+        ]);
         $remaining = $aluno->products()->where(fn ($q) => $q->forTenant($tenantId))->count();
         return response()->json([
             'success' => true,

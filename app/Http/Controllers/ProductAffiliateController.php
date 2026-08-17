@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
 use App\Services\AffiliateEnrollmentNotifier;
+use App\Services\SellerActivityLogService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,6 +15,8 @@ use Illuminate\Validation\Rule;
 
 class ProductAffiliateController extends Controller
 {
+    use LogsSellerActivity;
+
     public function updateSettings(Request $request, Product $produto): RedirectResponse
     {
         $this->authorizeProduct($produto);
@@ -78,6 +82,11 @@ class ProductAffiliateController extends Controller
         $tab = $request->query('tab');
         $url = route('produtos.edit', $produto).($tab ? '?tab='.urlencode((string) $tab) : '');
 
+        $this->logSellerActivity(SellerActivityLogService::AFFILIATE_SETTINGS_UPDATED, $produto, [
+            'name' => $produto->name,
+            'enabled' => (bool) $produto->affiliate_enabled,
+        ]);
+
         return redirect($url)->with('success', 'Configurações de afiliados atualizadas.');
     }
 
@@ -102,6 +111,12 @@ class ProductAffiliateController extends Controller
         $enrollment->ensurePublicRef();
         app(AffiliateEnrollmentNotifier::class)->notifyApproved($enrollment->fresh());
 
+        $this->logSellerActivity(SellerActivityLogService::AFFILIATE_APPROVED, $enrollment, [
+            'product_id' => $produto->id,
+            'product_name' => $produto->name,
+            'affiliate_user_id' => $enrollment->affiliate_user_id,
+        ]);
+
         $tab = $request->query('tab');
         $url = route('produtos.edit', $produto).($tab ? '?tab='.urlencode((string) $tab) : '');
 
@@ -122,6 +137,12 @@ class ProductAffiliateController extends Controller
 
         $enrollment->update(['status' => ProductAffiliateEnrollment::STATUS_REJECTED]);
 
+        $this->logSellerActivity(SellerActivityLogService::AFFILIATE_REJECTED, $enrollment, [
+            'product_id' => $produto->id,
+            'product_name' => $produto->name,
+            'affiliate_user_id' => $enrollment->affiliate_user_id,
+        ]);
+
         $tab = $request->query('tab');
         $url = route('produtos.edit', $produto).($tab ? '?tab='.urlencode((string) $tab) : '');
 
@@ -141,6 +162,12 @@ class ProductAffiliateController extends Controller
         }
 
         $enrollment->update(['status' => ProductAffiliateEnrollment::STATUS_REVOKED]);
+
+        $this->logSellerActivity(SellerActivityLogService::AFFILIATE_REVOKED, $enrollment, [
+            'product_id' => $produto->id,
+            'product_name' => $produto->name,
+            'affiliate_user_id' => $enrollment->affiliate_user_id,
+        ]);
 
         $tab = $request->query('tab');
         $url = route('produtos.edit', $produto).($tab ? '?tab='.urlencode((string) $tab) : '');

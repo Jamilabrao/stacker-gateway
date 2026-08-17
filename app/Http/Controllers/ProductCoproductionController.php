@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Mail\CoproductionInvitationMail;
 use App\Models\Product;
 use App\Models\ProductCoproducer;
 use App\Models\User;
 use App\Services\PlatformTransactionalMailService;
+use App\Services\SellerActivityLogService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +17,8 @@ use Illuminate\Validation\Rule;
 
 class ProductCoproductionController extends Controller
 {
+    use LogsSellerActivity;
+
     public function __construct(
         protected PlatformTransactionalMailService $mailService
     ) {}
@@ -110,6 +114,12 @@ class ProductCoproductionController extends Controller
             $email
         );
 
+        $this->logSellerActivity(SellerActivityLogService::COPRODUCTION_INVITED, $invitation, [
+            'email' => $email,
+            'product_id' => $produto->id,
+            'product_name' => $produto->name,
+        ]);
+
         return back()->with('success', 'Convite enviado para '.$email.'.');
     }
 
@@ -126,6 +136,12 @@ class ProductCoproductionController extends Controller
         }
 
         $coproducer->update(['status' => ProductCoproducer::STATUS_REVOKED]);
+
+        $this->logSellerActivity(SellerActivityLogService::COPRODUCTION_REMOVED, $coproducer, [
+            'email' => $coproducer->email,
+            'product_id' => $produto->id,
+            'product_name' => $produto->name,
+        ]);
 
         return back()->with('success', 'Co-produção revogada.');
     }

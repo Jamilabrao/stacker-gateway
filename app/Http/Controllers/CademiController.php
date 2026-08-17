@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\CademiIntegration;
 use App\Models\Product;
 use App\Services\CademiService;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class CademiController extends Controller
 {
+    use LogsSellerActivity;
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -47,6 +51,10 @@ class CademiController extends Controller
             // mapping básico (sem tag) para “atribuir produtos” na listagem; o vínculo de tag será configurado no produto.
             $integration->products()->sync($validated['product_ids']);
         }
+
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_CADEMI_CREATED, $integration, [
+            'name' => $integration->name,
+        ]);
 
         return response()->json([
             'integration' => $this->integrationToArray($integration),
@@ -99,6 +107,10 @@ class CademiController extends Controller
 
         $cademi->load('products:id,name');
 
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_CADEMI_UPDATED, $cademi, [
+            'name' => $cademi->name,
+        ]);
+
         return response()->json([
             'integration' => $this->integrationToArray($cademi),
         ]);
@@ -107,6 +119,9 @@ class CademiController extends Controller
     public function destroy(CademiIntegration $cademi): JsonResponse
     {
         $this->authorizeIntegration($cademi);
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_CADEMI_DELETED, $cademi, [
+            'name' => $cademi->name,
+        ]);
         $cademi->products()->detach();
         $cademi->offers()->detach();
         $cademi->plans()->detach();

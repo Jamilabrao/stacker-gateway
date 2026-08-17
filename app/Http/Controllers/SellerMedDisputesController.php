@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\MedDispute;
 use App\Services\CajuPay\CajuPayMedService;
 use App\Services\Med\MedDefenseDossierService;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -13,6 +15,8 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class SellerMedDisputesController extends Controller
 {
+    use LogsSellerActivity;
+
     public function __construct(
         protected CajuPayMedService $medService,
         protected MedDefenseDossierService $dossierService,
@@ -71,6 +75,11 @@ class SellerMedDisputesController extends Controller
             return back()->with('error', $e->getMessage() ?: 'Não foi possível enviar a defesa.');
         }
 
+        $this->logSellerActivity(SellerActivityLogService::DISPUTE_DEFENSE_SUBMITTED, $dispute, [
+            'order_id' => $dispute->order_id,
+            'dispute_id' => $dispute->id,
+        ]);
+
         return redirect()->route('disputas.show', $dispute)
             ->with('success', 'Defesa enviada à CajuPay.');
     }
@@ -90,6 +99,11 @@ class SellerMedDisputesController extends Controller
             return back()->with('error', 'Não foi possível gerar o dossiê.');
         }
 
+        $this->logSellerActivity(SellerActivityLogService::DISPUTE_DOSSIER_GENERATED, $dispute, [
+            'order_id' => $dispute->order_id,
+            'dispute_id' => $dispute->id,
+        ]);
+
         return back()->with('success', 'Dossiê PDF gerado.');
     }
 
@@ -104,6 +118,10 @@ class SellerMedDisputesController extends Controller
             try {
                 $this->dossierService->generate($dispute);
                 $dispute->refresh();
+                $this->logSellerActivity(SellerActivityLogService::DISPUTE_DOSSIER_GENERATED, $dispute, [
+                    'order_id' => $dispute->order_id,
+                    'dispute_id' => $dispute->id,
+                ]);
             } catch (\Throwable $e) {
                 report($e);
 

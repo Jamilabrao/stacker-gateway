@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Coupon;
 use App\Models\Product;
+use App\Services\SellerActivityLogService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -11,6 +13,8 @@ use Inertia\Response;
 
 class CuponsController extends Controller
 {
+    use LogsSellerActivity;
+
     private function allowedProductIdsForCurrentUser(?int $tenantId): array
     {
         if (! auth()->user()?->isTeam()) {
@@ -94,6 +98,11 @@ class CuponsController extends Controller
         $coupon = Coupon::create($validated);
         $coupon->products()->sync($productIds);
 
+        $this->logSellerActivity(SellerActivityLogService::COUPON_CREATED, $coupon, [
+            'name' => $coupon->code,
+            'type' => $coupon->type,
+        ]);
+
         return redirect()->route('cupons.index')->with('success', 'Cupom criado.');
     }
 
@@ -132,12 +141,20 @@ class CuponsController extends Controller
         $coupon->update($validated);
         $coupon->products()->sync($productIds);
 
+        $this->logSellerActivity(SellerActivityLogService::COUPON_UPDATED, $coupon, [
+            'name' => $coupon->code,
+            'type' => $coupon->type,
+        ]);
+
         return redirect()->route('cupons.index')->with('success', 'Cupom atualizado.');
     }
 
     public function destroy(Coupon $coupon)
     {
         $this->authorizeCoupon($coupon);
+        $this->logSellerActivity(SellerActivityLogService::COUPON_DELETED, $coupon, [
+            'name' => $coupon->code,
+        ]);
         $coupon->delete();
 
         return redirect()->route('cupons.index')->with('success', 'Cupom removido.');

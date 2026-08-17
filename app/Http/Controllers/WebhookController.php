@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Webhook;
 use App\Models\WebhookLog;
+use App\Services\SellerActivityLogService;
 use App\Support\WebhookUrlValidator;
 use Illuminate\Http\JsonResponse;
 use InvalidArgumentException;
@@ -14,6 +16,8 @@ use Illuminate\Validation\Rule;
 
 class WebhookController extends Controller
 {
+    use LogsSellerActivity;
+
     public function index(): JsonResponse
     {
         $tenantId = auth()->user()->tenant_id;
@@ -79,6 +83,10 @@ class WebhookController extends Controller
 
         $webhook->load('products:id,name');
 
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_WEBHOOK_CREATED, $webhook, [
+            'name' => $webhook->name,
+        ]);
+
         return response()->json([
             'webhook' => [
                 'id' => $webhook->id,
@@ -128,6 +136,10 @@ class WebhookController extends Controller
 
         $webhook->load('products:id,name');
 
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_WEBHOOK_UPDATED, $webhook, [
+            'name' => $webhook->name,
+        ]);
+
         return response()->json([
             'webhook' => [
                 'id' => $webhook->id,
@@ -148,6 +160,9 @@ class WebhookController extends Controller
     {
         $this->authorizeWebhook($webhook);
 
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_WEBHOOK_DELETED, $webhook, [
+            'name' => $webhook->name,
+        ]);
         $webhook->delete();
 
         return response()->noContent();

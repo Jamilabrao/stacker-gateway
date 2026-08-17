@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Product;
 use App\Models\SpedyIntegration;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class SpedyController extends Controller
 {
+    use LogsSellerActivity;
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -34,6 +38,10 @@ class SpedyController extends Controller
         if (! empty($validated['product_ids'])) {
             $integration->products()->sync($validated['product_ids']);
         }
+
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_SPEDY_CREATED, $integration, [
+            'name' => $integration->name,
+        ]);
 
         return response()->json([
             'integration' => $this->integrationToArray($integration),
@@ -72,6 +80,10 @@ class SpedyController extends Controller
 
         $spedy->load('products:id,name');
 
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_SPEDY_UPDATED, $spedy, [
+            'name' => $spedy->name,
+        ]);
+
         return response()->json([
             'integration' => $this->integrationToArray($spedy),
         ]);
@@ -80,6 +92,9 @@ class SpedyController extends Controller
     public function destroy(SpedyIntegration $spedy): JsonResponse
     {
         $this->authorizeIntegration($spedy);
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_SPEDY_DELETED, $spedy, [
+            'name' => $spedy->name,
+        ]);
         $spedy->products()->detach();
         $spedy->delete();
 

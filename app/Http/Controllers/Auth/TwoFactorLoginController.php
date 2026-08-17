@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\TeamAuditLog;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -59,6 +60,12 @@ class TwoFactorLoginController extends Controller
                 'ip' => $request->ip(),
                 'user_agent' => (string) $request->userAgent(),
             ]);
+            SellerActivityLogService::record(
+                actor: $user,
+                action: SellerActivityLogService::AUTH_LOGIN,
+                metadata: ['totp' => true],
+                request: $request,
+            );
         }
 
         return $this->completeLoginAfterTotp($request, $user);
