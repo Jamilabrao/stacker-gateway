@@ -29,6 +29,10 @@ class ManualOrderRefundService
             throw new InvalidArgumentException('Origem do reembolso inválida.');
         }
 
+        if ($initiatedBy === 'seller') {
+            SellerRefundBalanceGuard::assertSufficient($order);
+        }
+
         $gw = $this->gatewayBridge->tryRefund($order);
 
         if ($gw['status'] === 'blocked_med') {
@@ -90,6 +94,10 @@ class ManualOrderRefundService
 
         if (! in_array($initiatedBy, ['seller', 'platform'], true)) {
             throw new InvalidArgumentException('Origem do reembolso inválida.');
+        }
+
+        if ($initiatedBy === 'seller') {
+            SellerRefundBalanceGuard::assertSufficient($order);
         }
 
         $gw = [

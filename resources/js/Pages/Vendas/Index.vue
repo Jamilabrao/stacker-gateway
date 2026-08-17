@@ -1269,7 +1269,7 @@ const exportXlsUrl = computed(() => `/vendas/export?${buildExportSearchParams('x
                         {{ t('sales.refund_manual', 'Reembolsar') }}
                     </h3>
                     <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                        O pedido será marcado como <strong>Reembolsado</strong>. Se houver saldo creditado na sua carteira, o valor líquido será debitado.
+                        O pedido será marcado como <strong>Reembolsado</strong>. É necessário ter saldo na carteira compatível com o valor líquido do reembolso; se o saldo atual for menor, o reembolso não será efetivado.
                     </p>
                     <label class="mt-4 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                         {{ t('sales.refund.reason_optional', 'Motivo (opcional)') }}
