@@ -100,6 +100,10 @@ class PixController extends Controller
         try {
             SellerRefundBalanceGuard::assertSufficient($orderModel);
         } catch (InvalidArgumentException $e) {
+            $this->logApiRefundFailure($app, $orderModel, $e->getMessage(), [
+                'failure_kind' => 'insufficient_balance',
+            ]);
+
             return response()->json([
                 'message' => $e->getMessage(),
                 'order_id' => $orderModel->id,
@@ -111,6 +115,17 @@ class PixController extends Controller
         $bridgeResult = $bridge->tryRefund($orderModel);
 
         if ($bridgeResult['status'] === 'blocked_med') {
+            $this->logApiRefundFailure(
+                $app,
+                $orderModel,
+                $bridgeResult['note'] ?? 'Reembolso bloqueado por disputa MED.',
+                [
+                    'failure_kind' => 'blocked_med',
+                    'gateway_status' => $bridgeResult['status'] ?? null,
+                    'error_code' => $bridgeResult['error_code'] ?? null,
+                ]
+            );
+
             return response()->json([
                 'message' => $bridgeResult['note'] ?? 'Reembolso bloqueado por disputa MED.',
                 'order_id' => $orderModel->id,
@@ -120,6 +135,17 @@ class PixController extends Controller
         }
 
         if ($bridgeResult['status'] === 'failed') {
+            $this->logApiRefundFailure(
+                $app,
+                $orderModel,
+                $bridgeResult['note'] ?? 'Falha no reembolso no gateway.',
+                [
+                    'failure_kind' => 'gateway_failed',
+                    'gateway_status' => $bridgeResult['status'] ?? null,
+                    'error_code' => $bridgeResult['error_code'] ?? null,
+                ]
+            );
+
             return response()->json([
                 'message' => $bridgeResult['note'] ?? 'Falha no reembolso no gateway.',
                 'order_id' => $orderModel->id,
@@ -161,12 +187,7 @@ class PixController extends Controller
      */
     private function logApiRefund(ApiApplication $app, Order $order, array $bridgeResult): void
     {
-        $owner = User::query()
-            ->where('role', User::ROLE_INFOPRODUTOR)
-            ->where(function ($q) use ($app) {
-                $q->where('id', $app->tenant_id)->orWhere('tenant_id', $app->tenant_id);
-            })
-            ->first();
+        $owner = $this->sellerOwnerForApp($app);
 
         SellerActivityLogService::record(
             actor: $owner,
@@ -183,14 +204,33 @@ class PixController extends Controller
         );
     }
 
-    private function logApiPixCancelled(ApiApplication $app, Order $order): void
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function logApiRefundFailure(ApiApplication $app, Order $order, string $reason, array $extra = []): void
     {
-        $owner = User::query()
+        SellerActivityLogService::recordRefundFailure(
+            actor: $this->sellerOwnerForApp($app),
+            order: $order,
+            reason: $reason,
+            extra: $extra,
+            source: 'api',
+        );
+    }
+
+    private function sellerOwnerForApp(ApiApplication $app): ?User
+    {
+        return User::query()
             ->where('role', User::ROLE_INFOPRODUTOR)
             ->where(function ($q) use ($app) {
                 $q->where('id', $app->tenant_id)->orWhere('tenant_id', $app->tenant_id);
             })
             ->first();
+    }
+
+    private function logApiPixCancelled(ApiApplication $app, Order $order): void
+    {
+        $owner = $this->sellerOwnerForApp($app);
 
         SellerActivityLogService::record(
             actor: $owner,

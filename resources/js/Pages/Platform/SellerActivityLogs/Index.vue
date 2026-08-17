@@ -114,7 +114,32 @@ function formatDateTime(iso) {
 }
 
 function sourceLabel(source) {
-    return source === 'api' ? 'API' : 'Painel';
+    if (source === 'api') return 'API';
+    if (source === 'job' || source === 'system') return 'Sistema';
+    return 'Painel';
+}
+
+function isFailureLog(log) {
+    return typeof log?.action === 'string' && (log.action.endsWith('.failed') || log.metadata?.outcome === 'failed');
+}
+
+const META_LABELS = {
+    reason: 'Motivo',
+    gateway_status: 'Status na adquirente',
+    error_code: 'Código de erro',
+    gateway: 'Adquirente',
+    gateway_note: 'Nota da adquirente',
+    order_id: 'Pedido',
+    amount: 'Valor',
+    failure_kind: 'Tipo da falha',
+    acquirer_status: 'Status retornado',
+    poll_attempts: 'Consultas à adquirente',
+    outcome: 'Resultado',
+    refund_request_id: 'Solicitação',
+};
+
+function metaLabel(key) {
+    return META_LABELS[key] || key;
 }
 
 function metadataEntries(meta) {
@@ -142,7 +167,7 @@ function toggleExpanded(id) {
                 Log Infoprodutor
             </h1>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Auditoria das ações feitas pelo infoprodutor (e equipe) na plataforma. Visível apenas para o operador.
+                Auditoria das ações feitas pelo infoprodutor (e equipe), incluindo falhas com o motivo para avaliação. Visível apenas para o operador.
             </p>
         </div>
 
@@ -241,22 +266,39 @@ function toggleExpanded(id) {
                 v-for="log in rows"
                 :key="`mobile-${log.id}`"
                 type="button"
-                class="block w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left shadow-sm dark:border-zinc-700 dark:bg-zinc-900/40"
+                class="block w-full rounded-2xl border bg-white p-4 text-left shadow-sm dark:bg-zinc-900/40"
+                :class="
+                    isFailureLog(log)
+                        ? 'border-red-300 dark:border-red-800'
+                        : 'border-zinc-200 dark:border-zinc-700'
+                "
                 @click="toggleExpanded(log.id)"
             >
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                        <p class="text-sm font-semibold text-zinc-900 dark:text-white">{{ log.summary }}</p>
+                        <p
+                            class="text-sm font-semibold"
+                            :class="isFailureLog(log) ? 'text-red-700 dark:text-red-300' : 'text-zinc-900 dark:text-white'"
+                        >
+                            {{ log.summary }}
+                        </p>
                         <p class="mt-0.5 truncate text-xs text-zinc-500">{{ log.merchant?.name }}</p>
                     </div>
-                    <span class="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                        {{ log.group_label }}
+                    <span
+                        class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                        :class="
+                            isFailureLog(log)
+                                ? 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300'
+                                : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                        "
+                    >
+                        {{ isFailureLog(log) ? 'Falha' : log.group_label }}
                     </span>
                 </div>
                 <p class="mt-2 text-xs text-zinc-500">{{ formatDateTime(log.created_at) }} · {{ sourceLabel(log.source) }}</p>
                 <dl v-if="expandedId === log.id && metadataEntries(log.metadata).length" class="mt-3 space-y-1 border-t border-zinc-100 pt-3 text-xs dark:border-zinc-800">
                     <div v-for="[k, v] in metadataEntries(log.metadata)" :key="k" class="flex justify-between gap-2">
-                        <dt class="text-zinc-500">{{ k }}</dt>
+                        <dt class="text-zinc-500">{{ metaLabel(k) }}</dt>
                         <dd class="break-all text-zinc-800 dark:text-zinc-200">{{ formatMetaValue(v) }}</dd>
                     </div>
                 </dl>
@@ -278,7 +320,10 @@ function toggleExpanded(id) {
                     </thead>
                     <tbody class="divide-y divide-zinc-200 dark:divide-zinc-700">
                         <template v-for="log in rows" :key="log.id">
-                            <tr class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30">
+                            <tr
+                                class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30"
+                                :class="isFailureLog(log) ? 'bg-red-50/70 dark:bg-red-950/20' : ''"
+                            >
                                 <td class="whitespace-nowrap px-4 py-3 text-sm text-zinc-600 dark:text-zinc-300">
                                     {{ formatDateTime(log.created_at) }}
                                 </td>
@@ -294,8 +339,15 @@ function toggleExpanded(id) {
                                     <span v-else class="text-zinc-400">—</span>
                                 </td>
                                 <td class="px-4 py-3 text-sm">
-                                    <p class="font-medium text-zinc-900 dark:text-white">{{ log.summary }}</p>
-                                    <p class="text-xs text-zinc-500">{{ log.group_label }}</p>
+                                    <p
+                                        class="font-medium"
+                                        :class="isFailureLog(log) ? 'text-red-700 dark:text-red-300' : 'text-zinc-900 dark:text-white'"
+                                    >
+                                        {{ log.summary }}
+                                    </p>
+                                    <p class="text-xs" :class="isFailureLog(log) ? 'text-red-600 dark:text-red-400' : 'text-zinc-500'">
+                                        {{ isFailureLog(log) ? 'Falha · ' + log.group_label : log.group_label }}
+                                    </p>
                                 </td>
                                 <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-300">
                                     {{ sourceLabel(log.source) }}
@@ -316,7 +368,7 @@ function toggleExpanded(id) {
                                 <td colspan="6" class="bg-zinc-50 px-4 py-3 text-sm dark:bg-zinc-800/40">
                                     <dl class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                                         <div v-for="[k, v] in metadataEntries(log.metadata)" :key="k">
-                                            <dt class="text-xs uppercase text-zinc-500">{{ k }}</dt>
+                                            <dt class="text-xs uppercase text-zinc-500">{{ metaLabel(k) }}</dt>
                                             <dd class="break-all text-zinc-800 dark:text-zinc-200">{{ formatMetaValue(v) }}</dd>
                                         </div>
                                         <div v-if="log.ip">

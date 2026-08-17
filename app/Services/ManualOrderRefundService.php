@@ -30,15 +30,18 @@ class ManualOrderRefundService
         }
 
         if ($initiatedBy === 'seller') {
-            SellerRefundBalanceGuard::assertSufficient($order);
+            $this->assertSellerBalanceOrLog($order, $actor);
         }
 
         $gw = $this->gatewayBridge->tryRefund($order);
 
         if ($gw['status'] === 'blocked_med') {
+            $message = $gw['note'] ?? 'Reembolso bloqueado por disputa MED aberta.';
+            $this->logSellerRefundFailureIfNeeded($order, $actor, $message, $gw, 'blocked_med');
+
             return [
                 'success' => false,
-                'message' => $gw['note'] ?? 'Reembolso bloqueado por disputa MED aberta.',
+                'message' => $message,
                 'gateway_status' => 'blocked_med',
             ];
         }
@@ -67,9 +70,12 @@ class ManualOrderRefundService
                 ];
             }
 
+            $message = $gw['note'] ?? 'Falha ao solicitar reembolso no gateway.';
+            $this->logSellerRefundFailureIfNeeded($order, $actor, $message, $gw, 'gateway_failed');
+
             return [
                 'success' => false,
-                'message' => $gw['note'] ?? 'Falha ao solicitar reembolso no gateway.',
+                'message' => $message,
                 'gateway_status' => 'failed',
             ];
         }
@@ -104,7 +110,18 @@ class ManualOrderRefundService
             ];
         }
 
-        PlatformOrderAdminService::refundPaidOrDisputed($order, $manualRefundMeta, $debitReason);
+        try {
+            PlatformOrderAdminService::refundPaidOrDisputed($order, $manualRefundMeta, $debitReason);
+        } catch (\Throwable $e) {
+            $this->logSellerRefundFailureIfNeeded(
+                $order,
+                $actor,
+                'Falha ao ajustar a carteira após o reembolso na adquirente: '.$e->getMessage(),
+                $gw,
+                'wallet_debit_failed'
+            );
+            throw $e;
+        }
         $this->recordApprovedRefundRequest($order->fresh(), $actor, $reason, $gw);
 
         return [
@@ -130,7 +147,7 @@ class ManualOrderRefundService
         }
 
         if ($initiatedBy === 'seller') {
-            SellerRefundBalanceGuard::assertSufficient($order);
+            $this->assertSellerBalanceOrLog($order, $actor);
         }
 
         $gw = [
@@ -243,5 +260,42 @@ class ManualOrderRefundService
             ], fn ($v) => $v !== null && $v !== ''),
             tenantId: (int) $order->tenant_id,
         );
+    }
+
+    /**
+     * @param  array{status?: string, note?: string|null, error_code?: string|null}  $gw
+     */
+    private function logSellerRefundFailureIfNeeded(
+        Order $order,
+        User $actor,
+        string $reason,
+        array $gw = [],
+        string $failureKind = 'gateway_failed',
+    ): void {
+        if (! $actor->canAccessSellerPanel()) {
+            return;
+        }
+
+        SellerActivityLogService::recordRefundFailure(
+            actor: $actor,
+            order: $order,
+            reason: $reason,
+            extra: array_filter([
+                'failure_kind' => $failureKind,
+                'gateway_status' => $gw['status'] ?? null,
+                'error_code' => $gw['error_code'] ?? null,
+                'gateway_note' => $gw['note'] ?? null,
+            ], fn ($v) => $v !== null && $v !== ''),
+        );
+    }
+
+    private function assertSellerBalanceOrLog(Order $order, User $actor): void
+    {
+        try {
+            SellerRefundBalanceGuard::assertSufficient($order);
+        } catch (InvalidArgumentException $e) {
+            $this->logSellerRefundFailureIfNeeded($order, $actor, $e->getMessage(), [], 'insufficient_balance');
+            throw $e;
+        }
     }
 }
