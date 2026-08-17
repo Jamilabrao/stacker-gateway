@@ -1006,6 +1006,41 @@ const cardExpYearInput = ref(null);
 const cardCvvInput = ref(null);
 const showFullCardNumber = ref(true);
 const selectedInstallments = ref(1);
+const MIN_PARCELA_BRL = 5;
+const effectiveCardMaxInstallments = computed(() => {
+    if (!props.cardInstallmentsEnabled) return 1;
+    const configured = Math.min(12, Math.max(1, Number(props.cardMaxInstallments) || 1));
+    const total = Number(props.checkoutTotalBrl) || 0;
+    if (total < MIN_PARCELA_BRL) return 1;
+    return Math.min(configured, Math.max(1, Math.floor(total / MIN_PARCELA_BRL)));
+});
+const showInstallmentsSelect = computed(() => (
+    form.payment_method === 'card'
+    && props.cardInstallmentsEnabled
+    && effectiveCardMaxInstallments.value > 1
+    && !isCardGatewayStripe.value
+    && !isCardGatewayMercadopago.value
+    && !isCardGatewayAsaas.value
+    && !isCajuPaySdkFlow.value
+));
+function currentInstallments() {
+    return Math.min(effectiveCardMaxInstallments.value, Math.max(1, selectedInstallments.value));
+}
+function installmentOptionLabel(n) {
+    if (n <= 1) {
+        return tf('checkout.installments_cash', 'À vista');
+    }
+    const total = Number(props.checkoutTotalBrl) || 0;
+    const each = props.formatPrice(total / n, props.displayCurrency);
+    return tf('checkout.installments_times', '{n}x de {amount} sem juros')
+        .replace('{n}', String(n))
+        .replace('{amount}', each);
+}
+watch(effectiveCardMaxInstallments, (max) => {
+    if (selectedInstallments.value > max) {
+        selectedInstallments.value = max;
+    }
+});
 const asaasCardStep = ref(1);
 const asaasCardData = ref({});
 const asaasAddressData = ref({});
@@ -1843,7 +1878,7 @@ async function getPagarmePaymentTokenViaApi() {
     if (!id || typeof id !== 'string') {
         throw new Error('Resposta inválida da Pagar.me.');
     }
-    const installments = Math.min(props.cardMaxInstallments || 1, Math.max(1, selectedInstallments.value));
+    const installments = currentInstallments();
     const last4 = data?.card?.last_four_digits || cardNumberDigits.value.slice(-4);
     return {
         payment_token: JSON.stringify({ card_token: id, installments }),
@@ -1861,7 +1896,7 @@ async function getPagarmePaymentToken() {
         await loadPagarmeTokenizeScript(pk);
         ensurePagarmeCheckoutInit();
         const { token } = await requestPagarmeTokenFromForm(pagarmeTokenizeFormId);
-        const installments = Math.min(props.cardMaxInstallments || 1, Math.max(1, selectedInstallments.value));
+        const installments = currentInstallments();
         const last4 = cardNumberDigits.value.length >= 4 ? cardNumberDigits.value.slice(-4) : '';
         return {
             payment_token: JSON.stringify({ card_token: token, installments }),
@@ -2068,7 +2103,7 @@ function submit() {
                     coupon_code: (form.coupon_code || '').trim() || null,
                     payment_token,
                     card_mask: card_mask || undefined,
-                    installments: Math.min(props.cardMaxInstallments || 1, Math.max(1, selectedInstallments.value)),
+                    installments: currentInstallments(),
                 };
                 if (isCardGatewayPagarme.value) {
                     payload.address_zipcode = (form.address_zipcode || '').replace(/\D/g, '').slice(0, 8);
@@ -2797,8 +2832,8 @@ function submit() {
                         :address-data="asaasAddressData"
                         :step="asaasCardStep"
                         :format-price="formatPrice"
-                        :card-installments-enabled="cardInstallmentsEnabled"
-                        :card-max-installments="cardMaxInstallments"
+                        :card-installments-enabled="cardInstallmentsEnabled && effectiveCardMaxInstallments > 1"
+                        :card-max-installments="effectiveCardMaxInstallments"
                         :checkout-total-brl="checkoutTotalBrl"
                         :t="t"
                         @update:cardData="asaasCardData = $event"
@@ -3094,9 +3129,9 @@ function submit() {
                         </div>
                     </div>
                 </div>
-                <!-- Parcelas (Efí e Asaas; Stripe e MP Brick têm seu próprio) -->
+                <!-- Parcelas (Pagar.me e Efí; Stripe/MP/Asaas/CajuPay têm UI própria) -->
                 <div
-                    v-if="form.payment_method === 'card' && cardInstallmentsEnabled && !isCardGatewayStripe && !isCardGatewayMercadopago && !isCardGatewayAsaas && !isCajuPaySdkFlow"
+                    v-if="showInstallmentsSelect"
                     class="mt-4"
                     data-checkout="form-installments"
                 >
@@ -3108,11 +3143,11 @@ function submit() {
                         :style="{ '--tw-ring-color': primaryColor }"
                     >
                         <option
-                            v-for="n in cardMaxInstallments"
+                            v-for="n in effectiveCardMaxInstallments"
                             :key="n"
                             :value="n"
                         >
-                            {{ n }}x de {{ formatPrice(checkoutTotalBrl / n, displayCurrency) }}
+                            {{ installmentOptionLabel(n) }}
                         </option>
                     </select>
                 </div>

@@ -43,6 +43,7 @@ use App\Services\CouponCheckoutService;
 use App\Services\LinaOpenx\LinaOpenxCheckoutService;
 use Illuminate\Support\Facades\Schema;
 use App\Support\CajuPayBrowserSdk;
+use App\Support\CardInstallments;
 use App\Support\CheckoutCardContract;
 use App\Support\CheckoutPaymentConsumer;
 use App\Support\CheckoutTranslations;
@@ -327,8 +328,12 @@ class CheckoutController extends Controller
             }
         }
         $cardInstallmentsConfig = $config['card_installments'] ?? ['enabled' => false, 'max' => 1];
-        $payload['card_installments_enabled'] = ! empty($cardInstallmentsConfig['enabled']);
-        $payload['card_max_installments'] = min(12, max(1, (int) ($cardInstallmentsConfig['max'] ?? 1)));
+        $isSubscriptionCheckout = ($resolved['plan'] ?? null) !== null;
+        $installmentsEnabled = ! $isSubscriptionCheckout && ! empty($cardInstallmentsConfig['enabled']);
+        $payload['card_installments_enabled'] = $installmentsEnabled;
+        $payload['card_max_installments'] = $installmentsEnabled
+            ? CardInstallments::normalizeMax((int) ($cardInstallmentsConfig['max'] ?? 1))
+            : 1;
 
         $orderBumps = $product->orderBumps()->with(['targetProduct', 'targetProductOffer'])->get()
             ->filter(fn (ProductOrderBump $b) => $b->targetProduct && $b->targetProduct->isAvailableForPurchase());
@@ -1471,11 +1476,21 @@ class CheckoutController extends Controller
                     : ($product->checkout_config ?? []));
             $cardInstallments = $checkoutConfig['card_installments'] ?? ['enabled' => false, 'max' => 1];
             $installmentsEnabled = ! empty($cardInstallments['enabled']);
-            $maxInstallments = min(12, max(1, (int) ($cardInstallments['max'] ?? 1)));
+            $maxInstallments = CardInstallments::normalizeMax((int) ($cardInstallments['max'] ?? 1));
             $requestedInstallments = (int) ($validated['installments'] ?? 1);
-            $card['installments'] = $installmentsEnabled
-                ? min($maxInstallments, max(1, $requestedInstallments))
-                : 1;
+            $installments = CardInstallments::clamp(
+                $requestedInstallments,
+                $installmentsEnabled,
+                $maxInstallments,
+                (float) $order->amount,
+                $plan !== null
+            );
+            $card = CardInstallments::applyToCardPayload($card, $installments);
+            $order->update([
+                'metadata' => array_merge($order->metadata ?? [], [
+                    'installments' => $installments,
+                ]),
+            ]);
             $card['currency'] = strtolower($currency);
             if ($checkoutSlug !== '') {
                 $card['return_url'] = url()->route('checkout.show', ['slug' => $checkoutSlug]);

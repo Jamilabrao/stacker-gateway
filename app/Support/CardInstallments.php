@@ -1,0 +1,88 @@
+<?php
+
+namespace App\Support;
+
+/**
+ * Parcelamento no cartão (Pagar.me, Efí, Asaas): teto 12x e mínimo R$ 5,00 por parcela.
+ * O comprador vê o valor total dividido em Nx sem juros; taxas ficam no contrato do adquirente.
+ */
+final class CardInstallments
+{
+    public const MIN_AMOUNT_BRL = 5.0;
+
+    public const MAX_ALLOWED = 12;
+
+    /** @var list<string> */
+    public const GATEWAY_SLUGS = ['pagarme', 'efi', 'asaas'];
+
+    public static function gatewaySupports(?string $slug): bool
+    {
+        if ($slug === null || $slug === '') {
+            return false;
+        }
+
+        return in_array($slug, self::GATEWAY_SLUGS, true);
+    }
+
+    public static function normalizeMax(int $configuredMax): int
+    {
+        return max(1, min(self::MAX_ALLOWED, $configuredMax));
+    }
+
+    /**
+     * Máximo efetivo dado o valor cobrado e o teto configurado pelo seller.
+     */
+    public static function maxAllowedForAmount(float $amountBrl, int $configuredMax = self::MAX_ALLOWED): int
+    {
+        $configuredMax = self::normalizeMax($configuredMax);
+        if ($amountBrl < self::MIN_AMOUNT_BRL) {
+            return 1;
+        }
+        $byAmount = (int) floor($amountBrl / self::MIN_AMOUNT_BRL);
+
+        return max(1, min($configuredMax, $byAmount, self::MAX_ALLOWED));
+    }
+
+    /**
+     * Quantidade enviada ao adquirente. Assinatura e config desligada sempre 1x.
+     */
+    public static function clamp(
+        ?int $requested,
+        bool $enabled,
+        int $configuredMax,
+        float $amountBrl,
+        bool $isSubscription = false
+    ): int {
+        if ($isSubscription || ! $enabled) {
+            return 1;
+        }
+        $max = self::maxAllowedForAmount($amountBrl, $configuredMax);
+        $n = max(1, (int) $requested);
+
+        return min($max, $n);
+    }
+
+    /**
+     * Garante que o JSON do payment_token (Pagar.me) use o mesmo N já clampado.
+     *
+     * @param  array<string, mixed>  $card
+     * @return array<string, mixed>
+     */
+    public static function applyToCardPayload(array $card, int $installments): array
+    {
+        $card['installments'] = $installments;
+        $tokenRaw = $card['payment_token'] ?? '';
+        if (is_string($tokenRaw) && $tokenRaw !== '') {
+            $decoded = json_decode($tokenRaw, true);
+            if (is_array($decoded)) {
+                $decoded['installments'] = $installments;
+                $encoded = json_encode($decoded);
+                if (is_string($encoded)) {
+                    $card['payment_token'] = $encoded;
+                }
+            }
+        }
+
+        return $card;
+    }
+}

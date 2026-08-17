@@ -94,7 +94,11 @@ const props = defineProps({
     cademi_integrations: { type: Array, default: () => [] },
     checkout_gateway_ui: {
         type: Object,
-        default: () => ({ card_show_installments: false, digital_wallets_at_checkout: false }),
+        default: () => ({
+            card_show_installments: false,
+            card_installments_gateway_name: '',
+            digital_wallets_at_checkout: false,
+        }),
     },
     global_payment_methods_available: {
         type: Object,
@@ -183,6 +187,21 @@ watch(
         if (t === 'produto_fisico') {
             form.billing_type = 'one_time';
             form.currency = 'BRL';
+        }
+    }
+);
+
+const isSubscriptionBilling = computed(() => form.billing_type === 'subscription');
+const cardInstallmentsGatewayName = computed(
+    () => String(props.checkout_gateway_ui?.card_installments_gateway_name || '').trim()
+);
+
+watch(
+    () => form.billing_type,
+    (type) => {
+        if (type === 'subscription') {
+            form.card_installments.enabled = false;
+            form.card_installments.max = 1;
         }
     }
 );
@@ -351,6 +370,7 @@ const platformMinChargeLabel = computed(() =>
 const MIN_PARCELA_BRL = 5;
 /** Máximo de parcelas permitido pelo preço atual (1–12). */
 const maxAllowedInstallments = computed(() => {
+    if (form.billing_type === 'subscription') return 1;
     const p = priceNum.value;
     if (!p || p < MIN_PARCELA_BRL) return 1;
     return Math.min(12, Math.max(1, Math.floor(p / MIN_PARCELA_BRL)));
@@ -1122,8 +1142,9 @@ function appendCheckoutConfigFields(fd) {
     if (!sendsCheckoutConfigFields()) return;
     fd.append('conversion_pixels', JSON.stringify(form.conversion_pixels));
     if (form.card_installments) {
-        fd.append('card_installments[enabled]', form.card_installments.enabled ? '1' : '0');
-        fd.append('card_installments[max]', String(Math.min(12, Math.max(1, form.card_installments.max || 1))));
+        const enabled = form.billing_type !== 'subscription' && form.card_installments.enabled;
+        fd.append('card_installments[enabled]', enabled ? '1' : '0');
+        fd.append('card_installments[max]', String(enabled ? Math.min(12, Math.max(1, form.card_installments.max || 1)) : 1));
     }
     fd.append('payment_methods_enabled[pix]', form.payment_methods_enabled.pix ? '1' : '0');
     fd.append('payment_methods_enabled[card]', form.payment_methods_enabled.card ? '1' : '0');
@@ -2124,17 +2145,24 @@ function submit() {
                             </div>
                             <div class="flex-1 overflow-y-auto p-4">
                                 <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
-                                    Aplica-se ao processamento de cartão definido globalmente na plataforma.
+                                    Aplica-se ao checkout deste produto<span v-if="cardInstallmentsGatewayName"> ({{ cardInstallmentsGatewayName }})</span>.
+                                    O comprador vê parcelas sem juros; as taxas de parcelamento seguem o contrato do adquirente.
                                 </p>
+                                <div
+                                    v-if="isSubscriptionBilling"
+                                    class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+                                >
+                                    Assinatura cobra o cartão à vista (1x). A Pagar.me exige 1 parcela em recorrências.
+                                </div>
                                 <div class="flex items-center justify-between rounded-xl border border-zinc-100 bg-zinc-50/50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/50">
                                     <div class="min-w-0 pr-2">
                                         <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Permitir parcelamento</p>
                                         <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Cliente poderá parcelar no cartão de crédito</p>
                                     </div>
-                                    <Toggle v-model="form.card_installments.enabled" class="shrink-0" />
+                                    <Toggle v-model="form.card_installments.enabled" :disabled="isSubscriptionBilling" class="shrink-0" />
                                 </div>
                                 <div
-                                    v-if="form.card_installments.enabled"
+                                    v-if="form.card_installments.enabled && !isSubscriptionBilling"
                                     class="mt-4 rounded-xl border border-zinc-100 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-800/50"
                                 >
                                     <label for="card-installments-max-sidebar" class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">

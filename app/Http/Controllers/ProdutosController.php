@@ -27,6 +27,7 @@ use App\Services\ProductApprovalService;
 use App\Services\SellerActivityLogService;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
+use App\Support\CardInstallments;
 use App\Support\HtmlSanitizer;
 use App\Support\MoneyDecimal;
 use App\Gateways\GatewayRegistry;
@@ -410,7 +411,6 @@ class ProdutosController extends Controller
 
         $paymentService = app(PaymentService::class);
         $cardOrder = $paymentService->getGatewayOrderForMethod($tenantId, 'card', null, null);
-        $primaryCard = $cardOrder[0] ?? null;
         $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
         $primaryConnectedCardSlug = null;
         foreach ($cardOrder as $slug) {
@@ -423,8 +423,14 @@ class ProdutosController extends Controller
                 break;
             }
         }
+        $connectedCardDef = is_string($primaryConnectedCardSlug)
+            ? GatewayRegistry::get($primaryConnectedCardSlug)
+            : null;
         $checkoutGatewayUi = [
-            'card_show_installments' => in_array($primaryCard, ['efi', 'asaas'], true),
+            'card_show_installments' => CardInstallments::gatewaySupports($primaryConnectedCardSlug),
+            'card_installments_gateway_name' => is_array($connectedCardDef)
+                ? (string) ($connectedCardDef['name'] ?? $primaryConnectedCardSlug)
+                : '',
             'digital_wallets_at_checkout' => $primaryConnectedCardSlug === 'cajupay',
         ];
 
@@ -838,10 +844,17 @@ class ProdutosController extends Controller
                     $config['deliverable_link'] = $deliverableLink ?? '';
                     $configUpdated = true;
                 }
-                if (is_array($cardInstallments)) {
+                $billingType = $validated['billing_type'] ?? $produto->billing_type;
+                if ($billingType === Product::BILLING_SUBSCRIPTION) {
+                    $config['card_installments'] = [
+                        'enabled' => false,
+                        'max' => 1,
+                    ];
+                    $configUpdated = true;
+                } elseif (is_array($cardInstallments)) {
                     $config['card_installments'] = [
                         'enabled' => ! empty($cardInstallments['enabled']),
-                        'max' => min(12, max(1, (int) ($cardInstallments['max'] ?? 1))),
+                        'max' => CardInstallments::normalizeMax((int) ($cardInstallments['max'] ?? 1)),
                     ];
                     $configUpdated = true;
                 }
