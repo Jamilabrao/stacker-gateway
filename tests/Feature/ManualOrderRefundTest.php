@@ -5,11 +5,13 @@ namespace Tests\Feature;
 use App\Http\Middleware\EnsureInstalled;
 use App\Http\Middleware\EnsureStackerLicense;
 use App\Models\Order;
+use App\Models\SellerActivityLog;
 use App\Models\TenantWallet;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\OrderRefundGatewayBridge;
 use App\Services\Platform\PlatformTotpService;
+use App\Services\SellerActivityLogService;
 use App\Support\OrderManualRefund;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Schema;
@@ -122,6 +124,59 @@ class ManualOrderRefundTest extends TestCase
                 ->where('type', WalletTransaction::TYPE_DEBIT_REFUND)
                 ->exists()
         );
+    }
+
+    public function test_seller_refund_gateway_failure_writes_activity_log_with_reason(): void
+    {
+        if (! Schema::hasTable('seller_activity_logs')) {
+            $this->markTestSkipped('seller_activity_logs');
+        }
+
+        $this->mock(OrderRefundGatewayBridge::class, function ($mock) {
+            $mock->shouldReceive('tryRefund')->once()->andReturn([
+                'status' => 'failed',
+                'note' => 'A adquirente não recebeu o evento de reembolso (falha de comunicação).',
+                'error_code' => null,
+            ]);
+        });
+
+        $merchant = $this->createMerchantWithWallet(95.0);
+        $order = $this->createCompletedOrder($merchant, 100.0);
+
+        if (Schema::hasTable('wallet_transactions')) {
+            WalletTransaction::create([
+                'tenant_id' => $merchant->id,
+                'order_id' => $order->id,
+                'bucket' => 'pix',
+                'type' => WalletTransaction::TYPE_CREDIT_SALE,
+                'amount_gross' => 100.00,
+                'amount_fee' => 5.00,
+                'amount_net' => 95.00,
+            ]);
+        }
+
+        $this->actingAs($merchant)
+            ->postJson(route('vendas.refund-manually', $order), [
+                'reason' => 'Cliente pediu estorno',
+            ])
+            ->assertStatus(422)
+            ->assertJson([
+                'success' => false,
+                'message' => 'A adquirente não recebeu o evento de reembolso (falha de comunicação).',
+            ]);
+
+        $this->assertSame('completed', $order->fresh()->status);
+        $this->assertDatabaseHas('seller_activity_logs', [
+            'tenant_id' => $merchant->id,
+            'actor_user_id' => $merchant->id,
+            'action' => SellerActivityLogService::REFUND_FAILED,
+            'action_group' => SellerActivityLogService::GROUP_REFUND,
+        ]);
+
+        $log = SellerActivityLog::query()->where('action', SellerActivityLogService::REFUND_FAILED)->first();
+        $this->assertNotNull($log);
+        $this->assertStringContainsString('A adquirente não recebeu o evento de reembolso', $log->summary);
+        $this->assertSame('gateway_failed', $log->metadata['failure_kind'] ?? null);
     }
 
     public function test_admin_refund_requires_reason(): void
@@ -555,6 +610,18 @@ class ManualOrderRefundTest extends TestCase
                 ->where('type', WalletTransaction::TYPE_DEBIT_REFUND)
                 ->exists()
         );
+
+        if (Schema::hasTable('seller_activity_logs')) {
+            $this->assertDatabaseHas('seller_activity_logs', [
+                'tenant_id' => $merchant->id,
+                'actor_user_id' => $merchant->id,
+                'action' => SellerActivityLogService::REFUND_FAILED,
+            ]);
+            $log = SellerActivityLog::query()->where('action', SellerActivityLogService::REFUND_FAILED)->first();
+            $this->assertNotNull($log);
+            $this->assertStringContainsString('saldo atual', $log->summary);
+            $this->assertSame('insufficient_balance', $log->metadata['failure_kind'] ?? null);
+        }
     }
 
     public function test_seller_cannot_refund_when_wallet_has_partial_balance(): void

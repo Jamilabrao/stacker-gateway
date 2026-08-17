@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Order;
 use App\Services\CajuPay\CajuPayPixRefundConfirmationService;
+use App\Services\SellerActivityLogService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -46,10 +47,43 @@ class PollCajuPayPixRefundJob implements ShouldQueue
                 'order_id' => $order->id,
                 'message' => $e->getMessage(),
             ]);
+
+            if ($this->attempt >= 24) {
+                $this->logUnconfirmed(
+                    $order,
+                    'A adquirente não recebeu o evento de reembolso (falha de comunicação). Detalhe: '.$e->getMessage(),
+                    'acquirer_unreachable'
+                );
+
+                return;
+            }
         }
 
         if ($this->attempt < 24) {
             self::dispatch($this->orderId, $this->attempt + 1)->delay(now()->addSeconds(5));
+
+            return;
         }
+
+        $this->logUnconfirmed(
+            $order,
+            'A adquirente não recebeu ou não confirmou o evento de reembolso após várias consultas.',
+            'acquirer_unconfirmed'
+        );
+    }
+
+    private function logUnconfirmed(Order $order, string $reason, string $failureKind): void
+    {
+        SellerActivityLogService::recordRefundFailure(
+            actor: null,
+            order: $order,
+            reason: $reason,
+            extra: [
+                'failure_kind' => $failureKind,
+                'gateway_status' => 'unconfirmed',
+                'poll_attempts' => $this->attempt,
+            ],
+            source: 'job',
+        );
     }
 }

@@ -57,7 +57,15 @@ class RefundRequestService
             throw new \InvalidArgumentException('Pedido inválido.');
         }
 
-        SellerRefundBalanceGuard::assertSufficient($order);
+        try {
+            SellerRefundBalanceGuard::assertSufficient($order);
+        } catch (\InvalidArgumentException $e) {
+            $this->logSellerRefundFailure($seller, $order, $e->getMessage(), [
+                'failure_kind' => 'insufficient_balance',
+                'refund_request_id' => $request->id,
+            ]);
+            throw $e;
+        }
 
         $gw = $this->gatewayBridge->tryRefund($order);
         $request->update([
@@ -66,11 +74,25 @@ class RefundRequestService
         ]);
 
         if ($gw['status'] === 'blocked_med') {
-            throw new \InvalidArgumentException($gw['note'] ?? 'Reembolso bloqueado por disputa MED aberta.');
+            $message = $gw['note'] ?? 'Reembolso bloqueado por disputa MED aberta.';
+            $this->logSellerRefundFailure($seller, $order, $message, [
+                'failure_kind' => 'blocked_med',
+                'gateway_status' => $gw['status'],
+                'error_code' => $gw['error_code'] ?? null,
+                'refund_request_id' => $request->id,
+            ]);
+            throw new \InvalidArgumentException($message);
         }
 
         if ($gw['status'] === 'failed') {
-            throw new \InvalidArgumentException($gw['note'] ?? 'Falha ao solicitar reembolso no gateway.');
+            $message = $gw['note'] ?? 'Falha ao solicitar reembolso no gateway.';
+            $this->logSellerRefundFailure($seller, $order, $message, [
+                'failure_kind' => 'gateway_failed',
+                'gateway_status' => $gw['status'],
+                'error_code' => $gw['error_code'] ?? null,
+                'refund_request_id' => $request->id,
+            ]);
+            throw new \InvalidArgumentException($message);
         }
 
         if (CajuPayPixRefundConfirmationService::isCajuPixOrder($order)
@@ -101,6 +123,15 @@ class RefundRequestService
                 'order_id' => $order->id,
                 'message' => $e->getMessage(),
             ]);
+            $this->logSellerRefundFailure(
+                $seller,
+                $order,
+                'Falha ao ajustar a carteira após o reembolso na adquirente: '.$e->getMessage(),
+                [
+                    'failure_kind' => 'wallet_debit_failed',
+                    'refund_request_id' => $request->id,
+                ]
+            );
             throw $e;
         }
 
@@ -161,6 +192,19 @@ class RefundRequestService
                 ...$extra,
             ], fn ($v) => $v !== null && $v !== ''),
             tenantId: (int) $request->tenant_id,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function logSellerRefundFailure(User $seller, Order $order, string $reason, array $extra = []): void
+    {
+        SellerActivityLogService::recordRefundFailure(
+            actor: $seller,
+            order: $order,
+            reason: $reason,
+            extra: $extra,
         );
     }
 }

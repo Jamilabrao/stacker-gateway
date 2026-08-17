@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Order;
 use App\Models\SellerActivityLog;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -43,6 +44,8 @@ class SellerActivityLogService
     public const WITHDRAWAL_REFERRAL_REQUESTED = 'withdrawal.referral_requested';
 
     public const REFUND_COMPLETED = 'refund.completed';
+
+    public const REFUND_FAILED = 'refund.failed';
 
     public const REFUND_REQUEST_APPROVED = 'refund.request.approved';
 
@@ -230,6 +233,7 @@ class SellerActivityLogService
         self::WITHDRAWAL_REQUESTED => ['group' => self::GROUP_WITHDRAWAL, 'label' => 'Solicitou saque'],
         self::WITHDRAWAL_REFERRAL_REQUESTED => ['group' => self::GROUP_WITHDRAWAL, 'label' => 'Solicitou saque de indicação'],
         self::REFUND_COMPLETED => ['group' => self::GROUP_REFUND, 'label' => 'Efetivou reembolso'],
+        self::REFUND_FAILED => ['group' => self::GROUP_REFUND, 'label' => 'Falha ao reembolsar'],
         self::REFUND_REQUEST_APPROVED => ['group' => self::GROUP_REFUND, 'label' => 'Aprovou solicitação de reembolso'],
         self::REFUND_REQUEST_REJECTED => ['group' => self::GROUP_REFUND, 'label' => 'Recusou solicitação de reembolso'],
         self::TEAM_ROLE_CREATED => ['group' => self::GROUP_TEAM, 'label' => 'Criou cargo'],
@@ -378,7 +382,7 @@ class SellerActivityLogService
                 'source' => $source ?: self::detectSource($request),
                 'target_type' => $targetType,
                 'target_id' => $targetId !== null ? (string) $targetId : null,
-                'summary' => self::buildSummary($action, $metadata),
+                'summary' => mb_substr(self::buildSummary($action, $metadata), 0, 255),
                 'metadata' => $metadata ?: null,
                 'ip' => $request?->ip(),
                 'user_agent' => $request ? (string) $request->userAgent() : null,
@@ -404,6 +408,39 @@ class SellerActivityLogService
         } catch (\Throwable $e) {
             report($e);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    public static function recordRefundFailure(
+        ?User $actor,
+        Order $order,
+        string $reason,
+        array $extra = [],
+        ?string $source = null,
+    ): void {
+        $reason = trim($reason);
+        if ($reason === '') {
+            $reason = 'Falha ao solicitar reembolso.';
+        }
+
+        self::record(
+            actor: $actor,
+            action: self::REFUND_FAILED,
+            targetType: Order::class,
+            targetId: $order->id,
+            metadata: array_filter([
+                'order_id' => $order->id,
+                'amount' => (float) ($order->amount ?? 0),
+                'reason' => $reason,
+                'gateway' => $order->gateway,
+                'outcome' => 'failed',
+                ...$extra,
+            ], fn ($v) => $v !== null && $v !== ''),
+            tenantId: (int) $order->tenant_id,
+            source: $source,
+        );
     }
 
     public static function maskValue(?string $value): ?string
@@ -463,6 +500,7 @@ class SellerActivityLogService
         return match ($action) {
             self::WITHDRAWAL_REQUESTED, self::WITHDRAWAL_REFERRAL_REQUESTED => $label.self::amountSuffix($metadata),
             self::REFUND_COMPLETED, self::REFUND_REQUEST_APPROVED, self::REFUND_REQUEST_REJECTED => $label.self::orderSuffix($metadata),
+            self::REFUND_FAILED => $label.self::orderSuffix($metadata).self::reasonSuffix($metadata),
             self::TEAM_ROLE_CREATED, self::TEAM_ROLE_UPDATED, self::TEAM_ROLE_DELETED => $label.self::namedSuffix($metadata, 'name'),
             self::TEAM_MEMBER_CREATED, self::TEAM_MEMBER_UPDATED, self::TEAM_MEMBER_DELETED => $label.self::namedSuffix($metadata, 'email'),
             self::API_KEY_CREATED, self::API_KEY_UPDATED, self::API_KEY_ROTATED, self::API_KEY_DELETED => $label.self::namedSuffix($metadata, 'name'),
@@ -507,6 +545,23 @@ class SellerActivityLogService
         }
 
         return ' do pedido #'.$orderId;
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    private static function reasonSuffix(array $metadata): string
+    {
+        $reason = trim((string) ($metadata['reason'] ?? ''));
+        if ($reason === '') {
+            return '';
+        }
+
+        if (mb_strlen($reason) > 140) {
+            $reason = mb_substr($reason, 0, 139).'…';
+        }
+
+        return ' — '.$reason;
     }
 
     /**

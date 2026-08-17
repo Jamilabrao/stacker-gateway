@@ -145,6 +145,50 @@ class PlatformSellerActivityLogTest extends TestCase
         $this->assertSame('****cdef', SellerActivityLogService::maskValue('1234cdef'));
     }
 
+    public function test_refund_failure_log_includes_reason_for_admin(): void
+    {
+        $merchant = $this->merchant('Alpha Seller');
+        $order = \App\Models\Order::create([
+            'tenant_id' => $merchant->id,
+            'user_id' => $merchant->id,
+            'product_id' => $this->createTestProduct(['tenant_id' => $merchant->id])->id,
+            'status' => 'completed',
+            'amount' => 99.9,
+            'gateway' => 'cajupay',
+            'payment_method' => 'pix',
+            'email' => 'buyer@test.com',
+        ]);
+
+        SellerActivityLogService::recordRefundFailure(
+            actor: $merchant,
+            order: $order,
+            reason: 'A adquirente não recebeu o evento de reembolso (falha de comunicação).',
+            extra: ['failure_kind' => 'gateway_failed', 'gateway_status' => 'failed'],
+        );
+
+        $log = SellerActivityLog::query()->first();
+        $this->assertNotNull($log);
+        $this->assertSame(SellerActivityLogService::REFUND_FAILED, $log->action);
+        $this->assertSame(SellerActivityLogService::GROUP_REFUND, $log->action_group);
+        $this->assertStringContainsString('Falha ao reembolsar', $log->summary);
+        $this->assertStringContainsString('pedido #'.$order->id, $log->summary);
+        $this->assertStringContainsString('A adquirente não recebeu o evento de reembolso', $log->summary);
+        $this->assertSame('A adquirente não recebeu o evento de reembolso (falha de comunicação).', $log->metadata['reason'] ?? null);
+
+        $admin = $this->platformAdmin();
+        $this->actingAs($admin)
+            ->get(route('plataforma.seller-activity-logs.index', [
+                'action' => SellerActivityLogService::REFUND_FAILED,
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Platform/SellerActivityLogs/Index')
+                ->has('logs.data', 1)
+                ->where('logs.data.0.action', SellerActivityLogService::REFUND_FAILED)
+                ->where('logs.data.0.metadata.reason', 'A adquirente não recebeu o evento de reembolso (falha de comunicação).')
+            );
+    }
+
     public function test_creating_coupon_writes_admin_seller_activity_log(): void
     {
         $this->withoutMiddleware([EnsureInstalled::class, ValidateCsrfToken::class]);

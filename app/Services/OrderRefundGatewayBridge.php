@@ -80,7 +80,7 @@ class OrderRefundGatewayBridge
                 ];
             }
 
-            return ['status' => 'failed', 'note' => $result['message'] ?? 'API de estorno retornou falha.', 'error_code' => $errorCode];
+            return ['status' => 'failed', 'note' => $this->failedAcquirerNote($result['message'] ?? null, $errorCode), 'error_code' => $errorCode];
         } catch (\Throwable $e) {
             Log::warning('OrderRefundGatewayBridge: estorno API falhou.', [
                 'order_id' => $order->id,
@@ -93,7 +93,44 @@ class OrderRefundGatewayBridge
                 return ['status' => 'blocked_med', 'note' => $msg, 'error_code' => 'med_blocks_refund'];
             }
 
-            return ['status' => 'failed', 'note' => 'Erro na API: '.$msg];
+            return ['status' => 'failed', 'note' => $this->communicationFailureNote($e)];
         }
+    }
+
+    private function failedAcquirerNote(?string $message, ?string $errorCode): string
+    {
+        $message = trim((string) $message);
+        if ($message !== '') {
+            return $message;
+        }
+
+        if ($errorCode) {
+            return 'A adquirente recusou o evento de reembolso (código '.$errorCode.').';
+        }
+
+        return 'A adquirente não confirmou o evento de reembolso.';
+    }
+
+    private function communicationFailureNote(\Throwable $e): string
+    {
+        $msg = trim($e->getMessage());
+        $lower = strtolower($msg);
+
+        $isCommunicationFailure = $e instanceof \Illuminate\Http\Client\ConnectionException
+            || str_contains($lower, 'timed out')
+            || str_contains($lower, 'timeout')
+            || str_contains($lower, 'curl error')
+            || str_contains($lower, 'connection refused')
+            || str_contains($lower, 'could not resolve')
+            || str_contains($lower, 'failed to connect');
+
+        if ($isCommunicationFailure) {
+            return 'A adquirente não recebeu o evento de reembolso (falha de comunicação).'
+                .($msg !== '' ? ' Detalhe: '.$msg : '');
+        }
+
+        return $msg !== ''
+            ? 'Erro na API da adquirente: '.$msg
+            : 'A adquirente não confirmou o evento de reembolso.';
     }
 }

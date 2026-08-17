@@ -935,15 +935,19 @@ class CajuPayDriver implements GatewayDriver
             return $map[$code];
         }
 
-        if ($parsed !== '') {
-            return $parsed;
-        }
-
         if ($response->status() === 401 || $response->status() === 403) {
             return 'Credenciais CajuPay inválidas ou sem permissão payments.write.';
         }
 
-        return 'Não foi possível processar o reembolso PIX na CajuPay.';
+        if ($response->serverError() || in_array($response->status(), [408, 429], true)) {
+            return 'A adquirente não recebeu o evento de reembolso (HTTP '.$response->status().').';
+        }
+
+        if ($parsed !== '') {
+            return $parsed;
+        }
+
+        return 'A adquirente não recebeu ou recusou o evento de reembolso PIX.';
     }
 
     /**
