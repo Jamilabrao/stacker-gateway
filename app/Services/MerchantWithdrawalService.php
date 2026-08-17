@@ -111,7 +111,7 @@ class MerchantWithdrawalService
             throw ValidationException::withMessages(['amount' => $msg]);
         }
 
-        return DB::transaction(function () use ($user, $tenantId, $amount, $feeCalc, $bucket, $col, $notes) {
+        $withdrawal = DB::transaction(function () use ($user, $tenantId, $amount, $feeCalc, $bucket, $col, $notes) {
             $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->lockForUpdate()->first();
             if ($wallet === null) {
                 throw ValidationException::withMessages(['amount' => 'Carteira não encontrada.']);
@@ -164,6 +164,22 @@ class MerchantWithdrawalService
 
             return $withdrawal->fresh();
         });
+
+        SellerActivityLogService::record(
+            actor: $user,
+            action: SellerActivityLogService::WITHDRAWAL_REQUESTED,
+            targetType: Withdrawal::class,
+            targetId: $withdrawal->id,
+            metadata: [
+                'amount' => (float) $withdrawal->amount,
+                'fee_amount' => (float) $withdrawal->fee_amount,
+                'net_amount' => (float) $withdrawal->net_amount,
+                'bucket' => $withdrawal->bucket,
+            ],
+            tenantId: $tenantId,
+        );
+
+        return $withdrawal;
     }
 
     public static function markPaid(Withdrawal $withdrawal): void

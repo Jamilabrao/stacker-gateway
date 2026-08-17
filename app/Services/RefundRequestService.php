@@ -85,6 +85,10 @@ class RefundRequestService
                 Mail::to($customer->email)->send(new RefundDecisionCustomerMail($request->fresh(['order.product']), true, $gw['note'] ?? null));
             }
 
+            $this->logSellerDecision($seller, $request, SellerActivityLogService::REFUND_REQUEST_APPROVED, [
+                'gateway_status' => $gw['status'] ?? null,
+            ]);
+
             return;
         }
 
@@ -108,6 +112,8 @@ class RefundRequestService
         if ($customer && $customer->email) {
             Mail::to($customer->email)->send(new RefundDecisionCustomerMail($request->fresh(['order.product']), true, null));
         }
+
+        $this->logSellerDecision($seller, $request, SellerActivityLogService::REFUND_REQUEST_APPROVED);
     }
 
     public function reject(User $seller, RefundRequest $request, ?string $reason): void
@@ -131,5 +137,28 @@ class RefundRequestService
         if ($customer && $customer->email) {
             Mail::to($customer->email)->send(new RefundDecisionCustomerMail($request->fresh(['order.product']), false, $reason));
         }
+
+        $this->logSellerDecision($seller, $request, SellerActivityLogService::REFUND_REQUEST_REJECTED, [
+            'reason' => $reason,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function logSellerDecision(User $seller, RefundRequest $request, string $action, array $extra = []): void
+    {
+        SellerActivityLogService::record(
+            actor: $seller,
+            action: $action,
+            targetType: RefundRequest::class,
+            targetId: $request->id,
+            metadata: array_filter([
+                'refund_request_id' => $request->id,
+                'order_id' => $request->order_id,
+                ...$extra,
+            ], fn ($v) => $v !== null && $v !== ''),
+            tenantId: (int) $request->tenant_id,
+        );
     }
 }

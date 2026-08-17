@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\ProductCoproducer;
 use App\Models\User;
+use App\Services\SellerActivityLogService;
 use App\Support\InfoproducerRegistrationSettings;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,6 +14,8 @@ use Inertia\Response;
 
 class CoproductionInviteController extends Controller
 {
+    use LogsSellerActivity;
+
     public function show(string $token): Response
     {
         $invitation = ProductCoproducer::query()
@@ -103,6 +107,12 @@ class CoproductionInviteController extends Controller
         }
 
         $invitation->applyAcceptance($user);
+
+        $this->logSellerActivity(SellerActivityLogService::COPRODUCTION_ACCEPTED, $invitation, [
+            'email' => $invitation->email,
+            'product_id' => $invitation->product_id,
+            'product_name' => $invitation->product?->name,
+        ]);
 
         return redirect()->route('dashboard')->with('success', 'Co-produção aceita. Suas comissões serão creditadas na carteira conforme as vendas.');
     }

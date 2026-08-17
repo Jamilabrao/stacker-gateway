@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Product;
 use App\Models\ProductOffer;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,6 +14,7 @@ use Inertia\Response;
 
 class UpsellDownsellPageController extends Controller
 {
+    use LogsSellerActivity;
     public function editUpsellPage(Product $produto): Response
     {
         $this->authorizeProduct($produto);
@@ -78,6 +81,10 @@ class UpsellDownsellPageController extends Controller
         $current['upsell'] = $newUpsell;
         $produto->update(['checkout_config' => $current]);
 
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_UPSELL_UPDATED, $produto, [
+            'name' => $produto->name,
+        ]);
+
         if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
             return response()->json(['success' => true, 'message' => 'Página de upsell atualizada.']);
         }
@@ -114,6 +121,10 @@ class UpsellDownsellPageController extends Controller
         }
         $current['downsell'] = $newDownsell;
         $produto->update(['checkout_config' => $current]);
+
+        $this->logSellerActivity(SellerActivityLogService::PRODUCT_DOWNSELL_UPDATED, $produto, [
+            'name' => $produto->name,
+        ]);
 
         if ($request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
             return response()->json(['success' => true, 'message' => 'Página de downsell atualizada.']);

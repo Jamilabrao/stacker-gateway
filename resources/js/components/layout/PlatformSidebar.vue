@@ -25,6 +25,7 @@ import {
     Puzzle,
     Plug,
     Gift,
+    ScrollText,
     ContactRound,
     ChartNoAxesCombined,
 } from 'lucide-vue-next';
@@ -129,6 +130,7 @@ const navGroupsCore = [
         label: 'Sistema',
         items: [
             { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
+            { name: 'Log Infoprodutor', href: '/plataforma/log-infoprodutor', icon: ScrollText },
             { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
         ],
     },
