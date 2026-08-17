@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\WalletTransaction;
+use App\Support\CardInstallmentEconomics;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -102,11 +103,13 @@ class OrderFeeBreakdownService
         $source = is_array($meta) ? ($meta['source'] ?? null) : null;
         $source = is_string($source) && $source !== '' ? $source : null;
 
+        $feeMethod = EffectiveMerchantFees::feeMethodForOrder($order);
         $calc = EffectiveMerchantFees::calculateSaleFee(
             $tenantId,
-            EffectiveMerchantFees::feeMethodForOrder($order),
+            $feeMethod,
             $gross,
-            $source
+            $source,
+            $feeMethod === 'card' ? CardInstallmentEconomics::countFromOrder($order) : null
         );
 
         return [

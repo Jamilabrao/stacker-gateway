@@ -8,7 +8,6 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductOffer;
 use App\Models\User;
-use App\Support\SaleOrigin;
 use App\Services\AffiliateCommissionQuery;
 use App\Services\AccessEmailService;
 use App\Services\ManualOrderRefundService;
@@ -16,7 +15,9 @@ use App\Services\Med\MedPolicyService;
 use App\Services\PixGoAccess;
 use App\Services\OrderFeeBreakdownService;
 use App\Services\TeamAccessService;
+use App\Support\CardInstallmentEconomics;
 use App\Support\OrderManualRefund;
+use App\Support\SaleOrigin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -368,6 +369,7 @@ class VendasController extends Controller
         $arr['list_key'] = 'order:'.$o->id;
         $arr['sale_origin'] = $o->sale_origin ?? (is_array($o->metadata) ? ($o->metadata['sale_origin'] ?? null) : null);
         $arr['sale_origin_label'] = SaleOrigin::label($arr['sale_origin']);
+        $arr['installments'] = CardInstallmentEconomics::countFromOrder($o);
 
         $commission = $o->relationLoaded('affiliateCommission')
             ? $o->affiliateCommission

@@ -313,7 +313,7 @@ const shippingDeliveryLabel = computed(() => {
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Parcelas</p>
-                                <p class="text-sm text-zinc-900 dark:text-white">1</p>
+                                <p class="text-sm text-zinc-900 dark:text-white">{{ venda.installments > 1 ? venda.installments + 'x' : '1x' }}</p>
                             </div>
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recorrência</p>

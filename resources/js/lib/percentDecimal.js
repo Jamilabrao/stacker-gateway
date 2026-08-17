@@ -46,7 +46,7 @@ export function normalizeMerchantFeeRulesForSubmit(rules) {
     }
     const out = {};
     for (const [key, block] of Object.entries(rules)) {
-        if (!block || typeof block !== 'object') {
+        if (key === 'card_installments' || !block || typeof block !== 'object') {
             continue;
         }
         const row = {};
@@ -62,6 +62,24 @@ export function normalizeMerchantFeeRulesForSubmit(rules) {
             row.fixed = 0;
         }
         out[key] = row;
+    }
+    return out;
+}
+
+/**
+ * @param {Record<string|number, { percent?: unknown, fixed?: unknown, days_to_available?: unknown }>} rules
+ */
+export function normalizeCardInstallmentRulesForSubmit(rules) {
+    const out = {};
+    for (let n = 1; n <= 12; n++) {
+        const block = rules && typeof rules === 'object' ? (rules[n] ?? rules[String(n)] ?? {}) : {};
+        const f = parseFloat(String(block.fixed ?? 0).replace(',', '.'));
+        const d = parseInt(String(block.days_to_available ?? 0), 10);
+        out[n] = {
+            percent: normalizePercentInput(block.percent),
+            fixed: Number.isFinite(f) ? Math.round(f * 100) / 100 : 0,
+            days_to_available: Number.isFinite(d) ? Math.max(0, Math.min(365, d)) : 0,
+        };
     }
     return out;
 }

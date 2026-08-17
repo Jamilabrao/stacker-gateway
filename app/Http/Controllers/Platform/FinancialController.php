@@ -19,6 +19,7 @@ use App\Services\CajuPay\CajuPayWithdrawalReconcileService;
 use App\Services\Spacepag\SpacepagPayoutService;
 use App\Services\Woovi\WooviPayoutService;
 use App\Services\EffectiveMerchantFees;
+use App\Support\CardInstallmentEconomics;
 use App\Support\PercentDecimal;
 use App\Services\EffectiveSettlementRules;
 use App\Services\ApiPixAccess;
@@ -54,12 +55,17 @@ class FinancialController extends Controller
     {
         $tenantId = PlatformConfigContext::settingsTenantId();
 
+        $feeDefaults = EffectiveMerchantFees::platformDefaults();
+        $cardInstallmentRules = $feeDefaults['card_installments'] ?? [];
+        unset($feeDefaults['card_installments']);
+
         return Inertia::render('Platform/Financial/Index', [
             'gateways' => $this->buildGatewaysListForSettings($tenantId),
             'gateway_order' => $this->buildGatewayOrderForSettings($tenantId),
             'cajupay_accounts' => CajuPayAccountsController::listForAdmin(),
             'cajupay_credential_keys' => config('gateways.gateways.cajupay.credential_keys', []),
-            'merchant_fee_rules' => EffectiveMerchantFees::platformDefaults(),
+            'merchant_fee_rules' => $feeDefaults,
+            'card_installment_rules' => $cardInstallmentRules,
             'merchant_settlement_rules' => EffectiveSettlementRules::platformDefaults(),
             'api_pix_enabled' => ApiPixAccess::globalEnabled(),
             'api_pix_minimum_charge_brl' => app(MinimumChargeService::class)->apiPixMinimumBrl(),
@@ -289,6 +295,11 @@ class FinancialController extends Controller
     {
         $validated = $request->validate([
             'merchant_fee_rules' => ['required', 'array'],
+            'card_installment_rules' => ['nullable', 'array'],
+            'card_installment_rules.*' => ['nullable', 'array'],
+            'card_installment_rules.*.percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'card_installment_rules.*.fixed' => ['nullable', 'numeric', 'min:0', 'max:999999'],
+            'card_installment_rules.*.days_to_available' => ['nullable', 'integer', 'min:0', 'max:365'],
             'api_pix_enabled' => ['nullable', 'boolean'],
         ]);
         $rules = ['pix', 'api_pix', 'pixgo', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
@@ -307,6 +318,29 @@ class FinancialController extends Controller
                 'percent' => PercentDecimal::toFloat(PercentDecimal::normalize($block['percent'] ?? 0)),
                 'fixed' => round((float) ($block['fixed'] ?? 0), 2),
             ];
+        }
+
+        $existingRaw = Setting::get('merchant_fee_rules', null, null);
+        if (is_string($existingRaw)) {
+            $existingRaw = json_decode($existingRaw, true);
+        }
+        $existingInstallments = is_array($existingRaw) ? ($existingRaw['card_installments'] ?? null) : null;
+
+        if ($request->exists('card_installment_rules')) {
+            $incoming = is_array($validated['card_installment_rules'] ?? null)
+                ? $validated['card_installment_rules']
+                : [];
+            $out['card_installments'] = CardInstallmentEconomics::normalizeRules(
+                $incoming,
+                $out['card'],
+                CardInstallmentEconomics::fallbackDaysFromSettlement()
+            );
+        } elseif (is_array($existingInstallments) && $existingInstallments !== []) {
+            $out['card_installments'] = CardInstallmentEconomics::normalizeRules(
+                $existingInstallments,
+                ['percent' => 0, 'fixed' => 0],
+                0
+            );
         }
 
         Setting::set('merchant_fee_rules', $out, null);

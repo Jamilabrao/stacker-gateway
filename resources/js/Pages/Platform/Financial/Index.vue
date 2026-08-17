@@ -25,6 +25,7 @@ import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import {
     formatPercentForInput,
     normalizeMerchantFeeRulesForSubmit,
+    normalizeCardInstallmentRulesForSubmit,
 } from '@/lib/percentDecimal';
 
 const feeMethodRows = [
@@ -53,6 +54,10 @@ const props = defineProps({
         default: () => ({ pix: [], card: [], boleto: [], pix_auto: [] }),
     },
     merchant_fee_rules: {
+        type: Object,
+        default: () => ({}),
+    },
+    card_installment_rules: {
         type: Object,
         default: () => ({}),
     },
@@ -637,6 +642,27 @@ function buildFeeRulesFromProps() {
     return out;
 }
 
+const INSTALLMENT_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+function installmentRowFromProps(n) {
+    const r = props.card_installment_rules?.[n] || props.card_installment_rules?.[String(n)] || {};
+    const card = feeBlock('card');
+    const settlementDays = props.merchant_settlement_rules?.card?.days_to_available ?? 0;
+    return {
+        percent: formatPercentForInput(r.percent ?? card.percent) || '0',
+        fixed: r.fixed ?? card.fixed,
+        days_to_available: r.days_to_available ?? settlementDays,
+    };
+}
+
+function buildInstallmentRulesFromProps() {
+    const out = {};
+    for (const n of INSTALLMENT_COUNTS) {
+        out[n] = installmentRowFromProps(n);
+    }
+    return out;
+}
+
 const feePercentRefs = {};
 const feeFixedRefs = {};
 
@@ -661,6 +687,10 @@ function flushFeeInputs() {
         feePercentRefs[row.key]?.commit?.();
         feeFixedRefs[row.key]?.commit?.();
     }
+    for (const n of INSTALLMENT_COUNTS) {
+        feePercentRefs[`inst-${n}`]?.commit?.();
+        feeFixedRefs[`inst-${n}`]?.commit?.();
+    }
 }
 
 function updateFeeField(key, field, value) {
@@ -671,6 +701,31 @@ function updateFeeField(key, field, value) {
             [field]: value,
         },
     };
+}
+
+function updateInstallmentField(n, field, value) {
+    feeForm.card_installment_rules = {
+        ...feeForm.card_installment_rules,
+        [n]: {
+            ...feeForm.card_installment_rules[n],
+            [field]: value,
+        },
+    };
+}
+
+function copyCardFeeToAllInstallments() {
+    flushFeeInputs();
+    const card = feeForm.merchant_fee_rules.card || {};
+    const days = Number(props.merchant_settlement_rules?.card?.days_to_available ?? 0);
+    const next = {};
+    for (const n of INSTALLMENT_COUNTS) {
+        next[n] = {
+            percent: card.percent ?? 0,
+            fixed: card.fixed ?? 0,
+            days_to_available: Number.isFinite(days) ? Math.max(0, Math.min(365, days)) : 0,
+        };
+    }
+    feeForm.card_installment_rules = next;
 }
 
 const feeForm = useForm({
@@ -685,6 +740,7 @@ const feeForm = useForm({
         boleto: feeBlock('boleto'),
         withdrawal: feeBlock('withdrawal'),
     },
+    card_installment_rules: buildInstallmentRulesFromProps(),
     api_pix_enabled: props.api_pix_enabled,
 });
 
@@ -694,6 +750,7 @@ function submitFees() {
         .transform((data) => ({
             ...data,
             merchant_fee_rules: normalizeMerchantFeeRulesForSubmit(data.merchant_fee_rules),
+            card_installment_rules: normalizeCardInstallmentRulesForSubmit(data.card_installment_rules),
         }))
         .put('/plataforma/financeiro/taxas', {
             preserveScroll: true,
@@ -702,6 +759,7 @@ function submitFees() {
                 await nextTick();
                 feeForm.defaults({
                     merchant_fee_rules: buildFeeRulesFromProps(),
+                    card_installment_rules: buildInstallmentRulesFromProps(),
                     api_pix_enabled: props.api_pix_enabled,
                 });
                 feeForm.reset();
@@ -1304,6 +1362,71 @@ function submitSettlement() {
                                 </tbody>
                             </table>
                         </div>
+
+                        <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900/60">
+                            <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                    <h3 class="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                                        Cartão por parcelamento (1x a 12x)
+                                    </h3>
+                                    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                                        Percentual e valor fixo de cada linha incidem sobre o <strong class="font-medium">bruto total</strong> da venda naquela quantidade de parcelas.
+                                        A disponibilidade é o intervalo entre as fatias: numa 12x, o líquido sai em 12 partes; a 1ª libera em D+X, a 2ª em D+2X, e assim por diante.
+                                        Com 0 dias, o crédito segue a aba Liquidação (sem calendário por parcela). Apple Pay e Google Pay continuam nas linhas próprias acima.
+                                    </p>
+                                </div>
+                                <Button type="button" variant="secondary" @click="copyCardFeeToAllInstallments">
+                                    Copiar taxa de Cartão p/ todas
+                                </Button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full min-w-[640px] text-left text-sm">
+                                    <thead class="border-b border-zinc-200 text-xs uppercase text-zinc-500 dark:border-zinc-600">
+                                        <tr>
+                                            <th class="pb-2 pr-4">Parcelas</th>
+                                            <th class="pb-2 pr-4">Percentual (%)</th>
+                                            <th class="pb-2 pr-4">Valor fixo</th>
+                                            <th class="pb-2">Disponível em (dias)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-zinc-100 dark:divide-zinc-700">
+                                        <tr v-for="n in INSTALLMENT_COUNTS" :key="'inst-fee-' + n">
+                                            <td class="py-3 font-medium text-zinc-900 dark:text-white">
+                                                {{ n === 1 ? '1x (à vista)' : n + 'x' }}
+                                            </td>
+                                            <td class="py-3 pr-4">
+                                                <FeePercentInput
+                                                    :ref="(el) => setFeePercentRef('inst-' + n, el)"
+                                                    :model-value="feeForm.card_installment_rules[n].percent"
+                                                    @update:model-value="(v) => updateInstallmentField(n, 'percent', v)"
+                                                />
+                                            </td>
+                                            <td class="py-3 pr-4">
+                                                <FeeFixedInput
+                                                    :ref="(el) => setFeeFixedRef('inst-' + n, el)"
+                                                    :model-value="feeForm.card_installment_rules[n].fixed"
+                                                    @update:model-value="(v) => updateInstallmentField(n, 'fixed', v)"
+                                                />
+                                            </td>
+                                            <td class="py-3">
+                                                <input
+                                                    v-model.number="feeForm.card_installment_rules[n].days_to_available"
+                                                    type="number"
+                                                    min="0"
+                                                    max="365"
+                                                    step="1"
+                                                    class="w-full max-w-[140px] rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-900"
+                                                />
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p v-if="feeForm.errors.card_installment_rules" class="mt-2 text-sm text-red-600">
+                                {{ feeForm.errors.card_installment_rules }}
+                            </p>
+                        </div>
+
                         <p v-if="feeForm.errors.merchant_fee_rules" class="text-sm text-red-600">
                             {{ feeForm.errors.merchant_fee_rules }}
                         </p>

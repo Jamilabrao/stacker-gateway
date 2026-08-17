@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\CardInstallmentEconomics;
 use App\Support\PercentDecimal;
 
 class EffectiveMerchantFees
@@ -25,7 +26,8 @@ class EffectiveMerchantFees
      *     apple_pay: array{percent: float, fixed: float},
      *     google_pay: array{percent: float, fixed: float},
      *     boleto: array{percent: float, fixed: float},
-     *     withdrawal: array{percent: float, fixed: float}
+     *     withdrawal: array{percent: float, fixed: float},
+     *     card_installments: array<int, array{percent: float, fixed: float, days_to_available: int}>
      * }
      */
     public static function platformDefaults(): array
@@ -45,35 +47,40 @@ class EffectiveMerchantFees
             'boleto' => ['percent' => 0.0, 'fixed' => 0.0],
             'withdrawal' => ['percent' => 0.0, 'fixed' => 0.0],
         ];
-        if (! is_array($raw)) {
-            return $base;
-        }
-        foreach (self::RULE_KEYS as $k) {
-            if (! isset($raw[$k]) || ! is_array($raw[$k])) {
-                continue;
+        if (is_array($raw)) {
+            foreach (self::RULE_KEYS as $k) {
+                if (! isset($raw[$k]) || ! is_array($raw[$k])) {
+                    continue;
+                }
+                $base[$k]['percent'] = PercentDecimal::toFloat(PercentDecimal::normalize($raw[$k]['percent'] ?? 0));
+                $base[$k]['fixed'] = round((float) ($raw[$k]['fixed'] ?? 0), 2);
             }
-            $base[$k]['percent'] = PercentDecimal::toFloat(PercentDecimal::normalize($raw[$k]['percent'] ?? 0));
-            $base[$k]['fixed'] = round((float) ($raw[$k]['fixed'] ?? 0), 2);
         }
         // Primeira configuração / legado: sem bloco `api_pix`, herda PIX checkout.
-        if (! isset($raw['api_pix']) || ! is_array($raw['api_pix'])) {
+        if (! is_array($raw) || ! isset($raw['api_pix']) || ! is_array($raw['api_pix'])) {
             $base['api_pix'] = $base['pix'];
         }
         // Legado: sem bloco `pixgo`, herda PIX checkout (comportamento anterior).
-        if (! isset($raw['pixgo']) || ! is_array($raw['pixgo'])) {
+        if (! is_array($raw) || ! isset($raw['pixgo']) || ! is_array($raw['pixgo'])) {
             $base['pixgo'] = $base['pix'];
         }
         // Legado: sem bloco `open_finance`, herda PIX (comportamento anterior à taxa dedicada).
-        if (! isset($raw['open_finance']) || ! is_array($raw['open_finance'])) {
+        if (! is_array($raw) || ! isset($raw['open_finance']) || ! is_array($raw['open_finance'])) {
             $base['open_finance'] = $base['pix'];
         }
         // Wallets CajuPay: sem bloco próprio, herdam taxa de cartão checkout.
-        if (! isset($raw['apple_pay']) || ! is_array($raw['apple_pay'])) {
+        if (! is_array($raw) || ! isset($raw['apple_pay']) || ! is_array($raw['apple_pay'])) {
             $base['apple_pay'] = $base['card'];
         }
-        if (! isset($raw['google_pay']) || ! is_array($raw['google_pay'])) {
+        if (! is_array($raw) || ! isset($raw['google_pay']) || ! is_array($raw['google_pay'])) {
             $base['google_pay'] = $base['card'];
         }
+
+        $installRaw = is_array($raw) ? ($raw['card_installments'] ?? null) : null;
+        $base['card_installments'] = CardInstallmentEconomics::normalizeRules(
+            is_array($installRaw) ? $installRaw : null,
+            $base['card']
+        );
 
         return $base;
     }
@@ -221,7 +228,7 @@ class EffectiveMerchantFees
      * @param  'pix'|'open_finance'|'card'|'apple_pay'|'google_pay'|'boleto'|'withdrawal'|'pix_auto'  $method
      * @return array{fee: float, net: float, gross: float, percent: float, fixed: float}
      */
-    public static function calculateSaleFee(int $tenantId, string $method, float $gross, ?string $source = null): array
+    public static function calculateSaleFee(int $tenantId, string $method, float $gross, ?string $source = null, ?int $installments = null): array
     {
         $map = [
             'pix' => 'pix',
@@ -244,6 +251,14 @@ class EffectiveMerchantFees
         }
         $percent = PercentDecimal::toFloat(PercentDecimal::normalize($rules[$key]['percent'] ?? 0));
         $fixed = round((float) ($rules[$key]['fixed'] ?? 0), 2);
+        if ($key === 'card' && $installments !== null && CardInstallmentEconomics::platformHasSavedTable()) {
+            $row = CardInstallmentEconomics::ruleFor(
+                $rules['card_installments'] ?? [],
+                $installments
+            );
+            $percent = $row['percent'];
+            $fixed = $row['fixed'];
+        }
         $amounts = PercentDecimal::feeFromGross($gross, PercentDecimal::normalize($percent), $fixed);
 
         return [
