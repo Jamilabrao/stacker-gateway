@@ -903,6 +903,7 @@ class VendasController extends Controller
             'pending' => 'Pendente',
             'disputed' => 'MED',
             'cancelled' => 'Cancelado',
+            'refund_pending' => 'Aguardando reembolso',
             'refunded' => 'Reembolsado',
         ];
 
@@ -913,6 +914,10 @@ class VendasController extends Controller
     {
         if ($order->status === 'refunded' && OrderManualRefund::isOffline($order)) {
             return 'Reembolso manual';
+        }
+
+        if ($order->status === 'refund_pending') {
+            return 'Aguardando reembolso';
         }
 
         return $this->statusLabel($order->status);

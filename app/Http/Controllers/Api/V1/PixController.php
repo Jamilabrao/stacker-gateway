@@ -7,7 +7,7 @@ use App\Models\ApiApplication;
 use App\Models\Order;
 use App\Services\ApiPixAccess;
 use App\Services\MerchantOperationalGuard;
-use App\Jobs\PollCajuPayPixRefundJob;
+use App\Services\CajuPay\CajuPayPixRefundConfirmationService;
 use App\Services\OrderRefundGatewayBridge;
 use App\Services\PlatformOrderAdminService;
 use Illuminate\Http\JsonResponse;
@@ -113,14 +113,19 @@ class PixController extends Controller
             ], 422);
         }
 
-        if ($bridgeResult['status'] === 'gateway_pending') {
-            PollCajuPayPixRefundJob::dispatch($orderModel->id)->delay(now()->addSeconds(5));
+        if (CajuPayPixRefundConfirmationService::isCajuPixOrder($orderModel)
+            && in_array($bridgeResult['status'], ['gateway_ok', 'gateway_pending'], true)) {
+            app(CajuPayPixRefundConfirmationService::class)
+                ->lockWalletAndAwait($orderModel, null, 'seller_manual_refund');
+            $orderModel = $orderModel->fresh();
 
             return response()->json([
                 'order_id' => $orderModel->id,
                 'status' => $orderModel->status,
                 'gateway_refund' => $bridgeResult,
-                'message' => $bridgeResult['note'] ?? 'Reembolso PIX em processamento.',
+                'message' => $orderModel->status === 'refund_pending'
+                    ? ($bridgeResult['note'] ?? 'Reembolso PIX em processamento.')
+                    : null,
             ]);
         }
 

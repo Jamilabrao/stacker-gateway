@@ -110,6 +110,7 @@ class OrderManualRefund
             'pending' => 'Pendente',
             'disputed' => 'MED',
             'cancelled' => 'Cancelado',
+            'refund_pending' => 'Aguardando reembolso',
             'refunded' => self::isOffline($order) ? 'Reembolso manual' : 'Reembolsado',
             default => $order->status !== '' ? (string) $order->status : '—',
         };

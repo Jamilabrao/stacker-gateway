@@ -68,6 +68,7 @@ function statusLabel(status) {
         pending: 'Pendente',
         disputed: 'MED',
         cancelled: 'Cancelado',
+        refund_pending: 'Aguardando reembolso',
         refunded: 'Reembolsado',
     };
     return map[status] ?? status ?? '–';

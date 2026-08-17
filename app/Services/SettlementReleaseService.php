@@ -54,7 +54,7 @@ class SettlementReleaseService
                     if ($order === null) {
                         continue;
                     }
-                    if (in_array($order->status, ['disputed', 'refunded', 'cancelled'], true)) {
+                    if (in_array($order->status, ['disputed', 'refunded', 'refund_pending', 'cancelled'], true)) {
                         continue;
                     }
 

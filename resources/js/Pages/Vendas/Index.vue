@@ -108,6 +108,7 @@ function rowStatusBadgeClass(v) {
             pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
             cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300',
             refunded: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+            refund_pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
         };
         return map[v.status] ?? 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300';
     }
@@ -308,6 +309,7 @@ function statusBadgeClass(status) {
         disputed: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
         cancelled: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300',
         refunded: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+        refund_pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
     };
     return map[status] ?? 'bg-zinc-100 text-zinc-700 dark:bg-zinc-700/50 dark:text-zinc-300';
 }
@@ -319,6 +321,7 @@ function statusBadgeLabel(status) {
         disputed: 'MED',
         cancelled: t('sales.status.cancelled', 'Cancelado'),
         refunded: t('sales.status.refunded', 'Reembolsado'),
+        refund_pending: t('sales.status.refund_pending', 'Aguardando reembolso'),
     };
     return map[status] ?? status ?? '–';
 }
