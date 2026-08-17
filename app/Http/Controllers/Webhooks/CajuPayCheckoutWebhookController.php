@@ -151,6 +151,15 @@ class CajuPayCheckoutWebhookController extends Controller
             if ($dispatchId === '') {
                 return response('ok', 200);
             }
+            if (in_array($order->status, ['completed', 'disputed', 'refund_pending'], true)) {
+                PlatformOrderAdminService::applyGatewayRefund($order->fresh());
+            } else {
+                Log::info('CajuPayWebhook: refund ignorado pelo status', [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                    'event' => $eventType,
+                ]);
+            }
             PaymentWebhookDispatcher::dispatch(self::SLUG, $dispatchId, 'checkout.payment.refunded', 'refunded', $webhookMeta);
 
             return response('ok', 200);
@@ -172,9 +181,20 @@ class CajuPayCheckoutWebhookController extends Controller
                 if ($paymentId !== '') {
                     CajuPayPaymentId::persistOnOrder($pixOrder, $paymentId);
                 }
-                if (in_array($pixOrder->status, ['completed', 'disputed'], true)) {
+                if (in_array($pixOrder->status, ['completed', 'disputed', 'refund_pending'], true)) {
                     PlatformOrderAdminService::applyGatewayRefund($pixOrder->fresh());
+                } else {
+                    Log::info('CajuPayWebhook: pix refund ignorado pelo status', [
+                        'order_id' => $pixOrder->id,
+                        'status' => $pixOrder->status,
+                        'event' => $eventType,
+                    ]);
                 }
+            } else {
+                Log::info('CajuPayWebhook: pix.payment.refunded sem pedido', [
+                    'event' => $eventType,
+                    'payment_id' => $paymentId,
+                ]);
             }
 
             return response('ok', 200);

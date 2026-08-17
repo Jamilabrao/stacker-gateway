@@ -113,7 +113,7 @@ class ProcessPaymentWebhook implements ShouldQueue
         $isRefundEvent = in_array($this->event, ['order.refunded', 'payment.refunded'], true)
             || ($this->gatewaySlug === 'cajupay' && in_array($this->event, ['checkout.payment.refunded', 'card.payment.refunded', 'pix.payment.refunded'], true));
         if ($isRefundEvent && in_array($this->status, ['refunded', 'refund'], true)) {
-            if (in_array($order->status, ['completed', 'disputed'], true)) {
+            if (in_array($order->status, ['completed', 'disputed', 'refund_pending'], true)) {
                 $skipReconfirmRefund = $this->gatewaySlug === 'cajupay'
                     && in_array($this->event, ['checkout.payment.refunded', 'card.payment.refunded', 'pix.payment.refunded'], true);
                 if (! $skipReconfirmRefund && ! $this->reconfirmGatewayStatus($order, ['cancelled'])) {

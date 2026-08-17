@@ -7,7 +7,7 @@ use App\Mail\RefundRequestSellerMail;
 use App\Models\Order;
 use App\Models\RefundRequest;
 use App\Models\User;
-use App\Jobs\PollCajuPayPixRefundJob;
+use App\Services\CajuPay\CajuPayPixRefundConfirmationService;
 use App\Services\PlatformOrderAdminService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -73,8 +73,10 @@ class RefundRequestService
             throw new \InvalidArgumentException($gw['note'] ?? 'Falha ao solicitar reembolso no gateway.');
         }
 
-        if ($gw['status'] === 'gateway_pending') {
-            PollCajuPayPixRefundJob::dispatch($order->id)->delay(now()->addSeconds(5));
+        if (CajuPayPixRefundConfirmationService::isCajuPixOrder($order)
+            && in_array($gw['status'], ['gateway_ok', 'gateway_pending'], true)) {
+            app(CajuPayPixRefundConfirmationService::class)
+                ->lockWalletAndAwait($order, null, 'seller_manual_refund');
             $request->update([
                 'status' => RefundRequest::STATUS_APPROVED,
                 'resolved_by_user_id' => $seller->id,

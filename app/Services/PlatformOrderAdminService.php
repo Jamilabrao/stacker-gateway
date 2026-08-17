@@ -64,20 +64,55 @@ class PlatformOrderAdminService
         }
 
         DB::transaction(function () use ($order, $manualRefundMeta, $debitReason) {
-            self::reverseSaleCreditIfExists($order, $debitReason);
-            $meta = is_array($order->metadata) ? $order->metadata : [];
-            if ($manualRefundMeta !== null) {
-                $meta['manual_refund'] = $manualRefundMeta;
-            }
-            $order->update([
-                'status' => 'refunded',
-                'metadata' => $meta,
-            ]);
-            AffiliateCommissionRecorder::markRefundedForOrder($order->fresh());
-            ReferralCommissionRecorder::reverseForOrder($order->fresh());
-            $order->fresh()?->revokePurchasedProductAccessFromBuyer();
-            event(new OrderRefunded($order->fresh()));
+            self::applyLocalRefundEffects($order, $manualRefundMeta, $debitReason, 'refunded', fireRefundedEvent: true);
         });
+    }
+
+    /**
+     * Caju aceitou o pedido (submitted/pending_balance): debita a carteira agora e deixa o pedido
+     * em "reembolso em andamento" até o webhook/polling confirmar.
+     *
+     * @param  array<string, mixed>|null  $manualRefundMeta
+     */
+    public static function beginPendingGatewayRefund(
+        Order $order,
+        ?array $manualRefundMeta = null,
+        string $debitReason = 'seller_manual_refund',
+    ): void {
+        if (! in_array($order->status, ['completed', 'disputed'], true)) {
+            throw new InvalidArgumentException('Só é possível reembolsar pedidos pagos ou em MED.');
+        }
+
+        DB::transaction(function () use ($order, $manualRefundMeta, $debitReason) {
+            self::applyLocalRefundEffects($order, $manualRefundMeta, $debitReason, 'refund_pending', fireRefundedEvent: false);
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $manualRefundMeta
+     */
+    private static function applyLocalRefundEffects(
+        Order $order,
+        ?array $manualRefundMeta,
+        string $debitReason,
+        string $status,
+        bool $fireRefundedEvent,
+    ): void {
+        self::reverseSaleCreditIfExists($order, $debitReason);
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        if ($manualRefundMeta !== null) {
+            $meta['manual_refund'] = $manualRefundMeta;
+        }
+        $order->update([
+            'status' => $status,
+            'metadata' => $meta,
+        ]);
+        AffiliateCommissionRecorder::markRefundedForOrder($order->fresh());
+        ReferralCommissionRecorder::reverseForOrder($order->fresh());
+        $order->fresh()?->revokePurchasedProductAccessFromBuyer();
+        if ($fireRefundedEvent) {
+            event(new OrderRefunded($order->fresh()));
+        }
     }
 
     /**
@@ -212,6 +247,13 @@ class PlatformOrderAdminService
             return;
         }
         if (! Schema::hasColumn('tenant_wallets', 'available_pix')) {
+            return;
+        }
+
+        if (WalletTransaction::query()
+            ->where('order_id', $order->id)
+            ->where('type', WalletTransaction::TYPE_DEBIT_REFUND)
+            ->exists()) {
             return;
         }
 
@@ -420,6 +462,16 @@ class PlatformOrderAdminService
     public static function applyGatewayRefund(Order $order): void
     {
         if ($order->status === 'refunded') {
+            return;
+        }
+
+        if ($order->status === 'refund_pending') {
+            DB::transaction(function () use ($order) {
+                $order->update(['status' => 'refunded']);
+                self::ensureApprovedRefundRequestForGateway($order->fresh());
+            });
+            event(new OrderRefunded($order->fresh()));
+
             return;
         }
 

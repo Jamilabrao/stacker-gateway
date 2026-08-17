@@ -2,10 +2,10 @@
 
 namespace App\Services;
 
-use App\Jobs\PollCajuPayPixRefundJob;
 use App\Models\Order;
 use App\Models\RefundRequest;
 use App\Models\User;
+use App\Services\CajuPay\CajuPayPixRefundConfirmationService;
 use App\Support\OrderManualRefund;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
@@ -44,6 +44,29 @@ class ManualOrderRefundService
         }
 
         if ($gw['status'] === 'failed') {
+            if (CajuPayPixRefundConfirmationService::isCajuPixOrder($order)
+                && app(CajuPayPixRefundConfirmationService::class)->isRemoteCancelledOrRefunded($order)) {
+                $manualRefundMeta = OrderManualRefund::buildMeta($actor, $initiatedBy, $reason, $gw);
+                $debitReason = $initiatedBy === 'platform' ? 'platform_manual_refund' : 'seller_manual_refund';
+                $outcome = app(CajuPayPixRefundConfirmationService::class)
+                    ->lockWalletAndAwait($order, $manualRefundMeta, $debitReason);
+                $this->recordApprovedRefundRequest(
+                    $order->fresh(),
+                    $actor,
+                    $reason,
+                    $gw,
+                    pendingGateway: $outcome === 'refund_pending'
+                );
+
+                return [
+                    'success' => true,
+                    'message' => $outcome === 'refund_pending'
+                        ? 'CajuPay já cancelou o pagamento. Saldo do seller bloqueado; aguardando efetivação.'
+                        : 'Pedido #'.$order->id.' reembolsado.',
+                    'gateway_status' => $outcome === 'refund_pending' ? 'gateway_pending' : 'gateway_ok',
+                ];
+            }
+
             return [
                 'success' => false,
                 'message' => $gw['note'] ?? 'Falha ao solicitar reembolso no gateway.',
@@ -51,25 +74,35 @@ class ManualOrderRefundService
             ];
         }
 
-        if ($gw['status'] === 'gateway_pending') {
-            PollCajuPayPixRefundJob::dispatch($order->id)->delay(now()->addSeconds(5));
+        $manualRefundMeta = OrderManualRefund::buildMeta($actor, $initiatedBy, $reason, $gw);
+        $debitReason = $initiatedBy === 'platform' ? 'platform_manual_refund' : 'seller_manual_refund';
+
+        if (CajuPayPixRefundConfirmationService::isCajuPixOrder($order)
+            && in_array($gw['status'], ['gateway_ok', 'gateway_pending'], true)) {
+            $outcome = app(CajuPayPixRefundConfirmationService::class)
+                ->lockWalletAndAwait($order, $manualRefundMeta, $debitReason);
             $this->recordApprovedRefundRequest(
-                $order,
+                $order->fresh(),
                 $actor,
                 $reason,
                 $gw,
-                pendingGateway: true
+                pendingGateway: $outcome === 'refund_pending'
             );
+
+            if ($outcome === 'refund_pending') {
+                return [
+                    'success' => true,
+                    'message' => 'Reembolso enviado. Saldo do seller bloqueado; aguardando confirmação na CajuPay.',
+                    'gateway_status' => 'gateway_pending',
+                ];
+            }
 
             return [
                 'success' => true,
-                'message' => $gw['note'] ?? 'Reembolso PIX enviado à CajuPay. A carteira será ajustada quando a devolução for confirmada.',
-                'gateway_status' => 'gateway_pending',
+                'message' => 'Pedido #'.$order->id.' reembolsado.',
+                'gateway_status' => 'gateway_ok',
             ];
         }
-
-        $manualRefundMeta = OrderManualRefund::buildMeta($actor, $initiatedBy, $reason, $gw);
-        $debitReason = $initiatedBy === 'platform' ? 'platform_manual_refund' : 'seller_manual_refund';
 
         PlatformOrderAdminService::refundPaidOrDisputed($order, $manualRefundMeta, $debitReason);
         $this->recordApprovedRefundRequest($order->fresh(), $actor, $reason, $gw);

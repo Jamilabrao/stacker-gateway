@@ -145,6 +145,7 @@ function statusLabel(orderOrStatus) {
         pending: 'Pendente',
         disputed: 'MED',
         cancelled: 'Cancelado',
+        refund_pending: 'Aguardando reembolso',
         refunded: 'Reembolsado',
     };
     return map[orderOrStatus] ?? orderOrStatus ?? '—';
@@ -154,7 +155,7 @@ function statusBadgeClass(orderOrStatus) {
     const status = orderOrStatus && typeof orderOrStatus === 'object' ? orderOrStatus.status : orderOrStatus;
     const offline = Boolean(orderOrStatus && typeof orderOrStatus === 'object' && orderOrStatus.manual_refund?.offline);
     if (status === 'completed') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200';
-    if (status === 'pending') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
+    if (status === 'pending' || status === 'refund_pending') return 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100';
     if (status === 'disputed') return 'bg-orange-100 text-orange-900 dark:bg-orange-900/30 dark:text-orange-100';
     if (status === 'refunded' && offline) return 'bg-rose-100 text-rose-900 dark:bg-rose-900/40 dark:text-rose-200';
     if (status === 'cancelled' || status === 'refunded') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200';
