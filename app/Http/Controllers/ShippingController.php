@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\ShippingRule;
 use App\Models\ShippingStore;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -11,6 +13,8 @@ use Inertia\Response;
 
 class ShippingController extends Controller
 {
+    use LogsSellerActivity;
+
     public function index(): Response
     {
         $tenantId = auth()->user()->tenant_id;
@@ -47,6 +51,10 @@ class ShippingController extends Controller
 
         $store = ShippingStore::create($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::SHIPPING_STORE_CREATED, $store, [
+            'name' => $store->name,
+        ]);
+
         return response()->json(['success' => true, 'store' => $this->storePayload($store)]);
     }
 
@@ -55,12 +63,19 @@ class ShippingController extends Controller
         $this->authorizeStore($store);
         $store->update($this->validateStore($request));
 
+        $this->logSellerActivity(SellerActivityLogService::SHIPPING_STORE_UPDATED, $store, [
+            'name' => $store->name,
+        ]);
+
         return response()->json(['success' => true, 'store' => $this->storePayload($store->fresh())]);
     }
 
     public function destroyStore(ShippingStore $store): JsonResponse
     {
         $this->authorizeStore($store);
+        $this->logSellerActivity(SellerActivityLogService::SHIPPING_STORE_DELETED, $store, [
+            'name' => $store->name,
+        ]);
         $store->delete();
 
         return response()->json(['success' => true]);
@@ -73,6 +88,11 @@ class ShippingController extends Controller
         $validated['shipping_store_id'] = $store->id;
         $rule = ShippingRule::create($validated);
 
+        $this->logSellerActivity(SellerActivityLogService::SHIPPING_RULE_CREATED, $rule, [
+            'name' => $rule->name ?: $store->name,
+            'store_id' => $store->id,
+        ]);
+
         return response()->json(['success' => true, 'rule' => $this->rulePayload($rule)]);
     }
 
@@ -82,6 +102,11 @@ class ShippingController extends Controller
         $this->authorizeRule($store, $rule);
         $rule->update($this->validateRule($request));
 
+        $this->logSellerActivity(SellerActivityLogService::SHIPPING_RULE_UPDATED, $rule, [
+            'name' => $rule->name ?: $store->name,
+            'store_id' => $store->id,
+        ]);
+
         return response()->json(['success' => true, 'rule' => $this->rulePayload($rule->fresh())]);
     }
 
@@ -89,6 +114,10 @@ class ShippingController extends Controller
     {
         $this->authorizeStore($store);
         $this->authorizeRule($store, $rule);
+        $this->logSellerActivity(SellerActivityLogService::SHIPPING_RULE_DELETED, $rule, [
+            'name' => $rule->name ?: $store->name,
+            'store_id' => $store->id,
+        ]);
         $rule->delete();
 
         return response()->json(['success' => true]);

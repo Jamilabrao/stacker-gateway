@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\TeamAuditLog;
 use App\Models\TeamRole;
 use App\Models\User;
+use App\Services\SellerActivityLogService;
 use App\Mail\TeamMemberAccessMail;
 use App\Services\TenantMailConfigService;
 use Illuminate\Http\RedirectResponse;
@@ -35,6 +36,19 @@ class EquipeController extends Controller
             'ip' => $request->ip(),
             'user_agent' => (string) $request->userAgent(),
         ]);
+
+        if (array_key_exists($action, SellerActivityLogService::ACTIONS)) {
+            SellerActivityLogService::record(
+                actor: $actor,
+                action: $action,
+                targetType: $targetType,
+                targetId: $targetId,
+                metadata: $metadata,
+                tenantId: (int) $tenantId,
+                source: 'panel',
+                request: $request,
+            );
+        }
     }
 
     public function index(Request $request): Response

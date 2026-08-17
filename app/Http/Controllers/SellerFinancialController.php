@@ -11,6 +11,7 @@ use App\Services\EffectiveMerchantFees;
 use App\Services\EffectiveSettlementRules;
 use App\Services\MerchantWithdrawalService;
 use App\Services\Payout\PayoutUserSettings;
+use App\Services\SellerActivityLogService;
 use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\Withdrawal\WithdrawalMinimumService;
 use App\Services\WithdrawalAutoPayoutService;
@@ -302,6 +303,8 @@ class SellerFinancialController extends Controller
             $user->payout_settings = $settings;
             $user->save();
 
+            $this->logPayoutSettingsUpdated($user, $settings);
+
             return redirect()->route('financeiro.seller.index')->with('success', 'Dados para recebimento de saques atualizados.');
         }
 
@@ -331,6 +334,8 @@ class SellerFinancialController extends Controller
             $user->payout_settings = $settings;
             $user->save();
 
+            $this->logPayoutSettingsUpdated($user, $settings);
+
             return redirect()->route('financeiro.seller.index')->with('success', 'Dados para recebimento de saques salvos.');
         }
 
@@ -352,6 +357,8 @@ class SellerFinancialController extends Controller
             $settings['woovi_pix_key_type'] = $pkt;
             $user->payout_settings = $settings;
             $user->save();
+
+            $this->logPayoutSettingsUpdated($user, $settings);
 
             return redirect()->route('financeiro.seller.index')->with('success', 'Chave PIX para saques salva.');
         }
@@ -530,5 +537,36 @@ class SellerFinancialController extends Controller
 
             return $row;
         }, $rows);
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     */
+    private function logPayoutSettingsUpdated(User $user, array $settings): void
+    {
+        $pixKey = PayoutUserSettings::pixKey($settings);
+        if ($pixKey === '') {
+            $pixKey = PayoutUserSettings::cajuPixKey($settings);
+        }
+        $pixKeyType = PayoutUserSettings::pixKeyType($settings);
+        if ($pixKeyType === '') {
+            $pixKeyType = PayoutUserSettings::cajuPixKeyType($settings);
+        }
+
+        SellerActivityLogService::record(
+            actor: $user,
+            action: SellerActivityLogService::PAYOUT_SETTINGS_UPDATED,
+            targetType: User::class,
+            targetId: $user->id,
+            metadata: array_filter([
+                'pix_key_type' => $pixKeyType !== '' ? $pixKeyType : null,
+                'pix_key_masked' => SellerActivityLogService::maskValue($pixKey),
+                'label' => PayoutUserSettings::pixLabel($settings) ?: null,
+                'receiver_name' => isset($settings['receiver_name']) ? trim((string) $settings['receiver_name']) : null,
+                'receiver_document_masked' => SellerActivityLogService::maskValue(
+                    isset($settings['receiver_document']) ? (string) $settings['receiver_document'] : null
+                ),
+            ], fn ($v) => $v !== null && $v !== ''),
+        );
     }
 }

@@ -6,6 +6,7 @@ use App\Models\TeamAuditLog;
 use App\Models\User;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -99,6 +100,13 @@ class TotpSecurityController extends Controller
                 'ip' => $request->ip(),
                 'user_agent' => (string) $request->userAgent(),
             ]);
+            SellerActivityLogService::record(
+                actor: $user,
+                action: $action === 'enabled'
+                    ? SellerActivityLogService::AUTH_TOTP_ENABLED
+                    : SellerActivityLogService::AUTH_TOTP_DISABLED,
+                request: $request,
+            );
         }
     }
 }

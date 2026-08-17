@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Events\SubscriptionCancelled;
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Order;
 use App\Models\Subscription;
+use App\Services\SellerActivityLogService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,6 +15,8 @@ use Inertia\Response;
 
 class AssinaturasController extends Controller
 {
+    use LogsSellerActivity;
+
     private const STATUS_FILTERS = ['active', 'past_due', 'cancelled', 'all'];
 
     private function normalizeStatusFilter(?string $value): string
@@ -156,6 +160,11 @@ class AssinaturasController extends Controller
 
         $subscription->update(['status' => Subscription::STATUS_CANCELLED]);
         event(new SubscriptionCancelled($subscription->fresh()));
+
+        $this->logSellerActivity(SellerActivityLogService::SUBSCRIPTION_CANCELLED, $subscription, [
+            'order_id' => $subscription->order_id,
+            'product_id' => $subscription->product_id,
+        ]);
 
         return redirect()->route('assinaturas.show', $subscription)->with('success', 'Assinatura cancelada.');
     }

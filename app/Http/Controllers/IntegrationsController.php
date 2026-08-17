@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Product;
 use App\Models\CademiIntegration;
 use App\Models\SpedyIntegration;
 use App\Models\UtmifyIntegration;
 use App\Models\Webhook;
 use App\Plugins\PluginRegistry;
+use App\Services\SellerActivityLogService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -15,6 +17,8 @@ use Inertia\Response;
 
 class IntegrationsController extends Controller
 {
+    use LogsSellerActivity;
+
     public function index(): Response
     {
         $tenantId = auth()->user()->tenant_id;
@@ -106,6 +110,9 @@ class IntegrationsController extends Controller
             return back()->with('error', 'Plugin não encontrado.');
         }
         PluginRegistry::enable($slug);
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_PLUGIN_ENABLED, null, [
+            'name' => $slug,
+        ]);
         return back()->with('success', 'Plugin ativado.');
     }
 
@@ -116,6 +123,9 @@ class IntegrationsController extends Controller
             return back()->with('error', 'Plugin não encontrado.');
         }
         PluginRegistry::disable($slug);
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_PLUGIN_DISABLED, null, [
+            'name' => $slug,
+        ]);
         return back()->with('success', 'Plugin desativado.');
     }
 
@@ -130,6 +140,9 @@ class IntegrationsController extends Controller
         if (! PluginRegistry::uninstall($slug, $pluginPath)) {
             return back()->with('error', 'Não foi possível excluir o plugin. Verifique permissões da pasta plugins.');
         }
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_PLUGIN_UNINSTALLED, null, [
+            'name' => $slug,
+        ]);
         return back()->with('success', 'Plugin excluído.');
     }
 }

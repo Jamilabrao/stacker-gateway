@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Product;
 use App\Models\UtmifyIntegration;
+use App\Services\SellerActivityLogService;
 use App\Services\UtmifyService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class UtmifyController extends Controller
 {
+    use LogsSellerActivity;
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -33,6 +37,10 @@ class UtmifyController extends Controller
         if (! empty($validated['product_ids'])) {
             $integration->products()->sync($validated['product_ids']);
         }
+
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_UTMIFY_CREATED, $integration, [
+            'name' => $integration->name,
+        ]);
 
         return response()->json([
             'integration' => $this->integrationToArray($integration),
@@ -69,6 +77,10 @@ class UtmifyController extends Controller
 
         $utmify->load('products:id,name');
 
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_UTMIFY_UPDATED, $utmify, [
+            'name' => $utmify->name,
+        ]);
+
         return response()->json([
             'integration' => $this->integrationToArray($utmify),
         ]);
@@ -77,6 +89,9 @@ class UtmifyController extends Controller
     public function destroy(UtmifyIntegration $utmify): JsonResponse
     {
         $this->authorizeIntegration($utmify);
+        $this->logSellerActivity(SellerActivityLogService::INTEGRATION_UTMIFY_DELETED, $utmify, [
+            'name' => $utmify->name,
+        ]);
         $utmify->products()->detach();
         $utmify->delete();
 

@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Services\Api\ApiAuthContext;
 use App\Services\Api\ApiWebhookConfigService;
+use App\Services\SellerActivityLogService;
 use App\Support\ApiScopes;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,6 +50,20 @@ class WebhookConfigController extends Controller
             (bool) ($validated['rotate_secret'] ?? false),
         );
 
+        $this->logApiWebhook(
+            $ctx,
+            SellerActivityLogService::API_WEBHOOK_UPDATED,
+            [
+                'webhook_url' => $validated['webhook_url'],
+                'webhook_enabled' => (bool) ($validated['webhook_enabled'] ?? true),
+                'rotate_secret' => (bool) ($validated['rotate_secret'] ?? false),
+            ]
+        );
+
+        if (! empty($validated['rotate_secret'])) {
+            $this->logApiWebhook($ctx, SellerActivityLogService::API_WEBHOOK_SECRET_ROTATED);
+        }
+
         return response()->json(
             $this->webhookConfigService->toResponseArray($result->application, $result->revealedSecret)
         );
@@ -68,9 +84,35 @@ class WebhookConfigController extends Controller
             ]);
         }
 
+        $this->logApiWebhook($ctx, SellerActivityLogService::API_WEBHOOK_SECRET_ROTATED);
+
         return response()->json([
             'webhook_secret' => $secret,
             'has_secret' => true,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    private function logApiWebhook(ApiAuthContext $ctx, string $action, array $metadata = []): void
+    {
+        $owner = User::query()
+            ->where('role', User::ROLE_INFOPRODUTOR)
+            ->where(function ($q) use ($ctx) {
+                $q->where('id', $ctx->application->tenant_id)
+                    ->orWhere('tenant_id', $ctx->application->tenant_id);
+            })
+            ->first();
+
+        SellerActivityLogService::record(
+            actor: $owner,
+            action: $action,
+            targetType: $ctx->application::class,
+            targetId: $ctx->application->id,
+            metadata: $metadata,
+            tenantId: (int) $ctx->application->tenant_id,
+            source: 'api',
+        );
     }
 }

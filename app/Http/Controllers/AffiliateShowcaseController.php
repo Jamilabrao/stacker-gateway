@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\Product;
 use App\Models\ProductAffiliateEnrollment;
 use App\Models\User;
 use App\Services\AffiliateEnrollmentNotifier;
+use App\Services\SellerActivityLogService;
 use App\Services\StorageService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -13,6 +15,8 @@ use Inertia\Response;
 
 class AffiliateShowcaseController extends Controller
 {
+    use LogsSellerActivity;
+
     public function index(Request $request): Response
     {
         $user = auth()->user();
@@ -187,6 +191,12 @@ class AffiliateShowcaseController extends Controller
             $enrollment->ensurePublicRef();
             app(AffiliateEnrollmentNotifier::class)->notifyApproved($enrollment->fresh());
         }
+
+        $this->logSellerActivity(SellerActivityLogService::AFFILIATE_ENROLLED, $enrollment, [
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'auto_approved' => ! $product->affiliate_manual_approval,
+        ]);
 
         return back()->with('success', $product->affiliate_manual_approval
             ? 'Solicitação enviada ao produtor.'

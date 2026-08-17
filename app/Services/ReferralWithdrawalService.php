@@ -46,7 +46,7 @@ class ReferralWithdrawalService
             ]);
         }
 
-        return DB::transaction(function () use ($user, $amount, $notes, $pix) {
+        $withdrawal = DB::transaction(function () use ($user, $amount, $notes, $pix) {
             $wallet = ReferralWallet::query()->where('user_id', $user->id)->lockForUpdate()->first();
             if ($wallet === null) {
                 $wallet = ReferralWallet::forUser((int) $user->id);
@@ -82,6 +82,23 @@ class ReferralWithdrawalService
 
             return $withdrawal;
         });
+
+        SellerActivityLogService::record(
+            actor: $user,
+            action: SellerActivityLogService::WITHDRAWAL_REFERRAL_REQUESTED,
+            targetType: ReferralWithdrawal::class,
+            targetId: $withdrawal->id,
+            metadata: array_filter([
+                'amount' => (float) $withdrawal->amount,
+                'pix_key_type' => $pix['pix_key_type'] ?? null,
+                'pix_key_masked' => SellerActivityLogService::maskValue(
+                    isset($pix['pix_key']) ? (string) $pix['pix_key'] : null
+                ),
+            ], fn ($v) => $v !== null && $v !== ''),
+            tenantId: (int) ($user->tenant_id ?: $user->id),
+        );
+
+        return $withdrawal;
     }
 
     public static function markPaid(ReferralWithdrawal $withdrawal, User $admin, ?string $notes = null): ReferralWithdrawal
