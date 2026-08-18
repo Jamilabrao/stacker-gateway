@@ -44,6 +44,7 @@ use App\Services\LinaOpenx\LinaOpenxCheckoutService;
 use Illuminate\Support\Facades\Schema;
 use App\Support\CajuPayBrowserSdk;
 use App\Support\CardInstallments;
+use App\Services\PlatformCardInstallments;
 use App\Support\CheckoutCardContract;
 use App\Support\CheckoutPaymentConsumer;
 use App\Support\CheckoutTranslations;
@@ -329,10 +330,14 @@ class CheckoutController extends Controller
         }
         $cardInstallmentsConfig = $config['card_installments'] ?? ['enabled' => false, 'max' => 1];
         $isSubscriptionCheckout = ($resolved['plan'] ?? null) !== null;
-        $installmentsEnabled = ! $isSubscriptionCheckout && ! empty($cardInstallmentsConfig['enabled']);
+        $resolvedInstallments = PlatformCardInstallments::forProductConfig(
+            is_array($cardInstallmentsConfig) ? $cardInstallmentsConfig : [],
+            $isSubscriptionCheckout
+        );
+        $installmentsEnabled = $resolvedInstallments['enabled'];
         $payload['card_installments_enabled'] = $installmentsEnabled;
         $payload['card_max_installments'] = $installmentsEnabled
-            ? CardInstallments::normalizeMax((int) ($cardInstallmentsConfig['max'] ?? 1))
+            ? $resolvedInstallments['max']
             : 1;
 
         $orderBumps = $product->orderBumps()->with(['targetProduct', 'targetProductOffer'])->get()
@@ -1475,8 +1480,12 @@ class CheckoutController extends Controller
                     ? array_replace_recursive(Product::defaultCheckoutConfig(), $plan->checkout_config)
                     : ($product->checkout_config ?? []));
             $cardInstallments = $checkoutConfig['card_installments'] ?? ['enabled' => false, 'max' => 1];
-            $installmentsEnabled = ! empty($cardInstallments['enabled']);
-            $maxInstallments = CardInstallments::normalizeMax((int) ($cardInstallments['max'] ?? 1));
+            $resolvedInstallments = PlatformCardInstallments::forProductConfig(
+                is_array($cardInstallments) ? $cardInstallments : [],
+                $plan !== null
+            );
+            $installmentsEnabled = $resolvedInstallments['enabled'];
+            $maxInstallments = $resolvedInstallments['max'];
             $requestedInstallments = (int) ($validated['installments'] ?? 1);
             $installments = CardInstallments::clamp(
                 $requestedInstallments,

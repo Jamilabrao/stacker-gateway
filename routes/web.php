@@ -492,6 +492,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::delete('/financeiro/cajupay-contas/{cajuPayAccount}', [\App\Http\Controllers\Platform\CajuPayAccountsController::class, 'destroy'])->name('financeiro.cajupay-contas.destroy');
         Route::put('/financeiro/metodos-pagamento', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePaymentMethods'])->name('financeiro.payment-methods.update');
         Route::put('/financeiro/taxas', [\App\Http\Controllers\Platform\FinancialController::class, 'updateFees'])->name('financeiro.taxas.update');
+        Route::put('/financeiro/parcelamento', [\App\Http\Controllers\Platform\FinancialController::class, 'updateInstallments'])->name('financeiro.parcelamento.update');
         Route::put('/financeiro/pixgo', [\App\Http\Controllers\Platform\FinancialController::class, 'updatePixGo'])->name('financeiro.pixgo.update');
         Route::put('/financeiro/limites', [\App\Http\Controllers\Platform\FinancialController::class, 'updateChargeLimits'])->name('financeiro.limites.update');
         Route::put('/financeiro/liquidacao', [\App\Http\Controllers\Platform\FinancialController::class, 'updateSettlement'])->name('financeiro.liquidacao.update');

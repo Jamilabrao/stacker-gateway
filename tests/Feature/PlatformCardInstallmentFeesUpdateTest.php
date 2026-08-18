@@ -155,4 +155,29 @@ class PlatformCardInstallmentFeesUpdateTest extends TestCase
         $this->assertSame(0.39, $defaults['card_installments'][3]['fixed']);
         $this->assertSame(30, $defaults['card_installments'][3]['days_to_available']);
     }
+
+    public function test_platform_admin_can_save_installment_policy_on_dedicated_endpoint(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        Setting::set('merchant_fee_rules', [
+            'pix' => ['percent' => 2.0, 'fixed' => 0.0],
+            'card' => ['percent' => 4.99, 'fixed' => 0.39],
+            'card_installments' => $this->installmentTable(),
+        ], null);
+
+        $this->actingAs($admin)->put(route('plataforma.financeiro.parcelamento.update'), [
+            'platform_card_installments_enabled' => false,
+            'platform_card_installments_max' => 6,
+            'card_installment_rules' => $this->installmentTable(),
+        ])->assertRedirect(route('plataforma.financeiro.index', ['tab' => 'parcelamento']));
+
+        $this->assertFalse(\App\Services\PlatformCardInstallments::globalEnabled());
+        $this->assertSame(6, \App\Services\PlatformCardInstallments::maxAllowed());
+        $defaults = EffectiveMerchantFees::platformDefaults();
+        $this->assertSame(5.49, $defaults['card_installments'][3]['percent']);
+    }
 }

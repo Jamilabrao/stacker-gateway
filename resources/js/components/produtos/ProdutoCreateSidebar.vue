@@ -23,6 +23,15 @@ const props = defineProps({
     billingTypes: { type: Array, default: () => [] },
     exchangeRates: { type: Object, default: () => ({ brl_eur: 0.16, brl_usd: 0.18 }) },
     pluginFormSections: { type: Array, default: () => [] },
+    checkoutGatewayUi: {
+        type: Object,
+        default: () => ({
+            card_show_installments: false,
+            card_installments_gateway_name: '',
+            platform_card_installments_enabled: false,
+            platform_card_installments_max: 12,
+        }),
+    },
 });
 
 const emit = defineEmits(['close', 'success']);
@@ -57,11 +66,55 @@ const form = useForm({
     is_active: true,
     image: null,
     deliverable_link: '',
+    card_installments: {
+        enabled: false,
+        max: 2,
+    },
 });
 
 const priceNum = computed(() => parseFloat(form.price) || 0);
 const priceEur = computed(() => (priceNum.value * (props.exchangeRates.brl_eur ?? 0.16)).toFixed(2));
 const priceUsd = computed(() => (priceNum.value * (props.exchangeRates.brl_usd ?? 0.18)).toFixed(2));
+const MIN_PARCELA_BRL = 5;
+const showCardInstallments = computed(
+    () => form.billing_type !== 'subscription' && Boolean(props.checkoutGatewayUi?.card_show_installments)
+);
+const platformInstallmentMax = computed(() => {
+    const fromUi = Number(props.checkoutGatewayUi?.platform_card_installments_max);
+    const fromShared = Number(page.props.platform_card_installments?.max);
+    const raw = Number.isFinite(fromUi) && fromUi > 0 ? fromUi : fromShared;
+    return Math.min(12, Math.max(2, raw || 12));
+});
+const maxAllowedInstallments = computed(() => {
+    if (form.billing_type === 'subscription') return 1;
+    const p = priceNum.value;
+    if (!p || p < MIN_PARCELA_BRL) return 1;
+    const byAmount = Math.min(12, Math.max(1, Math.floor(p / MIN_PARCELA_BRL)));
+    return Math.min(byAmount, platformInstallmentMax.value);
+});
+const installmentMaxOptions = computed(() => {
+    const max = maxAllowedInstallments.value;
+    if (max < 2) return [];
+    const out = [];
+    for (let n = 2; n <= max; n++) out.push(n);
+    return out;
+});
+
+watch(
+    () => form.billing_type,
+    (type) => {
+        if (type === 'subscription') {
+            form.card_installments.enabled = false;
+            form.card_installments.max = 1;
+        }
+    }
+);
+
+watch(maxAllowedInstallments, (maxAllowed) => {
+    if (form.card_installments.max > maxAllowed) {
+        form.card_installments.max = Math.max(2, maxAllowed);
+    }
+});
 
 const availableTypes = computed(() =>
     props.productTypes.filter((t) => t.available)
@@ -101,6 +154,14 @@ function submit() {
     }
     if (form.image instanceof File) {
         fd.append('image', form.image);
+    }
+    if (showCardInstallments.value && form.card_installments) {
+        const enabled = form.billing_type !== 'subscription' && form.card_installments.enabled;
+        fd.append('card_installments[enabled]', enabled ? '1' : '0');
+        fd.append(
+            'card_installments[max]',
+            String(enabled ? Math.min(platformInstallmentMax.value, Math.max(2, form.card_installments.max || 2)) : 1)
+        );
     }
 
     form.transform(() => fd).post('/produtos', {
@@ -327,6 +388,46 @@ function safePluginSectionHtml(html) {
                             <p v-if="form.errors.price" class="mt-1 text-sm text-red-600 dark:text-red-400">
                                 {{ form.errors.price }}
                             </p>
+                        </div>
+                        <div
+                            v-if="showCardInstallments"
+                            class="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700"
+                        >
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="min-w-0">
+                                    <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                        Permitir pagamento parcelado neste produto
+                                    </p>
+                                    <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                        Produto vendido à vista se estiver desmarcado
+                                    </p>
+                                </div>
+                                <Toggle
+                                    v-model="form.card_installments.enabled"
+                                    :disabled="installmentMaxOptions.length === 0"
+                                    class="shrink-0"
+                                />
+                            </div>
+                            <div v-if="form.card_installments.enabled" class="space-y-3">
+                                <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                                    <p>As vendas parceladas seguem o cronograma de cobrança das parcelas do comprador.</p>
+                                    <p class="mt-1.5">O recebimento e a liberação dos valores ocorrerão conforme o processamento das parcelas pagas.</p>
+                                    <p class="mt-1.5">Quanto maior a quantidade de parcelas escolhida pelo cliente, maior será o período total de recebimento da venda.</p>
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                        Máximo de parcelas para este produto
+                                    </label>
+                                    <select
+                                        v-model.number="form.card_installments.max"
+                                        class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                                    >
+                                        <option v-for="n in installmentMaxOptions" :key="'create-inst-' + n" :value="n">
+                                            {{ n }}x
+                                        </option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">

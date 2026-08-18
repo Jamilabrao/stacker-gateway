@@ -61,6 +61,8 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
+    platform_card_installments_enabled: { type: Boolean, default: true },
+    platform_card_installments_max: { type: Number, default: 12 },
     merchant_settlement_rules: {
         type: Object,
         default: () => ({}),
@@ -367,7 +369,7 @@ async function savePayoutPreference() {
 }
 
 function allAllowedTabIds() {
-    return ['adquirentes', 'metodos', 'taxas', 'limites', 'saques', 'liquidacao', 'pixgo'];
+    return ['adquirentes', 'metodos', 'taxas', 'parcelamento', 'limites', 'saques', 'liquidacao', 'pixgo'];
 }
 
 const activeTab = ref('adquirentes');
@@ -380,6 +382,7 @@ const tabs = computed(() => [
     { id: 'adquirentes', label: 'Adquirentes', icon: CreditCard },
     { id: 'metodos', label: 'Formas de pagamento', icon: LayoutGrid },
     { id: 'taxas', label: 'Taxas', icon: Percent },
+    { id: 'parcelamento', label: 'Parcelamento', icon: Repeat },
     { id: 'limites', label: 'Limites', icon: SlidersHorizontal },
     { id: 'saques', label: 'Saques', icon: Banknote },
     { id: 'liquidacao', label: 'Liquidação', icon: CalendarClock },
@@ -704,18 +707,18 @@ function updateFeeField(key, field, value) {
 }
 
 function updateInstallmentField(n, field, value) {
-    feeForm.card_installment_rules = {
-        ...feeForm.card_installment_rules,
+    installmentForm.card_installment_rules = {
+        ...installmentForm.card_installment_rules,
         [n]: {
-            ...feeForm.card_installment_rules[n],
+            ...installmentForm.card_installment_rules[n],
             [field]: value,
         },
     };
 }
 
 function copyCardFeeToAllInstallments() {
-    flushFeeInputs();
-    const card = feeForm.merchant_fee_rules.card || {};
+    flushInstallmentInputs();
+    const card = feeForm.merchant_fee_rules.card || props.merchant_fee_rules?.card || {};
     const days = Number(props.merchant_settlement_rules?.card?.days_to_available ?? 0);
     const next = {};
     for (const n of INSTALLMENT_COUNTS) {
@@ -725,7 +728,14 @@ function copyCardFeeToAllInstallments() {
             days_to_available: Number.isFinite(days) ? Math.max(0, Math.min(365, days)) : 0,
         };
     }
-    feeForm.card_installment_rules = next;
+    installmentForm.card_installment_rules = next;
+}
+
+function flushInstallmentInputs() {
+    for (const n of INSTALLMENT_COUNTS) {
+        feePercentRefs[`inst-${n}`]?.commit?.();
+        feeFixedRefs[`inst-${n}`]?.commit?.();
+    }
 }
 
 const feeForm = useForm({
@@ -740,17 +750,23 @@ const feeForm = useForm({
         boleto: feeBlock('boleto'),
         withdrawal: feeBlock('withdrawal'),
     },
-    card_installment_rules: buildInstallmentRulesFromProps(),
     api_pix_enabled: props.api_pix_enabled,
+});
+
+const PLATFORM_INSTALLMENT_MAX_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+const installmentForm = useForm({
+    platform_card_installments_enabled: props.platform_card_installments_enabled !== false,
+    platform_card_installments_max: Math.min(12, Math.max(2, Number(props.platform_card_installments_max) || 12)),
+    card_installment_rules: buildInstallmentRulesFromProps(),
 });
 
 function submitFees() {
     flushFeeInputs();
     feeForm
         .transform((data) => ({
-            ...data,
             merchant_fee_rules: normalizeMerchantFeeRulesForSubmit(data.merchant_fee_rules),
-            card_installment_rules: normalizeCardInstallmentRulesForSubmit(data.card_installment_rules),
+            api_pix_enabled: data.api_pix_enabled,
         }))
         .put('/plataforma/financeiro/taxas', {
             preserveScroll: true,
@@ -759,10 +775,32 @@ function submitFees() {
                 await nextTick();
                 feeForm.defaults({
                     merchant_fee_rules: buildFeeRulesFromProps(),
-                    card_installment_rules: buildInstallmentRulesFromProps(),
                     api_pix_enabled: props.api_pix_enabled,
                 });
                 feeForm.reset();
+            },
+        });
+}
+
+function submitInstallments() {
+    flushInstallmentInputs();
+    installmentForm
+        .transform((data) => ({
+            platform_card_installments_enabled: data.platform_card_installments_enabled,
+            platform_card_installments_max: Math.min(12, Math.max(2, Number(data.platform_card_installments_max) || 12)),
+            card_installment_rules: normalizeCardInstallmentRulesForSubmit(data.card_installment_rules),
+        }))
+        .put('/plataforma/financeiro/parcelamento', {
+            preserveScroll: true,
+            onSuccess: async () => {
+                installmentForm.clearErrors();
+                await nextTick();
+                installmentForm.defaults({
+                    platform_card_installments_enabled: props.platform_card_installments_enabled !== false,
+                    platform_card_installments_max: Math.min(12, Math.max(2, Number(props.platform_card_installments_max) || 12)),
+                    card_installment_rules: buildInstallmentRulesFromProps(),
+                });
+                installmentForm.reset();
             },
         });
 }
@@ -1363,6 +1401,79 @@ function submitSettlement() {
                             </table>
                         </div>
 
+                        <p v-if="feeForm.errors.merchant_fee_rules" class="text-sm text-red-600">
+                            {{ feeForm.errors.merchant_fee_rules }}
+                        </p>
+                        <div class="flex justify-end">
+                            <Button type="submit" :disabled="feeForm.processing">Salvar taxas</Button>
+                        </div>
+                        <div class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900">
+                            <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                                <input v-model="feeForm.api_pix_enabled" type="checkbox" class="h-4 w-4 rounded border-zinc-300" />
+                                API PIX externa habilitada globalmente
+                            </label>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Pode ser sobrescrita por infoprodutor na tela API Pagamentos.</p>
+                        </div>
+                    </form>
+                </section>
+            </div>
+        </Transition>
+
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+        >
+            <div v-show="activeTab === 'parcelamento'" class="space-y-6">
+                <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                    <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Parcelamento no cartão
+                    </h2>
+                    <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
+                        Controla se os infoprodutores podem oferecer cartão parcelado e o teto de parcelas da plataforma.
+                        As taxas 1x a 12x abaixo continuam valendo para o cálculo de líquido e liquidação — não alteram o checkout à vista.
+                    </p>
+                    <form class="space-y-6" @submit.prevent="submitInstallments">
+                        <label class="flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/60">
+                            <input
+                                v-model="installmentForm.platform_card_installments_enabled"
+                                type="checkbox"
+                                class="mt-0.5 h-4 w-4 rounded border-zinc-300"
+                            />
+                            <span>
+                                <span class="block text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                                    Ativar venda parcelada com cartão de crédito
+                                </span>
+                                <span class="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
+                                    Desativado: nenhum seller oferece parcelamento e o checkout fica só à vista, mesmo se o produto já tiver parcelas configuradas.
+                                </span>
+                            </span>
+                        </label>
+                        <div>
+                            <label for="platform-installments-max" class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                Quantidade máxima de parcelas permitidas
+                            </label>
+                            <select
+                                id="platform-installments-max"
+                                v-model.number="installmentForm.platform_card_installments_max"
+                                :disabled="!installmentForm.platform_card_installments_enabled"
+                                class="mt-1 w-full max-w-xs rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900"
+                            >
+                                <option v-for="n in PLATFORM_INSTALLMENT_MAX_OPTIONS" :key="'plat-max-' + n" :value="n">
+                                    {{ n }} parcelas
+                                </option>
+                            </select>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                Teto que o seller pode escolher no produto (de 2x até este valor).
+                            </p>
+                            <p v-if="installmentForm.errors.platform_card_installments_max" class="mt-1 text-sm text-red-600">
+                                {{ installmentForm.errors.platform_card_installments_max }}
+                            </p>
+                        </div>
+
                         <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900/60">
                             <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
                                 <div>
@@ -1372,7 +1483,7 @@ function submitSettlement() {
                                     <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                                         Percentual e valor fixo de cada linha incidem sobre o <strong class="font-medium">bruto total</strong> da venda naquela quantidade de parcelas.
                                         A disponibilidade é o intervalo entre as fatias: numa 12x, o líquido sai em 12 partes; a 1ª libera em D+X, a 2ª em D+2X, e assim por diante.
-                                        Com 0 dias, o crédito segue a aba Liquidação (sem calendário por parcela). Apple Pay e Google Pay continuam nas linhas próprias acima.
+                                        Com 0 dias, o crédito segue a aba Liquidação (sem calendário por parcela). Apple Pay e Google Pay continuam nas linhas próprias da aba Taxas.
                                     </p>
                                 </div>
                                 <Button type="button" variant="secondary" @click="copyCardFeeToAllInstallments">
@@ -1397,20 +1508,20 @@ function submitSettlement() {
                                             <td class="py-3 pr-4">
                                                 <FeePercentInput
                                                     :ref="(el) => setFeePercentRef('inst-' + n, el)"
-                                                    :model-value="feeForm.card_installment_rules[n].percent"
+                                                    :model-value="installmentForm.card_installment_rules[n].percent"
                                                     @update:model-value="(v) => updateInstallmentField(n, 'percent', v)"
                                                 />
                                             </td>
                                             <td class="py-3 pr-4">
                                                 <FeeFixedInput
                                                     :ref="(el) => setFeeFixedRef('inst-' + n, el)"
-                                                    :model-value="feeForm.card_installment_rules[n].fixed"
+                                                    :model-value="installmentForm.card_installment_rules[n].fixed"
                                                     @update:model-value="(v) => updateInstallmentField(n, 'fixed', v)"
                                                 />
                                             </td>
                                             <td class="py-3">
                                                 <input
-                                                    v-model.number="feeForm.card_installment_rules[n].days_to_available"
+                                                    v-model.number="installmentForm.card_installment_rules[n].days_to_available"
                                                     type="number"
                                                     min="0"
                                                     max="365"
@@ -1422,23 +1533,13 @@ function submitSettlement() {
                                     </tbody>
                                 </table>
                             </div>
-                            <p v-if="feeForm.errors.card_installment_rules" class="mt-2 text-sm text-red-600">
-                                {{ feeForm.errors.card_installment_rules }}
+                            <p v-if="installmentForm.errors.card_installment_rules" class="mt-2 text-sm text-red-600">
+                                {{ installmentForm.errors.card_installment_rules }}
                             </p>
                         </div>
 
-                        <p v-if="feeForm.errors.merchant_fee_rules" class="text-sm text-red-600">
-                            {{ feeForm.errors.merchant_fee_rules }}
-                        </p>
                         <div class="flex justify-end">
-                            <Button type="submit" :disabled="feeForm.processing">Salvar taxas</Button>
-                        </div>
-                        <div class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900">
-                            <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                                <input v-model="feeForm.api_pix_enabled" type="checkbox" class="h-4 w-4 rounded border-zinc-300" />
-                                API PIX externa habilitada globalmente
-                            </label>
-                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Pode ser sobrescrita por infoprodutor na tela API Pagamentos.</p>
+                            <Button type="submit" :disabled="installmentForm.processing">Salvar parcelamento</Button>
                         </div>
                     </form>
                 </section>
