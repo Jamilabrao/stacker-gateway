@@ -296,6 +296,10 @@ class ProcessPaymentWebhook implements ShouldQueue
             if ($apiStatus !== 'paid' && $trustedCajuCheckoutWebhook) {
                 $apiStatus = 'paid';
             }
+            if ($apiStatus !== 'paid' && $this->isTrustedBspayPaidWebhook()) {
+                // cashin.confirmed é a fonte de verdade; o extrato list da BSPay frequentemente não devolve a linha.
+                $apiStatus = 'paid';
+            }
             if ($apiStatus !== 'paid' && $this->gatewaySlug === 'mercadopago' && $this->isTrustedMercadoPagoSource()) {
                 // Só força paid quando a API não respondeu (null). pending/in_process = race → retry.
                 if ($apiStatus === null && ($this->status === 'paid' || in_array($this->event, ['payment.updated', 'payment.created', 'order.paid'], true))) {
@@ -460,6 +464,14 @@ class ProcessPaymentWebhook implements ShouldQueue
             'reconcile_mercadopago',
             'order_status_poll',
         ], true);
+    }
+
+    private function isTrustedBspayPaidWebhook(): bool
+    {
+        return $this->gatewaySlug === 'bspay'
+            && ($this->payload['webhook_source'] ?? '') === 'bspay_webhook'
+            && $this->event === 'order.paid'
+            && $this->status === 'paid';
     }
 
     private function fetchGatewayTransactionStatus(Order $order): ?string

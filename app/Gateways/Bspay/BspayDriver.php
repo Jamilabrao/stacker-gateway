@@ -287,13 +287,13 @@ class BspayDriver implements GatewayDriver
             $response = $this->requestWithAuthRetry($credentials, $token, function (string $bearer) use ($transactionId, $type) {
                 return $this->http($bearer)->post($this->url('/v2/account/transactions/list'), [
                     'page' => 1,
-                    'page_size' => 1,
+                    'page_size' => 50,
                     'type' => $type,
                     'transaction_id' => $transactionId,
                 ]);
             });
         } catch (\Throwable $e) {
-            Log::debug('BspayDriver lookupListedStatus error', [
+            Log::warning('BspayDriver lookupListedStatus error', [
                 'transaction_id' => $transactionId,
                 'type' => $type,
                 'message' => $e->getMessage(),
@@ -303,6 +303,12 @@ class BspayDriver implements GatewayDriver
         }
 
         if (! $response->successful()) {
+            Log::warning('BspayDriver lookupListedStatus http error', [
+                'transaction_id' => $transactionId,
+                'type' => $type,
+                'status' => $response->status(),
+            ]);
+
             return null;
         }
 
@@ -310,10 +316,16 @@ class BspayDriver implements GatewayDriver
         $payload = is_array($payload) ? $payload : [];
         $row = $this->firstTransactionRow($payload, $transactionId);
         if ($row === null) {
+            Log::warning('BspayDriver lookupListedStatus row missing', [
+                'transaction_id' => $transactionId,
+                'type' => $type,
+                'payload_keys' => array_keys($payload),
+            ]);
+
             return null;
         }
 
-        $status = strtolower(trim((string) ($row['status'] ?? '')));
+        $status = strtolower(trim((string) ($row['status'] ?? $row['state'] ?? '')));
 
         return $status !== '' ? $status : null;
     }
@@ -325,7 +337,7 @@ class BspayDriver implements GatewayDriver
         }
 
         return match ($status) {
-            'confirmed' => 'paid',
+            'confirmed', 'paid', 'completed', 'success', 'approved' => 'paid',
             'cancelled', 'canceled' => 'cancelled',
             'failed' => 'failed',
             'pending' => 'pending',
@@ -442,32 +454,43 @@ class BspayDriver implements GatewayDriver
     private function firstTransactionRow(array $payload, string $transactionId): ?array
     {
         $data = $this->unwrapData($payload);
-        $candidates = [];
-        foreach (['items', 'transactions', 'results', 'data'] as $key) {
-            $list = $data[$key] ?? null;
-            if (is_array($list) && $list !== [] && array_is_list($list)) {
-                $candidates = $list;
-                break;
-            }
-        }
-        if ($candidates === [] && array_is_list($data)) {
-            $candidates = $data;
-        }
-        if ($candidates === [] && isset($data['transaction_id'])) {
-            $candidates = [$data];
-        }
+        $candidates = $this->collectTransactionRows($data);
 
         foreach ($candidates as $row) {
             if (! is_array($row)) {
                 continue;
             }
-            $id = trim((string) ($row['transaction_id'] ?? ''));
-            if ($id === '' || $id === $transactionId) {
+            $id = trim((string) ($row['transaction_id'] ?? $row['id'] ?? $row['uuid'] ?? ''));
+            if ($id !== '' && $id === $transactionId) {
                 return $row;
             }
         }
 
-        return $candidates[0] ?? null;
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>|list<mixed>  $data
+     * @return list<array<string, mixed>>
+     */
+    private function collectTransactionRows(array $data): array
+    {
+        foreach (['items', 'transactions', 'results', 'records', 'rows', 'docs', 'list', 'data'] as $key) {
+            $list = $data[$key] ?? null;
+            if (is_array($list) && $list !== [] && array_is_list($list)) {
+                /** @var list<array<string, mixed>> $list */
+                return $list;
+            }
+        }
+        if (array_is_list($data)) {
+            /** @var list<array<string, mixed>> $data */
+            return $data;
+        }
+        if (isset($data['transaction_id']) || isset($data['id'])) {
+            return [$data];
+        }
+
+        return [];
     }
 
     /**

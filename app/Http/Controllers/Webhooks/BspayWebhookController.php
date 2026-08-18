@@ -63,7 +63,7 @@ class BspayWebhookController extends Controller
             (string) $order->gateway_id,
             'order.paid',
             'paid',
-            $request->all()
+            array_merge($request->all(), ['webhook_source' => 'bspay_webhook'])
         );
 
         return response()->json(['received' => true]);
