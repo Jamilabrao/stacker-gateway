@@ -110,6 +110,43 @@ const props = defineProps({
 
 const cajupayGateway = computed(() => (props.gateways || []).find((g) => g.slug === 'cajupay') ?? null);
 
+const ACQUIRER_GROUPS = [
+    {
+        id: 'psp',
+        title: 'PSP — Provedor de Serviços de Pagamento',
+        slugs: ['cajupay', 'efi', 'woovi', 'mercadopago', 'pagarme', 'spacepag'],
+        dotClass: 'bg-emerald-500',
+    },
+    {
+        id: 'acquirer',
+        title: 'Adquirente',
+        slugs: ['stripe'],
+        dotClass: 'bg-blue-500',
+    },
+    {
+        id: 'open_finance',
+        title: 'Open Finance',
+        slugs: ['linaopenx'],
+        dotClass: 'bg-violet-500',
+    },
+];
+
+const acquirerGroups = computed(() => {
+    const list = props.gateways || [];
+    const bySlug = Object.fromEntries(list.map((g) => [g.slug, g]));
+    const used = new Set();
+    const groups = ACQUIRER_GROUPS.map((group) => {
+        const items = group.slugs.map((slug) => bySlug[slug]).filter(Boolean);
+        items.forEach((g) => used.add(g.slug));
+        return { ...group, items };
+    });
+    const leftover = list.filter((g) => !used.has(g.slug));
+    if (leftover.length > 0 && groups[0]) {
+        groups[0] = { ...groups[0], items: [...groups[0].items, ...leftover] };
+    }
+    return groups.filter((g) => g.items.length > 0);
+});
+
 const GATEWAYS_API_BASE = '/plataforma/financeiro/gateways';
 
 function getCsrfToken() {
@@ -943,20 +980,34 @@ function submitSettlement() {
                     <h2 class="mb-4 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                         Adquirentes de pagamento
                     </h2>
-                    <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+                    <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
                         Configure os adquirentes usados no checkout e nas APIs. Na cobrança, credenciais globais
                         (definidas aqui) têm prioridade sobre credenciais antigas por tenant.
                     </p>
-                    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <GatewayCard
-                            v-for="g in props.gateways"
-                            :key="g.slug"
-                            :gateway="g"
-                            show-enabled-toggle
-                            :toggling-enabled="togglingGatewaySlug === g.slug"
-                            @click="openGatewaySidebar(g.slug)"
-                            @toggle-enabled="toggleGatewayEnabled(g, $event)"
-                        />
+                    <div class="space-y-8">
+                        <div v-for="group in acquirerGroups" :key="group.id">
+                            <div class="mb-3 flex items-center gap-2">
+                                <span
+                                    class="h-2.5 w-2.5 shrink-0 rounded-full"
+                                    :class="group.dotClass"
+                                    aria-hidden="true"
+                                />
+                                <h3 class="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                                    {{ group.title }}
+                                </h3>
+                            </div>
+                            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                <GatewayCard
+                                    v-for="g in group.items"
+                                    :key="g.slug"
+                                    :gateway="g"
+                                    show-enabled-toggle
+                                    :toggling-enabled="togglingGatewaySlug === g.slug"
+                                    @click="openGatewaySidebar(g.slug)"
+                                    @toggle-enabled="toggleGatewayEnabled(g, $event)"
+                                />
+                            </div>
+                        </div>
                     </div>
                     <div
                         v-if="!props.gateways?.length"
