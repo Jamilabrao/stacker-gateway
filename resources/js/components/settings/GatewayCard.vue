@@ -93,6 +93,7 @@ const canToggleEnabled = computed(
     <button
         type="button"
         class="group relative flex w-full flex-row gap-3 rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-sm transition hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800"
+        :class="hasMultipleCountries ? 'pr-[4.75rem]' : 'pr-10'"
         @click="emit('click')"
     >
         <!-- Bandeira(s) do(s) país(es) no canto superior direito -->
@@ -100,7 +101,7 @@ const canToggleEnabled = computed(
             <TooltipRoot v-if="hasMultipleCountries">
                 <TooltipTrigger as-child>
                     <div
-                        class="absolute right-3 top-3 z-10 flex shrink-0 items-center gap-0.5"
+                        class="absolute right-3 top-3 z-10 grid grid-cols-3 gap-0.5"
                         @click.stop
                     >
                         <img

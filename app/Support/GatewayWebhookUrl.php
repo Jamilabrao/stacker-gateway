@@ -27,6 +27,7 @@ final class GatewayWebhookUrl
             'pushinpay' => '/webhooks/gateways/pushinpay',
             'mercadopago' => '/webhooks/gateways/mercadopago',
             'onlyup' => '/webhooks/gateways/onlyup',
+            'bspay' => '/webhooks/gateways/bspay',
             'linaopenx' => '/webhooks/gateways/linaopenx',
             default => '/webhooks/gateways/'.$gatewaySlug,
         };

@@ -42,4 +42,81 @@ class GatewayInboundWebhookAuthTest extends TestCase
 
         $this->assertTrue(GatewayInboundWebhookAuth::verifyHmacSha256Body($request, 'pushinpay', 1, 'X-Webhook-Signature'));
     }
+
+    public function test_bspay_skips_hmac_when_secret_missing(): void
+    {
+        $request = Request::create(
+            '/webhooks/gateways/bspay',
+            'POST',
+            [],
+            [],
+            [],
+            ['HTTP_X-BSPay-Event' => 'cashin.confirmed'],
+            '{"data":{"transaction_id":"tx_1","status":"confirmed"}}'
+        );
+
+        $this->assertTrue(GatewayInboundWebhookAuth::verifyBspay($request, 1));
+    }
+
+    public function test_bspay_accepts_valid_hmac_and_timestamp(): void
+    {
+        $secret = 'bspay-callback-secret';
+        $credential = GatewayCredential::create([
+            'tenant_id' => null,
+            'gateway_slug' => 'bspay',
+            'credentials' => '',
+            'is_connected' => true,
+        ]);
+        $credential->setEncryptedCredentials(['webhook_secret' => $secret]);
+        $credential->save();
+
+        $body = '{"data":{"transaction_id":"tx_1","status":"confirmed"}}';
+        $timestamp = (string) time();
+        $signature = hash_hmac('sha256', $body, $secret);
+        $request = Request::create(
+            '/webhooks/gateways/bspay',
+            'POST',
+            [],
+            [],
+            [],
+            [
+                'HTTP_X-BSPay-Signature' => $signature,
+                'HTTP_X-BSPay-Timestamp' => $timestamp,
+                'HTTP_X-BSPay-Event' => 'cashin.confirmed',
+            ],
+            $body
+        );
+
+        $this->assertTrue(GatewayInboundWebhookAuth::verifyBspay($request, 1));
+    }
+
+    public function test_bspay_rejects_stale_timestamp(): void
+    {
+        $secret = 'bspay-callback-secret';
+        $credential = GatewayCredential::create([
+            'tenant_id' => null,
+            'gateway_slug' => 'bspay',
+            'credentials' => '',
+            'is_connected' => true,
+        ]);
+        $credential->setEncryptedCredentials(['webhook_secret' => $secret]);
+        $credential->save();
+
+        $body = '{"data":{"transaction_id":"tx_1"}}';
+        $signature = hash_hmac('sha256', $body, $secret);
+        $request = Request::create(
+            '/webhooks/gateways/bspay',
+            'POST',
+            [],
+            [],
+            [],
+            [
+                'HTTP_X-BSPay-Signature' => $signature,
+                'HTTP_X-BSPay-Timestamp' => (string) (time() - 400),
+            ],
+            $body
+        );
+
+        $this->assertFalse(GatewayInboundWebhookAuth::verifyBspay($request, 1));
+    }
 }

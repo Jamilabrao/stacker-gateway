@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Platform;
 use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Controller;
+use App\Jobs\ReconcileBspayWithdrawalJob;
 use App\Jobs\ReconcileCajuPayWithdrawalJob;
 use App\Jobs\ReconcileSpacepagWithdrawalJob;
 use App\Jobs\ReconcileWooviWithdrawalJob;
@@ -14,6 +15,7 @@ use App\Http\Controllers\Platform\CajuPayAccountsController;
 use App\Models\CajuPayAccount;
 use App\Models\User;
 use App\Models\Withdrawal;
+use App\Services\Bspay\BspayPayoutService;
 use App\Services\CajuPay\CajuPayPayoutService;
 use App\Services\CajuPay\CajuPayWithdrawalReconcileService;
 use App\Services\Spacepag\SpacepagPayoutService;
@@ -246,7 +248,7 @@ class FinancialController extends Controller
     public function updatePayoutGatewayPreference(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'preference' => ['required', 'string', 'in:auto,cajupay,spacepag,woovi,onlyup'],
+            'preference' => ['required', 'string', 'in:auto,cajupay,spacepag,woovi,bspay,onlyup'],
         ]);
 
         $pref = $validated['preference'];
@@ -658,6 +660,55 @@ class FinancialController extends Controller
 
             return redirect()->route('plataforma.saques.index')
                 ->with('success', 'Saque enviado à Woovi. Será marcado como pago após confirmação na API.');
+        }
+
+        if ($slug === 'bspay') {
+            $pixKey = PayoutUserSettings::pixKey($settings);
+            if ($pixKey === '') {
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal);
+
+                return redirect()->route('plataforma.saques.index')
+                    ->with('error', 'O infoprodutor precisa cadastrar uma chave PIX para saque em Financeiro (painel do vendedor).');
+            }
+
+            $payout = new BspayPayoutService;
+            $result = $payout->sendWithdrawalToPix($withdrawal->fresh(), $owner);
+
+            if (! ($result['ok'] ?? false)) {
+                $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+                $withdrawal->update([
+                    'payout_provider' => 'bspay',
+                    'payout_meta' => $prev + [
+                        'last_error' => $result['error'] ?? 'Erro desconhecido',
+                        'last_attempt_at' => now()->toIso8601String(),
+                    ],
+                ]);
+                MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+                $this->notifyWithdrawalPayoutError($withdrawal, 'BSPay: '.($result['error'] ?? 'Falha ao enviar o saque.'));
+
+                return redirect()->route('plataforma.saques.index')
+                    ->with('error', 'BSPay: '.($result['error'] ?? 'Falha ao enviar o saque.'));
+            }
+
+            $withdrawal->update([
+                'payout_manual' => false,
+                'payout_provider' => 'bspay',
+                'payout_external_id' => $result['transaction_id'] ?? null,
+                'payout_meta' => array_filter([
+                    'api_status' => 'pending',
+                    'requested_at' => now()->toIso8601String(),
+                ]),
+            ]);
+
+            ReconcileBspayWithdrawalJob::dispatch($withdrawal->fresh()->id)
+                ->delay(now()->addSeconds(90));
+
+            MerchantWithdrawalService::releasePayoutApproval($withdrawal->fresh());
+
+            PlatformAuditService::log('platform.withdrawal.approved', ['withdrawal_id' => $withdrawal->id, 'bspay' => true, 'pending' => true], $request);
+
+            return redirect()->route('plataforma.saques.index')
+                ->with('success', 'Saque enviado à BSPay. Será marcado como pago após confirmação do PIX (webhook).');
         }
 
         if ($slug === 'onlyup') {
