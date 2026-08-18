@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Services\PlatformCardInstallments;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
@@ -178,6 +179,143 @@ class CardInstallmentsProductCheckoutTest extends TestCase
                 ->where('card_max_installments', 1));
     }
 
+    public function test_checkout_hides_installments_when_platform_disabled_even_if_product_enabled(): void
+    {
+        PlatformCardInstallments::setEnabled(false);
+        $this->setCardOrder(['pagarme']);
+        $this->connectGateway('pagarme', [
+            'secret_key' => 'sk_test',
+            'public_key' => 'pk_test',
+        ]);
+
+        $product = $this->checkoutProduct([
+            'price' => 97.90,
+            'checkout_config' => [
+                'card_installments' => ['enabled' => true, 'max' => 12],
+            ],
+        ]);
+
+        $this->get('/c/'.$product->checkout_slug)
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Checkout/Show')
+                ->where('card_installments_enabled', false)
+                ->where('card_max_installments', 1));
+    }
+
+    public function test_checkout_caps_max_installments_to_platform_limit(): void
+    {
+        PlatformCardInstallments::setEnabled(true);
+        PlatformCardInstallments::setMaxAllowed(3);
+        $this->setCardOrder(['pagarme']);
+        $this->connectGateway('pagarme', [
+            'secret_key' => 'sk_test',
+            'public_key' => 'pk_test',
+        ]);
+
+        $product = $this->checkoutProduct([
+            'price' => 97.90,
+            'checkout_config' => [
+                'card_installments' => ['enabled' => true, 'max' => 12],
+            ],
+        ]);
+
+        $this->get('/c/'.$product->checkout_slug)
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Checkout/Show')
+                ->where('card_installments_enabled', true)
+                ->where('card_max_installments', 3));
+    }
+
+    public function test_product_edit_hides_installments_when_platform_disabled(): void
+    {
+        PlatformCardInstallments::setEnabled(false);
+        $this->setCardOrder(['pagarme']);
+        $this->connectGateway('pagarme', [
+            'secret_key' => 'sk_test',
+            'public_key' => 'pk_test',
+        ]);
+
+        $seller = $this->approvedSeller();
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'price' => 97.90,
+        ]);
+
+        $this->actingAs($seller)
+            ->get(route('produtos.edit', $product->id).'?tab=configuracoes')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Produtos/Edit')
+                ->where('checkout_gateway_ui.card_show_installments', false)
+                ->where('checkout_gateway_ui.platform_card_installments_enabled', false));
+    }
+
+    public function test_product_save_does_not_change_installments_when_platform_disabled(): void
+    {
+        PlatformCardInstallments::setEnabled(false);
+        $seller = $this->approvedSeller();
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'price' => 97.90,
+            'checkout_config' => [
+                'card_installments' => ['enabled' => true, 'max' => 6],
+            ],
+        ]);
+
+        $this->actingAs($seller)->put(route('produtos.update', $product->id), [
+            'name' => $product->name,
+            'description' => $product->description,
+            'type' => $product->type,
+            'billing_type' => Product::BILLING_ONE_TIME,
+            'price' => 97.90,
+            'currency' => 'BRL',
+            'is_active' => true,
+            'card_installments' => ['enabled' => '1', 'max' => 12],
+        ])->assertRedirect();
+
+        $product->refresh();
+        $this->assertTrue((bool) ($product->checkout_config['card_installments']['enabled'] ?? false));
+        $this->assertSame(6, (int) ($product->checkout_config['card_installments']['max'] ?? 0));
+    }
+
+    public function test_product_update_persists_card_installments_from_general_tab_payload(): void
+    {
+        $seller = $this->approvedSeller();
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'price' => 97.90,
+            'billing_type' => Product::BILLING_ONE_TIME,
+            'checkout_config' => [
+                'card_installments' => ['enabled' => false, 'max' => 1],
+                'payment_methods_enabled' => [
+                    'pix' => true,
+                    'card' => true,
+                    'boleto' => false,
+                ],
+            ],
+        ]);
+
+        $this->actingAs($seller)->put(route('produtos.update', $product->id), [
+            'name' => $product->name,
+            'description' => $product->description,
+            'type' => $product->type,
+            'billing_type' => Product::BILLING_ONE_TIME,
+            'price' => 97.90,
+            'currency' => 'BRL',
+            'is_active' => true,
+            'card_installments' => ['enabled' => true, 'max' => 6],
+        ])->assertRedirect();
+
+        $product->refresh();
+        $this->assertTrue((bool) ($product->checkout_config['card_installments']['enabled'] ?? false));
+        $this->assertSame(6, (int) ($product->checkout_config['card_installments']['max'] ?? 0));
+        $this->assertTrue((bool) ($product->checkout_config['payment_methods_enabled']['pix'] ?? false));
+        $this->assertTrue((bool) ($product->checkout_config['payment_methods_enabled']['card'] ?? false));
+        $this->assertFalse((bool) ($product->checkout_config['payment_methods_enabled']['boleto'] ?? true));
+    }
+
     public function test_checkout_sends_clamped_installments_to_pagarme_driver(): void
     {
         Event::fake();
@@ -256,6 +394,42 @@ class CardInstallmentsProductCheckoutTest extends TestCase
         $this->assertSame(1, $captured['installments']);
         $order = Order::query()->latest('id')->first();
         $this->assertSame(1, (int) ($order->metadata['installments'] ?? 0));
+    }
+
+    public function test_checkout_forces_one_installment_when_platform_disabled(): void
+    {
+        Event::fake();
+        PlatformCardInstallments::setEnabled(false);
+        $this->setCardOrder(['pagarme']);
+        $this->connectGateway('pagarme', [
+            'secret_key' => 'sk_test',
+            'public_key' => 'pk_test',
+        ]);
+
+        $product = $this->checkoutProduct([
+            'price' => 97.90,
+            'checkout_config' => [
+                'card_installments' => ['enabled' => true, 'max' => 12],
+            ],
+        ]);
+
+        $captured = null;
+        $driver = Mockery::mock(PagarmeDriver::class);
+        $driver->shouldReceive('createCardPayment')
+            ->once()
+            ->andReturnUsing(function ($credentials, $amount, $consumer, $externalId, array $card) use (&$captured) {
+                $captured = $card;
+
+                return ['transaction_id' => 'ch_test_plat_off', 'status' => 'pending'];
+            });
+        $this->app->instance(PagarmeDriver::class, $driver);
+
+        $session = $this->checkoutSession($product);
+        $this->postJson('/checkout', $this->cardPayload($session, $product, [
+            'installments' => 6,
+        ]))->assertOk();
+
+        $this->assertSame(1, $captured['installments']);
     }
 
     public function test_checkout_clamps_installments_when_amount_is_low(): void

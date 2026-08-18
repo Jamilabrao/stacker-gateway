@@ -28,6 +28,7 @@ use App\Services\SellerActivityLogService;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Support\CardInstallments;
+use App\Services\PlatformCardInstallments;
 use App\Support\HtmlSanitizer;
 use App\Support\MoneyDecimal;
 use App\Gateways\GatewayRegistry;
@@ -101,6 +102,7 @@ class ProdutosController extends Controller
             'exchange_rates' => $rates,
             'plugin_card_actions' => [],
             'plugin_form_sections' => [],
+            'checkout_gateway_ui' => $this->checkoutGatewayUiForTenant($tenantId),
         ]);
         event(new ProductIndexLoading($data));
         $payload = $data->getArrayCopy();
@@ -156,6 +158,9 @@ class ProdutosController extends Controller
             'is_active' => ['boolean'],
             'image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif', 'max:2048'],
             'deliverable_link' => ['nullable', 'string', 'url', 'max:500'],
+            'card_installments' => ['nullable', 'array'],
+            'card_installments.enabled' => ['nullable', 'boolean'],
+            'card_installments.max' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
 
         // Texto puro (evita XSS armazenado em nome/descrição)
@@ -210,9 +215,11 @@ class ProdutosController extends Controller
         unset($validated['image']);
         $deliverableLink = $validated['deliverable_link'] ?? null;
         unset($validated['deliverable_link']);
+        $cardInstallmentsInput = $validated['card_installments'] ?? null;
+        unset($validated['card_installments']);
 
         try {
-            $product = DB::transaction(function () use ($request, $validated, $deliverableLink) {
+            $product = DB::transaction(function () use ($request, $validated, $deliverableLink, $cardInstallmentsInput) {
                 $product = Product::create($validated);
 
                 if ($request->has('deliverable_link')) {
@@ -220,6 +227,8 @@ class ProdutosController extends Controller
                     $config['deliverable_link'] = $deliverableLink ?? '';
                     $product->update(['checkout_config' => $config]);
                 }
+
+                $this->applyCardInstallmentsToProduct($product, $cardInstallmentsInput);
 
                 if ($request->hasFile('image')) {
                     $path = app(StorageService::class)->putFile('products', $request->file('image'));
@@ -237,7 +246,7 @@ class ProdutosController extends Controller
             if ($this->isDuplicateProductSlugException($e)) {
                 $validated['slug'] = Product::uniqueSlugForTenant($tenantId, $baseSlug !== '' ? $baseSlug : 'produto');
                 try {
-                    $product = DB::transaction(function () use ($request, $validated, $deliverableLink) {
+                    $product = DB::transaction(function () use ($request, $validated, $deliverableLink, $cardInstallmentsInput) {
                         $product = Product::create($validated);
 
                         if ($request->has('deliverable_link')) {
@@ -245,6 +254,8 @@ class ProdutosController extends Controller
                             $config['deliverable_link'] = $deliverableLink ?? '';
                             $product->update(['checkout_config' => $config]);
                         }
+
+                        $this->applyCardInstallmentsToProduct($product, $cardInstallmentsInput);
 
                         if ($request->hasFile('image')) {
                             $path = app(StorageService::class)->putFile('products', $request->file('image'));
@@ -409,30 +420,8 @@ class ProdutosController extends Controller
             ->values()->all();
         $produtoArray['products_for_upsell'] = $productsForUpsell;
 
+        $checkoutGatewayUi = $this->checkoutGatewayUiForTenant($tenantId);
         $paymentService = app(PaymentService::class);
-        $cardOrder = $paymentService->getGatewayOrderForMethod($tenantId, 'card', null, null);
-        $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
-        $primaryConnectedCardSlug = null;
-        foreach ($cardOrder as $slug) {
-            if (! is_string($slug) || $slug === '' || ! $credentialBySlug->get($slug)) {
-                continue;
-            }
-            $gw = GatewayRegistry::get($slug);
-            if ($gw && in_array('card', $gw['methods'] ?? [], true)) {
-                $primaryConnectedCardSlug = $slug;
-                break;
-            }
-        }
-        $connectedCardDef = is_string($primaryConnectedCardSlug)
-            ? GatewayRegistry::get($primaryConnectedCardSlug)
-            : null;
-        $checkoutGatewayUi = [
-            'card_show_installments' => CardInstallments::gatewaySupports($primaryConnectedCardSlug),
-            'card_installments_gateway_name' => is_array($connectedCardDef)
-                ? (string) ($connectedCardDef['name'] ?? $primaryConnectedCardSlug)
-                : '',
-            'digital_wallets_at_checkout' => $primaryConnectedCardSlug === 'cajupay',
-        ];
 
         $basePlanForGlobalMethods = $produto->billing_type === Product::BILLING_SUBSCRIPTION
             ? $produto->subscriptionPlans()->orderBy('position')->first()
@@ -845,17 +834,12 @@ class ProdutosController extends Controller
                     $configUpdated = true;
                 }
                 $billingType = $validated['billing_type'] ?? $produto->billing_type;
-                if ($billingType === Product::BILLING_SUBSCRIPTION) {
-                    $config['card_installments'] = [
-                        'enabled' => false,
-                        'max' => 1,
-                    ];
-                    $configUpdated = true;
-                } elseif (is_array($cardInstallments)) {
-                    $config['card_installments'] = [
-                        'enabled' => ! empty($cardInstallments['enabled']),
-                        'max' => CardInstallments::normalizeMax((int) ($cardInstallments['max'] ?? 1)),
-                    ];
+                $normalizedInstallments = PlatformCardInstallments::normalizeSellerInput(
+                    is_array($cardInstallments) ? $cardInstallments : null,
+                    (string) $billingType
+                );
+                if ($normalizedInstallments !== null) {
+                    $config['card_installments'] = $normalizedInstallments;
                     $configUpdated = true;
                 }
                 if (is_array($paymentMethodsPm) && $paymentMethodsPm['pm'] !== null) {
@@ -1561,5 +1545,75 @@ class ProdutosController extends Controller
         ]);
 
         return redirect()->to(route('produtos.edit', $produto).'?tab=checkout')->with('success', 'Checkout exclusivo do plano removido; ele passará a usar o checkout principal.');
+    }
+
+    /**
+     * @return array{
+     *     card_show_installments: bool,
+     *     card_installments_gateway_name: string,
+     *     digital_wallets_at_checkout: bool,
+     *     platform_card_installments_enabled: bool,
+     *     platform_card_installments_max: int
+     * }
+     */
+    private function checkoutGatewayUiForTenant(mixed $tenantId): array
+    {
+        $platformEnabled = PlatformCardInstallments::globalEnabled();
+        $platformMax = PlatformCardInstallments::maxAllowed();
+        $tenantId = $tenantId !== null && $tenantId !== '' ? (int) $tenantId : null;
+        if ($tenantId !== null && $tenantId < 1) {
+            $tenantId = null;
+        }
+        if ($tenantId === null) {
+            return [
+                'card_show_installments' => false,
+                'card_installments_gateway_name' => '',
+                'digital_wallets_at_checkout' => false,
+                'platform_card_installments_enabled' => $platformEnabled,
+                'platform_card_installments_max' => $platformMax,
+            ];
+        }
+
+        $paymentService = app(PaymentService::class);
+        $cardOrder = $paymentService->getGatewayOrderForMethod($tenantId, 'card', null, null);
+        $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
+        $primaryConnectedCardSlug = null;
+        foreach ($cardOrder as $slug) {
+            if (! is_string($slug) || $slug === '' || ! $credentialBySlug->get($slug)) {
+                continue;
+            }
+            $gw = GatewayRegistry::get($slug);
+            if ($gw && in_array('card', $gw['methods'] ?? [], true)) {
+                $primaryConnectedCardSlug = $slug;
+                break;
+            }
+        }
+        $connectedCardDef = is_string($primaryConnectedCardSlug)
+            ? GatewayRegistry::get($primaryConnectedCardSlug)
+            : null;
+
+        return [
+            'card_show_installments' => $platformEnabled && CardInstallments::gatewaySupports($primaryConnectedCardSlug),
+            'card_installments_gateway_name' => is_array($connectedCardDef)
+                ? (string) ($connectedCardDef['name'] ?? $primaryConnectedCardSlug)
+                : '',
+            'digital_wallets_at_checkout' => $primaryConnectedCardSlug === 'cajupay',
+            'platform_card_installments_enabled' => $platformEnabled,
+            'platform_card_installments_max' => $platformMax,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $input
+     */
+    private function applyCardInstallmentsToProduct(Product $product, ?array $input): void
+    {
+        $normalized = PlatformCardInstallments::normalizeSellerInput($input, (string) $product->billing_type);
+        if ($normalized === null) {
+            return;
+        }
+        $config = $product->checkout_config ?? [];
+        $config['card_installments'] = $normalized;
+        $product->update(['checkout_config' => $config]);
     }
 }

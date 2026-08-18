@@ -24,6 +24,7 @@ use App\Support\PercentDecimal;
 use App\Services\EffectiveSettlementRules;
 use App\Services\ApiPixAccess;
 use App\Services\PixGoAccess;
+use App\Services\PlatformCardInstallments;
 use App\Services\MerchantWithdrawalService;
 use App\Services\MinimumChargeService;
 use App\Services\Payout\PayoutUserSettings;
@@ -66,6 +67,8 @@ class FinancialController extends Controller
             'cajupay_credential_keys' => config('gateways.gateways.cajupay.credential_keys', []),
             'merchant_fee_rules' => $feeDefaults,
             'card_installment_rules' => $cardInstallmentRules,
+            'platform_card_installments_enabled' => PlatformCardInstallments::globalEnabled(),
+            'platform_card_installments_max' => PlatformCardInstallments::maxAllowed(),
             'merchant_settlement_rules' => EffectiveSettlementRules::platformDefaults(),
             'api_pix_enabled' => ApiPixAccess::globalEnabled(),
             'api_pix_minimum_charge_brl' => app(MinimumChargeService::class)->apiPixMinimumBrl(),
@@ -353,6 +356,54 @@ class FinancialController extends Controller
 
         return redirect()->route('plataforma.financeiro.index', ['tab' => 'taxas'])
             ->with('success', 'Taxas da plataforma atualizadas.');
+    }
+
+    public function updateInstallments(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'platform_card_installments_enabled' => ['nullable', 'boolean'],
+            'platform_card_installments_max' => ['nullable', 'integer', 'min:2', 'max:12'],
+            'card_installment_rules' => ['nullable', 'array'],
+            'card_installment_rules.*' => ['nullable', 'array'],
+            'card_installment_rules.*.percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'card_installment_rules.*.fixed' => ['nullable', 'numeric', 'min:0', 'max:999999'],
+            'card_installment_rules.*.days_to_available' => ['nullable', 'integer', 'min:0', 'max:365'],
+        ]);
+
+        $enabled = $request->boolean('platform_card_installments_enabled', false);
+        $max = PlatformCardInstallments::normalizePlatformMax(
+            (int) ($validated['platform_card_installments_max'] ?? PlatformCardInstallments::DEFAULT_MAX)
+        );
+
+        PlatformCardInstallments::setEnabled($enabled);
+        PlatformCardInstallments::setMaxAllowed($max);
+
+        $existingRaw = Setting::get('merchant_fee_rules', null, null);
+        if (is_string($existingRaw)) {
+            $existingRaw = json_decode($existingRaw, true);
+        }
+        $out = is_array($existingRaw) ? $existingRaw : [];
+        $cardFee = is_array($out['card'] ?? null) ? $out['card'] : ['percent' => 0, 'fixed' => 0];
+
+        if ($request->exists('card_installment_rules')) {
+            $incoming = is_array($validated['card_installment_rules'] ?? null)
+                ? $validated['card_installment_rules']
+                : [];
+            $out['card_installments'] = CardInstallmentEconomics::normalizeRules(
+                $incoming,
+                $cardFee,
+                CardInstallmentEconomics::fallbackDaysFromSettlement()
+            );
+            Setting::set('merchant_fee_rules', $out, null);
+        }
+
+        PlatformAuditService::log('platform.financial.installments_updated', [
+            'enabled' => $enabled,
+            'max' => $max,
+        ], $request);
+
+        return redirect()->route('plataforma.financeiro.index', ['tab' => 'parcelamento'])
+            ->with('success', 'Configurações de parcelamento atualizadas.');
     }
 
     public function updatePixGo(Request $request): RedirectResponse

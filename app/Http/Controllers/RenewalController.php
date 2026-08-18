@@ -13,6 +13,7 @@ use App\Models\Subscription;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
+use App\Services\PlatformCardInstallments;
 use App\Services\SubscriptionRenewalService;
 use App\Support\CheckoutCardContract;
 use App\Support\FakeConsumerData;
@@ -73,6 +74,10 @@ class RenewalController extends Controller
             $config = array_replace_recursive($config, $plan->checkout_config);
         }
         $cardInstallmentsConfig = $config['card_installments'] ?? ['enabled' => false, 'max' => 1];
+        $resolvedInstallments = PlatformCardInstallments::forProductConfig(
+            is_array($cardInstallmentsConfig) ? $cardInstallmentsConfig : [],
+            true
+        );
 
         $payload = [
             'token' => $token,
@@ -97,8 +102,8 @@ class RenewalController extends Controller
             'card_pagarme_public_key' => '',
             'card_pagarme_api_base_url' => rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/'),
             'card_gateway_keys' => [],
-            'card_installments_enabled' => ! empty($cardInstallmentsConfig['enabled']),
-            'card_max_installments' => min(12, max(1, (int) ($cardInstallmentsConfig['max'] ?? 1))),
+            'card_installments_enabled' => $resolvedInstallments['enabled'],
+            'card_max_installments' => $resolvedInstallments['max'],
             'customer_cpf' => $subscription->user?->document ? preg_replace('/\D/', '', (string) $subscription->user->document) : '',
         ];
 

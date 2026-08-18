@@ -30,6 +30,13 @@ const props = defineProps({
     exchange_rates: { type: Object, default: () => ({ brl_eur: 0.16, brl_usd: 0.18 }) },
     plugin_card_actions: { type: Object, default: () => ({}) },
     plugin_form_sections: { type: Array, default: () => [] },
+    checkout_gateway_ui: {
+        type: Object,
+        default: () => ({
+            card_show_installments: false,
+            platform_card_installments_max: 12,
+        }),
+    },
 });
 
 const produtosList = computed(() => props.produtos?.data ?? (Array.isArray(props.produtos) ? props.produtos : []));
@@ -381,6 +388,7 @@ function pluginActions(productId) {
         :billing-types="billingTypes"
         :exchange-rates="exchange_rates"
         :plugin-form-sections="plugin_form_sections"
+        :checkout-gateway-ui="checkout_gateway_ui"
         @close="closeSidebar"
         @success="closeSidebar"
     />
