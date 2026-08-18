@@ -148,6 +148,7 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/webhooks/gateways/linaopenx', [\App\Http\Controllers\Webhooks\LinaOpenxWebhookController::class, 'handle'])->name('webhooks.linaopenx');
     Route::post('/webhooks/gateways/spacepag', [\App\Http\Controllers\Webhooks\SpacepagWebhookController::class, 'handle'])->name('webhooks.spacepag');
     Route::post('/webhooks/gateways/woovi', [\App\Http\Controllers\Webhooks\WooviWebhookController::class, 'handle'])->name('webhooks.woovi');
+    Route::post('/webhooks/gateways/bspay', [\App\Http\Controllers\Webhooks\BspayWebhookController::class, 'handle'])->name('webhooks.bspay');
     Route::post('/webhooks/gateways/stripe', [\App\Http\Controllers\Webhooks\StripeWebhookController::class, 'handle'])->name('webhooks.stripe');
     Route::post('/webhooks/gateways/efi/pix', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'pix'])->name('webhooks.efi.pix');
     Route::post('/webhooks/gateways/efi/pix-recorrente', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'pixRecorrente'])->name('webhooks.efi.pix-recorrente');

@@ -45,4 +45,21 @@ trait InteractsWithGatewayWebhooks
             'HTTP_AUTHORIZATION' => $secret,
         ], $raw);
     }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+        protected function postSignedBspayWebhook(array $payload, string $secret, ?int $timestamp = null, string $event = 'cashin.confirmed'): \Illuminate\Testing\TestResponse
+        {
+            $raw = json_encode($payload, JSON_THROW_ON_ERROR);
+            $ts = (string) ($timestamp ?? time());
+            $signature = hash_hmac('sha256', $raw, $secret);
+
+            return $this->call('POST', '/webhooks/gateways/bspay', [], [], [], [
+                'CONTENT_TYPE' => 'application/json',
+                'HTTP_X_BSPAY_EVENT' => $event,
+                'HTTP_X_BSPAY_SIGNATURE' => $signature,
+                'HTTP_X_BSPAY_TIMESTAMP' => $ts,
+            ], $raw);
+        }
 }

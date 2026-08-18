@@ -48,6 +48,29 @@ return [
                 ['key' => 'webhook_postback_base_url', 'label' => 'URL base pública para webhooks (HTTPS, sem barra final)', 'type' => 'text', 'optional' => true],
             ],
         ],
+        'bspay' => [
+            'slug' => 'bspay',
+            'name' => 'BSPay',
+            'image' => 'images/gateways/bspay.png',
+            'methods' => ['pix'],
+            'scope' => 'national',
+            'country' => 'br',
+            'country_name' => 'Brasil, México',
+            'country_flag' => 'brasil.png',
+            'countries' => [
+                ['flag' => 'brasil.png', 'name' => 'Brasil'],
+                ['flag' => 'mexico.png', 'name' => 'México'],
+            ],
+            'signup_url' => 'https://bspay.co',
+            'driver' => \App\Gateways\Bspay\BspayDriver::class,
+            'credential_keys' => [
+                ['key' => 'client_id', 'label' => 'Client ID', 'type' => 'text'],
+                ['key' => 'client_secret', 'label' => 'Client Secret', 'type' => 'password'],
+                ['key' => 'bspay_payout_min_brl', 'label' => 'Mínimo líquido de payout (R$)', 'type' => 'text', 'optional' => true],
+                ['key' => 'bspay_admin_fee_pix_brl', 'label' => 'Taxa PIX paga à BSPay (R$)', 'type' => 'text', 'optional' => true],
+                ['key' => 'bspay_admin_fee_payout_brl', 'label' => 'Taxa de saque paga à BSPay (R$)', 'type' => 'text', 'optional' => true],
+            ],
+        ],
         'woovi' => [
             'slug' => 'woovi',
             'name' => 'Woovi',
@@ -217,6 +240,16 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Adquirentes excluídas da ApiPix (integração do infoprodutor).
+    | Checkout, PixGO e demais canais continuam podendo usá-las.
+    |--------------------------------------------------------------------------
+    */
+    'api_pix_excluded_slugs' => [
+        'bspay',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Adquirentes (painel plataforma, checkout, API): apenas estes slugs são
     | oferecidos na UI e na ordem de pagamento. Outras entradas em config
     | permanecem para compatibilidade legada até migração.
@@ -227,6 +260,7 @@ return [
         'efi',
         'spacepag',
         'woovi',
+        'bspay',
         'onlyup',
         'mercadopago',
         'pagarme',
@@ -240,7 +274,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'default_order' => [
-        'pix' => ['cajupay', 'spacepag', 'woovi', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
+        'pix' => ['cajupay', 'spacepag', 'woovi', 'bspay', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
         'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
         'pix_auto' => ['efi', 'pushinpay'],

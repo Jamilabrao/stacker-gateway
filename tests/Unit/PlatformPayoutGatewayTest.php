@@ -160,7 +160,56 @@ class PlatformPayoutGatewayTest extends TestCase
         $this->assertSame('onlyup', PlatformPayoutGateway::activeSlug());
         $this->assertSame('onlyup', PlatformPayoutGateway::preference());
 
-        GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'spacepag', 'woovi', 'onlyup'])->delete();
+        GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'spacepag', 'woovi', 'bspay', 'onlyup'])->delete();
+        Setting::set('platform_payout_gateway', null, null);
+    }
+
+    public function test_bspay_wins_when_only_bspay_connected(): void
+    {
+        $cred = GatewayCredential::query()->firstOrNew([
+            'tenant_id' => null,
+            'gateway_slug' => 'bspay',
+        ]);
+        $cred->is_connected = true;
+        $cred->setEncryptedCredentials([
+            'client_id' => 'id',
+            'client_secret' => 'secret',
+        ]);
+        $cred->save();
+
+        $this->assertSame('bspay', PlatformPayoutGateway::activeSlug());
+
+        GatewayCredential::query()->where('gateway_slug', 'bspay')->delete();
+    }
+
+    public function test_preference_bspay_overrides_order_when_others_connected(): void
+    {
+        Setting::set('platform_payout_gateway', 'bspay', null);
+
+        foreach (['cajupay', 'bspay'] as $slug) {
+            $cred = GatewayCredential::query()->firstOrNew([
+                'tenant_id' => null,
+                'gateway_slug' => $slug,
+            ]);
+            $cred->is_connected = true;
+            if ($slug === 'bspay') {
+                $cred->setEncryptedCredentials([
+                    'client_id' => 'id',
+                    'client_secret' => 'secret',
+                ]);
+            } else {
+                $cred->setEncryptedCredentials([
+                    'public_key' => 'pk_'.$slug,
+                    'secret_key' => 'sk_'.$slug,
+                ]);
+            }
+            $cred->save();
+        }
+
+        $this->assertSame('bspay', PlatformPayoutGateway::activeSlug());
+        $this->assertSame('bspay', PlatformPayoutGateway::preference());
+
+        GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'bspay'])->delete();
         Setting::set('platform_payout_gateway', null, null);
     }
 }

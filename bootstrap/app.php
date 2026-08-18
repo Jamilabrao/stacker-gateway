@@ -208,6 +208,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('payments:reconcile-cajupay-refunds --limit=100')->everyMinute();
         $schedule->command('withdrawals:reconcile-spacepag --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-woovi --limit=80 --min-age-minutes=0')->everyMinute();
+        $schedule->command('withdrawals:reconcile-bspay --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-cajupay --limit=80 --min-age-minutes=0')->everyTwoMinutes();
         $schedule->command('settlement:release')->everyFiveMinutes();
         $schedule->command('schedule:heartbeat')->everyMinute();

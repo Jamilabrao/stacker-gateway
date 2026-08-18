@@ -14,6 +14,7 @@ use App\Models\SubscriptionPlan;
 use App\Support\GatewayApiCredentials;
 use App\Support\GatewayPluginRequirement;
 use App\Support\GatewayWebhookUrl;
+use App\Support\SaleOrigin;
 use Illuminate\Support\Facades\Log;
 
 class PaymentService
@@ -37,6 +38,9 @@ class PaymentService
         foreach ($orderSlugs as $gatewaySlug) {
             if (microtime(true) > $deadline) {
                 break;
+            }
+            if (! $this->isPixAcquirerAllowedForOrder($gatewaySlug, $order)) {
+                continue;
             }
             $resolved = $this->resolveGatewayPaymentContext($tenantId, $gatewaySlug);
             if ($resolved === null) {
@@ -627,6 +631,20 @@ class PaymentService
         $pg = $config['payment_gateways'] ?? null;
 
         return is_array($pg) && $pg !== [] ? $pg : null;
+    }
+
+    /**
+     * ApiPix do infoprodutor não pode usar certas adquirentes (ex. BSPay).
+     * Checkout, PixGO e demais canais não são afetados.
+     */
+    public function isPixAcquirerAllowedForOrder(string $gatewaySlug, Order $order): bool
+    {
+        $excluded = config('gateways.api_pix_excluded_slugs', []);
+        if (! is_array($excluded) || ! in_array($gatewaySlug, $excluded, true)) {
+            return true;
+        }
+
+        return SaleOrigin::resolveForOrder($order) !== SaleOrigin::API;
     }
 
     private function webhookUrlForGateway(string $gatewaySlug): string
