@@ -1,11 +1,12 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useForm, Link, router } from '@inertiajs/vue3';
 import axios from 'axios';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import { MessageSquare, ImagePlus, X, Heart, MessageCircle, Trash2 } from 'lucide-vue-next';
 import { getCommunityPageIconComponent } from '@/utils/communityPageIcons';
+import { resolveMemberAreaHref } from '@/utils/memberAreaHref';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -14,11 +15,13 @@ const props = defineProps({
     config: { type: Object, default: () => ({}) },
     auth_user_id: { type: Number, default: null },
     can_delete_any_post: { type: Boolean, default: false },
+    can_post: { type: Boolean, default: false },
     community_users_can_delete_own_posts: { type: Boolean, default: true },
     pages: { type: Array, default: () => [] },
     page: { type: Object, required: true },
     posts: { type: Object, required: true },
     slug: { type: String, required: true },
+    base_url: { type: String, default: '' },
 });
 
 const postsList = ref(props.posts?.data ? [...props.posts.data] : []);
@@ -33,8 +36,23 @@ const likeLoadingId = ref(null);
 const commentLoadingId = ref(null);
 const commentContentByPost = ref({});
 
-const basePath = `/m/${props.slug}/comunidade`;
-const postsBase = () => `${basePath}/${props.page.slug}/posts`;
+function usesPathSlugPrefix() {
+    if (typeof window !== 'undefined') {
+        return window.location.pathname.startsWith('/m/');
+    }
+    return Boolean(props.base_url && String(props.base_url).includes('/m/'));
+}
+
+function memberHref(path) {
+    return resolveMemberAreaHref(path, {
+        usesPathPrefix: usesPathSlugPrefix(),
+        basePath: `/m/${props.slug}`,
+        baseUrl: props.base_url ?? '',
+    });
+}
+
+const basePath = computed(() => memberHref('/comunidade'));
+const postsBase = () => `${basePath.value}/${props.page.slug}/posts`;
 const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 
 function formatPostDate(isoString) {
@@ -64,7 +82,7 @@ function clearPostImage() {
     if (postImageInputRef.value) postImageInputRef.value.value = '';
 }
 function submitPost() {
-    postForm.post(`/m/${props.slug}/comunidade/${props.page.slug}/posts`, {
+    postForm.post(`${basePath.value}/${props.page.slug}/posts`, {
         preserveScroll: true,
         forceFormData: true,
         onSuccess: () => {
@@ -178,7 +196,7 @@ async function submitComment(post) {
                 <h1 class="text-2xl font-bold text-white">{{ page.title }}</h1>
             </div>
 
-            <form v-if="page.is_public_posting" class="rounded-2xl border border-zinc-700 bg-zinc-800/50 p-5 shadow-lg" @submit.prevent="submitPost">
+            <form v-if="can_post" class="rounded-2xl border border-zinc-700 bg-zinc-800/50 p-5 shadow-lg" @submit.prevent="submitPost">
                 <textarea
                     v-model="postForm.content"
                     rows="3"
