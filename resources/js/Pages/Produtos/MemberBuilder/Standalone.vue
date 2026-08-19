@@ -1839,16 +1839,25 @@ const communityPageModalBannerInputRef = ref(null);
 /** Qual seletor está aberto: 'emoji' | 'icon' | null */
 const communityPageIconPickerOpen = ref(null);
 
+function isCommunityPageRecord(page) {
+    if (!page || typeof page !== 'object' || typeof page.preventDefault === 'function') {
+        return false;
+    }
+    const id = Number(page.id);
+    return Number.isFinite(id) && id > 0;
+}
+
 function openCommunityPageModal(page = null) {
-    communityPageModalEditing.value = page ?? null;
+    const record = isCommunityPageRecord(page) ? page : null;
+    communityPageModalEditing.value = record;
     communityPageModalError.value = '';
-    if (page) {
-        communityPageModalTitle.value = page.title ?? '';
-        communityPageModalIcon.value = page.icon ?? '';
-        communityPageModalPublic.value = page.is_public_posting !== false;
-        communityPageModalDefault.value = page.is_default === true;
-        communityPageModalBannerPath.value = page.banner ?? '';
-        communityPageModalBannerPreviewUrl.value = page.banner_url ?? '';
+    if (record) {
+        communityPageModalTitle.value = record.title ?? '';
+        communityPageModalIcon.value = record.icon ?? '';
+        communityPageModalPublic.value = record.is_public_posting !== false;
+        communityPageModalDefault.value = record.is_default === true;
+        communityPageModalBannerPath.value = record.banner ?? '';
+        communityPageModalBannerPreviewUrl.value = record.banner_url ?? '';
         communityPageModalBannerFile.value = null;
     } else {
         communityPageModalTitle.value = '';
@@ -1944,7 +1953,7 @@ async function saveCommunityPageModal() {
             is_default: communityPageModalDefault.value,
         };
         let res;
-        if (editing) {
+        if (isCommunityPageRecord(editing)) {
             // POST explícito: PUT com JSON falha em alguns ambientes (proxy/servidor)
             res = await axios.post(`${base.value}/community-pages/${editing.id}`, payload, { headers: headers() });
         } else {
@@ -3046,7 +3055,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                         </div>
                         <div class="mt-6 flex items-center justify-between">
                             <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Páginas da comunidade</h3>
-                            <Button size="sm" @click="openCommunityPageModal">Nova página</Button>
+                            <Button size="sm" @click="openCommunityPageModal()">Nova página</Button>
                         </div>
                         <ul class="mt-2 space-y-2">
                             <li v-for="p in communityPagesList" :key="p.id" class="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 py-2 px-3 text-sm dark:bg-zinc-800/50">

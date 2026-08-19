@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Gateways\GatewayRegistry;
 use App\Services\PlatformPaymentMethods;
 use App\Support\SaleOrigin;
 use Illuminate\Database\Eloquent\Model;
@@ -174,6 +175,28 @@ class Order extends Model
             'boleto' => 'Boleto',
             default => self::gatewaySlugDisplayLabel($this->gateway),
         };
+    }
+
+    /**
+     * Nome da adquirente (recebedor) usada nesta transação.
+     */
+    public function acquirerDisplayName(): string
+    {
+        $slug = strtolower(trim((string) ($this->gateway ?? '')));
+        if ($slug === '') {
+            return '—';
+        }
+        if ($slug === 'manual') {
+            return 'Manual';
+        }
+
+        $def = GatewayRegistry::get($slug);
+        $name = is_array($def) ? trim((string) ($def['name'] ?? '')) : '';
+        if ($name !== '') {
+            return $name;
+        }
+
+        return Str::headline(str_replace(['_', '-'], ' ', $slug));
     }
 
     /**

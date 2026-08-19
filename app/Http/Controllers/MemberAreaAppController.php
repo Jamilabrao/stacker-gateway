@@ -427,14 +427,23 @@ class MemberAreaAppController extends Controller
     public function comunidade(Request $request, string $slug): Response|\Illuminate\Http\RedirectResponse
     {
         $product = $this->getProduct($request);
+        if ($redirect = $this->redirectIfCommunityDisabled($request, $product, $slug)) {
+            return $redirect;
+        }
         $user = $request->user();
         $pages = $product->memberCommunityPages()->orderBy('position')->get();
         $defaultPage = $pages->firstWhere('is_default', true);
         if ($defaultPage) {
-            $routeName = $request->route()->getName();
-            $pageRouteName = str_ends_with($routeName, '.host') ? 'member-area-app.comunidade.page.host' : 'member-area-app.comunidade.page';
+            $routeName = (string) $request->route()?->getName();
+            $pageRouteName = str_ends_with($routeName, '.host')
+                ? 'member-area-app.comunidade.page.host'
+                : 'member-area-app.comunidade.page';
+            $params = ['pageSlug' => $defaultPage->slug];
+            if (! str_ends_with($routeName, '.host')) {
+                $params['slug'] = $slug;
+            }
 
-            return redirect()->route($pageRouteName, ['slug' => $slug, 'pageSlug' => $defaultPage->slug]);
+            return redirect()->route($pageRouteName, $params);
         }
 
         return Inertia::render('MemberAreaApp/Comunidade', [
@@ -453,9 +462,12 @@ class MemberAreaAppController extends Controller
         ] + $this->gamificationProps($product, $user));
     }
 
-    public function comunidadePage(Request $request, string $slug, string $pageSlug): Response
+    public function comunidadePage(Request $request, string $slug, string $pageSlug): Response|\Illuminate\Http\RedirectResponse
     {
         $product = $this->getProduct($request);
+        if ($redirect = $this->redirectIfCommunityDisabled($request, $product, $slug)) {
+            return $redirect;
+        }
         $user = $request->user();
         $config = $this->memberAreaConfigForApp($product);
         $pages = $product->memberCommunityPages()->orderBy('position')->get();
@@ -463,11 +475,13 @@ class MemberAreaAppController extends Controller
         if (! $page) {
             abort(404);
         }
+        $storage = new StorageService($product->tenant_id);
         $postsQuery = $page->posts()->with(['user:id,name,email,avatar', 'likes', 'comments.user:id,name,avatar'])->latest();
         $posts = $postsQuery->paginate(20);
-        $canDeleteAny = $user->canAccessPanel() && $user->tenant_id === $product->tenant_id;
+        $canDeleteAny = $this->isCommunityInstructor($user, $product);
+        $canPost = $page->is_public_posting || $canDeleteAny;
         $usersCanDeleteOwn = (bool) ($config['community_users_can_delete_own_posts'] ?? true);
-        $posts->getCollection()->transform(function (MemberCommunityPost $post) use ($user) {
+        $posts->getCollection()->transform(function (MemberCommunityPost $post) use ($user, $storage) {
             $comments = $post->comments->map(fn (MemberCommunityPostComment $c) => [
                 'id' => $c->id,
                 'content' => $c->content,
@@ -475,7 +489,7 @@ class MemberAreaAppController extends Controller
                 'user' => $c->user ? [
                     'id' => $c->user->id,
                     'name' => $c->user->name,
-                    'avatar_url' => $c->user->avatar ? (new StorageService($product->tenant_id))->url($c->user->avatar) : null,
+                    'avatar_url' => $c->user->avatar ? $storage->url($c->user->avatar) : null,
                 ] : null,
             ])->values()->all();
 
@@ -483,7 +497,7 @@ class MemberAreaAppController extends Controller
                 'user' => $post->user ? [
                     'id' => $post->user->id,
                     'name' => $post->user->name,
-                    'avatar_url' => $post->user->avatar ? (new StorageService($product->tenant_id))->url($post->user->avatar) : null,
+                    'avatar_url' => $post->user->avatar ? $storage->url($post->user->avatar) : null,
                 ] : null,
                 'likes_count' => $post->likes->count(),
                 'user_has_liked' => $post->likes->contains('user_id', $user->id),
@@ -496,6 +510,7 @@ class MemberAreaAppController extends Controller
             'config' => $config,
             'auth_user_id' => $user->id,
             'can_delete_any_post' => $canDeleteAny,
+            'can_post' => $canPost,
             'community_users_can_delete_own_posts' => $usersCanDeleteOwn,
             'pages' => $pages->map(fn ($p) => [
                 'id' => $p->id,
@@ -522,9 +537,11 @@ class MemberAreaAppController extends Controller
     public function storeCommunityPost(Request $request, string $slug, string $pageSlug): RedirectResponse
     {
         $product = $this->getProduct($request);
+        $this->assertCommunityEnabled($product);
         $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
-        if (! $page->is_public_posting) {
+        $user = $request->user();
+        if (! $page->is_public_posting && ! $this->isCommunityInstructor($user, $product)) {
             abort(403, 'Apenas o instrutor pode postar nesta página.');
         }
         $validated = $request->validate([
@@ -538,7 +555,7 @@ class MemberAreaAppController extends Controller
         }
         MemberCommunityPost::create([
             'member_community_page_id' => $page->id,
-            'user_id' => $request->user()->id,
+            'user_id' => $user->id,
             'content' => $validated['content'],
             'image' => $imagePath,
         ]);
@@ -549,6 +566,7 @@ class MemberAreaAppController extends Controller
     public function destroyCommunityPost(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): RedirectResponse
     {
         $product = $this->getProduct($request);
+        $this->assertCommunityEnabled($product);
         $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
@@ -556,7 +574,7 @@ class MemberAreaAppController extends Controller
         }
         $user = $request->user();
         $config = $this->memberAreaConfigForApp($product);
-        $canDeleteAny = $user->canAccessPanel() && $user->tenant_id === $product->tenant_id;
+        $canDeleteAny = $this->isCommunityInstructor($user, $product);
         $usersCanDeleteOwn = (bool) ($config['community_users_can_delete_own_posts'] ?? true);
         $isAuthor = $post->user_id === $user->id;
         if (! $canDeleteAny && ! ($isAuthor && $usersCanDeleteOwn)) {
@@ -570,6 +588,7 @@ class MemberAreaAppController extends Controller
     public function likeCommunityPost(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): JsonResponse
     {
         $product = $this->getProduct($request);
+        $this->assertCommunityEnabled($product);
         $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
@@ -588,6 +607,7 @@ class MemberAreaAppController extends Controller
     public function unlikeCommunityPost(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): JsonResponse
     {
         $product = $this->getProduct($request);
+        $this->assertCommunityEnabled($product);
         $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
@@ -606,6 +626,7 @@ class MemberAreaAppController extends Controller
     public function storeCommunityPostComment(Request $request, string $slug, string $pageSlug, MemberCommunityPost $post): JsonResponse|RedirectResponse
     {
         $product = $this->getProduct($request);
+        $this->assertCommunityEnabled($product);
         $this->assertNotAdminPreviewMutation($request, $product);
         $page = MemberCommunityPage::where('product_id', $product->id)->where('slug', $pageSlug)->firstOrFail();
         if ($post->member_community_page_id !== $page->id) {
@@ -957,6 +978,50 @@ class MemberAreaAppController extends Controller
             return Carbon::parse($createdAt);
         }
         return now();
+    }
+
+    private function isCommunityInstructor(User $user, Product $product): bool
+    {
+        return ($user->canAccessPanel() && $user->tenant_id === $product->tenant_id)
+            || $user->canAccessPlatformPanel();
+    }
+
+    private function isHostMemberAreaRequest(Request $request): bool
+    {
+        $name = (string) $request->route()?->getName();
+        if (str_ends_with($name, '.host')) {
+            return true;
+        }
+
+        return in_array($request->attributes->get('member_area_access_type'), ['subdomain', 'custom'], true);
+    }
+
+    private function redirectToMemberAreaHome(Request $request, string $slug): RedirectResponse
+    {
+        if ($this->isHostMemberAreaRequest($request)) {
+            return redirect('/');
+        }
+
+        return redirect()->route('member-area-app.show', $slug);
+    }
+
+    private function redirectIfCommunityDisabled(Request $request, Product $product, string $slug): ?RedirectResponse
+    {
+        $config = $this->memberAreaConfigForApp($product);
+        if (! empty($config['community_enabled'])) {
+            return null;
+        }
+
+        return $this->redirectToMemberAreaHome($request, $slug)
+            ->with('error', 'A comunidade não está habilitada para este curso.');
+    }
+
+    private function assertCommunityEnabled(Product $product): void
+    {
+        $config = $this->memberAreaConfigForApp($product);
+        if (empty($config['community_enabled'])) {
+            abort(404);
+        }
     }
 
     private function assertNotAdminPreviewMutation(Request $request, Product $product): void

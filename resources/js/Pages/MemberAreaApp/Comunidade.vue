@@ -1,8 +1,10 @@
 <script setup>
+import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import { MessageSquare } from 'lucide-vue-next';
 import { getCommunityPageIconComponent } from '@/utils/communityPageIcons';
+import { resolveMemberAreaHref } from '@/utils/memberAreaHref';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -11,9 +13,21 @@ const props = defineProps({
     config: { type: Object, default: () => ({}) },
     pages: { type: Array, default: () => [] },
     slug: { type: String, required: true },
+    base_url: { type: String, default: '' },
 });
 
-const basePath = `/m/${props.slug}/comunidade`;
+function usesPathSlugPrefix() {
+    if (typeof window !== 'undefined') {
+        return window.location.pathname.startsWith('/m/');
+    }
+    return Boolean(props.base_url && String(props.base_url).includes('/m/'));
+}
+
+const basePath = computed(() => resolveMemberAreaHref('/comunidade', {
+    usesPathPrefix: usesPathSlugPrefix(),
+    basePath: `/m/${props.slug}`,
+    baseUrl: props.base_url ?? '',
+}));
 </script>
 
 <template>

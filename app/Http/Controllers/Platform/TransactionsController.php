@@ -215,6 +215,7 @@ class TransactionsController extends Controller
         $partnerCheckoutUrl = trim((string) ($meta['partner_checkout_url'] ?? ''));
 
         $arr['gateway_label'] = $o->paymentMethodDisplayLabel();
+        $arr['recebedor'] = $o->acquirerDisplayName();
         $arr['product_display_name'] = $this->productDisplayName($o);
         $arr['checkout_url'] = url('/c/'.$o->getCheckoutSlug());
         $arr['partner_checkout_url'] = $partnerCheckoutUrl !== '' ? $partnerCheckoutUrl : null;

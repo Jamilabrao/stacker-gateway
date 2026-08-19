@@ -90,6 +90,13 @@ class DemoPlatformData
                 'amount_net' => round($amount - $fee, 2),
                 'gateway' => self::GATEWAYS[($seed + $i) % count(self::GATEWAYS)],
                 'gateway_label' => 'PIX',
+                'recebedor' => match (self::GATEWAYS[($seed + $i) % count(self::GATEWAYS)]) {
+                    'cajupay' => 'CajuPay',
+                    'spacepag' => 'Spacepag',
+                    'efi' => 'Efí',
+                    'mercadopago' => 'Mercado Pago',
+                    default => '—',
+                },
                 'payment_method_label' => 'PIX',
                 'product_display_name' => self::PRODUCT_NAMES[$idx],
                 'product_label' => self::PRODUCT_NAMES[$idx],

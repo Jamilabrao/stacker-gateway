@@ -304,11 +304,15 @@ const shippingDeliveryLabel = computed(() => {
                             <div class="space-y-1">
                                 <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Método de pagamento</p>
                                 <p class="text-sm text-zinc-900 dark:text-white">{{ venda.gateway_label ?? '–' }}</p>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recebedor</p>
+                                <p class="text-sm text-zinc-900 dark:text-white">{{ venda.recebedor || '—' }}</p>
                                 <p
                                     v-if="venda.cajupay_account_badge"
                                     class="mt-1 inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900 dark:bg-sky-900/40 dark:text-sky-100"
                                 >
-                                    CajuPay: {{ venda.cajupay_account_badge }}
+                                    {{ venda.cajupay_account_badge }}
                                 </p>
                             </div>
                             <div class="space-y-1">

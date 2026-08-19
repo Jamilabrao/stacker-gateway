@@ -258,7 +258,7 @@ return [
     'platform_acquirer_slugs' => [
         'cajupay',
         'efi',
-        'spacepag',
+        // 'spacepag', // oculto da UI (Financeiro → Adquirentes) e da ordem de cobrança
         'woovi',
         'bspay',
         'onlyup',
@@ -274,7 +274,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'default_order' => [
-        'pix' => ['cajupay', 'spacepag', 'woovi', 'bspay', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
+        'pix' => ['cajupay', /* 'spacepag', */ 'woovi', 'bspay', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
         'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
         'pix_auto' => ['efi', 'pushinpay'],
