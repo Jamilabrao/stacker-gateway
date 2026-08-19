@@ -77,6 +77,55 @@ class BspayWebhookCashinConfirmedTest extends TestCase
         $this->assertSame('completed', $order->fresh()->status);
     }
 
+    public function test_webhook_completes_order_when_cashin_confirmed_even_if_list_api_empty(): void
+    {
+        Http::fake([
+            'https://api.bspay.co/v2/oauth/token' => Http::response([
+                'access_token' => 'jwt-token',
+                'expires_in' => 3600,
+            ], 200),
+            'https://api.bspay.co/v2/account/transactions/list' => Http::response([
+                'success' => true,
+                'data' => ['items' => []],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create(['tenant_id' => 1]);
+        $product = $this->createTestProduct(['tenant_id' => 1]);
+        $cred = GatewayCredential::query()->firstOrNew([
+            'tenant_id' => null,
+            'gateway_slug' => 'bspay',
+        ]);
+        $cred->is_connected = true;
+        $cred->setEncryptedCredentials([
+            'client_id' => 'client-id',
+            'client_secret' => 'client-secret',
+        ]);
+        $cred->save();
+
+        $order = Order::create([
+            'tenant_id' => 1,
+            'user_id' => $user->id,
+            'product_id' => $product->id,
+            'status' => 'pending',
+            'amount' => 10,
+            'email' => 'buyer@test.com',
+            'gateway' => 'bspay',
+            'gateway_id' => 'tx-bspay-empty-list',
+        ]);
+
+        $response = $this->postSignedBspayWebhook([
+            'success' => true,
+            'data' => [
+                'transaction_id' => 'tx-bspay-empty-list',
+                'status' => 'confirmed',
+            ],
+        ], 'unused');
+
+        $response->assertOk()->assertJson(['received' => true]);
+        $this->assertSame('completed', $order->fresh()->status);
+    }
+
     public function test_webhook_rejects_invalid_hmac(): void
     {
         $user = User::factory()->create(['tenant_id' => 1]);

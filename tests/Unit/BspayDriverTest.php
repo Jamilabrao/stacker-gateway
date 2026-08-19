@@ -121,6 +121,42 @@ class BspayDriverTest extends TestCase
         $this->assertSame('paid', $status);
     }
 
+    public function test_get_transaction_status_reads_list_array_payload(): void
+    {
+        Http::fake([
+            'https://api.bspay.co/v2/oauth/token' => Http::response([
+                'access_token' => 'jwt-token',
+                'expires_in' => 3600,
+            ], 200),
+            'https://api.bspay.co/v2/account/transactions/list' => Http::response([
+                'success' => true,
+                'data' => [
+                    [
+                        'id' => 'tx-bspay-list',
+                        'status' => 'confirmed',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $driver = new BspayDriver;
+        $status = $driver->getTransactionStatus('tx-bspay-list', [
+            'client_id' => 'id',
+            'client_secret' => 'secret',
+        ]);
+
+        $this->assertSame('paid', $status);
+        Http::assertSent(function ($request) {
+            if (! str_ends_with($request->url(), '/v2/account/transactions/list')) {
+                return false;
+            }
+            $body = $request->data();
+
+            return ($body['page_size'] ?? null) === 50
+                && ($body['transaction_id'] ?? null) === 'tx-bspay-list';
+        });
+    }
+
     public function test_create_pix_cashout_sends_key_without_hmac_headers(): void
     {
         Http::fake([
