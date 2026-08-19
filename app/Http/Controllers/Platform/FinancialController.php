@@ -243,12 +243,12 @@ class FinancialController extends Controller
     }
 
     /**
-     * Preferência de saque automático (CajuPay, Spacepag, Woovi ou automático).
+     * Preferência de saque automático (CajuPay, Woovi, BSPay, OnlyUp ou automático).
      */
     public function updatePayoutGatewayPreference(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'preference' => ['required', 'string', 'in:auto,cajupay,spacepag,woovi,bspay,onlyup'],
+            'preference' => ['required', 'string', 'in:auto,cajupay,woovi,bspay,onlyup'],
         ]);
 
         $pref = $validated['preference'];

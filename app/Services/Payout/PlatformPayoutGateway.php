@@ -9,24 +9,25 @@ use App\Services\CajuPay\CajuPayAccountResolver;
 /**
  * Provedor de payout da plataforma (saque automático PIX).
  *
-     * Gateways com API de cashout: CajuPay, Spacepag, Woovi, BSPay e OnlyUp (plugin).
-     * Preferência configurável em {@see Setting} `platform_payout_gateway` (`auto`, `cajupay`, `spacepag`, `woovi`, `bspay`, `onlyup`).
-     * Em `auto`, a ordem fixa é CajuPay → Spacepag → Woovi → BSPay → OnlyUp — o primeiro globalmente conectado vence.
+     * Gateways com API de cashout: CajuPay, Woovi, BSPay e OnlyUp (plugin).
+     * Preferência configurável em {@see Setting} `platform_payout_gateway` (`auto`, `cajupay`, `woovi`, `bspay`, `onlyup`).
+     * Em `auto`, a ordem fixa é CajuPay → Woovi → BSPay → OnlyUp — o primeiro globalmente conectado vence.
+     * Spacepag permanece no código de payout legado, mas está fora da UI e da ordem automática.
      */
     class PlatformPayoutGateway
     {
         /** @var list<string> */
-        public const PAYOUT_ORDER = ['cajupay', 'spacepag', 'woovi', 'bspay', 'onlyup'];
+        public const PAYOUT_ORDER = ['cajupay', /* 'spacepag', */ 'woovi', 'bspay', 'onlyup'];
 
         /**
          * Preferência salva no painel: automático ou forçar um dos gateways.
          *
-         * @return 'auto'|'cajupay'|'spacepag'|'woovi'|'bspay'|'onlyup'
+         * @return 'auto'|'cajupay'|'woovi'|'bspay'|'onlyup'
          */
         public static function preference(): string
         {
             $v = Setting::get('platform_payout_gateway', null, null);
-            if (in_array($v, ['cajupay', 'spacepag', 'woovi', 'bspay', 'onlyup'], true)) {
+            if (in_array($v, ['cajupay', /* 'spacepag', */ 'woovi', 'bspay', 'onlyup'], true)) {
                 return $v;
             }
 

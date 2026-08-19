@@ -81,6 +81,7 @@ class PlatformTransactionsListingBulkTest extends TestCase
             'status' => 'completed',
             'amount' => 99,
             'email' => 'alvo@example.com',
+            'gateway' => 'efi',
         ]);
 
         $this->actingAs($admin)
@@ -94,6 +95,7 @@ class PlatformTransactionsListingBulkTest extends TestCase
                 ->where('filters.per_page', 25)
                 ->where('orders.total', 1)
                 ->where('orders.data.0.id', $target->id)
+                ->where('orders.data.0.recebedor', 'Efí')
             );
     }
 

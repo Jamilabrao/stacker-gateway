@@ -613,6 +613,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             <th class="px-4 py-3">Status</th>
                             <th v-if="isRefundRequestsFilter" class="px-4 py-3">Solicitação</th>
                             <th class="px-4 py-3">Método</th>
+                            <th class="px-4 py-3">Recebedor</th>
                             <th class="px-4 py-3 text-right">Valor (bruto)</th>
                             <th class="relative w-14 px-2 py-3"><span class="sr-only">Ações</span></th>
                         </tr>
@@ -693,6 +694,15 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             <td class="max-w-[140px] px-4 py-3 text-zinc-600 dark:text-zinc-300">
                                 <span class="line-clamp-2">{{ o.payment_method_label }}</span>
                             </td>
+                            <td class="max-w-[160px] px-4 py-3">
+                                <div class="font-medium text-zinc-900 dark:text-white">{{ o.recebedor || '—' }}</div>
+                                <div
+                                    v-if="o.cajupay_account_badge"
+                                    class="truncate text-xs text-zinc-500"
+                                >
+                                    {{ o.cajupay_account_badge }}
+                                </div>
+                            </td>
                             <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium text-zinc-900 dark:text-white">
                                 {{ formatBRL(o.amount_gross) }}
                             </td>
@@ -714,7 +724,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             </td>
                         </tr>
                         <tr v-if="!rows.length">
-                            <td :colspan="isRefundRequestsFilter ? 11 : 10" class="px-4 py-12 text-center text-zinc-500">
+                            <td :colspan="isRefundRequestsFilter ? 12 : 11" class="px-4 py-12 text-center text-zinc-500">
                                 {{
                                     isRefundRequestsFilter
                                         ? 'Nenhuma solicitação de reembolso pendente.'

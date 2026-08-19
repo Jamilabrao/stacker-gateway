@@ -11,16 +11,23 @@ class PlatformPayoutGatewayTest extends TestCase
 {
     public function test_cajupay_wins_when_both_connected(): void
     {
-        foreach (['cajupay', 'spacepag'] as $slug) {
+        foreach (['cajupay', 'woovi'] as $slug) {
             $cred = GatewayCredential::query()->firstOrNew([
                 'tenant_id' => null,
                 'gateway_slug' => $slug,
             ]);
             $cred->is_connected = true;
-            $cred->setEncryptedCredentials([
-                'public_key' => 'pk_'.$slug,
-                'secret_key' => 'sk_'.$slug,
-            ]);
+            if ($slug === 'woovi') {
+                $cred->setEncryptedCredentials([
+                    'app_id' => 'app',
+                    'from_pix_key' => 'pix@test.com',
+                ]);
+            } else {
+                $cred->setEncryptedCredentials([
+                    'public_key' => 'pk_'.$slug,
+                    'secret_key' => 'sk_'.$slug,
+                ]);
+            }
             $cred->save();
         }
 
@@ -28,12 +35,12 @@ class PlatformPayoutGatewayTest extends TestCase
 
         GatewayCredential::query()->where('gateway_slug', 'cajupay')->delete();
 
-        $this->assertSame('spacepag', PlatformPayoutGateway::activeSlug());
+        $this->assertSame('woovi', PlatformPayoutGateway::activeSlug());
 
-        GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'spacepag'])->delete();
+        GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'woovi'])->delete();
     }
 
-    public function test_preference_spacepag_overrides_order_when_both_connected(): void
+    public function test_preference_spacepag_is_ignored_and_falls_back_to_auto(): void
     {
         Setting::set('platform_payout_gateway', 'spacepag', null);
 
@@ -50,8 +57,8 @@ class PlatformPayoutGatewayTest extends TestCase
             $cred->save();
         }
 
-        $this->assertSame('spacepag', PlatformPayoutGateway::activeSlug());
-        $this->assertSame('spacepag', PlatformPayoutGateway::preference());
+        $this->assertSame('cajupay', PlatformPayoutGateway::activeSlug());
+        $this->assertSame('auto', PlatformPayoutGateway::preference());
 
         GatewayCredential::query()->whereIn('gateway_slug', ['cajupay', 'spacepag'])->delete();
         Setting::set('platform_payout_gateway', null, null);
