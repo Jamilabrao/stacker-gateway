@@ -26,6 +26,7 @@ final class GatewayWebhookUrl
             'cajupay.payout' => '/webhooks/gateways/cajupay/payout',
             'pushinpay' => '/webhooks/gateways/pushinpay',
             'mercadopago' => '/webhooks/gateways/mercadopago',
+            'pagarme' => '/webhooks/gateways/pagarme',
             'onlyup' => '/webhooks/gateways/onlyup',
             'bspay' => '/webhooks/gateways/bspay',
             'linaopenx' => '/webhooks/gateways/linaopenx',

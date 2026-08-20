@@ -28,6 +28,7 @@ import {
     ScrollText,
     ContactRound,
     ChartNoAxesCombined,
+    Webhook,
 } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 
@@ -112,6 +113,7 @@ const navGroupsCore = [
             { name: 'Indique e Ganhe', href: '/plataforma/indique-e-ganhe', icon: Gift },
             { name: 'Saúde de Pagamentos', href: '/plataforma/ops/saude-pagamentos', icon: Activity },
             { name: 'Saúde UTMify', href: '/plataforma/ops/saude-utmify', icon: Activity },
+            { name: 'Webhooks', href: '/plataforma/webhooks', icon: Webhook },
         ],
     },
     {
@@ -216,6 +218,9 @@ function isActive(href) {
     }
     if (href === '/plataforma/ops/saude-utmify') {
         return url === '/plataforma/ops/saude-utmify' || url.startsWith('/plataforma/ops/saude-utmify/');
+    }
+    if (href === '/plataforma/webhooks') {
+        return url === '/plataforma/webhooks' || url.startsWith('/plataforma/webhooks/');
     }
     if (href === '/plataforma/metricas') {
         return url === '/plataforma/metricas' || url.startsWith('/plataforma/metricas/');
