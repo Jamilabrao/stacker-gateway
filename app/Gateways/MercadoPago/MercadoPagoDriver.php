@@ -294,7 +294,22 @@ class MercadoPagoDriver implements GatewayDriver
         if ($installments < 1) {
             $installments = 1;
         }
+        // O Brick tokeniza com transaction_amount próprio — divergência com o order.amount
+        // é causa clássica de recusa (cc_rejected_*). Preferir o valor do Brick quando vier.
         $transactionAmount = round($amount, 2);
+        $brickAmount = isset($formData['transaction_amount'])
+            ? round((float) $formData['transaction_amount'], 2)
+            : null;
+        if ($brickAmount !== null && $brickAmount >= 0.01) {
+            if (abs($brickAmount - $transactionAmount) > 0.009) {
+                Log::warning('MercadoPagoDriver createCardPayment amount mismatch (using Brick amount)', [
+                    'order_id' => $externalId,
+                    'order_amount' => $transactionAmount,
+                    'brick_amount' => $brickAmount,
+                ]);
+            }
+            $transactionAmount = $brickAmount;
+        }
         if ($transactionAmount < 0.01) {
             throw new \RuntimeException('Mercado Pago: valor inválido.');
         }
@@ -307,9 +322,8 @@ class MercadoPagoDriver implements GatewayDriver
             'payer' => $payer,
             'description' => 'Pedido #' . $externalId,
             'external_reference' => (string) $externalId,
-            // Checkout transparente precisa de resposta binária (approved|rejected), senão
-            // o MP pode devolver in_process e o front fica em "Pagamento em processamento".
-            'binary_mode' => true,
+            // NÃO usar binary_mode: o MP rejeita pagamentos que iriam para in_process/pending
+            // (análise), derrubando a taxa de aprovação. Deixar fluxo normal + webhook/poll.
         ];
         $notificationUrl = $this->validNotificationUrl(GatewayWebhookUrl::forGateway('mercadopago'));
         if ($notificationUrl !== '') {
@@ -336,12 +350,16 @@ class MercadoPagoDriver implements GatewayDriver
             if ($statusCode >= 200 && $statusCode < 300) {
                 $paymentId = $responseBody['id'] ?? null;
                 $status = isset($responseBody['status']) ? strtolower(trim((string) $responseBody['status'])) : null;
+                $statusDetail = isset($responseBody['status_detail'])
+                    ? (string) $responseBody['status_detail']
+                    : null;
                 if (empty($paymentId)) {
                     throw new \RuntimeException('Mercado Pago: resposta sem identificador do pagamento.');
                 }
 
-                // Reconfirma na API quando o create não traz approved/rejected definitivo.
+                // Reconfirma na API quando o create não traz status definitivo.
                 if (! in_array($status, ['approved', 'rejected', 'cancelled', 'refunded', 'charged_back'], true)) {
+                    usleep(400000); // 0.4s — dá tempo ao autorizador em alguns casos in_process
                     $confirmed = $this->getPaymentDetails((string) $paymentId, $credentials);
                     $rawConfirmed = is_array($confirmed) ? ($confirmed['raw_status'] ?? null) : null;
                     if (is_string($rawConfirmed) && $rawConfirmed !== '') {
@@ -352,16 +370,15 @@ class MercadoPagoDriver implements GatewayDriver
                         'payment_id' => $paymentId,
                         'create_status' => $responseBody['status'] ?? null,
                         'confirmed_status' => $status,
-                        'status_detail' => $responseBody['status_detail'] ?? null,
+                        'status_detail' => $statusDetail,
                     ]);
                 }
 
                 return [
                     'transaction_id' => (string) $paymentId,
                     'status' => $status,
-                    'status_detail' => isset($responseBody['status_detail'])
-                        ? (string) $responseBody['status_detail']
-                        : null,
+                    'status_detail' => $statusDetail,
+                    'charged_amount' => $transactionAmount,
                 ];
             }
 

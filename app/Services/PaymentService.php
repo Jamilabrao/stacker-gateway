@@ -169,6 +169,12 @@ class PaymentService
                 if (isset($result['client_secret'])) {
                     $return['client_secret'] = $result['client_secret'];
                 }
+                if (isset($result['status_detail'])) {
+                    $return['status_detail'] = $result['status_detail'];
+                }
+                if (isset($result['charged_amount'])) {
+                    $return['charged_amount'] = $result['charged_amount'];
+                }
                 return $return;
             } catch (\Throwable $e) {
                 Log::warning('PaymentService: cartão gateway falhou.', [

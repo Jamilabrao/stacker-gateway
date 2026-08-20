@@ -1164,12 +1164,24 @@ watch(
 
 watch(
     () => [form.payment_method, isCardGatewayMercadopago.value, props.cardMercadopagoPublicKey, props.checkoutTotalBrl],
-    async ([method, isMP]) => {
+    async ([method, isMP, , totalBrl]) => {
         if (method !== 'card' || !isMP) {
             destroyMercadopagoBrick();
             return;
         }
         await nextTick();
+        const amount = Math.max(0.01, Number(totalBrl) || 0);
+        const ctrl = mercadopagoBrickController.value
+            ?? (typeof window !== 'undefined' ? window.cardPaymentBrickController : null);
+        // Preferir update() (doc Brick) em vez de remount quando só o valor muda.
+        if (ctrl && typeof ctrl.update === 'function' && mercadopagoBrickReady.value) {
+            try {
+                await ctrl.update({ amount });
+                return;
+            } catch (_) {
+                // cai no remount abaixo
+            }
+        }
         loadMercadopagoBrick().catch((err) => {
             mercadopagoBrickError.value = err?.message || 'Não foi possível carregar o formulário de pagamento. Verifique sua conexão e tente recarregar.';
         });
@@ -1671,40 +1683,51 @@ async function initMercadopagoBrick() {
             onReady: () => {
                 mercadopagoBrickReady.value = true;
             },
-            onSubmit: (param) => {
-                const formData = param?.formData ?? param;
-                if (!formData || typeof formData !== 'object') {
+            onSubmit: (formData, additionalData) => {
+                const data = formData?.formData ?? formData;
+                if (!data || typeof data !== 'object') {
                     cardFormError.value = 'Dados do cartão inválidos.';
                     return Promise.reject();
+                }
+                // Doc MP Brick: incluir payment type (credit_card/debit_card) quando disponível.
+                if (additionalData?.paymentTypeId && !data.payment_type_id) {
+                    data.payment_type_id = additionalData.paymentTypeId;
                 }
                 return new Promise((resolve, reject) => {
                     cardTokenizing.value = true;
                     cardFormError.value = '';
-                    submitCardWithMercadopagoFormData(formData)
+                    submitCardWithMercadopagoFormData(data)
                         .then(async (res) => {
-                            const data = res?.data;
-                            const isJson = data && typeof data === 'object' && !Array.isArray(data);
-                            const status = String(data?.status || '').toLowerCase();
+                            const payload = res?.data;
+                            const isJson = payload && typeof payload === 'object' && !Array.isArray(payload);
+                            const status = String(payload?.status || '').toLowerCase();
                             const approved = isCardPaymentApprovedStatus(status);
-                            if (isJson && data.success && approved) {
-                                const url = data.redirect_url
-                                    || (data.order_id
-                                        ? `/checkout/obrigado?order_id=${encodeURIComponent(String(data.order_id))}&next=login`
+                            if (isJson && payload.success && approved) {
+                                const url = payload.redirect_url
+                                    || (payload.order_id
+                                        ? `/checkout/obrigado?order_id=${encodeURIComponent(String(payload.order_id))}&next=login`
                                         : null);
                                 if (url) {
-                                    await completeApprovedPurchase(data.order_id, url, 'approved');
+                                    await completeApprovedPurchase(payload.order_id, url, 'approved');
                                     resolve();
                                     return;
                                 }
                             }
                             if (isJson && ['rejected', 'refused', 'cancelled', 'canceled', 'failed'].includes(status)) {
-                                const msg = data.message
+                                const msg = payload.message
                                     || 'Pagamento recusado. Verifique os dados do cartão e tente novamente.';
                                 cardFormError.value = typeof msg === 'string' ? msg : 'Pagamento recusado.';
                                 reject();
                                 return;
                             }
-                            const msg = (isJson && data.message)
+                            // pending / in_process: não tratar como erro do Brick (doc MP — aguardar webhook).
+                            if (isJson && (payload.pending || ['pending', 'in_process', 'in_mediation', 'authorized'].includes(status))) {
+                                cardFormError.value = payload.message
+                                    || 'Pagamento em processamento. Você receberá a confirmação em breve.';
+                                resolve();
+                                return;
+                            }
+                            const msg = (isJson && payload.message)
                                 || 'Pagamento não aprovado. Verifique os dados do cartão e tente novamente.';
                             cardFormError.value = typeof msg === 'string' ? msg : 'Pagamento não aprovado.';
                             reject();
