@@ -1520,6 +1520,11 @@ class CheckoutController extends Controller
             try {
                 $paymentService = app(PaymentService::class);
                 $cardResult = $paymentService->createCardPayment($order, $product, $consumer, $card);
+                $chargedAmount = isset($cardResult['charged_amount']) ? (float) $cardResult['charged_amount'] : null;
+                if ($chargedAmount !== null && $chargedAmount >= 0.01 && abs($chargedAmount - (float) $order->amount) > 0.009) {
+                    $order->update(['amount' => round($chargedAmount, 2)]);
+                    $order->refresh();
+                }
                 $status = is_string($cardResult['status'] ?? null)
                     ? strtolower(trim((string) $cardResult['status']))
                     : null;
@@ -1603,22 +1608,28 @@ class CheckoutController extends Controller
                     }
 
                     $json = [
-                        'success' => $isApproved,
+                        'success' => $isApproved || (! $isRejected),
                         'payment_method' => 'card',
                         'order_id' => $order->id,
-                        'status' => $status,
+                        'status' => $status ?? ($isApproved ? 'approved' : 'pending'),
+                        'status_detail' => $cardResult['status_detail'] ?? null,
                         'message' => $isApproved
                             ? 'Pagamento aprovado.'
-                            : 'Pagamento em processamento. Aguarde a confirmação.',
+                            : 'Pagamento em processamento. Aguarde a confirmação por e-mail ou atualize em instantes.',
                         'redirect_url' => $isApproved ? $redirectUrl : null,
+                        'pending' => ! $isApproved && ! $isRejected,
                     ];
                     if ($status === 'requires_action' && ! empty($cardResult['client_secret'])) {
                         $json['success'] = true;
                         $json['requires_action'] = true;
                         $json['client_secret'] = $cardResult['client_secret'];
+                        $json['pending'] = false;
                     }
 
-                    return $this->idempotencyReturn($idempotencyKey, response()->json($json, $isApproved || $status === 'requires_action' ? 200 : 202));
+                    return $this->idempotencyReturn($idempotencyKey, response()->json(
+                        $json,
+                        $isApproved || $status === 'requires_action' || ! $isRejected ? 200 : 202
+                    ));
                 }
                 if ($isRejected) {
                     return $this->idempotencyReturn(
