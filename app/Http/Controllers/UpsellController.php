@@ -154,27 +154,38 @@ class UpsellController extends Controller
         $conversionPixels = Product::defaultConversionPixels();
         $orderAmount = 0;
         $checkoutSessionToken = '';
+        $orderStatus = null;
+        $purchaseConfirmed = false;
         if ($orderId > 0) {
             $order = Order::with('product')->find($orderId);
             $checkoutSessionToken = (string) (CheckoutSession::query()
                 ->where('order_id', $orderId)
                 ->orderByDesc('id')
                 ->value('session_token') ?? '');
+            if ($order) {
+                $orderStatus = (string) $order->status;
+                $purchaseConfirmed = $order->status === 'completed';
+            }
             if ($order && $order->product) {
                 $conversionPixels = AffiliateConversionPixels::forOrder($order);
                 $orderAmount = (float) $order->amount;
-                if ($order->product->type === Product::TYPE_AREA_MEMBROS_EXTERNA) {
+                if (! $purchaseConfirmed) {
+                    $showButton = false;
+                    $subtitle = $orderStatus === 'rejected'
+                        ? 'Seu pagamento não foi aprovado. Nenhuma cobrança foi concluída.'
+                        : 'Seu pagamento ainda está em processamento. Você receberá o acesso por e-mail quando for confirmado.';
+                } elseif ($order->product->type === Product::TYPE_AREA_MEMBROS_EXTERNA) {
                     // Entrega externa: não exibir botão de acesso interno.
                     $showButton = false;
                     $subtitle = 'Pagamento confirmado. Em instantes você receberá o acesso à área de membros.';
                 }
-                if ($order->product->type === Product::TYPE_LINK_PAGAMENTO) {
+                if ($purchaseConfirmed && $order->product->type === Product::TYPE_LINK_PAGAMENTO) {
                     $slug = $order->getCheckoutSlug();
                     $redirectUrl = $slug !== '' ? route('checkout.show', ['slug' => $slug]) : url('/');
                     $redirectLabel = 'Voltar';
                     $subtitle = 'Seu pedido foi registrado. Você pode voltar para o site agora.';
                 }
-                if ($order->product->type !== Product::TYPE_AREA_MEMBROS_EXTERNA) {
+                if ($purchaseConfirmed && $order->product->type !== Product::TYPE_AREA_MEMBROS_EXTERNA) {
                     try {
                         $accessLink = $accessEmailService->getAccessLinkForOrder($order);
                     } catch (\Throwable $e) {
@@ -203,9 +214,11 @@ class UpsellController extends Controller
             'redirect_label' => $redirectLabel,
             'subtitle' => $subtitle,
             'show_button' => $showButton,
-            'conversion_pixels' => $conversionPixels,
+            'conversion_pixels' => $purchaseConfirmed ? $conversionPixels : Product::defaultConversionPixels(),
             'order_id' => $orderId > 0 ? $orderId : null,
-            'order_amount' => $orderAmount,
+            'order_amount' => $purchaseConfirmed ? $orderAmount : 0,
+            'order_status' => $orderStatus,
+            'purchase_confirmed' => $purchaseConfirmed,
             'checkout_session_token' => $checkoutSessionToken,
         ]);
     }

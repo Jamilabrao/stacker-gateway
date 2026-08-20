@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\BoletoGenerated;
 use App\Events\OrderCompleted;
 use App\Events\OrderPending;
+use App\Events\OrderRejected;
 use App\Events\PixGenerated;
 use App\Events\SubscriptionCreated;
 use App\Gateways\GatewayRegistry;
@@ -1519,9 +1520,14 @@ class CheckoutController extends Controller
             try {
                 $paymentService = app(PaymentService::class);
                 $cardResult = $paymentService->createCardPayment($order, $product, $consumer, $card);
-                $status = $cardResult['status'] ?? null;
-                $updateCheckoutSession($order);
-                if (in_array($status, ['paid', 'settled', 'approved', 'completed'], true)) {
+                $status = is_string($cardResult['status'] ?? null)
+                    ? strtolower(trim((string) $cardResult['status']))
+                    : null;
+                $isApproved = in_array($status, ['paid', 'settled', 'approved', 'completed'], true);
+                $isRejected = in_array($status, ['rejected', 'refused', 'cancelled', 'canceled', 'failed'], true);
+
+                if ($isApproved) {
+                    $updateCheckoutSession($order);
                     $order->update(['status' => 'completed']);
                     $order->load('orderItems');
                     $grantAccessForOrder($order);
@@ -1539,10 +1545,13 @@ class CheckoutController extends Controller
                         $this->attachStripeSavedPaymentMethodForSubscription($subscription, $order, $card, $tenantId, $user->id);
                     }
                     event(new OrderCompleted($order));
+                } elseif ($isRejected) {
+                    $order->update(['status' => 'rejected']);
+                    event(new OrderRejected($order));
                 }
+
                 $config = $this->getOrderCheckoutConfigForProcess($order, $product, $offer, $plan);
                 $redirectUrl = null;
-                $isApproved = in_array($status, ['paid', 'settled', 'approved'], true);
                 if ($isApproved) {
                     $upsell = $config['upsell'] ?? [];
                     if (! empty($upsell['enabled']) && ! empty($upsell['products']) && is_array($upsell['products'])) {
@@ -1561,32 +1570,47 @@ class CheckoutController extends Controller
                     }
                 }
                 $wantsJson = $request->expectsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest';
-                if ($wantsJson && $redirectUrl === null) {
-                    $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
-                    $redirectUrl = route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
-                }
                 if ($wantsJson) {
+                    if ($isRejected) {
+                        return $this->idempotencyReturn($idempotencyKey, response()->json([
+                            'success' => false,
+                            'payment_method' => 'card',
+                            'order_id' => $order->id,
+                            'status' => $status ?? 'rejected',
+                            'message' => 'Pagamento recusado. Verifique os dados do cartão e tente novamente.',
+                        ], 422));
+                    }
+
                     $json = [
-                        'success' => true,
+                        'success' => $isApproved,
                         'payment_method' => 'card',
                         'order_id' => $order->id,
                         'status' => $status,
-                        'message' => $isApproved ? 'Pagamento aprovado.' : 'Pagamento em processamento.',
-                        'redirect_url' => $redirectUrl,
+                        'message' => $isApproved
+                            ? 'Pagamento aprovado.'
+                            : 'Pagamento em processamento. Aguarde a confirmação.',
+                        'redirect_url' => $isApproved ? $redirectUrl : null,
                     ];
                     if ($status === 'requires_action' && ! empty($cardResult['client_secret'])) {
+                        $json['success'] = true;
                         $json['requires_action'] = true;
                         $json['client_secret'] = $cardResult['client_secret'];
                     }
 
-                    return $this->idempotencyReturn($idempotencyKey, response()->json($json));
+                    return $this->idempotencyReturn($idempotencyKey, response()->json($json, $isApproved || $status === 'requires_action' ? 200 : 202));
+                }
+                if ($isRejected) {
+                    return $this->idempotencyReturn(
+                        $idempotencyKey,
+                        back()->with('error', 'Pagamento recusado. Verifique os dados do cartão e tente novamente.')
+                    );
                 }
                 if ($redirectUrl !== null) {
                     if (str_starts_with($redirectUrl, 'http') && ! str_starts_with($redirectUrl, request()->getSchemeAndHttpHost())) {
                         return $this->idempotencyReturn($idempotencyKey, redirect()->away($redirectUrl)->with('success', 'Compra concluída.'));
                     }
 
-                    return $this->idempotencyReturn($idempotencyKey, redirect()->to($redirectUrl)->with('success', $isApproved ? 'Compra concluída.' : 'Pagamento em processamento.'));
+                    return $this->idempotencyReturn($idempotencyKey, redirect()->to($redirectUrl)->with('success', 'Compra concluída.'));
                 }
                 if ($checkoutSlug !== '') {
                     return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.show', ['slug' => $checkoutSlug])->with('success', 'Pagamento com cartão recebido. Você receberá a confirmação por e-mail.'));
