@@ -144,7 +144,7 @@ Route::get('/cron', function () {
     return response()->json(['ok' => true, 'message' => 'Schedule executed']);
 })->middleware('throttle:60,1')->name('cron.url');
 
-Route::middleware('throttle:60,1')->group(function () {
+Route::middleware(['throttle:60,1', \App\Http\Middleware\LogInboundGatewayWebhook::class])->group(function () {
     Route::post('/webhooks/gateways/linaopenx', [\App\Http\Controllers\Webhooks\LinaOpenxWebhookController::class, 'handle'])->name('webhooks.linaopenx');
     Route::post('/webhooks/gateways/spacepag', [\App\Http\Controllers\Webhooks\SpacepagWebhookController::class, 'handle'])->name('webhooks.spacepag');
     Route::post('/webhooks/gateways/woovi', [\App\Http\Controllers\Webhooks\WooviWebhookController::class, 'handle'])->name('webhooks.woovi');
@@ -606,6 +606,8 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
 
         Route::get('/log-infoprodutor', [\App\Http\Controllers\Platform\SellerActivityLogsController::class, 'index'])
             ->name('seller-activity-logs.index');
+        Route::get('/webhooks', [\App\Http\Controllers\Platform\InboundWebhooksController::class, 'index'])
+            ->name('webhooks.index');
 
         Route::get('/gerenciar-plugins', [\App\Http\Controllers\PluginsController::class, 'index'])->name('plugins.index');
         Route::get('/gerenciar-plugins/store-plugins-list', [\App\Http\Controllers\PluginsController::class, 'storePluginsList'])->name('plugins.store.list');
