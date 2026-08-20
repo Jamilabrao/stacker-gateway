@@ -683,11 +683,16 @@ class ApiCheckoutController extends Controller
                 $cardGatewayConfig = $gatewayConfig;
                 $cardGatewayConfig['card_redundancy'] = [];
                 $result = $paymentService->createCardPayment($order, $product, $consumer, $card, $cardGatewayConfig);
-                $status = $result['status'] ?? 'pending';
+                $status = is_string($result['status'] ?? null) ? strtolower(trim((string) $result['status'])) : 'pending';
                 if (in_array($status, ['paid', 'settled', 'approved', 'completed'], true)) {
                     $order->update(['status' => 'completed']);
                     $order->grantPurchasedProductAccessToBuyer();
                     event(new OrderCompleted($order));
+                } elseif (in_array($status, ['rejected', 'refused', 'cancelled', 'canceled', 'failed'], true)) {
+                    $order->update(['status' => 'rejected']);
+                    event(new \App\Events\OrderRejected($order));
+
+                    return redirect()->back()->with('error', 'Pagamento recusado. Verifique os dados do cartão e tente novamente.');
                 }
                 if (isset($result['client_secret']) && ($result['client_secret'] ?? '') !== '') {
                     $stripeKey = '';
@@ -706,9 +711,13 @@ class ApiCheckoutController extends Controller
                     ]);
                     return redirect()->route('api-checkout.card-confirm');
                 }
-                return redirect()
-                    ->route('api-checkout.thank-you', ['order_id' => $order->id])
-                    ->with('success', 'Pagamento com cartão recebido. Você receberá a confirmação por e-mail.');
+                if ($order->fresh()->status === 'completed') {
+                    return redirect()
+                        ->route('api-checkout.thank-you', ['order_id' => $order->id])
+                        ->with('success', 'Pagamento aprovado.');
+                }
+
+                return redirect()->back()->with('success', 'Pagamento em processamento. Você receberá a confirmação por e-mail.');
             } catch (\Throwable $e) {
                 $order->delete();
                 return redirect()->back()->with('error', $e->getMessage() ?: 'Não foi possível processar o cartão.');

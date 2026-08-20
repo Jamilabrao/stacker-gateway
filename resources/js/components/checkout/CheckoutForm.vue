@@ -340,6 +340,10 @@ async function fetchShippingQuote() {
     }
 }
 
+function isCardPaymentApprovedStatus(status) {
+    return ['approved', 'paid', 'settled', 'completed'].includes(String(status || '').toLowerCase());
+}
+
 function emitPurchaseConfirmed(orderId, triggerType = 'approved') {
     const oid = orderId !== null && orderId !== undefined ? String(orderId) : '';
     if (!oid) return;
@@ -1680,13 +1684,15 @@ async function initMercadopagoBrick() {
                         .then(async (res) => {
                             const data = res?.data;
                             const isJson = data && typeof data === 'object' && !Array.isArray(data);
-                            if (isJson && data.success) {
-                                const url = data.redirect_url;
-                                if (url) {
-                                    await completeApprovedPurchase(data.order_id, url, 'approved');
-                                }
+                            const status = String(data?.status || '').toLowerCase();
+                            const approved = isCardPaymentApprovedStatus(status);
+                            if (isJson && data.success && approved && data.redirect_url) {
+                                await completeApprovedPurchase(data.order_id, data.redirect_url, 'approved');
                                 resolve();
                             } else {
+                                const msg = (isJson && data.message)
+                                    || 'Pagamento não aprovado. Verifique os dados do cartão e tente novamente.';
+                                cardFormError.value = typeof msg === 'string' ? msg : 'Pagamento não aprovado.';
                                 reject();
                             }
                         })
@@ -2016,11 +2022,13 @@ function submit() {
                 .then(async (res) => {
                     const data = res?.data;
                     const isJson = data && typeof data === 'object' && !Array.isArray(data);
-                    if (isJson && data.success) {
-                        const url = data.redirect_url;
-                        if (url) {
-                            await completeApprovedPurchase(data.order_id, url, 'approved');
-                        }
+                    if (isJson && data.success && isCardPaymentApprovedStatus(data.status) && data.redirect_url) {
+                        await completeApprovedPurchase(data.order_id, data.redirect_url, 'approved');
+                    } else if (isJson && !data.success) {
+                        const msg = data.message || 'Pagamento não aprovado.';
+                        cardFormError.value = typeof msg === 'string' ? msg : 'Pagamento não aprovado.';
+                        showCardRefusedModal.value = true;
+                        cardRefusedMessage.value = cardFormError.value;
                     }
                 })
                 .catch((err) => {
@@ -2148,9 +2156,18 @@ function submit() {
                     }
                 }
                 if (isJson && data.success) {
+                    if (!isCardPaymentApprovedStatus(data.status) && !data.requires_action) {
+                        const pendingMsg = typeof data.message === 'string' && data.message.trim() !== ''
+                            ? data.message
+                            : 'Pagamento em processamento. Aguarde a confirmação.';
+                        cardRefusedMessage.value = pendingMsg;
+                        showCardRefusedModal.value = true;
+                        cardTokenizing.value = false;
+                        return;
+                    }
                     const url = data.redirect_url;
                     const isPostUrl = (u) => !u || u.replace(/\/$/, '') === window.location.origin + '/checkout';
-                    if (url && !isPostUrl(url)) {
+                    if (url && !isPostUrl(url) && isCardPaymentApprovedStatus(data.status)) {
                         await completeApprovedPurchase(data.order_id, url, 'approved');
                         return;
                     }
@@ -2158,7 +2175,7 @@ function submit() {
                         cardTokenizing.value = false;
                         return;
                     }
-                    if (data.order_id) {
+                    if (data.order_id && isCardPaymentApprovedStatus(data.status)) {
                         const fallback = `/checkout/obrigado?order_id=${encodeURIComponent(String(data.order_id))}&next=login`;
                         await completeApprovedPurchase(data.order_id, fallback, 'approved');
                         return;
