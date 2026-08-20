@@ -300,12 +300,8 @@ class ProcessPaymentWebhook implements ShouldQueue
                 // cashin.confirmed é a fonte de verdade; o extrato list da BSPay frequentemente não devolve a linha.
                 $apiStatus = 'paid';
             }
-            if ($apiStatus !== 'paid' && $this->gatewaySlug === 'mercadopago' && $this->isTrustedMercadoPagoSource()) {
-                // Só força paid quando a API não respondeu (null). pending/in_process = race → retry.
-                if ($apiStatus === null && ($this->status === 'paid' || in_array($this->event, ['payment.updated', 'payment.created', 'order.paid'], true))) {
-                    $apiStatus = 'paid';
-                }
-            }
+            // Mercado Pago: NUNCA liberar só pelo webhook/evento. Fonte de verdade = GET /v1/payments/{id}
+            // (status approved). Se a API falhar (null) ou ainda estiver pending → retry; rejected → não liberar.
             if ($apiStatus !== 'paid') {
                 Log::warning('ProcessPaymentWebhook: paid branch aborted (gateway reconfirm not paid)', [
                     'order_id' => $order->id,
@@ -319,10 +315,14 @@ class ProcessPaymentWebhook implements ShouldQueue
                 if ($this->shouldRetryMercadoPagoReconfirm($apiStatus)) {
                     $this->releasePaidBranchForRetry(
                         $this->mercadoPagoReconfirmDelaySeconds(),
-                        'reconfirm_pending',
+                        $apiStatus === null ? 'reconfirm_api_unavailable' : 'reconfirm_pending',
                         $order,
                         $apiStatus
                     );
+                } elseif ($this->gatewaySlug === 'mercadopago' && $apiStatus === 'cancelled' && $order->status === 'pending') {
+                    // rejected/cancelled confirmado na API — não liberar; espelha a carteira do comprador.
+                    $order->update(['status' => 'rejected']);
+                    event(new OrderRejected($order));
                 } elseif ($this->gatewaySlug === 'linaopenx' && ($apiStatus === null || $apiStatus === 'pending')) {
                     $this->releasePaidBranchForRetry(10, 'lina_reconfirm_pending', $order, $apiStatus);
                 }
@@ -391,8 +391,8 @@ class ProcessPaymentWebhook implements ShouldQueue
     }
 
     /**
-     * Mercado Pago PIX: payment.created costuma chegar com status ainda pending na API.
-     * Sem retry o pedido fica pendente até aprovação manual / reconcile.
+     * Mercado Pago: payment.created costuma chegar com status ainda pending na API.
+     * Também retenta quando a consulta à API falhou (null) — nunca liberar sem approved.
      */
     private function shouldRetryMercadoPagoReconfirm(?string $apiStatus): bool
     {
@@ -402,6 +402,11 @@ class ProcessPaymentWebhook implements ShouldQueue
 
         if (! $this->isTrustedMercadoPagoSource()) {
             return false;
+        }
+
+        // null = API indisponível / credencial errada — retry, não liberar.
+        if ($apiStatus === null) {
+            return true;
         }
 
         return in_array($apiStatus, ['pending', 'in_process', 'in_mediation'], true);

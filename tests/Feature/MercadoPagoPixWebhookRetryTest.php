@@ -126,20 +126,22 @@ class MercadoPagoPixWebhookRetryTest extends TestCase
         Cache::forget($lockKey);
     }
 
-    public function test_cancelled_api_status_does_not_retry(): void
+    public function test_rejected_api_status_does_not_complete_order(): void
     {
-        Event::fake([OrderCompleted::class]);
+        Event::fake([OrderCompleted::class, \App\Events\OrderRejected::class]);
         $this->seedMercadoPagoCredentials();
 
-        $paymentId = '777888999';
+        $paymentId = '202020999';
         $order = $this->createPendingOrder($paymentId);
 
         Http::fake([
             'https://api.mercadopago.com/v1/payments/'.$paymentId => Http::response([
                 'id' => (int) $paymentId,
-                'status' => 'cancelled',
+                'status' => 'rejected',
+                'status_detail' => 'cc_rejected_insufficient_amount',
                 'external_reference' => (string) $order->id,
             ], 200),
+            'https://api.mercadopago.com/v1/payments/search*' => Http::response(['results' => []], 200),
         ]);
 
         $job = new ProcessPaymentWebhook(
@@ -153,8 +155,105 @@ class MercadoPagoPixWebhookRetryTest extends TestCase
         $job->handle();
 
         $order->refresh();
-        $this->assertSame('pending', $order->status);
+        $this->assertSame('rejected', $order->status);
         $job->assertNotReleased();
+        Event::assertNotDispatched(OrderCompleted::class);
+        Event::assertDispatched(\App\Events\OrderRejected::class);
+    }
+
+    public function test_cancelled_api_status_does_not_retry(): void
+    {
+        Event::fake([OrderCompleted::class, \App\Events\OrderRejected::class]);
+        $this->seedMercadoPagoCredentials();
+
+        $paymentId = '777888999';
+        $order = $this->createPendingOrder($paymentId);
+
+        Http::fake([
+            'https://api.mercadopago.com/v1/payments/'.$paymentId => Http::response([
+                'id' => (int) $paymentId,
+                'status' => 'cancelled',
+                'external_reference' => (string) $order->id,
+            ], 200),
+            'https://api.mercadopago.com/v1/payments/search*' => Http::response(['results' => []], 200),
+        ]);
+
+        $job = new ProcessPaymentWebhook(
+            'mercadopago',
+            $paymentId,
+            'payment.updated',
+            'pending',
+            ['webhook_source' => 'mercadopago_webhook']
+        );
+        $job->withFakeQueueInteractions();
+        $job->handle();
+
+        $order->refresh();
+        $this->assertSame('rejected', $order->status);
+        $job->assertNotReleased();
+        Event::assertNotDispatched(OrderCompleted::class);
+        Event::assertDispatched(\App\Events\OrderRejected::class);
+    }
+
+    public function test_api_unavailable_does_not_force_paid_and_retries(): void
+    {
+        Event::fake([OrderCompleted::class]);
+        $this->seedMercadoPagoCredentials();
+
+        $paymentId = '101010999';
+        $order = $this->createPendingOrder($paymentId);
+
+        Http::fake([
+            'https://api.mercadopago.com/v1/payments/'.$paymentId => Http::response(['message' => 'error'], 500),
+            'https://api.mercadopago.com/v1/payments/search*' => Http::response(['results' => []], 200),
+        ]);
+
+        $job = new ProcessPaymentWebhook(
+            'mercadopago',
+            $paymentId,
+            'payment.created',
+            'pending',
+            ['webhook_source' => 'mercadopago_webhook']
+        );
+        $job->withFakeQueueInteractions();
+        $job->handle();
+
+        $order->refresh();
+        $this->assertSame('pending', $order->status, 'Não deve liberar acesso sem approved na API');
+        $job->assertReleased(5);
+        Event::assertNotDispatched(OrderCompleted::class);
+    }
+
+    public function test_authorized_api_status_does_not_complete_order(): void
+    {
+        Event::fake([OrderCompleted::class]);
+        $this->seedMercadoPagoCredentials();
+
+        $paymentId = '303030999';
+        $order = $this->createPendingOrder($paymentId);
+
+        Http::fake([
+            'https://api.mercadopago.com/v1/payments/'.$paymentId => Http::response([
+                'id' => (int) $paymentId,
+                'status' => 'authorized',
+                'external_reference' => (string) $order->id,
+            ], 200),
+            'https://api.mercadopago.com/v1/payments/search*' => Http::response(['results' => []], 200),
+        ]);
+
+        $job = new ProcessPaymentWebhook(
+            'mercadopago',
+            $paymentId,
+            'payment.updated',
+            'pending',
+            ['webhook_source' => 'mercadopago_webhook']
+        );
+        $job->withFakeQueueInteractions();
+        $job->handle();
+
+        $order->refresh();
+        $this->assertSame('pending', $order->status, 'authorized não é creditado — não liberar');
+        $job->assertReleased(5);
         Event::assertNotDispatched(OrderCompleted::class);
     }
 }
