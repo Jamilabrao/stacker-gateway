@@ -1523,10 +1523,29 @@ class CheckoutController extends Controller
                 $status = is_string($cardResult['status'] ?? null)
                     ? strtolower(trim((string) $cardResult['status']))
                     : null;
+                // Se o create não fechou status, tenta reconciliar na API (MP cartão).
+                if ($order->gateway === 'mercadopago'
+                    && ! in_array($status, ['paid', 'settled', 'approved', 'completed', 'rejected', 'refused', 'cancelled', 'canceled', 'failed'], true)
+                    && ! empty($cardResult['transaction_id'])
+                ) {
+                    try {
+                        app(\App\Services\MercadoPago\MercadoPagoCheckoutCompletionService::class)
+                            ->tryCompleteFromPaymentApi($order->fresh());
+                        $order->refresh();
+                        if ($order->status === 'completed') {
+                            $status = 'approved';
+                        } elseif ($order->status === 'rejected') {
+                            $status = 'rejected';
+                        }
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                }
                 $isApproved = in_array($status, ['paid', 'settled', 'approved', 'completed'], true);
                 $isRejected = in_array($status, ['rejected', 'refused', 'cancelled', 'canceled', 'failed'], true);
+                $alreadyCompleted = $order->fresh()->status === 'completed';
 
-                if ($isApproved) {
+                if ($isApproved && ! $alreadyCompleted) {
                     $updateCheckoutSession($order);
                     $order->update(['status' => 'completed']);
                     $order->load('orderItems');
@@ -1545,7 +1564,9 @@ class CheckoutController extends Controller
                         $this->attachStripeSavedPaymentMethodForSubscription($subscription, $order, $card, $tenantId, $user->id);
                     }
                     event(new OrderCompleted($order));
-                } elseif ($isRejected) {
+                } elseif ($isApproved && $alreadyCompleted) {
+                    $updateCheckoutSession($order->fresh());
+                } elseif ($isRejected && $order->status === 'pending') {
                     $order->update(['status' => 'rejected']);
                     event(new OrderRejected($order));
                 }
