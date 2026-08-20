@@ -307,6 +307,9 @@ class MercadoPagoDriver implements GatewayDriver
             'payer' => $payer,
             'description' => 'Pedido #' . $externalId,
             'external_reference' => (string) $externalId,
+            // Checkout transparente precisa de resposta binária (approved|rejected), senão
+            // o MP pode devolver in_process e o front fica em "Pagamento em processamento".
+            'binary_mode' => true,
         ];
         $notificationUrl = $this->validNotificationUrl(GatewayWebhookUrl::forGateway('mercadopago'));
         if ($notificationUrl !== '') {
@@ -332,13 +335,33 @@ class MercadoPagoDriver implements GatewayDriver
 
             if ($statusCode >= 200 && $statusCode < 300) {
                 $paymentId = $responseBody['id'] ?? null;
-                $status = $responseBody['status'] ?? null;
+                $status = isset($responseBody['status']) ? strtolower(trim((string) $responseBody['status'])) : null;
                 if (empty($paymentId)) {
                     throw new \RuntimeException('Mercado Pago: resposta sem identificador do pagamento.');
                 }
+
+                // Reconfirma na API quando o create não traz approved/rejected definitivo.
+                if (! in_array($status, ['approved', 'rejected', 'cancelled', 'refunded', 'charged_back'], true)) {
+                    $confirmed = $this->getPaymentDetails((string) $paymentId, $credentials);
+                    $rawConfirmed = is_array($confirmed) ? ($confirmed['raw_status'] ?? null) : null;
+                    if (is_string($rawConfirmed) && $rawConfirmed !== '') {
+                        $status = strtolower(trim($rawConfirmed));
+                    }
+                    Log::info('MercadoPagoDriver createCardPayment reconfirm', [
+                        'order_id' => $externalId,
+                        'payment_id' => $paymentId,
+                        'create_status' => $responseBody['status'] ?? null,
+                        'confirmed_status' => $status,
+                        'status_detail' => $responseBody['status_detail'] ?? null,
+                    ]);
+                }
+
                 return [
                     'transaction_id' => (string) $paymentId,
-                    'status' => $status ? strtolower((string) $status) : null,
+                    'status' => $status,
+                    'status_detail' => isset($responseBody['status_detail'])
+                        ? (string) $responseBody['status_detail']
+                        : null,
                 ];
             }
 

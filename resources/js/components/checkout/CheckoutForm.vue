@@ -1686,15 +1686,28 @@ async function initMercadopagoBrick() {
                             const isJson = data && typeof data === 'object' && !Array.isArray(data);
                             const status = String(data?.status || '').toLowerCase();
                             const approved = isCardPaymentApprovedStatus(status);
-                            if (isJson && data.success && approved && data.redirect_url) {
-                                await completeApprovedPurchase(data.order_id, data.redirect_url, 'approved');
-                                resolve();
-                            } else {
-                                const msg = (isJson && data.message)
-                                    || 'Pagamento não aprovado. Verifique os dados do cartão e tente novamente.';
-                                cardFormError.value = typeof msg === 'string' ? msg : 'Pagamento não aprovado.';
-                                reject();
+                            if (isJson && data.success && approved) {
+                                const url = data.redirect_url
+                                    || (data.order_id
+                                        ? `/checkout/obrigado?order_id=${encodeURIComponent(String(data.order_id))}&next=login`
+                                        : null);
+                                if (url) {
+                                    await completeApprovedPurchase(data.order_id, url, 'approved');
+                                    resolve();
+                                    return;
+                                }
                             }
+                            if (isJson && ['rejected', 'refused', 'cancelled', 'canceled', 'failed'].includes(status)) {
+                                const msg = data.message
+                                    || 'Pagamento recusado. Verifique os dados do cartão e tente novamente.';
+                                cardFormError.value = typeof msg === 'string' ? msg : 'Pagamento recusado.';
+                                reject();
+                                return;
+                            }
+                            const msg = (isJson && data.message)
+                                || 'Pagamento não aprovado. Verifique os dados do cartão e tente novamente.';
+                            cardFormError.value = typeof msg === 'string' ? msg : 'Pagamento não aprovado.';
+                            reject();
                         })
                         .catch((err) => {
                             const msg = err?.response?.data?.message || err?.message || 'Não foi possível processar o pagamento.';
