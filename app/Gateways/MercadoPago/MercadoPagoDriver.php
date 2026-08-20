@@ -636,9 +636,10 @@ class MercadoPagoDriver implements GatewayDriver
 
     private function mapPaymentStatus(string $status): string
     {
+        // Doc MP: liberar somente com approved (creditado). authorized = pré-auth, ainda não creditado.
         return match ($status) {
-            'approved', 'authorized' => 'paid',
-            'pending', 'in_process', 'in_mediation' => 'pending',
+            'approved' => 'paid',
+            'authorized', 'pending', 'in_process', 'in_mediation' => 'pending',
             'rejected', 'cancelled', 'refunded', 'charged_back' => 'cancelled',
             default => 'pending',
         };
@@ -698,7 +699,7 @@ class MercadoPagoDriver implements GatewayDriver
                 continue;
             }
             $status = strtolower((string) ($payment['status'] ?? ''));
-            if (! in_array($status, ['approved', 'authorized'], true)) {
+            if ($status !== 'approved') {
                 continue;
             }
             $paymentId = $payment['id'] ?? null;
