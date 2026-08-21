@@ -248,7 +248,7 @@ class FinancialController extends Controller
     public function updatePayoutGatewayPreference(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'preference' => ['required', 'string', 'in:auto,cajupay,woovi,bspay,onlyup'],
+            'preference' => ['required', 'string', 'in:auto,cajupay,woovi,bspay,versell,onlyup'],
         ]);
 
         $pref = $validated['preference'];

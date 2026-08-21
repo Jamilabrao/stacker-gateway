@@ -35,6 +35,11 @@ class ProcessWithdrawalPayoutJob implements ShouldQueue
             return;
         }
 
+        // Já aceito pelo provedor: não reenviar (risco de PIX duplicado)
+        if (trim((string) $withdrawal->payout_external_id) !== '') {
+            return;
+        }
+
         $result = $autoPayout->attemptAutoPayout($withdrawal);
 
         if (($result['skipped'] ?? false) && ($result['reason'] ?? '') === 'auto_withdrawal_disabled') {

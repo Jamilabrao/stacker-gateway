@@ -30,6 +30,15 @@ final class GatewayWebhookUrl
             'onlyup' => '/webhooks/gateways/onlyup',
             'bspay' => '/webhooks/gateways/bspay',
             'linaopenx' => '/webhooks/gateways/linaopenx',
+            // Base URL Cash In (a Versell anexa /pix automaticamente ao notificar)
+            'versell' => '/webhooks/gateways/versell',
+            'versell.pix' => '/webhooks/gateways/versell/pix',
+            'versell.transfer' => '/webhooks/gateways/versell/transfer',
+            'versell.cashout' => '/webhooks/gateways/versell/cashout',
+            // Base Pix Automático (Versell anexa /rec e /cobr)
+            'versell.pix_auto' => '/webhooks/gateways/versell/pix-automatico',
+            'versell.pix_auto.rec' => '/webhooks/gateways/versell/pix-automatico/rec',
+            'versell.pix_auto.cobr' => '/webhooks/gateways/versell/pix-automatico/cobr',
             default => '/webhooks/gateways/'.$gatewaySlug,
         };
     }

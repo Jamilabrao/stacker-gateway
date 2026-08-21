@@ -75,7 +75,7 @@ const props = defineProps({
     platform_minimum_withdrawal_brl: { type: Number, default: 0 },
     effective_minimum_withdrawal_brl: { type: Number, default: 0 },
     payout_gateway_min_brl: { type: Number, default: 0 },
-    /** @type {'auto'|'cajupay'|'woovi'|'bspay'|'onlyup'} */
+    /** @type {'auto'|'cajupay'|'woovi'|'bspay'|'versell'|'onlyup'} */
     payout_gateway_preference: { type: String, default: 'auto' },
     /** Slug efetivo usado hoje (pode diferir do preferido se este não estiver conectado). */
     payout_gateway_active: { type: String, default: null },
@@ -114,7 +114,7 @@ const ACQUIRER_GROUPS = [
     {
         id: 'psp',
         title: 'PSP — Provedor de Serviços de Pagamento',
-        slugs: ['cajupay', 'efi', 'woovi', 'mercadopago', 'pagarme' /* , 'spacepag' */, 'bspay'],
+        slugs: ['cajupay', 'efi', 'woovi', 'mercadopago', 'pagarme' /* , 'spacepag' */],
         dotClass: 'bg-emerald-500',
     },
     {
@@ -363,7 +363,7 @@ watch(
     () => props.payout_gateway_preference,
     (v) => {
         payoutPref.value =
-            v === 'cajupay' || v === 'woovi' || v === 'bspay' || v === 'onlyup' ? v : 'auto';
+            v === 'cajupay' || v === 'woovi' || v === 'bspay' || v === 'versell' || v === 'onlyup' ? v : 'auto';
     },
     { immediate: true }
 );
@@ -1272,10 +1272,11 @@ function submitSettlement() {
                                     </h2>
                                     <p class="mt-1 max-w-2xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
                                         <strong class="font-medium text-zinc-800 dark:text-zinc-200">CajuPay</strong>,
-                                        <strong class="font-medium text-zinc-800 dark:text-zinc-200">Woovi</strong> e
-                                        <strong class="font-medium text-zinc-800 dark:text-zinc-200">BSPay</strong> podem ser
+                                        <strong class="font-medium text-zinc-800 dark:text-zinc-200">Woovi</strong>,
+                                        <strong class="font-medium text-zinc-800 dark:text-zinc-200">BSPay</strong> e
+                                        <strong class="font-medium text-zinc-800 dark:text-zinc-200">Versell</strong> podem ser
                                         usados para saque automático PIX. Em modo automático a ordem é CajuPay →
-                                        Woovi → BSPay (o primeiro conectado vence).
+                                        Woovi → BSPay → Versell (o primeiro conectado vence).
                                     </p>
                                 </div>
                             </div>
@@ -1301,11 +1302,12 @@ function submitSettlement() {
                                 v-model="payoutPref"
                                 class="w-full cursor-pointer rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-sm font-medium text-zinc-900 shadow-sm outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
                             >
-                                <option value="auto">Automático (CajuPay → Woovi → BSPay)</option>
+                                <option value="auto">Automático (CajuPay → Woovi → BSPay → Versell)</option>
                                 <option value="cajupay">Forçar CajuPay</option>
                                 <!-- <option value="spacepag">Forçar Spacepag</option> -->
                                 <option value="woovi">Forçar Woovi</option>
                                 <option value="bspay">Forçar BSPay</option>
+                                <option value="versell">Forçar Versell</option>
                                 <option value="onlyup">Forçar OnlyUp</option>
                             </select>
                         </div>

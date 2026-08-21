@@ -153,6 +153,11 @@ Route::middleware(['throttle:60,1', \App\Http\Middleware\LogInboundGatewayWebhoo
     Route::post('/webhooks/gateways/efi/pix', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'pix'])->name('webhooks.efi.pix');
     Route::post('/webhooks/gateways/efi/pix-recorrente', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'pixRecorrente'])->name('webhooks.efi.pix-recorrente');
     Route::post('/webhooks/gateways/efi/notification', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'notification'])->name('webhooks.efi.notification');
+    Route::post('/webhooks/gateways/versell/pix', [\App\Http\Controllers\Webhooks\VersellWebhookController::class, 'pix'])->name('webhooks.versell.pix');
+    Route::post('/webhooks/gateways/versell/pix-automatico/rec', [\App\Http\Controllers\Webhooks\VersellWebhookController::class, 'pixAutoRec'])->name('webhooks.versell.pix_auto.rec');
+    Route::post('/webhooks/gateways/versell/pix-automatico/cobr', [\App\Http\Controllers\Webhooks\VersellWebhookController::class, 'pixAutoCobr'])->name('webhooks.versell.pix_auto.cobr');
+    Route::post('/webhooks/gateways/versell/transfer', [\App\Http\Controllers\Webhooks\VersellPayoutWebhookController::class, 'handle'])->name('webhooks.versell.transfer');
+    Route::post('/webhooks/gateways/versell/cashout', [\App\Http\Controllers\Webhooks\VersellPayoutWebhookController::class, 'handle'])->name('webhooks.versell.cashout');
     Route::post('/webhooks/gateways/mercadopago', [\App\Http\Controllers\Webhooks\MercadoPagoWebhookController::class, 'handle'])->name('webhooks.mercadopago');
     Route::get('/webhooks/gateways/mercadopago', [\App\Http\Controllers\Webhooks\MercadoPagoWebhookController::class, 'handle'])->name('webhooks.mercadopago.ipn');
     Route::post('/webhooks/gateways/pushinpay', [\App\Http\Controllers\Webhooks\PushinPayWebhookController::class, 'handle'])->name('webhooks.pushinpay');

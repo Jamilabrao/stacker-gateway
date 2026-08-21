@@ -6,7 +6,7 @@ const props = defineProps({
 });
 
 /** Cobrança PIX + saque PIX (plataforma). */
-const SLUGS_PIX_IN_OUT = new Set(['cajupay', 'spacepag', 'woovi', 'bspay', 'onlyup']);
+const SLUGS_PIX_IN_OUT = new Set(['cajupay', 'spacepag', 'woovi', 'bspay', 'onlyup', 'versell']);
 /** Só cobrança PIX (sem payout automático destes adquirentes nesta integração). */
 const SLUGS_PIX_IN_ONLY = new Set(['efi', 'mercadopago', 'pagarme']);
 

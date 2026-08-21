@@ -143,6 +143,43 @@ function extraFileFieldDefs() {
     return keys.filter((k) => (k.type || 'text') === 'file' && k.key !== certKey);
 }
 
+function credentialFieldGroups() {
+    const keys = gateway.value?.credential_keys || [];
+    if (!keys.length) return [];
+    const groups = [];
+    let current = null;
+    for (const field of keys) {
+        const groupKey = field.group || '_default';
+        const groupLabel = field.group_label || null;
+        if (!current || current.key !== groupKey) {
+            current = { key: groupKey, label: groupLabel, fields: [] };
+            groups.push(current);
+        }
+        current.fields.push(field);
+    }
+    return groups;
+}
+
+function fileConfiguredLabel(field) {
+    const kind = field?.file_kind || '';
+    if (kind === 'certificate') return 'Certificado configurado.';
+    if (kind === 'private_key') return 'Private key configurada.';
+    return 'Arquivo em uso.';
+}
+
+function secretConfiguredHint(field) {
+    if ((field?.type || '') !== 'password') return null;
+    const configured = gateway.value?.secrets_configured;
+    if (!configured || typeof configured !== 'object') return null;
+    if (field.group === 'cash_in' && configured.cash_in) {
+        return 'Secret já salvo. Deixe em branco para manter.';
+    }
+    if (field.group === 'cash_out' && configured.cash_out) {
+        return 'Secret já salvo. Deixe em branco para manter.';
+    }
+    return null;
+}
+
 function extraFilesReadyForTest() {
     const ffc = gateway.value?.file_fields_configured || {};
     for (const k of extraFileFieldDefs()) {
@@ -167,7 +204,15 @@ async function testConnection() {
     for (const k of keys) {
         if (k.key === certificateKey) continue;
         if ((k.type || 'text') === 'boolean') continue;
-        if (k.optional) continue;
+        if ((k.type || 'text') === 'file') continue;
+        if (k.optional) {
+            if ((k.type || '') === 'password' && gateway.value?.secrets_configured) {
+                const secrets = gateway.value.secrets_configured;
+                if (k.group === 'cash_in' && secrets.cash_in) continue;
+                if (k.group === 'cash_out' && secrets.cash_out) continue;
+            }
+            continue;
+        }
         const v = credentialValues.value[k.key];
         if (v == null || String(v).trim() === '') {
             testMessage.value = 'Preencha as credenciais obrigatórias para testar.';
@@ -216,6 +261,8 @@ async function persistCredentials(totpCode = '') {
 
     if (gatewayUsesMultipartCredentialSave()) {
         const form = new FormData();
+        // PHP só popula $_FILES em POST — spoof de PUT para multipart
+        form.append('_method', 'PUT');
         for (const k of keys) {
             if (k.key === certificateKey || (k.type || 'text') === 'file') continue;
             const v = credentialValues.value[k.key];
@@ -232,7 +279,7 @@ async function persistCredentials(totpCode = '') {
         if (totpCode) {
             form.append('totp_code', totpCode);
         }
-        const { data } = await axios.put(
+        const { data } = await axios.post(
             `${apiBase.value}/${encodeURIComponent(gateway.value.slug)}`,
             form,
             { headers: headersBase }
@@ -464,16 +511,27 @@ const canTestConnection = computed(() => {
                     </div>
 
                     <h3
-                        v-if="hasManualCredentialFields"
+                        v-if="hasManualCredentialFields && credentialFieldGroups().length <= 1 && !credentialFieldGroups()[0]?.label"
                         class="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
                     >
                         Credenciais
                     </h3>
-                    <div v-if="hasManualCredentialFields" class="space-y-4">
+                    <div v-if="hasManualCredentialFields" class="space-y-6">
                         <div
-                            v-for="field in (gateway.credential_keys || [])"
-                            :key="field.key"
+                            v-for="group in credentialFieldGroups()"
+                            :key="group.key"
+                            class="space-y-4"
                         >
+                            <h3
+                                v-if="group.label"
+                                class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+                            >
+                                {{ group.label }}
+                            </h3>
+                            <div
+                                v-for="field in group.fields"
+                                :key="field.key"
+                            >
                             <label
                                 class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300"
                             >
@@ -499,7 +557,7 @@ const canTestConnection = computed(() => {
                                 <template v-else>
                                     <input
                                         type="file"
-                                        accept=".crt,.pem,.key"
+                                        :accept="field.accept || '.crt,.pem,.key'"
                                         class="block w-full text-sm text-zinc-600 file:mr-4 file:rounded-lg file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-white file:transition dark:text-zinc-400"
                                         @change="setExtraFileField(field.key, $event.target.files?.[0] || null)"
                                     />
@@ -507,7 +565,7 @@ const canTestConnection = computed(() => {
                                         v-if="gateway.file_fields_configured?.[field.key] && !extraFileUploads[field.key]"
                                         class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
                                     >
-                                        <span class="font-medium text-zinc-700 dark:text-zinc-300">Arquivo em uso.</span>
+                                        <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ fileConfiguredLabel(field) }}</span>
                                         <span> Envie novamente para substituir.</span>
                                     </p>
                                 </template>
@@ -522,14 +580,22 @@ const canTestConnection = computed(() => {
                                     <span class="text-sm text-zinc-600 dark:text-zinc-400">Sim (somente para testes)</span>
                                 </label>
                             </template>
-                            <input
-                                v-else
-                                v-model="credentialValues[field.key]"
-                                :type="field.type === 'password' ? 'password' : 'text'"
-                                :placeholder="field.label"
-                                :class="inputClass"
-                                autocomplete="off"
-                            />
+                            <template v-else>
+                                <input
+                                    v-model="credentialValues[field.key]"
+                                    :type="field.type === 'password' ? 'password' : 'text'"
+                                    :placeholder="field.type === 'password' && secretConfiguredHint(field) ? '••••••••' : field.label"
+                                    :class="inputClass"
+                                    autocomplete="off"
+                                />
+                                <p
+                                    v-if="secretConfiguredHint(field)"
+                                    class="mt-1 text-xs text-zinc-500 dark:text-zinc-400"
+                                >
+                                    {{ secretConfiguredHint(field) }}
+                                </p>
+                            </template>
+                            </div>
                         </div>
                     </div>
 

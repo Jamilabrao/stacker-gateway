@@ -18,6 +18,8 @@ use App\Support\CajuPayCheckoutMetadata;
 use App\Support\GatewayPaymentCredentials;
 use App\Support\MercadoPagoCredentialCandidates;
 use App\Services\EfiPixRecorrenteService;
+use App\Services\Versell\VersellPixRecorrenteService;
+use App\Gateways\Versell\VersellCredentials;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Bus\Queueable;
@@ -363,6 +365,8 @@ class ProcessPaymentWebhook implements ShouldQueue
                         $metadata = $order->metadata ?? [];
                         if (isset($metadata['efi_pix_auto_id_rec']) && $this->gatewaySlug === 'efi') {
                             $idRec = $metadata['efi_pix_auto_id_rec'];
+                        } elseif (isset($metadata['versell_pix_auto_id_rec']) && $this->gatewaySlug === 'versell') {
+                            $idRec = $metadata['versell_pix_auto_id_rec'];
                         } elseif (isset($metadata['pushinpay_subscription_id']) && $this->gatewaySlug === 'pushinpay') {
                             $idRec = $metadata['pushinpay_subscription_id'];
                         }
@@ -380,6 +384,8 @@ class ProcessPaymentWebhook implements ShouldQueue
 
                         if ($idRec !== null && $this->gatewaySlug === 'efi') {
                             $this->createEfiPixAutoCobrForNextPeriod($order, $subscription, $plan);
+                        } elseif ($idRec !== null && $this->gatewaySlug === 'versell') {
+                            $this->createVersellPixAutoCobrForNextPeriod($order, $subscription, $plan);
                         }
                     }
                 }
@@ -605,6 +611,50 @@ class ProcessPaymentWebhook implements ShouldQueue
             );
         } catch (\Throwable $e) {
             Log::warning('ProcessPaymentWebhook: falha ao criar cobr PIX automático', [
+                'order_id' => $order->id,
+                'idRec' => $idRec,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function createVersellPixAutoCobrForNextPeriod(Order $order, Subscription $subscription, $plan): void
+    {
+        $credential = GatewayCredential::resolveForPayment($order->tenant_id, 'versell');
+        if (! $credential) {
+            return;
+        }
+        $credentials = $credential->getDecryptedCredentials();
+        if (! VersellCredentials::isCashInReady($credentials)) {
+            return;
+        }
+
+        $idRec = $subscription->gateway_subscription_id;
+        if ($idRec === null || $idRec === '') {
+            return;
+        }
+
+        $amount = (float) $plan->price;
+        $periodEnd = $subscription->current_period_end;
+        $dataDeVencimento = $periodEnd ? $periodEnd->format('Y-m-d') : now()->addMonth()->format('Y-m-d');
+
+        $devedor = [
+            'name' => $order->user ? $order->user->name : null ?? $order->email,
+            'email' => $order->email,
+        ];
+
+        try {
+            $service = new VersellPixRecorrenteService($credentials);
+            $service->createCobrancaRecorrente(
+                $idRec,
+                $amount,
+                $dataDeVencimento,
+                null,
+                $devedor,
+                'Renovação assinatura - Pedido #'.$order->id
+            );
+        } catch (\Throwable $e) {
+            Log::warning('ProcessPaymentWebhook: falha ao criar cobr PIX automático Versell', [
                 'order_id' => $order->id,
                 'idRec' => $idRec,
                 'message' => $e->getMessage(),

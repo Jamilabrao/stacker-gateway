@@ -85,6 +85,10 @@ class GatewayPayoutEconomics
             $minPayout = self::parseNonNegative($credentials['bspay_payout_min_brl'] ?? null, self::DEFAULT_MIN_PAYOUT_BRL);
             $feePix = self::parseNonNegative($credentials['bspay_admin_fee_pix_brl'] ?? null, 0.0);
             $feePayout = self::parseNonNegative($credentials['bspay_admin_fee_payout_brl'] ?? null, 0.0);
+        } elseif ($slug === 'versell') {
+            $minPayout = self::parseNonNegative($credentials['versell_payout_min_brl'] ?? null, self::DEFAULT_MIN_PAYOUT_BRL);
+            $feePix = self::parseNonNegative($credentials['versell_admin_fee_pix_brl'] ?? null, 0.0);
+            $feePayout = self::parseNonNegative($credentials['versell_admin_fee_payout_brl'] ?? null, 0.0);
         } elseif ($slug === 'onlyup') {
             $minPayout = self::parseNonNegative($credentials['onlyup_payout_min_brl'] ?? null, self::DEFAULT_MIN_PAYOUT_BRL);
             $feePix = self::parseNonNegative($credentials['onlyup_admin_fee_pix_brl'] ?? null, 0.0);
