@@ -205,12 +205,29 @@ class VersellHttpClient
             throw new RuntimeException("{$label}: ".$problem['message']);
         }
 
-        $token = $response->json('access_token');
-        if (! is_string($token) || $token === '') {
-            throw new RuntimeException("{$label}: resposta OAuth sem access_token.");
+        $payload = $response->json();
+        $token = $this->extractAccessToken(is_array($payload) ? $payload : null);
+        if ($token === null) {
+            $keys = is_array($payload) ? array_keys($payload) : [];
+            Log::warning('Versell OAuth missing access_token', [
+                'gateway' => 'versell',
+                'api' => $api,
+                'endpoint' => '/oauth/token',
+                'status' => $response->status(),
+                'content_type' => $response->header('Content-Type'),
+                'json_keys' => array_slice($keys, 0, 20),
+                'body_is_json' => is_array($payload),
+            ]);
+            $hint = is_array($payload)
+                ? ('chaves: '.implode(', ', array_slice($keys, 0, 8)))
+                : 'corpo não-JSON (HTTP '.$response->status().')';
+            throw new RuntimeException("{$label}: resposta OAuth sem access_token ({$hint}).");
         }
 
-        $expiresIn = (int) ($response->json('expires_in') ?? ($api === VersellCredentials::API_CASH_OUT ? 3600 : 300));
+        $expiresIn = (int) (
+            (is_array($payload) ? ($payload['expires_in'] ?? $payload['expiresIn'] ?? null) : null)
+            ?? ($api === VersellCredentials::API_CASH_OUT ? 3600 : 300)
+        );
         $skew = $api === VersellCredentials::API_CASH_OUT
             ? self::CASH_OUT_TOKEN_SKEW_SECONDS
             : self::CASH_IN_TOKEN_SKEW_SECONDS;
@@ -369,5 +386,37 @@ class VersellHttpClient
         }
 
         return mb_substr($message, 0, 300);
+    }
+
+    /**
+     * Cash In documenta snake_case; Cash Out usa camelCase no request e pode
+     * devolver accessToken / expiresIn na resposta.
+     *
+     * @param  array<string, mixed>|null  $payload
+     */
+    private function extractAccessToken(?array $payload): ?string
+    {
+        if ($payload === null) {
+            return null;
+        }
+
+        foreach (['access_token', 'accessToken'] as $key) {
+            $value = $payload[$key] ?? null;
+            if (is_string($value) && $value !== '') {
+                return $value;
+            }
+        }
+
+        $nested = $payload['data'] ?? null;
+        if (is_array($nested)) {
+            foreach (['access_token', 'accessToken'] as $key) {
+                $value = $nested[$key] ?? null;
+                if (is_string($value) && $value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        return null;
     }
 }
