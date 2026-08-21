@@ -30,6 +30,8 @@ final class GatewayApiCredentials
             'spacepag' => trim((string) ($credentials['api_key'] ?? '')) !== '',
             'linaopenx' => trim((string) ($credentials['client_id'] ?? '')) !== ''
                 && trim((string) ($credentials['client_secret'] ?? '')) !== '',
+            // Cash In: client_id/secret/pix_key + mTLS. Cash Out não é exigido para cobrança.
+            'versell' => \App\Gateways\Versell\VersellCredentials::isCashInReady($credentials),
             default => true,
         };
     }

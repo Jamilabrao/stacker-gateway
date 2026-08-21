@@ -36,6 +36,8 @@ use App\Models\MetricsEvent;
 use App\Services\PaymentService;
 use App\Services\PhysicalProductAccess;
 use App\Services\PushinPayPixRecorrenteService;
+use App\Services\Versell\VersellPixRecorrenteService;
+use App\Gateways\Versell\VersellCredentials;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Services\Shipping\ShippingQuoteService;
 use App\Services\StorageService;
@@ -1386,6 +1388,154 @@ class CheckoutController extends Controller
                 }
             }
 
+            if ($gatewaySlug === 'versell') {
+                $credential = GatewayCredential::resolveForPayment($tenantId, 'versell');
+                if (! $credential) {
+                    if ($request->expectsJson()) {
+                        return response()->json(['message' => 'Versell não configurada para PIX automático.'], 422);
+                    }
+
+                    return back()->withErrors(['payment_method' => 'Versell não configurada para PIX automático.']);
+                }
+                $credentials = $credential->getDecryptedCredentials();
+                if (! VersellCredentials::isCashInReady($credentials)) {
+                    if ($request->expectsJson()) {
+                        return response()->json(['message' => 'Versell: credenciais Cash In incompletas para PIX automático.'], 422);
+                    }
+
+                    return back()->withErrors(['payment_method' => 'Versell: credenciais Cash In incompletas para PIX automático.']);
+                }
+
+                $order = $createOrderAndItems(array_merge($orderPayload, [
+                    'status' => 'pending',
+                    'gateway' => null,
+                    'gateway_id' => null,
+                    'payment_method' => 'pix_auto',
+                    'metadata' => array_merge($orderMetadata, ['checkout_payment_method' => 'pix_auto']),
+                ]));
+                $order->load('orderItems');
+                event(new OrderPending($order));
+
+                $base = 'pixauto'.$order->id;
+                $txid = $base.Str::random(max(26 - strlen($base), 10));
+                $txid = substr($txid, 0, 35);
+                $consumer = CheckoutPaymentConsumer::build($validated, $order->id);
+                $pixKey = (string) (VersellCredentials::apiBlock($credentials, VersellCredentials::API_CASH_IN)['pix_key'] ?? '');
+
+                try {
+                    $versellRecorrente = new VersellPixRecorrenteService($credentials);
+                    $locRec = $versellRecorrente->createLocRec();
+                    $locId = (int) $locRec['id'];
+
+                    $cob = $versellRecorrente->createCobWithTxid(
+                        $txid,
+                        (float) $totalAmount,
+                        $consumer,
+                        $pixKey,
+                        'Assinatura PIX automático - Pedido #'.$order->id
+                    );
+
+                    $criacao = now();
+                    $dataInicial = $periodEnd
+                        ? $periodEnd->format('Y-m-d')
+                        : $criacao->copy()->addMonth()->format('Y-m-d');
+                    if ($dataInicial === $criacao->format('Y-m-d')) {
+                        $dataInicial = $criacao->copy()->addDay()->format('Y-m-d');
+                    }
+                    $dataFinal = $periodEnd
+                        ? $periodEnd->copy()->addYears(10)->format('Y-m-d')
+                        : now()->addYears(10)->format('Y-m-d');
+
+                    $contrato = str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);
+                    $objeto = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
+                    $rec = $versellRecorrente->createRecurrence(
+                        $locId,
+                        $txid,
+                        $consumer,
+                        (float) $totalAmount,
+                        $dataInicial,
+                        $dataFinal,
+                        $contrato,
+                        $objeto
+                    );
+                    $idRec = $rec['idRec'] ?? null;
+
+                    $order->update([
+                        'gateway' => 'versell',
+                        'gateway_id' => $txid,
+                        'metadata' => array_merge($order->metadata ?? [], ['versell_pix_auto_id_rec' => $idRec]),
+                    ]);
+
+                    $copyPaste = $cob['copy_paste'] ?? null;
+                    $qrcodeImage = $cob['qrcode'] ?? null;
+                    if ($idRec !== null) {
+                        try {
+                            $recData = $versellRecorrente->getRecurrence($idRec, $txid);
+                            $dadosQR = $recData['dadosQR'] ?? [];
+                            $recCopyPaste = $dadosQR['pixCopiaECola'] ?? null;
+                            if ($recCopyPaste !== null && $recCopyPaste !== '') {
+                                $copyPaste = $recCopyPaste;
+                                $recImagem = $dadosQR['imagemQrcode'] ?? null;
+                                if ($recImagem !== null && $recImagem !== '') {
+                                    $qrcodeImage = $recImagem;
+                                } else {
+                                    $qrcodeImage = null;
+                                }
+                            }
+                        } catch (\Throwable $e) {
+                            \Log::warning('CheckoutController pix_auto versell: falha ao obter QR da recorrência', ['idRec' => $idRec, 'error' => $e->getMessage()]);
+                        }
+                    }
+
+                    $updateCheckoutSession($order);
+                    event(new PixGenerated($order, [
+                        'qrcode' => $qrcodeImage,
+                        'copy_paste' => $copyPaste ?? '',
+                        'transaction_id' => $txid,
+                    ]));
+
+                    if ($request->expectsJson()) {
+                        return $this->idempotencyReturn($idempotencyKey, response()->json([
+                            'success' => true,
+                            'payment_method' => 'pix_auto',
+                            'order_id' => $order->id,
+                            'qrcode' => $qrcodeImage,
+                            'copy_paste' => $copyPaste ?? '',
+                            'transaction_id' => $txid,
+                        ]));
+                    }
+                    $redirectUrl = $product->checkout_config['redirect_after_purchase'] ?? null;
+                    $redirectUrl = ! empty($redirectUrl) && is_string($redirectUrl) ? $redirectUrl : null;
+                    $pixToken = Str::random(32);
+                    session()->put('pix_display.'.$pixToken, [
+                        'order_id' => $order->id,
+                        'checkout_session_token' => $validated['checkout_session_token'] ?? null,
+                        'qrcode' => $qrcodeImage,
+                        'copy_paste' => $copyPaste ?? '',
+                        'amount' => $totalAmount,
+                        'product_name' => $product->name,
+                        'checkout_slug' => $checkoutSlug,
+                        'redirect_after_purchase' => $redirectUrl,
+                        'customer_name' => $validated['name'] ?? null,
+                        'customer_email' => $validated['email'] ?? null,
+                        'customer_phone' => $validated['phone'] ?? null,
+                        'created_at' => time(),
+                    ]);
+
+                    return $this->idempotencyReturn($idempotencyKey, redirect()->route('checkout.pix', ['token' => $pixToken]));
+                } catch (\Throwable $e) {
+                    $this->rollbackFailedOrder($order, $e);
+                    if ($request->expectsJson()) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => $e->getMessage() ?: 'Não foi possível gerar o PIX automático. Tente novamente.',
+                        ], 422);
+                    }
+
+                    return back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX automático. Tente novamente.');
+                }
+            }
+
             if ($request->expectsJson()) {
                 return response()->json(['message' => 'Gateway PIX automático não suportado.'], 422);
             }
@@ -1520,11 +1670,6 @@ class CheckoutController extends Controller
             try {
                 $paymentService = app(PaymentService::class);
                 $cardResult = $paymentService->createCardPayment($order, $product, $consumer, $card);
-                $chargedAmount = isset($cardResult['charged_amount']) ? (float) $cardResult['charged_amount'] : null;
-                if ($chargedAmount !== null && $chargedAmount >= 0.01 && abs($chargedAmount - (float) $order->amount) > 0.009) {
-                    $order->update(['amount' => round($chargedAmount, 2)]);
-                    $order->refresh();
-                }
                 $status = is_string($cardResult['status'] ?? null)
                     ? strtolower(trim((string) $cardResult['status']))
                     : null;
@@ -1608,28 +1753,22 @@ class CheckoutController extends Controller
                     }
 
                     $json = [
-                        'success' => $isApproved || (! $isRejected),
+                        'success' => $isApproved,
                         'payment_method' => 'card',
                         'order_id' => $order->id,
-                        'status' => $status ?? ($isApproved ? 'approved' : 'pending'),
-                        'status_detail' => $cardResult['status_detail'] ?? null,
+                        'status' => $status,
                         'message' => $isApproved
                             ? 'Pagamento aprovado.'
-                            : 'Pagamento em processamento. Aguarde a confirmação por e-mail ou atualize em instantes.',
+                            : 'Pagamento em processamento. Aguarde a confirmação.',
                         'redirect_url' => $isApproved ? $redirectUrl : null,
-                        'pending' => ! $isApproved && ! $isRejected,
                     ];
                     if ($status === 'requires_action' && ! empty($cardResult['client_secret'])) {
                         $json['success'] = true;
                         $json['requires_action'] = true;
                         $json['client_secret'] = $cardResult['client_secret'];
-                        $json['pending'] = false;
                     }
 
-                    return $this->idempotencyReturn($idempotencyKey, response()->json(
-                        $json,
-                        $isApproved || $status === 'requires_action' || ! $isRejected ? 200 : 202
-                    ));
+                    return $this->idempotencyReturn($idempotencyKey, response()->json($json, $isApproved || $status === 'requires_action' ? 200 : 202));
                 }
                 if ($isRejected) {
                     return $this->idempotencyReturn(

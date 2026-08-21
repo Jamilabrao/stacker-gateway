@@ -11,6 +11,8 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Subscription;
 use App\Services\EfiPixRecorrenteService;
+use App\Services\Versell\VersellPixRecorrenteService;
+use App\Gateways\Versell\VersellCredentials;
 use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
 use App\Services\PlatformCardInstallments;
@@ -260,16 +262,32 @@ class RenewalController extends Controller
         ];
 
         if ($paymentMethod === 'pix_auto' && $subscription->gateway_subscription_id) {
-            $credential = GatewayCredential::resolveForPayment($tenantId, 'efi');
+            $pixAutoGateway = Order::query()
+                ->where('user_id', $subscription->user_id)
+                ->where('product_id', $subscription->product_id)
+                ->where('payment_method', 'pix_auto')
+                ->whereIn('gateway', ['efi', 'versell'])
+                ->orderByDesc('id')
+                ->value('gateway');
+            $pixAutoGateway = is_string($pixAutoGateway) && $pixAutoGateway !== '' ? $pixAutoGateway : 'efi';
+
+            $credential = GatewayCredential::resolveForPayment($tenantId, $pixAutoGateway);
             if ($credential) {
                 $credentials = $credential->getDecryptedCredentials();
-                if (! empty($credentials['certificate_path'])) {
+                $ready = $pixAutoGateway === 'versell'
+                    ? VersellCredentials::isCashInReady($credentials)
+                    : ! empty($credentials['certificate_path']);
+
+                if ($ready) {
                     $order = Order::create(array_merge($orderPayload, [
                         'status' => 'pending',
-                        'gateway' => 'efi',
+                        'gateway' => $pixAutoGateway,
                         'gateway_id' => null,
                         'payment_method' => 'pix_auto',
-                        'metadata' => ['checkout_payment_method' => 'pix_auto'],
+                        'metadata' => [
+                            'checkout_payment_method' => 'pix_auto',
+                            ($pixAutoGateway === 'versell' ? 'versell_pix_auto_id_rec' : 'efi_pix_auto_id_rec') => $subscription->gateway_subscription_id,
+                        ],
                     ]));
                     event(new OrderPending($order));
                     try {
@@ -282,7 +300,11 @@ class RenewalController extends Controller
                             'name' => $user->name ?? $user->email,
                             'email' => $user->email,
                         ];
-                        $service = new EfiPixRecorrenteService($credentials);
+                        if ($pixAutoGateway === 'versell') {
+                            $service = new VersellPixRecorrenteService($credentials);
+                        } else {
+                            $service = new EfiPixRecorrenteService($credentials);
+                        }
                         $service->createCobrancaRecorrente(
                             $idRec,
                             $amount,

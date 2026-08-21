@@ -236,6 +236,36 @@ return [
                 ['key' => 'creditor_account_type', 'label' => 'Credor: tipo de conta: CACC (corrente), SVGS (poupança) ou TRAN', 'type' => 'text', 'optional' => true],
             ],
         ],
+         /*
+         | Versell — uma adquirente na UI; credenciais internas cash_in / cash_out.
+         | Cash In (PIX cob + webhook) e Cash Out (dict + transfer/cashout).
+         */
+        'versell' => [
+            'slug' => 'versell',
+            'name' => 'Versell',
+            'image' => 'images/gateways/versell-logo.svg',
+            'methods' => ['pix', 'pix_auto'],
+            'scope' => 'national',
+            'country' => 'br',
+            'country_name' => 'Brasil',
+            'country_flag' => 'brasil.png',
+            'signup_url' => 'https://finance.versell.com.br',
+            'driver' => \App\Gateways\Versell\VersellDriver::class,
+            'credential_keys' => [
+                ['key' => 'cash_in_client_id', 'label' => 'Client ID', 'type' => 'text', 'group' => 'cash_in', 'group_label' => 'Versell — Cash In'],
+                ['key' => 'cash_in_client_secret', 'label' => 'Client Secret', 'type' => 'password', 'group' => 'cash_in', 'group_label' => 'Versell — Cash In', 'optional' => true],
+                ['key' => 'cash_in_pix_key', 'label' => 'Chave PIX', 'type' => 'text', 'group' => 'cash_in', 'group_label' => 'Versell — Cash In'],
+                ['key' => 'cash_in_certificate', 'label' => 'Certificado CRT', 'type' => 'file', 'accept' => '.crt,.pem', 'group' => 'cash_in', 'group_label' => 'Versell — Cash In', 'file_kind' => 'certificate'],
+                ['key' => 'cash_in_private_key', 'label' => 'Private Key KEY', 'type' => 'file', 'accept' => '.key,.pem', 'group' => 'cash_in', 'group_label' => 'Versell — Cash In', 'file_kind' => 'private_key'],
+                ['key' => 'cash_out_client_id', 'label' => 'Client ID', 'type' => 'text', 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out'],
+                ['key' => 'cash_out_client_secret', 'label' => 'Client Secret', 'type' => 'password', 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out', 'optional' => true],
+                ['key' => 'cash_out_certificate', 'label' => 'Certificado CRT', 'type' => 'file', 'accept' => '.crt,.pem', 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out', 'file_kind' => 'certificate'],
+                ['key' => 'cash_out_private_key', 'label' => 'Private Key KEY', 'type' => 'file', 'accept' => '.key,.pem', 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out', 'file_kind' => 'private_key'],
+                ['key' => 'versell_payout_min_brl', 'label' => 'Mínimo líquido de payout (R$)', 'type' => 'text', 'optional' => true, 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out'],
+                ['key' => 'versell_admin_fee_pix_brl', 'label' => 'Taxa PIX paga à Versell (R$)', 'type' => 'text', 'optional' => true, 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out'],
+                ['key' => 'versell_admin_fee_payout_brl', 'label' => 'Taxa de saque paga à Versell (R$)', 'type' => 'text', 'optional' => true, 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out'],
+            ],
+        ],
     ],
 
     /*
@@ -266,6 +296,7 @@ return [
         'pagarme',
         'stripe',
         'linaopenx',
+        'versell', // Cash In + Cash Out (dict)
     ],
 
     /*
@@ -274,10 +305,10 @@ return [
     |--------------------------------------------------------------------------
     */
     'default_order' => [
-        'pix' => ['cajupay', /* 'spacepag', */ 'woovi', 'bspay', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas'],
+        'pix' => ['cajupay', /* 'spacepag', */ 'woovi', 'bspay', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas', 'versell'],
         'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
-        'pix_auto' => ['efi', 'pushinpay'],
+        'pix_auto' => ['efi', 'pushinpay', 'versell'],
         'open_finance' => ['linaopenx'],
         'crypto' => [],
     ],

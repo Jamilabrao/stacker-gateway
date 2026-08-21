@@ -19,6 +19,8 @@ use App\Models\User;
 use App\Services\EfiPixRecorrenteService;
 use App\Services\PaymentService;
 use App\Services\PushinPayPixRecorrenteService;
+use App\Services\Versell\VersellPixRecorrenteService;
+use App\Gateways\Versell\VersellCredentials;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Services\StorageService;
 use App\Services\Checkout\CheckoutAbuseGuard;
@@ -604,6 +606,104 @@ class ApiCheckoutController extends Controller
                         'redirect_after_purchase' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                         'created_at' => time(),
                     ]);
+                    return redirect()->route('checkout.pix', ['token' => $pixToken]);
+                }
+
+                if ($gatewaySlug === 'versell') {
+                    $credential = GatewayCredential::resolveForPayment($tenantId, 'versell');
+                    if (! $credential) {
+                        throw new \RuntimeException('Versell não configurada para PIX automático.');
+                    }
+                    $credentials = $credential->getDecryptedCredentials();
+                    if (! VersellCredentials::isCashInReady($credentials)) {
+                        throw new \RuntimeException('Versell: credenciais Cash In incompletas para PIX automático.');
+                    }
+
+                    $base = 'pixauto'.$order->id;
+                    $txid = $base.Str::random(max(26 - strlen($base), 10));
+                    $txid = substr($txid, 0, 35);
+                    $pixKey = (string) (VersellCredentials::apiBlock($credentials, VersellCredentials::API_CASH_IN)['pix_key'] ?? '');
+
+                    $versellRecorrente = new VersellPixRecorrenteService($credentials);
+                    $locRec = $versellRecorrente->createLocRec();
+                    $locId = (int) $locRec['id'];
+
+                    $cob = $versellRecorrente->createCobWithTxid(
+                        $txid,
+                        (float) $amount,
+                        $consumer,
+                        $pixKey,
+                        'Assinatura PIX automático - Pedido #'.$order->id
+                    );
+
+                    $criacao = now();
+                    $dataInicial = $periodEnd
+                        ? $periodEnd->format('Y-m-d')
+                        : $criacao->copy()->addMonth()->format('Y-m-d');
+                    if ($dataInicial === $criacao->format('Y-m-d')) {
+                        $dataInicial = $criacao->copy()->addDay()->format('Y-m-d');
+                    }
+                    $dataFinal = $periodEnd
+                        ? $periodEnd->copy()->addYears(10)->format('Y-m-d')
+                        : now()->addYears(10)->format('Y-m-d');
+
+                    $contrato = str_pad((string) $order->id, 8, '0', STR_PAD_LEFT);
+                    $objeto = mb_substr(preg_replace('/[^\p{L}\p{N}\s\.\-]/u', '', $product?->name ?? 'Assinatura'), 0, 140) ?: 'Assinatura';
+                    $rec = $versellRecorrente->createRecurrence(
+                        $locId,
+                        $txid,
+                        $consumer,
+                        (float) $amount,
+                        $dataInicial,
+                        $dataFinal,
+                        $contrato,
+                        $objeto
+                    );
+                    $idRec = $rec['idRec'] ?? null;
+
+                    $order->update([
+                        'gateway' => 'versell',
+                        'gateway_id' => $txid,
+                        'metadata' => array_merge($order->metadata ?? [], ['versell_pix_auto_id_rec' => $idRec]),
+                    ]);
+
+                    $copyPaste = $cob['copy_paste'] ?? null;
+                    $qrcodeImage = $cob['qrcode'] ?? null;
+                    if ($idRec !== null) {
+                        try {
+                            $recData = $versellRecorrente->getRecurrence($idRec, $txid);
+                            $dadosQR = $recData['dadosQR'] ?? [];
+                            $recCopyPaste = $dadosQR['pixCopiaECola'] ?? null;
+                            if ($recCopyPaste !== null && $recCopyPaste !== '') {
+                                $copyPaste = $recCopyPaste;
+                                $recImagem = $dadosQR['imagemQrcode'] ?? null;
+                                if ($recImagem !== null && $recImagem !== '') {
+                                    $qrcodeImage = $recImagem;
+                                } else {
+                                    $qrcodeImage = null;
+                                }
+                            }
+                        } catch (\Throwable) {
+                        }
+                    }
+
+                    event(new PixGenerated($order, [
+                        'qrcode' => $qrcodeImage,
+                        'copy_paste' => $copyPaste ?? '',
+                        'transaction_id' => $txid,
+                    ]));
+
+                    $pixToken = Str::random(32);
+                    session()->put('pix_display.'.$pixToken, [
+                        'order_id' => $order->id,
+                        'qrcode' => $qrcodeImage,
+                        'copy_paste' => $copyPaste ?? '',
+                        'amount' => $amount,
+                        'product_name' => $product?->name ?? 'Pagamento',
+                        'redirect_after_purchase' => route('api-checkout.thank-you', ['order_id' => $order->id]),
+                        'created_at' => time(),
+                    ]);
+
                     return redirect()->route('checkout.pix', ['token' => $pixToken]);
                 }
 

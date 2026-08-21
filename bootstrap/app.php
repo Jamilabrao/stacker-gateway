@@ -210,6 +210,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('withdrawals:reconcile-woovi --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-bspay --limit=80 --min-age-minutes=0')->everyMinute();
         $schedule->command('withdrawals:reconcile-cajupay --limit=80 --min-age-minutes=0')->everyTwoMinutes();
+        $schedule->command('withdrawals:reconcile-versell --limit=80 --min-age-minutes=0')->everyTwoMinutes();
         $schedule->command('settlement:release')->everyFiveMinutes();
         $schedule->command('schedule:heartbeat')->everyMinute();
         $schedule->command('push:process-schedule')->everyMinute();

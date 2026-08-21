@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Jobs\ReconcileBspayWithdrawalJob;
 use App\Jobs\ReconcileCajuPayWithdrawalJob;
 use App\Jobs\ReconcileSpacepagWithdrawalJob;
+use App\Jobs\ReconcileVersellWithdrawalJob;
 use App\Jobs\ReconcileWooviWithdrawalJob;
 use App\Models\Withdrawal;
 use App\Services\Bspay\BspayPayoutService;
@@ -17,12 +18,13 @@ use App\Services\Payout\PlatformPayoutGateway;
 use App\Services\Payout\WithdrawalPayoutDestination;
 use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Services\Spacepag\SpacepagPayoutService;
+use App\Services\Versell\VersellPayoutService;
 use App\Services\Woovi\WooviPayoutService;
 use Plugins\OnlyUp\OnlyUpPayoutService;
 use Plugins\OnlyUp\ReconcileOnlyUpWithdrawalJob;
 
 /**
- * Envia saque ao provedor PIX configurado (CajuPay, Spacepag, Woovi, BSPay ou OnlyUp) após solicitação do infoprodutor.
+ * Envia saque ao provedor PIX configurado (CajuPay, Spacepag, Woovi, BSPay, Versell ou OnlyUp) após solicitação do infoprodutor.
  */
 class WithdrawalAutoPayoutService
 {
@@ -48,6 +50,7 @@ class WithdrawalAutoPayoutService
             'spacepag' => $this->attemptSpacepag($withdrawal),
             'woovi' => $this->attemptWoovi($withdrawal),
             'bspay' => $this->attemptBspay($withdrawal),
+            'versell' => $this->attemptVersell($withdrawal),
             'onlyup' => $this->attemptOnlyUp($withdrawal),
             default => ['ok' => false, 'skipped' => true, 'reason' => 'no_payout_gateway'],
         };
@@ -360,6 +363,101 @@ class WithdrawalAutoPayoutService
         $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
         $withdrawal->update([
             'payout_provider' => 'bspay',
+            'payout_meta' => $prev + [
+                'last_error' => $result['error'] ?? 'Erro desconhecido',
+                'last_attempt_at' => now()->toIso8601String(),
+                'auto' => true,
+            ],
+        ]);
+
+        return [
+            'ok' => false,
+            'skipped' => false,
+            'error' => $result['error'] ?? 'Falha ao enviar o saque via PIX.',
+        ];
+    }
+
+    /**
+     * Versell Cash Out (dict) retorna pending; conclusão via webhook transfer/cashout ou reconciliação.
+     *
+     * @return array{ok: bool, skipped?: bool, reason?: string, error?: string, pending?: bool}
+     */
+    public function attemptVersell(Withdrawal $withdrawal): array
+    {
+        if ($withdrawal->status !== MerchantWithdrawalService::STATUS_PROCESSING) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'not_processing'];
+        }
+
+        $cred = GatewayCredential::resolveForPayment(null, 'versell');
+        if ($cred === null || ! $cred->is_connected) {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'versell_not_configured'];
+        }
+
+        // Evita POST duplicado se o job retentar após aceite parcial
+        if (trim((string) $withdrawal->payout_external_id) !== '') {
+            ReconcileVersellWithdrawalJob::dispatch($withdrawal->id)->delay(now()->addMinutes(2));
+
+            return ['ok' => true, 'pending' => true];
+        }
+
+        $tenantId = (int) $withdrawal->tenant_id;
+        $owner = User::query()
+            ->where('tenant_id', $tenantId)
+            ->where('role', User::ROLE_INFOPRODUTOR)
+            ->first();
+        if ($owner === null) {
+            $owner = User::query()->where('id', $tenantId)->where('role', User::ROLE_INFOPRODUTOR)->first();
+        }
+
+        $settings = is_array($owner?->payout_settings) ? $owner->payout_settings : [];
+        $fromWithdrawal = WithdrawalPayoutDestination::fromWithdrawal($withdrawal);
+        $pixKey = $fromWithdrawal['pix_key'] ?? PayoutUserSettings::cajuPixKey($settings);
+        if ($pixKey === '') {
+            $pixKey = PayoutUserSettings::pixKey($settings);
+        }
+        $pixKeyType = $fromWithdrawal['pix_key_type'] ?? PayoutUserSettings::cajuPixKeyType($settings);
+        if ($pixKeyType === '') {
+            $pixKeyType = PayoutUserSettings::pixKeyType($settings);
+        }
+        $keyOwnerDocument = $fromWithdrawal['key_owner_document']
+            ?? PayoutUserSettings::cajuPixOwnerDocument($settings);
+        if ($pixKey === '' || $pixKeyType === '') {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'no_pix_key'];
+        }
+        if ($keyOwnerDocument === '') {
+            return ['ok' => false, 'skipped' => true, 'reason' => 'no_key_owner_document'];
+        }
+
+        $result = app(VersellPayoutService::class)->sendWithdrawalToPixKey(
+            $withdrawal->fresh(),
+            $pixKey,
+            $pixKeyType,
+            $keyOwnerDocument
+        );
+
+        if ($result['ok'] ?? false) {
+            $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+            $withdrawal->update([
+                'payout_manual' => false,
+                'payout_provider' => 'versell',
+                'payout_external_id' => $result['external_id'] ?? null,
+                'payout_meta' => array_merge($prev, array_filter([
+                    'api_status' => $result['status'] ?? 'ON_QUEUE',
+                    'versell_status' => $result['status'] ?? 'ON_QUEUE',
+                    'requested_at' => now()->toIso8601String(),
+                    'auto' => true,
+                ])),
+            ]);
+
+            ReconcileVersellWithdrawalJob::dispatch($withdrawal->fresh()->id)
+                ->delay(now()->addMinutes(2));
+
+            return ['ok' => true, 'pending' => true];
+        }
+
+        $prev = is_array($withdrawal->payout_meta) ? $withdrawal->payout_meta : [];
+        $withdrawal->update([
+            'payout_provider' => 'versell',
             'payout_meta' => $prev + [
                 'last_error' => $result['error'] ?? 'Erro desconhecido',
                 'last_attempt_at' => now()->toIso8601String(),
