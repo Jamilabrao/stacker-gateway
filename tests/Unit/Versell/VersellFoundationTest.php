@@ -166,6 +166,20 @@ class VersellFoundationTest extends TestCase
         });
     }
 
+    public function test_cash_out_oauth_accepts_camel_case_access_token(): void
+    {
+        Http::fake([
+            'pagamentos.basspago.com.br/api/v2/oauth/token' => Http::response([
+                'accessToken' => 'token-camel',
+                'tokenType' => 'Bearer',
+                'expiresIn' => 3600,
+            ], 200),
+        ]);
+
+        $client = new VersellHttpClient();
+        $this->assertSame('token-camel', $client->getCashOutAccessToken($this->sampleCredentials(), true));
+    }
+
     public function test_mtls_options_never_mix_certificates(): void
     {
         $client = new VersellHttpClient();
