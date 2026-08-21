@@ -42,6 +42,9 @@ class InboundGatewayWebhooksTest extends TestCase
         $this->assertSame('ch_test_inbound_1', $row->transaction_id);
         $this->assertSame('/webhooks/gateways/pagarme', $row->path);
         $this->assertSame(200, $row->http_status);
+        if (\Illuminate\Support\Facades\Schema::hasColumn('inbound_gateway_webhooks', 'response_body')) {
+            $this->assertNotNull($row->response_body);
+        }
     }
 
     public function test_platform_admin_can_list_and_filter_inbound_webhooks(): void

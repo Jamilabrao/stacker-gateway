@@ -21,6 +21,15 @@ class CajuPayCheckoutWebhookController extends Controller
 {
     private const SLUG = 'cajupay';
 
+    /** Janela HMAC padrão (docs CajuPay: 5 min). */
+    private const SIGNATURE_SKEW_SECONDS = 300;
+
+    /**
+     * MED costuma chegar atrasado / em retentativa com o mesmo t= da assinatura original.
+     * Janela ampliada só para med_* — paid/under_review seguem com 5 min.
+     */
+    private const MED_SIGNATURE_SKEW_SECONDS = 86400;
+
     /**
      * POST /webhooks/gateways/cajupay — webhooks CajuPay (PIX API, checkout SDK, cartão).
      *
@@ -58,7 +67,15 @@ class CajuPayCheckoutWebhookController extends Controller
             return response('invalid_signature_header', 400);
         }
 
-        if (abs(time() - $timestamp) > 300) {
+        $maxSkew = $this->signatureSkewSecondsForEvent($eventType);
+        if (abs(time() - $timestamp) > $maxSkew) {
+            Log::warning('CajuPayWebhook: stale_timestamp', [
+                'event' => $eventType,
+                'timestamp' => $timestamp,
+                'skew_seconds' => abs(time() - $timestamp),
+                'max_skew_seconds' => $maxSkew,
+            ]);
+
             return response('stale_timestamp', 401);
         }
 
@@ -309,6 +326,24 @@ class CajuPayCheckoutWebhookController extends Controller
             'pix.payment.med_lost',
             'pix.payment.med_cancelled',
         ], true);
+    }
+
+    private function isPixMedEvent(string $eventType): bool
+    {
+        return $this->isPixMedOpenedEvent($eventType) || $this->isPixMedResolvedEvent($eventType);
+    }
+
+    private function signatureSkewSecondsForEvent(string $eventType): int
+    {
+        if ($this->isPixMedEvent($eventType)) {
+            $configured = (int) config('services.cajupay.med_webhook_signature_skew_seconds', self::MED_SIGNATURE_SKEW_SECONDS);
+
+            return max(self::SIGNATURE_SKEW_SECONDS, $configured);
+        }
+
+        $configured = (int) config('services.cajupay.webhook_signature_skew_seconds', self::SIGNATURE_SKEW_SECONDS);
+
+        return max(60, $configured);
     }
 
     /**

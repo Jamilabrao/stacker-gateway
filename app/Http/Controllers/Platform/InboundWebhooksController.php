@@ -126,6 +126,7 @@ class InboundWebhooksController extends Controller
             'event' => $row->event,
             'transaction_id' => $row->transaction_id,
             'http_status' => $row->http_status,
+            'response_body' => $row->response_body,
             'payload' => is_array($row->payload) ? $row->payload : null,
             'headers' => is_array($row->headers) ? $row->headers : null,
             'ip' => $row->ip,

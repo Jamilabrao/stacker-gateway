@@ -74,15 +74,26 @@ final class InboundGatewayWebhookRecorder
 
     public function markHttpStatus(Request $request, int $status): void
     {
+        $this->markResponse($request, $status, null);
+    }
+
+    public function markResponse(Request $request, int $status, ?string $responseBody): void
+    {
         try {
             $id = $request->attributes->get(self::REQUEST_ID_ATTRIBUTE);
             if (! is_numeric($id)) {
                 return;
             }
 
-            InboundGatewayWebhook::query()->whereKey((int) $id)->update([
-                'http_status' => $status,
-            ]);
+            $update = ['http_status' => $status];
+            if (Schema::hasColumn('inbound_gateway_webhooks', 'response_body')) {
+                $clipped = $responseBody !== null ? trim($responseBody) : '';
+                if ($clipped !== '') {
+                    $update['response_body'] = mb_substr($clipped, 0, 512);
+                }
+            }
+
+            InboundGatewayWebhook::query()->whereKey((int) $id)->update($update);
         } catch (\Throwable $e) {
             Log::debug('InboundGatewayWebhookRecorder: status update failed', [
                 'message' => $e->getMessage(),

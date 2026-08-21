@@ -77,6 +77,14 @@ function payloadText(row) {
     }
 }
 
+function responseBodyText(row) {
+    const body = row?.response_body;
+    if (body == null || String(body).trim() === '') {
+        return '—';
+    }
+    return String(body);
+}
+
 function toggleExpanded(id) {
     expandedId.value = expandedId.value === id ? null : id;
 }
@@ -215,7 +223,7 @@ function statusClass(status) {
                             <tr v-if="expandedId === row.id">
                                 <td colspan="6" class="bg-zinc-50 px-4 py-3 dark:bg-zinc-800/40">
                                     <div class="mb-2 flex items-center justify-between gap-2">
-                                        <p class="text-xs uppercase text-zinc-500">Resposta recebida</p>
+                                        <p class="text-xs uppercase text-zinc-500">Payload recebido</p>
                                         <button
                                             type="button"
                                             class="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-300"
@@ -227,6 +235,10 @@ function statusClass(status) {
                                         </button>
                                     </div>
                                     <pre class="max-h-80 overflow-auto rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">{{ payloadText(row) }}</pre>
+                                    <div class="mt-3">
+                                        <p class="mb-1 text-xs uppercase text-zinc-500">Resposta HTTP desta instalação</p>
+                                        <pre class="overflow-auto rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">{{ responseBodyText(row) }}</pre>
+                                    </div>
                                     <p v-if="row.ip" class="mt-2 text-xs text-zinc-500">IP {{ row.ip }}</p>
                                 </td>
                             </tr>
@@ -254,10 +266,15 @@ function statusClass(status) {
                     </span>
                 </div>
                 <p class="mt-2 text-xs text-zinc-500">{{ formatDateTime(row.created_at) }}</p>
-                <pre
-                    v-if="expandedId === row.id"
-                    class="mt-3 max-h-64 overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-[11px] dark:border-zinc-700 dark:bg-zinc-950"
-                >{{ payloadText(row) }}</pre>
+                <div v-if="expandedId === row.id" class="mt-3 space-y-2">
+                    <pre
+                        class="max-h-64 overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-[11px] dark:border-zinc-700 dark:bg-zinc-950"
+                    >{{ payloadText(row) }}</pre>
+                    <p class="text-[10px] uppercase text-zinc-500">Resposta HTTP</p>
+                    <pre
+                        class="overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-[11px] dark:border-zinc-700 dark:bg-zinc-950"
+                    >{{ responseBodyText(row) }}</pre>
+                </div>
             </button>
         </div>
 

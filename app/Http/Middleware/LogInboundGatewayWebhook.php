@@ -22,6 +22,11 @@ class LogInboundGatewayWebhook
 
     public function terminate(Request $request, Response $response): void
     {
-        $this->recorder->markHttpStatus($request, $response->getStatusCode());
+        $body = $response->getContent();
+        $this->recorder->markResponse(
+            $request,
+            $response->getStatusCode(),
+            is_string($body) ? $body : null,
+        );
     }
 }

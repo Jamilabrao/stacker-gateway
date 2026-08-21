@@ -269,4 +269,137 @@ class CajuPayMedWebhookTest extends TestCase
 
         $this->assertSame('refunded', $order->fresh()->status);
     }
+
+    public function test_med_opened_accepts_signature_within_24h_skew(): void
+    {
+        $secret = 'cwhsec_med_stale_ok_secret_32char';
+        $cred = new GatewayCredential([
+            'tenant_id' => null,
+            'gateway_slug' => 'cajupay',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials([
+            'public_key' => 'pk',
+            'secret_key' => 'sk',
+            'checkout_webhook_signing_secret' => $secret,
+        ]);
+        $cred->save();
+
+        $user = User::factory()->create(['tenant_id' => 1]);
+        $product = $this->createTestProduct();
+        $paymentId = 'pay-med-stale-ok-001';
+        Order::create([
+            'tenant_id' => 1,
+            'user_id' => $user->id,
+            'product_id' => $product->id,
+            'status' => 'completed',
+            'amount' => 19.9,
+            'email' => 'med-stale@example.com',
+            'payment_method' => 'pix',
+            'gateway' => 'cajupay',
+            'gateway_id' => $paymentId,
+        ]);
+
+        $payload = [
+            'id' => 'evt-med-stale-ok',
+            'type' => 'pix.payment.med_opened',
+            'data' => [
+                'object' => [
+                    'cajupay_payment_id' => $paymentId,
+                    'med_dispute_id' => 'dispute-stale-ok-001',
+                    'amount_cents' => 1990,
+                    'status' => 'open',
+                ],
+            ],
+        ];
+        $raw = json_encode($payload);
+        // ~4h atrás — falharia com janela de 5 min; deve passar com janela MED 24h.
+        $ts = time() - (4 * 3600);
+        $sig = hash_hmac('sha256', $ts.'.'.$raw, $secret);
+
+        $this->call('POST', route('webhooks.cajupay'), [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_CAJUPAY_SIGNATURE' => 't='.$ts.',v1='.$sig,
+            'HTTP_X_CAJUPAY_EVENT' => 'pix.payment.med_opened',
+        ], $raw)->assertOk();
+
+        $this->assertDatabaseHas('med_disputes', [
+            'cajupay_dispute_id' => 'dispute-stale-ok-001',
+            'status' => MedDispute::STATUS_OPEN,
+        ]);
+    }
+
+    public function test_med_opened_rejects_signature_older_than_24h(): void
+    {
+        $secret = 'cwhsec_med_too_old_secret_32chars';
+        $cred = new GatewayCredential([
+            'tenant_id' => null,
+            'gateway_slug' => 'cajupay',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials([
+            'public_key' => 'pk',
+            'secret_key' => 'sk',
+            'checkout_webhook_signing_secret' => $secret,
+        ]);
+        $cred->save();
+
+        $payload = [
+            'id' => 'evt-med-too-old',
+            'type' => 'pix.payment.med_opened',
+            'data' => [
+                'object' => [
+                    'cajupay_payment_id' => 'pay-too-old',
+                    'med_dispute_id' => 'dispute-too-old',
+                    'amount_cents' => 100,
+                    'status' => 'open',
+                ],
+            ],
+        ];
+        $raw = json_encode($payload);
+        $ts = time() - (25 * 3600);
+        $sig = hash_hmac('sha256', $ts.'.'.$raw, $secret);
+
+        $this->call('POST', route('webhooks.cajupay'), [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_CAJUPAY_SIGNATURE' => 't='.$ts.',v1='.$sig,
+            'HTTP_X_CAJUPAY_EVENT' => 'pix.payment.med_opened',
+        ], $raw)->assertStatus(401)->assertSee('stale_timestamp');
+    }
+
+    public function test_paid_still_rejects_signature_older_than_5_minutes(): void
+    {
+        $secret = 'cwhsec_paid_stale_secret_32chars_x';
+        $cred = new GatewayCredential([
+            'tenant_id' => null,
+            'gateway_slug' => 'cajupay',
+            'is_connected' => true,
+        ]);
+        $cred->setEncryptedCredentials([
+            'public_key' => 'pk',
+            'secret_key' => 'sk',
+            'checkout_webhook_signing_secret' => $secret,
+        ]);
+        $cred->save();
+
+        $payload = [
+            'id' => 'evt-paid-stale',
+            'type' => 'pix.payment.paid',
+            'data' => [
+                'object' => [
+                    'cajupay_payment_id' => 'pay-paid-stale',
+                    'status' => 'paid',
+                ],
+            ],
+        ];
+        $raw = json_encode($payload);
+        $ts = time() - 600;
+        $sig = hash_hmac('sha256', $ts.'.'.$raw, $secret);
+
+        $this->call('POST', route('webhooks.cajupay'), [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_CAJUPAY_SIGNATURE' => 't='.$ts.',v1='.$sig,
+            'HTTP_X_CAJUPAY_EVENT' => 'pix.payment.paid',
+        ], $raw)->assertStatus(401)->assertSee('stale_timestamp');
+    }
 }
