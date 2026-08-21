@@ -73,7 +73,7 @@ function badgeLabel(count) {
 
 /**
  * Ordem pensada no fluxo do operador:
- * visão geral → pessoas → vendas/risco → dinheiro → crescimento → sistema.
+ * visão geral → pessoas → vendas/risco → dinheiro → crescimento → sistema (ops/saúde).
  */
 const navGroupsCore = [
     {
@@ -110,10 +110,6 @@ const navGroupsCore = [
             { name: 'Saques', href: '/plataforma/saques', icon: Banknote, badgeKey: 'saques' },
             { name: 'Saldo', href: '/plataforma/saldo', icon: CircleDollarSign },
             { name: 'Financeiro', href: '/plataforma/financeiro', icon: Wallet, badgeKey: 'financeiro' },
-            { name: 'Indique e Ganhe', href: '/plataforma/indique-e-ganhe', icon: Gift },
-            { name: 'Saúde de Pagamentos', href: '/plataforma/ops/saude-pagamentos', icon: Activity },
-            { name: 'Saúde UTMify', href: '/plataforma/ops/saude-utmify', icon: Activity },
-            { name: 'Webhooks', href: '/plataforma/webhooks', icon: Webhook },
         ],
     },
     {
@@ -122,6 +118,7 @@ const navGroupsCore = [
         items: [
             { name: 'Métricas e Tracking', href: '/plataforma/metricas', icon: ChartNoAxesCombined },
             { name: 'Conquistas', href: '/plataforma/conquistas', icon: Trophy },
+            { name: 'Indique e Ganhe', href: '/plataforma/indique-e-ganhe', icon: Gift },
             { name: 'E-mail Marketing', href: '/plataforma/email-marketing', icon: Mail },
             { name: 'IntegraX SMS', href: '/plataforma/integrax', icon: MessageSquare },
             { name: 'App', href: '/plataforma/app', icon: Smartphone },
@@ -132,6 +129,9 @@ const navGroupsCore = [
         label: 'Sistema',
         items: [
             { name: 'Configurações', href: '/plataforma/configuracoes', icon: Settings },
+            { name: 'Saúde de Pagamentos', href: '/plataforma/ops/saude-pagamentos', icon: Activity },
+            { name: 'Saúde UTMify', href: '/plataforma/ops/saude-utmify', icon: Activity },
+            { name: 'Webhooks', href: '/plataforma/webhooks', icon: Webhook },
             { name: 'Log Infoprodutor', href: '/plataforma/log-infoprodutor', icon: ScrollText },
             { name: 'Plugins', href: '/plataforma/gerenciar-plugins', icon: Puzzle },
         ],
