@@ -117,7 +117,8 @@ class PagarmeWebhookController extends Controller
     }
 
     /**
-     * HMAC-SHA1 do corpo bruto com a Secret Key (comportamento legado documentado para postbacks Pagar.me).
+     * API v5 não envia assinatura HMAC. X-Hub-Signature existe só nos postbacks v3/v4;
+     * se vier, valida HMAC-SHA1 com a Secret Key. A confirmação real é GET /charges/{id}.
      */
     private function verifyHubSignature(string $rawBody, mixed $header, GatewayCredential $credential): bool
     {
@@ -128,9 +129,7 @@ class PagarmeWebhookController extends Controller
         }
 
         if (! is_string($header) || trim($header) === '') {
-            Log::warning('PagarmeWebhook: secret configurado mas X-Hub-Signature ausente');
-
-            return false;
+            return true;
         }
 
         $expectedHex = hash_hmac('sha1', $rawBody, $secret, false);
