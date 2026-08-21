@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { Link, router } from '@inertiajs/vue3';
 import VueApexCharts from 'vue3-apexcharts';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
+import { usePlatformBranding } from '@/composables/usePlatformBranding';
 import {
     Wallet,
     CircleDollarSign,
@@ -25,6 +26,8 @@ import {
 } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
+
+const { appName } = usePlatformBranding();
 
 const props = defineProps({
     period: { type: String, default: 'hoje' },
@@ -356,7 +359,7 @@ const paymentMax = computed(() => Math.max(1, ...props.payment_methods.map((m) =
                 <div class="rounded-2xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
                     <div class="flex items-center gap-2 text-sm font-medium text-zinc-600 dark:text-zinc-400">
                         <Receipt class="h-4 w-4 text-[var(--color-primary)]" />
-                        Receita AsgardPay
+                        Receita {{ appName }}
                     </div>
                     <p class="mt-2 text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">
                         {{ displayCurrency(kpis.faturamento_liquido) }}
