@@ -13,6 +13,7 @@ class InboundGatewayWebhook extends Model
         'event',
         'transaction_id',
         'http_status',
+        'response_body',
         'payload',
         'headers',
         'ip',

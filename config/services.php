@@ -52,6 +52,13 @@ return [
         'base_url' => rtrim(env('CAJUPAY_API_BASE_URL', 'https://api.cajupay.com.br'), '/'),
         /** Em checkout HTTP local, repassa chamadas do SDK pelo próprio domínio (evita CORS). Desative com CAJUPAY_SDK_BROWSER_PROXY=false */
         'sdk_browser_proxy' => filter_var(env('CAJUPAY_SDK_BROWSER_PROXY', true), FILTER_VALIDATE_BOOLEAN),
+        /** Janela HMAC padrão dos webhooks CajuPay (segundos). Docs: 300. */
+        'webhook_signature_skew_seconds' => max(60, (int) env('CAJUPAY_WEBHOOK_SIGNATURE_SKEW_SECONDS', 300)),
+        /**
+         * MED (med_opened / med_resolved) frequentemente chega em retentativa com t= antigo.
+         * Janela ampliada só para esses eventos (padrão 24h).
+         */
+        'med_webhook_signature_skew_seconds' => max(300, (int) env('CAJUPAY_MED_WEBHOOK_SIGNATURE_SKEW_SECONDS', 86400)),
     ],
 
     /*
