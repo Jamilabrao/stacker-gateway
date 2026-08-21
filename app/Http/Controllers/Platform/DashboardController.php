@@ -4,192 +4,86 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Models\TenantWallet;
-use App\Models\User;
-use App\Models\Withdrawal;
-use App\Services\MerchantWithdrawalService;
-use App\Services\Platform\PlatformRevenueKpis;
+use App\Services\Platform\PlatformDashboardAnalytics;
 use App\Support\DemoMode;
 use App\Support\Demo\DemoPlatformData;
-use App\Support\SqlDialect;
-use Carbon\Carbon;
+use App\Support\PlatformDashboardPeriod;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    private const PERIODS = ['hoje', 'ontem', '7dias', 'mes', 'ano', 'total'];
+    private const CACHE_TTL_SECONDS = 120;
 
     public function __invoke(Request $request): Response
     {
-        $period = $request->query('period', 'hoje');
-        if (! in_array($period, self::PERIODS, true)) {
-            $period = 'hoje';
-        }
+        $period = PlatformDashboardPeriod::normalize($request->query('period', 'hoje'));
 
         if (DemoMode::isEnabled()) {
             return Inertia::render('Platform/Dashboard', DemoPlatformData::dashboard($period));
         }
 
-        [$start, $end] = $this->rangeForPeriod($period);
-
-        $ordersBase = Order::query()->where('status', 'completed');
-        if ($start && $end) {
-            $ordersBase->whereBetween('created_at', [$start, $end]);
-        } elseif ($start) {
-            $ordersBase->where('created_at', '>=', $start);
-        } elseif ($end) {
-            $ordersBase->where('created_at', '<=', $end);
-        }
-
-        $vendasTotais = (float) (clone $ordersBase)->sum('amount');
-        $quantidadeVendas = (clone $ordersBase)->count();
-        $ticketMedio = $quantidadeVendas > 0 ? $vendasTotais / $quantidadeVendas : 0.0;
-
-        $walletAvailable = 0.0;
-        $walletPending = 0.0;
-        $withdrawalsTotal = 0.0;
-        $withdrawalsPending = 0.0;
-        if (Schema::hasTable('tenant_wallets')) {
-            $walletAvailable = (float) TenantWallet::query()->sum('available_balance');
-            $walletPending = (float) TenantWallet::query()->sum('pending_balance');
-        }
-        if (Schema::hasTable('withdrawals')) {
-            // Status real de saque pago é `paid` (não `completed`).
-            $paidAmountColumn = Schema::hasColumn('withdrawals', 'net_amount') ? 'net_amount' : 'amount';
-            $withdrawalsTotal = (float) Withdrawal::query()
-                ->when($start && $end, fn ($q) => $q->whereBetween('created_at', [$start, $end]))
-                ->where('status', MerchantWithdrawalService::STATUS_PAID)
-                ->sum($paidAmountColumn);
-
-            $withdrawalsPending = (float) Withdrawal::query()
-                ->whereIn('status', [
-                    MerchantWithdrawalService::STATUS_PENDING,
-                    MerchantWithdrawalService::STATUS_PROCESSING,
+        $resolver = function () use ($period): array {
+            [$start, $end] = PlatformDashboardPeriod::range($period);
+            $analytics = PlatformDashboardAnalytics::compute($period, $start, $end);
+            $analytics['period'] = $period;
+            $analytics['grafico_vendas'] = collect($analytics['grafico']['points'] ?? [])
+                ->map(fn (array $p) => [
+                    'data' => $p['key'],
+                    'total' => $p['volume'],
                 ])
-                ->sum('amount');
+                ->values()
+                ->all();
+            $analytics['ultimas_transacoes'] = self::latestTransactions();
+
+            return $analytics;
+        };
+
+        if (defined('PHPUNIT_COMPOSER_INSTALL')) {
+            return Inertia::render('Platform/Dashboard', $resolver());
         }
 
-        $infoprodutoresCount = User::query()->where('role', User::ROLE_INFOPRODUTOR)->count();
+        [$start, $end] = PlatformDashboardPeriod::range($period);
+        $cacheKey = 'platform-dashboard:v2:'.$period.':'.md5((string) $start.'|'.(string) $end);
+        $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, $resolver);
 
-        $grafico = $this->buildChart($period, $start, $end);
+        return Inertia::render('Platform/Dashboard', $payload);
+    }
 
-        $revenueKpis = PlatformRevenueKpis::compute($start, $end);
-
-        $ultimasTransacoes = Order::query()
-            ->with(['product:id,name'])
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function latestTransactions(): array
+    {
+        return Order::query()
+            ->with(['product:id,name', 'tenantOwner:id,name'])
             ->orderByDesc('created_at')
             ->limit(10)
             ->get()
-            ->map(fn (Order $o) => [
-                'id' => $o->id,
-                'email' => $o->email,
-                'product_name' => $o->product?->name,
-                'amount' => (float) $o->amount,
-                'status' => $o->status,
-                'gateway' => $o->gateway,
-                'created_at' => $o->created_at?->toIso8601String(),
-            ]);
+            ->map(function (Order $o) {
+                $methodKey = $o->paymentMethodReportKey();
+                $raw = strtolower(trim((string) ($o->payment_method ?? '')));
+                if (in_array($raw, ['apple_pay', 'google_pay'], true)) {
+                    $methodLabel = $raw === 'apple_pay' ? 'Apple Pay' : 'Google Pay';
+                } else {
+                    $methodLabel = Order::paymentMethodReportLabel($methodKey);
+                }
 
-        return Inertia::render('Platform/Dashboard', [
-            'period' => $period,
-            'kpis' => [
-                'wallet_available' => round($walletAvailable, 2),
-                'wallet_pending' => round($walletPending, 2),
-                'vendas_totais' => round($vendasTotais, 2),
-                'quantidade_vendas' => $quantidadeVendas,
-                'ticket_medio' => round($ticketMedio, 2),
-                'withdrawals_total' => round($withdrawalsTotal, 2),
-                'withdrawals_pending' => round($withdrawalsPending, 2),
-                'infoprodutores_count' => $infoprodutoresCount,
-                'faturamento_taxas_cobradas' => $revenueKpis['faturamento_taxas_cobradas'],
-                'faturamento_custo_adquirente_vendas' => $revenueKpis['faturamento_custo_adquirente_vendas'],
-                'faturamento_custo_adquirente_saques' => $revenueKpis['faturamento_custo_adquirente_saques'],
-                'faturamento_liquido' => $revenueKpis['faturamento_liquido'],
-            ],
-            'grafico_vendas' => $grafico,
-            'ultimas_transacoes' => $ultimasTransacoes,
-        ]);
-    }
-
-    private function rangeForPeriod(string $period): array
-    {
-        $now = Carbon::now();
-        $start = null;
-        $end = null;
-
-        switch ($period) {
-            case 'hoje':
-                $start = $now->copy()->startOfDay();
-                $end = $now->copy()->endOfDay();
-                break;
-            case 'ontem':
-                $start = $now->copy()->subDay()->startOfDay();
-                $end = $now->copy()->subDay()->endOfDay();
-                break;
-            case '7dias':
-                $start = $now->copy()->subDays(6)->startOfDay();
-                $end = $now->copy()->endOfDay();
-                break;
-            case 'mes':
-                $start = $now->copy()->startOfMonth();
-                $end = $now->copy()->endOfMonth();
-                break;
-            case 'ano':
-                $start = $now->copy()->startOfYear();
-                $end = $now->copy()->endOfYear();
-                break;
-            case 'total':
-                break;
-        }
-
-        return [$start?->toDateTimeString(), $end?->toDateTimeString()];
-    }
-
-    private function buildChart(string $period, ?string $start, ?string $end): array
-    {
-        $query = Order::query()->where('status', 'completed');
-        if ($start && $end) {
-            $query->whereBetween('created_at', [$start, $end]);
-        } elseif ($start) {
-            $query->where('created_at', '>=', $start);
-        } elseif ($end) {
-            $query->where('created_at', '<=', $end);
-        }
-
-        $isHourly = in_array($period, ['hoje', 'ontem'], true);
-
-        if ($isHourly) {
-            $hour = SqlDialect::hourExpression('created_at');
-            $rows = $query
-                ->selectRaw($hour.' as hora, SUM(amount) as total')
-                ->groupBy('hora')
-                ->orderBy('hora')
-                ->get()
-                ->keyBy('hora');
-            $result = [];
-            for ($h = 0; $h <= 23; $h++) {
-                $result[] = [
-                    'data' => (string) $h,
-                    'total' => (float) ($rows->get($h)?->total ?? 0),
+                return [
+                    'id' => $o->id,
+                    'email' => $o->email,
+                    'product_name' => $o->product?->name,
+                    'seller_name' => $o->tenantOwner?->name,
+                    'amount' => (float) $o->amount,
+                    'status' => $o->status,
+                    'gateway' => $o->gateway,
+                    'gateway_label' => $o->acquirerDisplayName(),
+                    'payment_method' => $methodLabel,
+                    'created_at' => $o->created_at?->toIso8601String(),
                 ];
-            }
-
-            return $result;
-        }
-
-        $dateExpr = SqlDialect::dateExpression('created_at');
-        $rows = $query
-            ->selectRaw($dateExpr.' as data, SUM(amount) as total')
-            ->groupBy('data')
-            ->orderBy('data')
-            ->get();
-
-        return $rows->map(fn ($r) => [
-            'data' => $r->data,
-            'total' => (float) $r->total,
-        ])->values()->all();
+            })
+            ->all();
     }
 }

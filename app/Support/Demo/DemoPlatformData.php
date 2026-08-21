@@ -37,6 +37,12 @@ class DemoPlatformData
         $custoAdqSaques = round(850 + ($seed % 200), 2);
         $faturamentoLiquido = round($taxasCobradas - $custoAdqVendas - $custoAdqSaques, 2);
 
+        $novosInfoprodutores = 8 + ($seed % 9);
+        $novosCompradores = 40 + ($seed % 25);
+        $produtosCriados = 5 + ($seed % 7);
+        $graficoVendas = self::chart($period, $seed, $vendasTotais);
+        $compare = $period !== 'total';
+
         return [
             'period' => $period,
             'kpis' => [
@@ -47,13 +53,98 @@ class DemoPlatformData
                 'ticket_medio' => $ticketMedio,
                 'withdrawals_total' => round(45200.00 * min($multiplier, 1.5), 2),
                 'withdrawals_pending' => round(3200.00 + ($seed % 800), 2),
+                'withdrawals_paid_count' => (int) round(18 * min($multiplier, 1.5)),
+                'withdrawals_pending_count' => 3 + ($seed % 4),
                 'infoprodutores_count' => 128 + ($seed % 15),
                 'faturamento_taxas_cobradas' => $taxasCobradas,
                 'faturamento_custo_adquirente_vendas' => $custoAdqVendas,
                 'faturamento_custo_adquirente_saques' => $custoAdqSaques,
                 'faturamento_liquido' => $faturamentoLiquido,
             ],
-            'grafico_vendas' => self::chart($period, $seed, $vendasTotais),
+            'growth' => [
+                'novos_infoprodutores' => $novosInfoprodutores,
+                'infoprodutores_ativos' => 96 + ($seed % 8),
+                'infoprodutores_total' => 128 + ($seed % 15),
+                'infoprodutores_com_vendas' => 42 + ($seed % 10),
+                'novos_compradores' => $novosCompradores,
+                'compradores_recorrentes' => 18 + ($seed % 7),
+                'produtos_criados' => $produtosCriados,
+                'taxa_aprovacao' => 72.4,
+            ],
+            'comparisons' => $compare ? [
+                'vendas_totais' => ['current' => $vendasTotais, 'previous' => round($vendasTotais * 0.86, 2), 'delta_percent' => 16.3],
+                'quantidade_vendas' => ['current' => $quantidadeVendas, 'previous' => (int) round($quantidadeVendas * 0.9), 'delta_percent' => 11.1],
+                'ticket_medio' => ['current' => $ticketMedio, 'previous' => round($ticketMedio * 0.97, 2), 'delta_percent' => 3.1],
+                'faturamento_liquido' => ['current' => $faturamentoLiquido, 'previous' => round($faturamentoLiquido * 0.88, 2), 'delta_percent' => 13.6],
+                'novos_infoprodutores' => ['current' => $novosInfoprodutores, 'previous' => max(1, $novosInfoprodutores - 3), 'delta_percent' => 27.3],
+                'novos_compradores' => ['current' => $novosCompradores, 'previous' => (int) round($novosCompradores * 0.8), 'delta_percent' => 25.0],
+                'produtos_criados' => ['current' => $produtosCriados, 'previous' => max(1, $produtosCriados - 2), 'delta_percent' => 40.0],
+            ] : null,
+            'funnel' => [
+                'tentativas' => 1284,
+                'taxa_aprovacao' => 72.7,
+                'items' => [
+                    ['key' => 'completed', 'label' => 'Aprovadas', 'quantidade' => 934, 'percent' => 72.7],
+                    ['key' => 'rejected', 'label' => 'Recusadas', 'quantidade' => 328, 'percent' => 25.5],
+                    ['key' => 'pending', 'label' => 'Pendentes', 'quantidade' => 12, 'percent' => 0.9],
+                    ['key' => 'cancelled', 'label' => 'Canceladas', 'quantidade' => 8, 'percent' => 0.6],
+                    ['key' => 'refunded', 'label' => 'Reembolsadas', 'quantidade' => 22, 'percent' => 1.7],
+                    ['key' => 'disputed', 'label' => 'Em disputa', 'quantidade' => 2, 'percent' => 0.2],
+                    ['key' => 'refund_pending', 'label' => 'Reembolso pendente', 'quantidade' => 0, 'percent' => 0.0],
+                ],
+            ],
+            'payment_methods' => [
+                ['metodo' => 'pix', 'label' => 'PIX', 'total' => round($vendasTotais * 0.64, 2), 'quantidade' => (int) round($quantidadeVendas * 0.62), 'percent' => 64.0],
+                ['metodo' => 'card', 'label' => 'Cartão', 'total' => round($vendasTotais * 0.31, 2), 'quantidade' => (int) round($quantidadeVendas * 0.33), 'percent' => 31.0],
+                ['metodo' => 'boleto', 'label' => 'Boleto', 'total' => round($vendasTotais * 0.05, 2), 'quantidade' => (int) round($quantidadeVendas * 0.05), 'percent' => 5.0],
+            ],
+            'acquirers' => [
+                ['slug' => 'cajupay', 'nome' => 'CajuPay', 'volume' => round($vendasTotais * 0.48, 2), 'transacoes' => 198, 'aprovadas' => 162, 'recusadas' => 36, 'taxa_aprovacao' => 81.8],
+                ['slug' => 'efi', 'nome' => 'Efí', 'volume' => round($vendasTotais * 0.32, 2), 'transacoes' => 143, 'aprovadas' => 106, 'recusadas' => 37, 'taxa_aprovacao' => 74.1],
+                ['slug' => 'mercadopago', 'nome' => 'Mercado Pago', 'volume' => round($vendasTotais * 0.20, 2), 'transacoes' => 88, 'aprovadas' => 70, 'recusadas' => 18, 'taxa_aprovacao' => 79.5],
+            ],
+            'top_sellers' => [
+                ['tenant_id' => 1, 'nome' => 'Academia Digital', 'email' => 'a@demo.local', 'quantidade' => 86, 'volume' => round($vendasTotais * 0.28, 2), 'ticket_medio' => 142.5],
+                ['tenant_id' => 2, 'nome' => 'Mentoria Prime', 'email' => 'b@demo.local', 'quantidade' => 54, 'volume' => round($vendasTotais * 0.19, 2), 'ticket_medio' => 198.0],
+                ['tenant_id' => 3, 'nome' => 'Cursos VIP', 'email' => 'c@demo.local', 'quantidade' => 41, 'volume' => round($vendasTotais * 0.14, 2), 'ticket_medio' => 97.4],
+                ['tenant_id' => 4, 'nome' => 'Info Start', 'email' => 'd@demo.local', 'quantidade' => 33, 'volume' => round($vendasTotais * 0.11, 2), 'ticket_medio' => 88.2],
+                ['tenant_id' => 5, 'nome' => 'Studio Growth', 'email' => 'e@demo.local', 'quantidade' => 21, 'volume' => round($vendasTotais * 0.08, 2), 'ticket_medio' => 121.0],
+            ],
+            'top_products' => [
+                ['product_id' => 1, 'produto' => 'Curso Marketing Digital', 'seller' => 'Academia Digital', 'quantidade' => 64, 'volume' => round($vendasTotais * 0.22, 2)],
+                ['product_id' => 2, 'produto' => 'Mentoria Premium', 'seller' => 'Mentoria Prime', 'quantidade' => 38, 'volume' => round($vendasTotais * 0.17, 2)],
+                ['product_id' => 3, 'produto' => 'E-book Vendas Online', 'seller' => 'Cursos VIP', 'quantidade' => 51, 'volume' => round($vendasTotais * 0.09, 2)],
+                ['product_id' => 4, 'produto' => 'Comunidade VIP', 'seller' => 'Info Start', 'quantidade' => 22, 'volume' => round($vendasTotais * 0.08, 2)],
+                ['product_id' => 5, 'produto' => 'Workshop Instagram', 'seller' => 'Studio Growth', 'quantidade' => 18, 'volume' => round($vendasTotais * 0.06, 2)],
+            ],
+            'alerts' => [
+                ['key' => 'saques', 'label' => 'saques pendentes ou com falha', 'count' => 3, 'href' => '/plataforma/saques'],
+                ['key' => 'reembolsos', 'label' => 'reembolsos pendentes', 'count' => 5, 'href' => '/plataforma/transacoes?status=refund_requests'],
+                ['key' => 'disputas', 'label' => 'disputas MED abertas', 'count' => 2, 'href' => '/plataforma/disputas'],
+            ],
+            'grafico_vendas' => $graficoVendas,
+            'grafico' => [
+                'granularity' => in_array($period, ['hoje', 'ontem'], true) ? 'hour' : (in_array($period, ['ano', 'total'], true) ? 'month' : 'day'),
+                'compare' => $compare,
+                'points' => array_map(function (array $p) {
+                    $count = max(1, (int) round($p['total'] / 97));
+
+                    return [
+                        'key' => $p['data'],
+                        'label' => $p['data'],
+                        'volume' => $p['total'],
+                        'count' => $count,
+                        'ticket' => round($p['total'] / $count, 2),
+                        'revenue' => round($p['total'] * 0.034, 2),
+                        'refunds' => round($p['total'] * 0.02, 2),
+                        'prev_volume' => round($p['total'] * 0.86, 2),
+                        'prev_count' => max(1, (int) round($count * 0.9)),
+                        'prev_ticket' => round($p['total'] * 0.86 / max(1, $count * 0.9), 2),
+                        'prev_revenue' => round($p['total'] * 0.03, 2),
+                        'prev_refunds' => round($p['total'] * 0.015, 2),
+                    ];
+                }, $graficoVendas),
+            ],
             'ultimas_transacoes' => self::recentTransactions(10, $seed),
         ];
     }
@@ -286,6 +377,14 @@ class DemoPlatformData
                 'amount' => round(57 + (($seed + $i * 13) % 320), 2),
                 'status' => 'completed',
                 'gateway' => self::GATEWAYS[($seed + $i) % count(self::GATEWAYS)],
+                'gateway_label' => match (self::GATEWAYS[($seed + $i) % count(self::GATEWAYS)]) {
+                    'cajupay' => 'CajuPay',
+                    'spacepag' => 'Spacepag',
+                    'efi' => 'Efí',
+                    default => 'Mercado Pago',
+                },
+                'payment_method' => $i % 5 === 0 ? 'Cartão' : 'PIX',
+                'seller_name' => 'Vendedor Demo '.(($i % 3) + 1),
                 'created_at' => Carbon::now()->subMinutes($i * 18 + 5)->toIso8601String(),
             ];
         }
