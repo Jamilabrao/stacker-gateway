@@ -32,6 +32,12 @@ let cepAbortController = null;
 /** Erro de validação apenas do passo atual (avanço Continuar / Enter). */
 const wizardStepError = ref('');
 
+const cnpjLookupLoading = ref(false);
+const cnpjSituacaoWarning = ref('');
+const cnpjOfficialRazaoHint = ref('');
+let cnpjLookupTimer = null;
+let cnpjLookupSeq = 0;
+
 function digitsOnly(s) {
     return String(s || '').replace(/\D/g, '');
 }
@@ -266,6 +272,7 @@ const form = useForm({
     document: '',
     company_name: '',
     legal_representative_cpf: '',
+    cnpj_suggested_razao_social: '',
     address_zip: '',
     address_street: '',
     address_number: '',
@@ -325,6 +332,73 @@ async function checkEmailBlur() {
         emailCheckMsg.value = '';
     }
 }
+
+function resetCnpjLookupUi() {
+    cnpjLookupLoading.value = false;
+    cnpjSituacaoWarning.value = '';
+    cnpjOfficialRazaoHint.value = '';
+    form.cnpj_suggested_razao_social = '';
+}
+
+async function lookupCnpjFromWizard(cnpj) {
+    const seq = ++cnpjLookupSeq;
+    cnpjLookupLoading.value = true;
+    cnpjSituacaoWarning.value = '';
+    cnpjOfficialRazaoHint.value = '';
+    try {
+        const res = await window.axios.post('/cadastro/consultar-cnpj', { document: cnpj });
+        if (seq !== cnpjLookupSeq) {
+            return;
+        }
+        if (!res.data?.ok) {
+            form.cnpj_suggested_razao_social = '';
+            return;
+        }
+        const razao = String(res.data.razao_social || '').trim();
+        form.cnpj_suggested_razao_social = razao;
+        if (razao && !String(form.company_name || '').trim()) {
+            form.company_name = razao;
+        } else if (razao && String(form.company_name || '').trim() && String(form.company_name).trim() !== razao) {
+            cnpjOfficialRazaoHint.value = `Na Receita: ${razao}`;
+        }
+        if (res.data.situacao_irregular && res.data.situacao_message) {
+            cnpjSituacaoWarning.value = res.data.situacao_message;
+        }
+    } catch (e) {
+        if (seq !== cnpjLookupSeq) {
+            return;
+        }
+        if (e.response?.status === 422) {
+            return;
+        }
+        form.cnpj_suggested_razao_social = '';
+    } finally {
+        if (seq === cnpjLookupSeq) {
+            cnpjLookupLoading.value = false;
+        }
+    }
+}
+
+watch(
+    () => [form.person_type, digitsOnly(form.document)],
+    ([type, doc]) => {
+        if (cnpjLookupTimer) {
+            clearTimeout(cnpjLookupTimer);
+            cnpjLookupTimer = null;
+        }
+        if (type !== 'pj') {
+            resetCnpjLookupUi();
+            return;
+        }
+        if (!isValidCnpjJs(doc)) {
+            resetCnpjLookupUi();
+            return;
+        }
+        cnpjLookupTimer = setTimeout(() => {
+            lookupCnpjFromWizard(doc);
+        }, 400);
+    }
+);
 
 async function fetchCep() {
     const raw = digitsOnly(form.address_zip);
@@ -492,6 +566,7 @@ function submitRegistration() {
             ref: data.ref || null,
             document: String(data.document || '').replace(/\D/g, ''),
             legal_representative_cpf: data.person_type === 'pj' ? String(data.legal_representative_cpf || '').replace(/\D/g, '') : null,
+            cnpj_suggested_razao_social: data.person_type === 'pj' ? (data.cnpj_suggested_razao_social || null) : null,
             address_zip: String(data.address_zip || '').replace(/\D/g, ''),
             address_state: String(data.address_state || '').toUpperCase().slice(0, 2),
         }))
@@ -633,9 +708,17 @@ function submitRegistration() {
                             <p v-if="form.errors.document" class="mt-1 text-sm text-red-600">{{ form.errors.document }}</p>
                         </div>
                         <template v-if="form.person_type === 'pj'">
+                            <p v-if="cnpjLookupLoading" class="text-xs text-zinc-500">Consultando CNPJ na Receita…</p>
+                            <div
+                                v-if="cnpjSituacaoWarning"
+                                class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                            >
+                                {{ cnpjSituacaoWarning }}
+                            </div>
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-zinc-500">Razão social</label>
                                 <input v-model="form.company_name" type="text" class="wl-input mt-1 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 dark:border-zinc-600 dark:bg-zinc-950 dark:text-white" />
+                                <p v-if="cnpjOfficialRazaoHint" class="mt-1 text-xs text-zinc-500">{{ cnpjOfficialRazaoHint }}</p>
                                 <p v-if="form.errors.company_name" class="mt-1 text-sm text-red-600">{{ form.errors.company_name }}</p>
                             </div>
                             <div>

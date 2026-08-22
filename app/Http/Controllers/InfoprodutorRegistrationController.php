@@ -9,6 +9,7 @@ use App\Services\Checkout\TurnstileVerifier;
 use App\Services\LegalDocumentsService;
 use App\Services\PlatformEmailNotifications;
 use App\Support\BrazilianDocuments;
+use App\Support\CnpjLookup;
 use App\Support\DockerSetupState;
 use App\Support\EmailVerificationResendGuard;
 use App\Support\HtmlSanitizer;
@@ -223,6 +224,41 @@ class InfoprodutorRegistrationController extends Controller
         return response()->json(['available' => true]);
     }
 
+    /**
+     * Consulta CNPJ na BrasilAPI para autocompletar razão social.
+     * Nunca bloqueia o cadastro: falha devolve ok=false.
+     */
+    public function lookupCnpj(Request $request): \Illuminate\Http\JsonResponse
+    {
+        if ($blocked = $this->denyIfRegistrationClosedJson($request)) {
+            return $blocked;
+        }
+
+        $validated = $request->validate([
+            'document' => ['required', 'string', 'max:20'],
+        ]);
+
+        $cnpj = BrazilianDocuments::digits($validated['document']);
+        if (! BrazilianDocuments::isValidCnpj($cnpj)) {
+            return response()->json([
+                'ok' => false,
+                'status' => 'invalid',
+                'message' => 'CNPJ inválido.',
+            ], 422);
+        }
+
+        try {
+            $lookup = app(\App\Services\Cnpj\BrasilApiCnpjClient::class)->lookup($cnpj);
+        } catch (\Throwable) {
+            return response()->json(CnpjLookup::publicWizardPayload([
+                'status' => \App\Services\Cnpj\BrasilApiCnpjClient::STATUS_UNAVAILABLE,
+                'payload' => null,
+            ]));
+        }
+
+        return response()->json(CnpjLookup::publicWizardPayload($lookup));
+    }
+
     public function store(Request $request): RedirectResponse
     {
         if (DockerSetupState::isDocker() && ! DockerSetupState::isSetupDone()) {
@@ -260,6 +296,7 @@ class InfoprodutorRegistrationController extends Controller
             'document' => ['required', 'string', 'max:20'],
             'company_name' => ['nullable', 'string', 'max:255'],
             'legal_representative_cpf' => ['nullable', 'string', 'max:20'],
+            'cnpj_suggested_razao_social' => ['nullable', 'string', 'max:255'],
             'address_zip' => ['required', 'string', 'regex:/^\d{8}$/'],
             'address_street' => ['required', 'string', 'max:255'],
             'address_number' => ['required', 'string', 'max:32'],
@@ -295,6 +332,7 @@ class InfoprodutorRegistrationController extends Controller
         foreach ([
             'name' => 255,
             'company_name' => 255,
+            'cnpj_suggested_razao_social' => 255,
             'address_street' => 255,
             'address_number' => 32,
             'address_complement' => 120,
@@ -375,6 +413,8 @@ class InfoprodutorRegistrationController extends Controller
         ]);
 
         $user->update(['tenant_id' => $user->id]);
+
+        $this->persistCnpjLookupIfPj($user->fresh(), $validated, $docDigits);
 
         $this->attachReferralIfPresent($request, $user, $validated['ref'] ?? null);
 
@@ -458,6 +498,7 @@ class InfoprodutorRegistrationController extends Controller
             'document' => ['required', 'string', 'max:20'],
             'company_name' => ['nullable', 'string', 'max:255'],
             'legal_representative_cpf' => ['nullable', 'string', 'max:20'],
+            'cnpj_suggested_razao_social' => ['nullable', 'string', 'max:255'],
             'address_zip' => ['required', 'string', 'regex:/^\d{8}$/'],
             'address_street' => ['required', 'string', 'max:255'],
             'address_number' => ['required', 'string', 'max:32'],
@@ -492,6 +533,7 @@ class InfoprodutorRegistrationController extends Controller
         foreach ([
             'name' => 255,
             'company_name' => 255,
+            'cnpj_suggested_razao_social' => 255,
             'address_street' => 255,
             'address_number' => 32,
             'address_complement' => 120,
@@ -576,6 +618,8 @@ class InfoprodutorRegistrationController extends Controller
         ]);
 
         $user->update(['tenant_id' => $user->id]);
+
+        $this->persistCnpjLookupIfPj($user->fresh(), $validated, $docDigits);
 
         $this->attachReferralIfPresent($request, $user, $validated['ref'] ?? null);
 
@@ -713,6 +757,49 @@ class InfoprodutorRegistrationController extends Controller
         }
 
         return redirect('/financeiro?tab=seus-dados')->with('success', $successMessage);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function persistCnpjLookupIfPj(User $user, array $validated, string $docDigits): void
+    {
+        if (($validated['person_type'] ?? '') !== 'pj' || ! CnpjLookup::columnExists()) {
+            return;
+        }
+
+        try {
+            CnpjLookup::persistForUser(
+                $user,
+                $docDigits,
+                (string) ($validated['company_name'] ?? ''),
+                isset($validated['cnpj_suggested_razao_social'])
+                    ? (string) $validated['cnpj_suggested_razao_social']
+                    : null,
+            );
+        } catch (\Throwable $e) {
+            Log::notice('cnpj_lookup.persist_failed', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+            try {
+                if (CnpjLookup::columnExists()) {
+                    $user->forceFill([
+                        'cnpj_lookup' => CnpjLookup::failedSnapshot(
+                            \App\Services\Cnpj\BrasilApiCnpjClient::STATUS_UNAVAILABLE,
+                            'exception',
+                            (string) ($validated['company_name'] ?? ''),
+                            isset($validated['cnpj_suggested_razao_social'])
+                                ? (string) $validated['cnpj_suggested_razao_social']
+                                : null,
+                            $docDigits,
+                        ),
+                    ])->save();
+                }
+            } catch (\Throwable) {
+                // Cadastro já concluído; o admin pode reconsultar no KYC.
+            }
+        }
     }
 
     private function recordLegalConsent(User $user): void
