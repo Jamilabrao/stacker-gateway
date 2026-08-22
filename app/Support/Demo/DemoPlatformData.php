@@ -81,7 +81,7 @@ class DemoPlatformData
                 'produtos_criados' => ['current' => $produtosCriados, 'previous' => max(1, $produtosCriados - 2), 'delta_percent' => 40.0],
             ] : null,
             'funnel' => [
-                'tentativas' => 1284,
+                'eventos' => 1284,
                 'taxa_aprovacao' => 72.7,
                 'items' => [
                     ['key' => 'completed', 'label' => 'Aprovadas', 'quantidade' => 934, 'percent' => 72.7],

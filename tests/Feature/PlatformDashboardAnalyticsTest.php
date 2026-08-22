@@ -44,7 +44,7 @@ class PlatformDashboardAnalyticsTest extends TestCase
                 ->where('kpis.quantidade_vendas', 0)
                 ->where('kpis.ticket_medio', 0)
                 ->where('growth.taxa_aprovacao', 0)
-                ->where('funnel.tentativas', 0)
+                ->where('funnel.eventos', 0)
                 ->where('comparisons.vendas_totais.delta_percent', 0)
             );
     }
@@ -69,8 +69,8 @@ class PlatformDashboardAnalyticsTest extends TestCase
                 ->where('kpis.vendas_totais', 150)
                 ->where('kpis.quantidade_vendas', 2)
                 ->where('kpis.ticket_medio', 75)
-                ->where('funnel.tentativas', 4)
-                ->where('growth.taxa_aprovacao', 66.7)
+                ->where('funnel.eventos', 4)
+                ->where('growth.taxa_aprovacao', 50)
                 ->where('growth.infoprodutores_com_vendas', 1)
                 ->has('payment_methods')
                 ->has('acquirers')

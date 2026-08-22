@@ -66,7 +66,7 @@ const props = defineProps({
     comparisons: { type: Object, default: null },
     funnel: {
         type: Object,
-        default: () => ({ tentativas: 0, taxa_aprovacao: 0, items: [] }),
+        default: () => ({ eventos: 0, taxa_aprovacao: 0, items: [] }),
     },
     payment_methods: { type: Array, default: () => [] },
     acquirers: { type: Array, default: () => [] },
@@ -461,7 +461,7 @@ const paymentMax = computed(() => Math.max(1, ...props.payment_methods.map((m) =
                         Taxa de aprovação
                     </div>
                     <p class="mt-2 text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ growth.taxa_aprovacao }}%</p>
-                    <p class="mt-1 text-xs text-zinc-500">Aprovadas / (aprovadas + recusadas)</p>
+                    <p class="mt-1 text-xs text-zinc-500">Aprovadas / eventos do período</p>
                     <p v-if="comparisons?.produtos_criados" class="mt-1 text-xs text-zinc-500">
                         +{{ displayNumber(growth.produtos_criados) }} produtos criados
                         <span v-if="comparisons.produtos_criados" :class="deltaClass(comparisons.produtos_criados)"> · {{ deltaLabel(comparisons.produtos_criados) }}</span>
@@ -550,7 +550,7 @@ const paymentMax = computed(() => Math.max(1, ...props.payment_methods.map((m) =
                     <Filter class="h-4 w-4 text-zinc-500" />
                     <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Funil de pagamentos</h3>
                 </div>
-                <p class="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ displayNumber(funnel.tentativas) }} tentativas</p>
+                <p class="text-2xl font-bold tabular-nums text-zinc-900 dark:text-white">{{ displayNumber(funnel.eventos) }} eventos</p>
                 <p class="mt-1 text-xs text-zinc-500">Taxa de aprovação {{ funnel.taxa_aprovacao }}%</p>
                 <ul class="mt-4 space-y-2">
                     <li v-for="item in visibleFunnelItems" :key="item.key" class="flex items-center justify-between text-sm">
