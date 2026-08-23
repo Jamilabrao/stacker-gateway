@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\AccessEmailService;
 use App\Services\MemberAccessGrantService;
+use App\Services\MemberStudentAccountService;
 use App\Services\SellerActivityLogService;
 use App\Services\TeamAccessService;
 use Illuminate\Http\JsonResponse;
@@ -169,13 +170,17 @@ class AlunosController extends Controller
         ]);
     }
 
-    public function store(Request $request, AccessEmailService $accessEmailService, MemberAccessGrantService $memberAccessGrant): JsonResponse
-    {
+    public function store(
+        Request $request,
+        AccessEmailService $accessEmailService,
+        MemberAccessGrantService $memberAccessGrant,
+        MemberStudentAccountService $memberStudentAccount
+    ): JsonResponse {
         $tenantId = auth()->user()->tenant_id;
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:6', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['nullable', 'string', 'min:6', 'max:255'],
             'product_ids' => ['nullable', 'array'],
             'product_ids.*' => ['string', 'exists:products,id'],
             'send_access_email' => ['nullable', 'boolean'],
@@ -185,13 +190,13 @@ class AlunosController extends Controller
         $productIds = array_values(array_intersect($productIds, $tenantProductIds));
         $sendAccessEmail = (bool) ($validated['send_access_email'] ?? true);
 
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
-            'role' => User::ROLE_CLIENTE,
-            'tenant_id' => null,
-        ]);
+        $resolved = $memberStudentAccount->resolveOrCreateCliente(
+            $validated['email'],
+            $validated['name'],
+            $validated['password'] ?? null
+        );
+        $user = $resolved['user'];
+        $created = $resolved['created'];
 
         $products = ! empty($productIds)
             ? Product::whereIn('id', $productIds)->get()
@@ -210,12 +215,19 @@ class AlunosController extends Controller
             }
         }
 
-        $this->logSellerActivity(SellerActivityLogService::STUDENT_CREATED, $user, [
-            'email' => $user->email,
-            'products_count' => count($productIds),
-        ]);
+        $this->logSellerActivity(
+            $created ? SellerActivityLogService::STUDENT_CREATED : SellerActivityLogService::STUDENT_PRODUCT_ADDED,
+            $user,
+            [
+                'email' => $user->email,
+                'products_count' => count($productIds),
+                'reused_existing' => ! $created,
+            ]
+        );
 
-        $message = 'Aluno cadastrado com sucesso.';
+        $message = $created
+            ? 'Aluno cadastrado com sucesso.'
+            : 'Usuário já existente. Acesso ao produto concedido com sucesso.';
         if ($sendAccessEmail && $emailsSent > 0) {
             $message .= " E-mail de acesso enviado para {$emailsSent} produto(s).";
         }
@@ -223,6 +235,7 @@ class AlunosController extends Controller
         return response()->json([
             'success' => true,
             'message' => $message,
+            'created' => $created,
             'aluno' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'products_count' => count($productIds)],
         ]);
     }
@@ -289,7 +302,7 @@ class AlunosController extends Controller
         ]);
     }
 
-    public function destroy(User $aluno): JsonResponse
+    public function destroy(User $aluno, MemberAccessGrantService $memberAccessGrant): JsonResponse
     {
         $tenantId = auth()->user()->tenant_id;
         if (! $aluno->isCliente()) {
@@ -298,12 +311,34 @@ class AlunosController extends Controller
         if (! $aluno->products()->forTenant($tenantId)->exists()) {
             abort(404);
         }
+
+        $allowedProductIds = array_map('strval', $this->tenantProductIds($tenantId));
+        if ($allowedProductIds === []) {
+            abort(404);
+        }
+
+        $products = $aluno->products()
+            ->forTenant($tenantId)
+            ->whereIn('products.id', $allowedProductIds)
+            ->get();
+
+        if ($products->isEmpty()) {
+            abort(404);
+        }
+
+        foreach ($products as $product) {
+            $memberAccessGrant->revoke($aluno, $product);
+        }
+
         $this->logSellerActivity(SellerActivityLogService::STUDENT_DELETED, $aluno, [
             'email' => $aluno->email,
+            'products_revoked' => $products->pluck('id')->all(),
         ]);
-        $aluno->products()->detach();
-        $aluno->delete();
-        return response()->json(['success' => true, 'message' => 'Aluno excluído com sucesso.']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Acesso do aluno removido com sucesso.',
+        ]);
     }
 
     public function downloadImportExample(): \Symfony\Component\HttpFoundation\StreamedResponse
@@ -319,8 +354,12 @@ class AlunosController extends Controller
         ]);
     }
 
-    public function import(Request $request, AccessEmailService $accessEmailService, MemberAccessGrantService $memberAccessGrant): JsonResponse
-    {
+    public function import(
+        Request $request,
+        AccessEmailService $accessEmailService,
+        MemberAccessGrantService $memberAccessGrant,
+        MemberStudentAccountService $memberStudentAccount
+    ): JsonResponse {
         $tenantId = auth()->user()->tenant_id;
         $request->validate([
             'file' => ['required', 'file', 'mimes:csv,txt', 'max:2048'],
@@ -377,41 +416,40 @@ class AlunosController extends Controller
         }
 
         $created = 0;
+        $linked = 0;
         $skipped = 0;
         $errors = [];
         $emailsSent = 0;
+        $products = Product::whereIn('id', $productIds)->get();
 
         foreach ($dataRows as $idx => $row) {
             $email = isset($emailCol) && isset($row[$emailCol]) ? $row[$emailCol] : ($row[1] ?? $row[0] ?? '');
             $email = trim($email);
             if (! $email || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $errors[] = "Linha " . ($idx + 2) . ": e-mail inválido ou vazio.";
-                $skipped++;
-                continue;
-            }
-
-            if (User::where('email', $email)->exists()) {
-                $errors[] = "Linha " . ($idx + 2) . ": e-mail {$email} já cadastrado.";
+                $errors[] = 'Linha '.($idx + 2).': e-mail inválido ou vazio.';
                 $skipped++;
                 continue;
             }
 
             $name = isset($nameCol) && isset($row[$nameCol]) ? $row[$nameCol] : explode('@', $email)[0];
             $name = trim($name) ?: 'Aluno';
-            $password = (isset($passCol) && isset($row[$passCol]) && strlen(trim($row[$passCol] ?? '')) >= 6)
+            $passwordFromCsv = (isset($passCol) && isset($row[$passCol]) && strlen(trim($row[$passCol] ?? '')) >= 6)
                 ? trim($row[$passCol])
-                : Str::random(12);
+                : null;
 
             try {
-                $user = User::create([
-                    'name' => mb_substr($name, 0, 255),
-                    'email' => $email,
-                    'password' => Hash::make($password),
-                    'role' => User::ROLE_CLIENTE,
-                    'tenant_id' => null,
-                ]);
+                $existing = User::query()
+                    ->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])
+                    ->first();
 
-                $products = Product::whereIn('id', $productIds)->get();
+                $password = $passwordFromCsv;
+                if (! $existing && $password === null) {
+                    $password = Str::random(12);
+                }
+
+                $resolved = $memberStudentAccount->resolveOrCreateCliente($email, $name, $password);
+                $user = $resolved['user'];
+
                 foreach ($products as $product) {
                     $memberAccessGrant->grant($user, $product);
                 }
@@ -423,33 +461,49 @@ class AlunosController extends Controller
                         }
                     }
                 }
-                $created++;
+
+                if ($resolved['created']) {
+                    $created++;
+                } else {
+                    $linked++;
+                }
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                $msg = collect($e->errors())->flatten()->first() ?: $e->getMessage();
+                $errors[] = 'Linha '.($idx + 2).': '.$msg;
+                $skipped++;
             } catch (\Throwable $e) {
-                $errors[] = "Linha " . ($idx + 2) . ": " . $e->getMessage();
+                $errors[] = 'Linha '.($idx + 2).': '.$e->getMessage();
                 $skipped++;
             }
         }
 
-        if ($created > 0) {
+        $processed = $created + $linked;
+        if ($processed > 0) {
             $this->logSellerActivity(SellerActivityLogService::STUDENT_IMPORTED, null, [
                 'created' => $created,
+                'linked' => $linked,
                 'skipped' => $skipped,
                 'products_count' => count($productIds),
             ]);
         }
 
-        $message = "{$created} aluno(s) importado(s) com sucesso.";
+        $message = "{$created} aluno(s) criado(s)";
+        if ($linked > 0) {
+            $message .= ", {$linked} acesso(s) concedido(s) a usuário(s) existente(s)";
+        }
+        $message .= '.';
         if ($skipped > 0) {
             $message .= " {$skipped} linha(s) ignorada(s).";
         }
         if ($sendAccessEmail && $emailsSent > 0) {
-            $message .= " E-mail de acesso enviado.";
+            $message .= ' E-mail de acesso enviado.';
         }
 
         return response()->json([
             'success' => true,
             'message' => $message,
             'created' => $created,
+            'linked' => $linked,
             'skipped' => $skipped,
             'errors' => array_slice($errors, 0, 10),
         ]);
@@ -477,9 +531,13 @@ class AlunosController extends Controller
         if (! $aluno->isCliente()) {
             abort(404);
         }
-        if ($produto->tenant_id !== $tenantId) {
+
+        // Mesma regra de destroy(): tenant + produtos permitidos ao ator (TEAM incluso).
+        $allowedProductIds = array_map('strval', $this->tenantProductIds($tenantId));
+        if (! in_array((string) $produto->id, $allowedProductIds, true)) {
             abort(403);
         }
+
         $memberAccessGrant->revoke($aluno, $produto);
         $this->logSellerActivity(SellerActivityLogService::STUDENT_PRODUCT_REMOVED, $aluno, [
             'email' => $aluno->email,

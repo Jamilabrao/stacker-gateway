@@ -227,14 +227,15 @@ function toggleNovoProduct(id) {
 }
 
 async function saveNovoAluno() {
-    if (!novoAlunoForm.value.name?.trim() || !novoAlunoForm.value.email?.trim() || !novoAlunoForm.value.password) {
-        showToast(t('students.new.required_fields', 'Preencha nome, e-mail e senha.'), 'error');
+    if (!novoAlunoForm.value.name?.trim() || !novoAlunoForm.value.email?.trim()) {
+        showToast(t('students.new.required_fields', 'Preencha nome e e-mail.'), 'error');
         return;
     }
     savingNovo.value = true;
     try {
         const { data } = await axios.post('/produtos/alunos', {
             ...novoAlunoForm.value,
+            password: novoAlunoForm.value.password || null,
             send_access_email: novoAlunoForm.value.send_access_email ?? true,
         });
         showToast(data.message ?? t('students.new.success', 'Aluno cadastrado com sucesso.'), 'success');
@@ -242,7 +243,10 @@ async function saveNovoAluno() {
         router.reload({ only: ['alunos', 'stats'], preserveState: false });
     } catch (err) {
         showToast(
-            err.response?.data?.message ?? err.response?.data?.errors?.email?.[0] ?? t('students.new.error', 'Erro ao cadastrar. Tente novamente.'),
+            err.response?.data?.message
+                ?? err.response?.data?.errors?.email?.[0]
+                ?? err.response?.data?.errors?.password?.[0]
+                ?? t('students.new.error', 'Erro ao cadastrar. Tente novamente.'),
             'error'
         );
     } finally {
@@ -617,6 +621,9 @@ onUnmounted(() => {
                         <div class="space-y-2">
                             <label class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                                 {{ t('common.password', 'Senha') }}
+                                <span class="font-normal normal-case tracking-normal text-zinc-400">
+                                    — {{ t('students.password_new_only', 'necessária apenas para novos usuários') }}
+                                </span>
                             </label>
                             <input
                                 v-model="novoAlunoForm.password"
@@ -626,6 +633,9 @@ onUnmounted(() => {
                                 class="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
                                 placeholder="Mínimo 6 caracteres"
                             />
+                            <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                                {{ t('students.password_existing_hint', 'Se o e-mail já possuir uma conta na plataforma, a senha existente será mantida.') }}
+                            </p>
                         </div>
                         <div class="space-y-2">
                             <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left">

@@ -109,18 +109,18 @@ async function removeProduct(produtoId) {
 
 async function deleteAluno() {
     if (!props.aluno) return;
-    if (!window.confirm('Tem certeza que deseja excluir este aluno? Esta ação não pode ser desfeita.')) {
+    if (!window.confirm('Remover o acesso deste aluno aos seus produtos? A conta dele na plataforma e o histórico financeiro serão preservados.')) {
         return;
     }
     deleting.value = true;
     try {
-        await axios.delete(`/produtos/alunos/${props.aluno.id}`);
-        showToast('Aluno excluído com sucesso.', 'success');
+        const { data } = await axios.delete(`/produtos/alunos/${props.aluno.id}`);
+        showToast(data.message ?? 'Acesso do aluno removido com sucesso.', 'success');
         close();
         emit('deleted', props.aluno.id);
     } catch (err) {
         showToast(
-            err.response?.data?.message ?? 'Erro ao excluir.',
+            err.response?.data?.message ?? 'Erro ao remover acesso.',
             'error'
         );
     } finally {
@@ -224,7 +224,7 @@ function showToast(message, type) {
                                 >
                                     <Loader2 v-if="deleting" class="h-4 w-4 animate-spin" />
                                     <Trash2 v-else class="h-4 w-4" />
-                                    Excluir aluno
+                                    Remover acesso
                                 </Button>
                             </div>
                         </div>

@@ -1745,13 +1745,10 @@ async function createNewAluno() {
         newAlunoFormErrors.email = 'E-mail é obrigatório.';
         return;
     }
-    if (!password || password.length < 6) {
-        newAlunoFormErrors.password = 'Senha deve ter no mínimo 6 caracteres.';
-        return;
-    }
     addAlunoModalCreateSaving.value = true;
     try {
-        const payload = { name, email, password };
+        const payload = { name, email };
+        if (password) payload.password = password;
         const turmaId = addAlunoModalTurma.value?.id;
         if (turmaId) payload.turma_id = turmaId;
         const res = await axios.post(`${base.value}/alunos`, payload, { headers: headers() });
@@ -1777,7 +1774,7 @@ async function createNewAluno() {
             newAlunoFormErrors.email = Array.isArray(e.email) ? e.email[0] : e.email || '';
             newAlunoFormErrors.password = Array.isArray(e.password) ? e.password[0] : e.password || '';
         } else {
-            newAlunoFormErrors.email = data?.message || 'Erro ao criar aluno. Tente outro e-mail.';
+            newAlunoFormErrors.email = data?.message || 'Erro ao cadastrar aluno. Tente outro e-mail.';
         }
     } finally {
         addAlunoModalCreateSaving.value = false;
@@ -3962,7 +3959,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                             <p v-if="newAlunoFormErrors.email" class="mt-1 text-xs text-red-600 dark:text-red-400">{{ newAlunoFormErrors.email }}</p>
                         </div>
                         <div>
-                            <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Senha</label>
+                            <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Senha — necessária apenas para novos usuários</label>
                             <input
                                 v-model="newAlunoForm.password"
                                 type="password"
@@ -3972,7 +3969,7 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                 autocomplete="new-password"
                             />
                             <p v-if="newAlunoFormErrors.password" class="mt-1 text-xs text-red-600 dark:text-red-400">{{ newAlunoFormErrors.password }}</p>
-                            <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">O aluno usará esta senha para acessar a área de membros.</p>
+                            <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Se o e-mail já possuir uma conta, a senha existente será mantida.</p>
                         </div>
                         <p class="text-xs text-zinc-500 dark:text-zinc-400">
                             O aluno será adicionado ao produto e à turma <strong>{{ addAlunoModalTurma?.name }}</strong>.

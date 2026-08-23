@@ -26,6 +26,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use App\Services\MemberAreaResolver;
 use App\Services\MemberAccessGrantService;
+use App\Services\MemberStudentAccountService;
 use App\Services\MemberCommentService;
 use App\Services\StorageService;
 use App\Services\GamificationService;
@@ -1192,15 +1193,19 @@ class MemberBuilderController extends Controller
     }
 
     /**
-     * Criar novo aluno (nome, email, senha), dar acesso ao produto e opcionalmente adicionar à turma.
+     * Criar novo aluno ou reutilizar cliente existente, dar acesso ao produto e opcionalmente adicionar à turma.
      */
-    public function storeNewAluno(Request $request, Product $produto, MemberAccessGrantService $memberAccessGrant): JsonResponse|RedirectResponse
-    {
+    public function storeNewAluno(
+        Request $request,
+        Product $produto,
+        MemberAccessGrantService $memberAccessGrant,
+        MemberStudentAccountService $memberStudentAccount
+    ): JsonResponse|RedirectResponse {
         $this->authorizeProduct($produto);
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:6', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['nullable', 'string', 'min:6', 'max:255'],
             'turma_id' => ['nullable', 'integer', 'exists:member_turmas,id'],
         ]);
         $turmaId = $validated['turma_id'] ?? null;
@@ -1213,21 +1218,30 @@ class MemberBuilderController extends Controller
                 return back()->with('error', 'Turma inválida.');
             }
         }
-        $user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
-            'role' => User::ROLE_CLIENTE,
-            'tenant_id' => null,
-        ]);
+
+        $resolved = $memberStudentAccount->resolveOrCreateCliente(
+            $validated['email'],
+            $validated['name'],
+            $validated['password'] ?? null
+        );
+        $user = $resolved['user'];
         $memberAccessGrant->grant($user, $produto);
         if ($turmaId) {
             MemberTurma::find($turmaId)->users()->syncWithoutDetaching([$user->id]);
         }
+
+        $message = $resolved['created']
+            ? 'Aluno criado e adicionado.'
+            : 'Usuário já existente. Acesso ao produto concedido.';
+
         if ($request->expectsJson()) {
-            return response()->json(['message' => 'Aluno criado e adicionado.', 'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email]]);
+            return response()->json([
+                'message' => $message,
+                'created' => $resolved['created'],
+                'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email],
+            ]);
         }
-        return back()->with('success', 'Aluno criado e adicionado.');
+        return back()->with('success', $message);
     }
 
     // Comments
