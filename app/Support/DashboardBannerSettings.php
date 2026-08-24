@@ -20,7 +20,8 @@ final class DashboardBannerSettings
             return [];
         }
 
-        $storage = $resolveUrls ? app(StorageService::class) : null;
+        // Asset global da plataforma: não usar o storage do tenant logado (infoprodutor).
+        $storage = $resolveUrls ? new StorageService(null) : null;
 
         $items = collect($rows)
             ->filter(fn ($item) => is_array($item))

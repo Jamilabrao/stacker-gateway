@@ -14,10 +14,6 @@ use Illuminate\Validation\ValidationException;
 
 class DashboardBannerController extends Controller
 {
-    public function __construct(
-        protected StorageService $storage,
-    ) {}
-
     public function data(): JsonResponse
     {
         return response()->json([
@@ -86,7 +82,7 @@ class DashboardBannerController extends Controller
             ]);
         }
 
-        $uploaded = $this->storage->storeUploadedPublicFile($file, 'dashboard-banners');
+        $uploaded = $this->platformStorage()->storeUploadedPublicFile($file, 'dashboard-banners');
 
         return response()->json([
             'ok' => true,
@@ -101,6 +97,14 @@ class DashboardBannerController extends Controller
             return '';
         }
 
-        return $this->storage->toStoragePath($value) ?? trim($value);
+        return $this->platformStorage()->toStoragePath($value) ?? trim($value);
+    }
+
+    /**
+     * Banners da dashboard são asset global (tenant null), inclusive com R2.
+     */
+    private function platformStorage(): StorageService
+    {
+        return new StorageService(null);
     }
 }
