@@ -1,910 +1,111 @@
 <script setup>
-import { ref, computed, reactive, watch, onMounted } from 'vue';
-import { Link, router, useForm, usePage } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
-import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
-import FeePercentInput from '@/components/ui/FeePercentInput.vue';
-import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
 import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
-import { UserPlus, Trash2, Pencil, X, Eye, BadgeCheck, MessageSquare, Search, Shield, ChevronUp, ChevronDown } from 'lucide-vue-next';
+import { BadgeCheck, ChevronDown, ChevronUp, Eye, MessageSquare, Pencil, Search, Shield, Trash2, UserPlus } from 'lucide-vue-next';
 import { htmlToText } from '@/lib/sanitizeHtml';
-import {
-    formatPercentForInput,
-    normalizeMerchantFeeOverridesForSubmit,
-    normalizeMerchantSettlementOverridesForSubmit,
-} from '@/lib/percentDecimal';
 
 defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
-    // LengthAwarePaginator serializa como objeto { data, links, total, ... }; legacy pode mandar array.
-    users: {
-        type: [Object, Array],
-        default: () => ({ data: [], links: [], total: 0, from: null, to: null, per_page: 25 }),
-    },
+    users: { type: [Object, Array], default: () => ({ data: [], links: [], total: 0 }) },
     q: { type: String, default: null },
     status: { type: String, default: null },
     sort_by: { type: String, default: null },
     sort_direction: { type: String, default: null },
     per_page: { type: Number, default: 25 },
     status_options: { type: Array, default: () => [] },
-    edit_user_id: { type: Number, default: null },
-    gateways: { type: Array, default: () => [] },
-    platform_gateway_order: {
-        type: Object,
-        default: () => ({ pix: [], card: [], boleto: [], pix_auto: [] }),
-    },
-    platform_merchant_fees: { type: Array, default: () => [] },
-    platform_referral_commission_percent: { type: Number, default: 20 },
-    platform_charge_limits: {
-        type: Object,
-        default: () => ({ api_pix_minimum_charge_brl: 0.01, platform_minimum_charge_brl: 0 }),
-    },
-    platform_api_pix_enabled: { type: Boolean, default: true },
-    cajupay_accounts: { type: Array, default: () => [] },
 });
 
 const page = usePage();
-const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
-
-const usersList = computed(() => {
-    if (Array.isArray(props.users?.data)) {
-        return props.users.data;
-    }
-    if (Array.isArray(props.users)) {
-        return props.users;
-    }
-    return [];
-});
-const paginationLinks = computed(() => (Array.isArray(props.users?.links) ? props.users.links : []));
-const usersMeta = computed(() => {
-    if (props.users && typeof props.users === 'object' && !Array.isArray(props.users)) {
-        return props.users;
-    }
-    const total = usersList.value.length;
-    return {
-        total,
-        from: total ? 1 : null,
-        to: total || null,
-        current_page: 1,
-        per_page: Number(props.per_page) || 25,
-    };
-});
-
-/** Exibe WhatsApp no modal no formato BR (sem DDI 55). */
-function formatPhoneForInput(phone) {
-    const digits = String(phone ?? '').replace(/\D/g, '');
-    if (!digits) {
-        return '';
-    }
-    let local = digits;
-    if (local.startsWith('55') && local.length >= 12) {
-        local = local.slice(2);
-    }
-    local = local.slice(0, 11);
-    if (local.length <= 2) return local;
-    if (local.length <= 6) return `(${local.slice(0, 2)}) ${local.slice(2)}`;
-    if (local.length <= 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
-    return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
-}
-
 const searchQ = ref(props.q ?? '');
 const statusFilter = ref(props.status ?? '');
 const perPage = ref(Number(props.per_page) || 25);
-
-watch(
-    () => props.q,
-    (v) => {
-        searchQ.value = v ?? '';
-    }
-);
-
-watch(
-    () => props.status,
-    (v) => {
-        statusFilter.value = v ?? '';
-    }
-);
-
-watch(
-    () => props.per_page,
-    (v) => {
-        perPage.value = Number(v) || 25;
-    }
-);
-
-function listingQuery(overrides = {}) {
-    const q = overrides.q !== undefined ? overrides.q : searchQ.value?.trim() || undefined;
-    const status = overrides.status !== undefined ? overrides.status : statusFilter.value?.trim() || undefined;
-    const sort_by = overrides.sort_by !== undefined ? overrides.sort_by : props.sort_by || undefined;
-    const sort_direction =
-        overrides.sort_direction !== undefined ? overrides.sort_direction : props.sort_direction || undefined;
-    const nextPerPage = overrides.per_page !== undefined ? Number(overrides.per_page) : Number(perPage.value) || 25;
-
-    let pageNum;
-    if (Object.prototype.hasOwnProperty.call(overrides, 'page')) {
-        pageNum = overrides.page;
-    } else {
-        pageNum = props.users?.current_page;
-    }
-
-    const query = {
-        q: q || undefined,
-        status: status || undefined,
-        sort_by: sort_by || undefined,
-        sort_direction: sort_by ? sort_direction || 'asc' : undefined,
-        per_page: nextPerPage,
-    };
-
-    if (pageNum !== undefined && pageNum !== null && Number(pageNum) > 1) {
-        query.page = Number(pageNum);
-    }
-
-    return query;
-}
-
-function applySearch() {
-    router.get('/plataforma/usuarios', listingQuery({ page: 1 }), { preserveState: true, replace: true });
-}
-
-function clearFilters() {
-    searchQ.value = '';
-    statusFilter.value = '';
-    router.get(
-        '/plataforma/usuarios',
-        listingQuery({ q: undefined, status: undefined, page: 1 }),
-        { preserveState: true, replace: true }
-    );
-}
-
-function changePerPage() {
-    router.get('/plataforma/usuarios', listingQuery({ per_page: Number(perPage.value) || 25, page: 1 }), {
-        preserveState: true,
-        replace: true,
-    });
-}
-
-function toggleSort(column) {
-    let nextDirection = 'asc';
-    if (props.sort_by === column) {
-        nextDirection = props.sort_direction === 'asc' ? 'desc' : 'asc';
-    }
-    router.get(
-        '/plataforma/usuarios',
-        listingQuery({ sort_by: column, sort_direction: nextDirection, page: 1 }),
-        { preserveState: true, replace: true }
-    );
-}
-
-function sortIndicator(column) {
-    if (props.sort_by !== column) return null;
-    return props.sort_direction === 'desc' ? 'desc' : 'asc';
-}
-
-const editUser = ref(null);
-const savedFeeOverrides = ref(null);
-const savedSettlementOverrides = ref(null);
 const deletingId = ref(null);
 const selectedIds = ref([]);
 const bulkDeleteOpen = ref(false);
 const bulkDeleteLoading = ref(false);
 const bulkStepUpOpen = ref(false);
 const bulkDeleteForce = ref(false);
-const feesDirty = ref(false);
-const settlementDirty = ref(false);
-const gatewayOrderDirty = ref(false);
-const cajupayAccountDirty = ref(false);
-const limitsDirty = ref(false);
-const apiPixDirty = ref(false);
-const initialGatewayPrimary = ref({});
-const adminNotesCountByUser = ref({});
-/** Chaves de taxa tocadas pelo admin nesta edição (só essas sobrescrevem no save). */
-const feeKeysTouched = ref({});
-/** Se true, o próximo save limpa todos os overrides de taxa do merchant. */
-const clearingAllFeeOverrides = ref(false);
 
-function platformFeesMap() {
-    const map = {};
-    for (const row of props.platform_merchant_fees || []) {
-        map[row.key] = { percent: Number(row.percent) || 0, fixed: Number(row.fixed) || 0 };
-    }
-    for (const k of feeRuleKeys) {
-        if (!map[k]) {
-            map[k] = { percent: 0, fixed: 0 };
-        }
-    }
-    return map;
-}
+watch(() => props.q, (value) => { searchQ.value = value ?? ''; });
+watch(() => props.status, (value) => { statusFilter.value = value ?? ''; });
+watch(() => props.per_page, (value) => { perPage.value = Number(value) || 25; });
 
-function hasCustomFees(u) {
-    const fees = u?.merchant_fees;
-    return fees && typeof fees === 'object' && Object.keys(fees).length > 0;
-}
-
-function hasCustomSettlement(u) {
-    const s = u?.merchant_settlement_overrides;
-    return s && typeof s === 'object' && Object.keys(s).length > 0;
-}
-
-function hasCustomChargeLimits(u) {
-    const cl = u?.charge_limits;
-    if (!cl) return false;
-    return cl.api_pix_minimum_charge_brl != null || cl.platform_minimum_charge_brl != null;
-}
-
-function hasCustomApiPix(u) {
-    return u?.api_pix_mode && u.api_pix_mode !== 'inherit';
-}
-
-function feeRowHasSavedOverride(key) {
-    return overrideBlockIsExplicit(savedFeeOverrides.value, key);
-}
-
-function feeRowHasDraftOverride(key) {
-    return !!feeKeysTouched.value[key];
-}
-
-function feesFormFromEffective(overrides) {
-    const effective = computeEffectiveFeesPreview(overrides && typeof overrides === 'object' ? overrides : null);
-    const filled = defaultFeeOverrides();
-    for (const row of effective) {
-        filled[row.key] = {
-            percent: formatPercentForInput(row.percent) || '0',
-            fixed: row.fixed != null && row.fixed !== '' ? String(row.fixed) : '0',
-        };
-    }
-    return filled;
-}
-
-/**
- * Mantém overrides já salvos; aplica só as chaves editadas nesta sessão.
- */
-function buildMerchantFeesPayloadFromForm(fees) {
-    if (clearingAllFeeOverrides.value) {
-        // Objeto vazio: backend normaliza para null e limpa overrides do merchant.
-        return {};
-    }
-    const base =
-        savedFeeOverrides.value && typeof savedFeeOverrides.value === 'object'
-            ? { ...savedFeeOverrides.value }
-            : {};
-    for (const key of feeRuleKeys) {
-        if (!feeKeysTouched.value[key]) {
-            continue;
-        }
-        const block = fees?.[key];
-        const normalized = normalizeMerchantFeeOverridesForSubmit({ [key]: block });
-        if (normalized?.[key]) {
-            base[key] = normalized[key];
-        } else {
-            delete base[key];
-        }
-    }
-    return Object.keys(base).length ? base : null;
-}
-
-function overrideBlockIsExplicit(rawOverrides, key) {
-    const block = rawOverrides?.[key];
-    if (!block || typeof block !== 'object') {
-        return false;
-    }
-    const hasPercent = block.percent !== '' && block.percent !== null && block.percent !== undefined;
-    const hasFixed = block.fixed !== '' && block.fixed !== null && block.fixed !== undefined;
-    return hasPercent || hasFixed;
-}
-
-function computeEffectiveFeesPreview(draftOverrides) {
-    const effective = platformFeesMap();
-    if (draftOverrides && typeof draftOverrides === 'object') {
-        for (const k of feeRuleKeys) {
-            const block = draftOverrides[k];
-            if (!block || typeof block !== 'object') {
-                continue;
-            }
-            if (block.percent !== undefined && block.percent !== null) {
-                effective[k].percent = Number(block.percent) || 0;
-            }
-            if (block.fixed !== undefined && block.fixed !== null) {
-                effective[k].fixed = Number(block.fixed) || 0;
-            }
-        }
-        // Só herda quando o pai foi customizado (espelha EffectiveMerchantFees).
-        if (!overrideBlockIsExplicit(draftOverrides, 'api_pix') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
-            effective.api_pix = { ...effective.pix };
-        }
-        if (!overrideBlockIsExplicit(draftOverrides, 'pixgo') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
-            effective.pixgo = { ...effective.pix };
-        }
-        if (!overrideBlockIsExplicit(draftOverrides, 'open_finance') && overrideBlockIsExplicit(draftOverrides, 'pix')) {
-            effective.open_finance = { ...effective.pix };
-        }
-        if (!overrideBlockIsExplicit(draftOverrides, 'apple_pay') && overrideBlockIsExplicit(draftOverrides, 'card')) {
-            effective.apple_pay = { ...effective.card };
-        }
-        if (!overrideBlockIsExplicit(draftOverrides, 'google_pay') && overrideBlockIsExplicit(draftOverrides, 'card')) {
-            effective.google_pay = { ...effective.card };
-        }
-    }
-    return feeOverrideRows.map((row) => ({
-        key: row.key,
-        label: row.label,
-        percent: effective[row.key]?.percent ?? 0,
-        fixed: effective[row.key]?.fixed ?? 0,
-    }));
-}
-
-const effectiveFeesPreview = computed(() => {
-    if (!isEditModalOpen.value) {
-        return [];
-    }
-    const draft = feesDirty.value
-        ? buildMerchantFeesPayloadFromForm(editForm.merchant_fees)
-        : savedFeeOverrides.value;
-    return computeEffectiveFeesPreview(draft && typeof draft === 'object' ? draft : null);
+const usersList = computed(() => Array.isArray(props.users?.data) ? props.users.data : (Array.isArray(props.users) ? props.users : []));
+const paginationLinks = computed(() => Array.isArray(props.users?.links) ? props.users.links : []);
+const usersMeta = computed(() => {
+    if (props.users && typeof props.users === 'object' && !Array.isArray(props.users)) return props.users;
+    return { total: usersList.value.length, from: usersList.value.length ? 1 : null, to: usersList.value.length };
 });
+const selectedCount = computed(() => selectedIds.value.length);
+const allVisibleSelected = computed(() => usersList.value.length > 0 && usersList.value.every((user) => selectedIds.value.includes(user.id)));
+const bulkDeleteTargets = computed(() => usersList.value.filter((user) => selectedIds.value.includes(user.id)));
+const bulkDeleteResult = computed(() => page.props.flash?.bulk_delete_result ?? null);
+const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
 
-const platformFeesPreview = computed(() => computeEffectiveFeesPreview(null));
-
-const feesComparisonPreview = computed(() => {
-    const platformMap = {};
-    for (const row of platformFeesPreview.value) {
-        platformMap[row.key] = row;
-    }
-    return effectiveFeesPreview.value.map((row) => {
-        const global = platformMap[row.key] || { percent: 0, fixed: 0 };
-        const differs =
-            Number(row.percent) !== Number(global.percent) || Number(row.fixed) !== Number(global.fixed);
-        return {
-            key: row.key,
-            label: row.label,
-            global_percent: global.percent,
-            global_fixed: global.fixed,
-            effective_percent: row.percent,
-            effective_fixed: row.fixed,
-            differs,
-        };
-    });
-});
-
-function defaultFeeOverrides() {
-    return {
-        pix: { percent: '', fixed: '' },
-        api_pix: { percent: '', fixed: '' },
-        pixgo: { percent: '', fixed: '' },
-        open_finance: { percent: '', fixed: '' },
-        card: { percent: '', fixed: '' },
-        apple_pay: { percent: '', fixed: '' },
-        google_pay: { percent: '', fixed: '' },
-        boleto: { percent: '', fixed: '' },
-        withdrawal: { percent: '', fixed: '' },
+function listingQuery(overrides = {}) {
+    const sortBy = overrides.sort_by !== undefined ? overrides.sort_by : props.sort_by || undefined;
+    const query = {
+        q: overrides.q !== undefined ? overrides.q : searchQ.value.trim() || undefined,
+        status: overrides.status !== undefined ? overrides.status : statusFilter.value || undefined,
+        sort_by: sortBy,
+        sort_direction: sortBy ? (overrides.sort_direction ?? props.sort_direction ?? 'asc') : undefined,
+        per_page: Number(overrides.per_page ?? perPage.value) || 25,
     };
+    const currentPage = Object.prototype.hasOwnProperty.call(overrides, 'page') ? overrides.page : props.users?.current_page;
+    if (Number(currentPage) > 1) query.page = Number(currentPage);
+    return query;
 }
 
-const feeOverrideRows = [
-    { key: 'pix', label: 'PIX (checkout)' },
-    { key: 'api_pix', label: 'PIX (API)', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
-    { key: 'pixgo', label: 'PixGo', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
-    { key: 'open_finance', label: 'Open Finance', inheritHint: 'Valor atual; edite para personalizar (senão acompanha PIX checkout)' },
-    { key: 'card', label: 'Cartão' },
-    { key: 'apple_pay', label: 'Apple Pay', inheritHint: 'Valor atual; edite para personalizar (senão acompanha Cartão)' },
-    { key: 'google_pay', label: 'Google Pay', inheritHint: 'Valor atual; edite para personalizar (senão acompanha Cartão)' },
-    { key: 'boleto', label: 'Boleto' },
-    { key: 'withdrawal', label: 'Saque' },
-];
-
-const feeRuleKeys = ['pix', 'api_pix', 'pixgo', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal'];
-
-const settlementOverrideRows = [
-    { key: 'pix', label: 'PIX' },
-    { key: 'open_finance', label: 'Open Finance' },
-    { key: 'card', label: 'Cartão' },
-    { key: 'apple_pay', label: 'Apple Pay' },
-    { key: 'google_pay', label: 'Google Pay' },
-    { key: 'boleto', label: 'Boleto' },
-];
-
-function mergeFeeOverrides(raw) {
-    const d = defaultFeeOverrides();
-    if (!raw || typeof raw !== 'object') return d;
-    for (const k of ['pix', 'api_pix', 'pixgo', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto', 'withdrawal']) {
-        if (raw[k] && typeof raw[k] === 'object') {
-            if (raw[k].percent != null && raw[k].percent !== '') {
-                d[k].percent = formatPercentForInput(raw[k].percent);
-            }
-            if (raw[k].fixed != null && raw[k].fixed !== '') d[k].fixed = raw[k].fixed;
-        }
-    }
-    return d;
+function applySearch() {
+    router.get('/plataforma/usuarios', listingQuery({ page: 1 }), { preserveState: true, replace: true });
 }
-
-function defaultSettlementOverrides() {
-    return {
-        pix: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
-        open_finance: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
-        card: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
-        apple_pay: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
-        google_pay: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
-        boleto: { days_to_available: '', reserve_percent: '', reserve_hold_days: '' },
-    };
+function clearFilters() {
+    searchQ.value = '';
+    statusFilter.value = '';
+    router.get('/plataforma/usuarios', listingQuery({ q: undefined, status: undefined, page: 1 }), { preserveState: true, replace: true });
 }
-
-function mergeSettlementOverrides(raw) {
-    const d = defaultSettlementOverrides();
-    if (!raw || typeof raw !== 'object') return d;
-    for (const k of ['pix', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto']) {
-        if (raw[k] && typeof raw[k] === 'object') {
-            if (raw[k].days_to_available != null && raw[k].days_to_available !== '') {
-                d[k].days_to_available = raw[k].days_to_available;
-            }
-            if (raw[k].reserve_percent != null && raw[k].reserve_percent !== '') {
-                d[k].reserve_percent = raw[k].reserve_percent;
-            }
-            if (raw[k].reserve_hold_days != null && raw[k].reserve_hold_days !== '') {
-                d[k].reserve_hold_days = raw[k].reserve_hold_days;
-            }
-        }
-    }
-    return d;
+function changePerPage() {
+    router.get('/plataforma/usuarios', listingQuery({ per_page: perPage.value, page: 1 }), { preserveState: true, replace: true });
 }
-
-/** Todos os adquirentes do registo que suportam o método (como na config global); `is_connected` indica se há credencial conectada em algum lugar. */
-function gatewaysForSelectMethod(method) {
-    return (props.gateways || []).filter((g) => Array.isArray(g.methods) && g.methods.includes(method));
+function toggleSort(column) {
+    const direction = props.sort_by === column && props.sort_direction === 'asc' ? 'desc' : 'asc';
+    router.get('/plataforma/usuarios', listingQuery({ sort_by: column, sort_direction: direction, page: 1 }), { preserveState: true, replace: true });
 }
-
-const gatewayOrderRows = [
-    { key: 'pix', label: 'PIX' },
-    { key: 'card', label: 'Cartão' },
-    { key: 'boleto', label: 'Boleto' },
-    { key: 'pix_auto', label: 'PIX automático' },
-];
-
-const showPixAutoRow = computed(() =>
-    (props.gateways || []).some((g) => Array.isArray(g.methods) && g.methods.includes('pix_auto'))
-);
-
-const merchantGatewayPrimary = reactive({
-    pix: '',
-    card: '',
-    boleto: '',
-    pix_auto: '',
-});
-
-watch(
-    merchantGatewayPrimary,
-    (current) => {
-        if (!editUser.value) {
-            return;
-        }
-        const initial = initialGatewayPrimary.value;
-        const methods = ['pix', 'card', 'boleto', 'pix_auto'];
-        gatewayOrderDirty.value = methods.some((m) => (current[m] || '') !== (initial[m] || ''));
-    },
-    { deep: true }
-);
-
-/**
- * Mesma ideia da aba Financeiro → Adquirentes: lista completa com redundância (principal primeiro).
- * @param {string} method
- * @param {string} primarySlug
- */
-function buildGatewayOrderListForMerchant(method, primarySlug) {
-    if (!primarySlug) {
-        return null;
-    }
-    const u = editUser.value;
-    const platformPrev = (props.platform_gateway_order && props.platform_gateway_order[method]) || [];
-    const merchantPrev = (u?.merchant_gateway_order && u.merchant_gateway_order[method]) || [];
-    const prev = merchantPrev.length ? merchantPrev : platformPrev;
-    const available = gatewaysForSelectMethod(method).map((g) => g.slug);
-    if (available.length === 0) {
-        return null;
-    }
-    if (!available.includes(primarySlug)) {
-        const filtered = prev.filter((s) => available.includes(s));
-        return filtered.length ? filtered : [...available];
-    }
-    const rest = [];
-    const seen = new Set([primarySlug]);
-    for (const s of prev) {
-        if (!seen.has(s) && available.includes(s)) {
-            rest.push(s);
-            seen.add(s);
-        }
-    }
-    for (const s of available) {
-        if (!seen.has(s)) {
-            rest.push(s);
-            seen.add(s);
-        }
-    }
-    return [primarySlug, ...rest];
+function sortIndicator(column) {
+    return props.sort_by === column ? (props.sort_direction === 'desc' ? 'desc' : 'asc') : null;
 }
-
-function syncMerchantPrimaryFromUser(u) {
-    const pOrder = props.platform_gateway_order || {};
-    for (const method of ['pix', 'card', 'boleto', 'pix_auto']) {
-        const slugs = gatewaysForSelectMethod(method).map((g) => g.slug);
-        if (!slugs.length) {
-            merchantGatewayPrimary[method] = '';
-            continue;
-        }
-        const mo = u.merchant_gateway_order?.[method];
-        const hasMerchantOverride = Array.isArray(mo) && mo.length > 0;
-        if (!hasMerchantOverride) {
-            merchantGatewayPrimary[method] = '';
-            continue;
-        }
-        const first = mo.find((s) => slugs.includes(s));
-        merchantGatewayPrimary[method] = first || '';
-    }
+function toggleUserSelection(id) {
+    selectedIds.value = selectedIds.value.includes(id) ? selectedIds.value.filter((value) => value !== id) : [...selectedIds.value, id];
 }
-
-const editForm = useForm({
-    name: '',
-    email: '',
-    phone: '',
-    password: '',
-    password_confirmation: '',
-    account_status: 'approved',
-    admin_withdrawal_blocked: false,
-    admin_blocked_amount: '',
-    admin_block_until: '',
-    admin_block_note: '',
-    merchant_fees: defaultFeeOverrides(),
-    merchant_settlement_overrides: defaultSettlementOverrides(),
-    referral_commission_percent: '',
-    api_pix_mode: 'inherit',
-    med_zero_enabled: false,
-    api_pix_minimum_charge_brl: '',
-    platform_minimum_charge_brl: '',
-    use_platform_api_pix_minimum: true,
-    use_platform_platform_minimum: true,
-    cajupay_account_id: '',
-});
-
-const showCajuPayAccountField = computed(() => {
-    const methods = ['pix', 'card'];
-    return methods.some((m) =>
-        (props.gateways || []).some((g) => g.slug === 'cajupay' && Array.isArray(g.methods) && g.methods.includes(m))
-    );
-});
-
-const feePercentRefs = {};
-const feeFixedRefs = {};
-
-function setFeePercentRef(key, el) {
-    if (el) {
-        feePercentRefs[key] = el;
-    } else {
-        delete feePercentRefs[key];
-    }
+function toggleSelectAllVisible() {
+    const visible = new Set(usersList.value.map((user) => user.id));
+    selectedIds.value = allVisibleSelected.value
+        ? selectedIds.value.filter((id) => !visible.has(id))
+        : [...new Set([...selectedIds.value, ...visible])];
 }
-
-function setFeeFixedRef(key, el) {
-    if (el) {
-        feeFixedRefs[key] = el;
-    } else {
-        delete feeFixedRefs[key];
-    }
+function selectPendingWithoutSales() {
+    const ids = usersList.value.filter((user) => (user.account_status || 'approved') === 'pending' && Number(user.vendas_totais || 0) === 0).map((user) => user.id);
+    selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
 }
-
-function flushFeeInputs() {
-    for (const row of feeOverrideRows) {
-        feePercentRefs[row.key]?.commit?.();
-        feeFixedRefs[row.key]?.commit?.();
-    }
-}
-
-function updateMerchantFeeField(key, field, value) {
-    feesDirty.value = true;
-    clearingAllFeeOverrides.value = false;
-    feeKeysTouched.value = { ...feeKeysTouched.value, [key]: true };
-    const nextBlock = {
-        ...editForm.merchant_fees[key],
-        [field]: value,
-    };
-    let fees = {
-        ...editForm.merchant_fees,
-        [key]: nextBlock,
-    };
-    if (key === 'pix') {
-        if (!feeKeysTouched.value.api_pix && !overrideBlockIsExplicit(savedFeeOverrides.value, 'api_pix')) {
-            fees = { ...fees, api_pix: { ...nextBlock } };
-        }
-        if (!feeKeysTouched.value.pixgo && !overrideBlockIsExplicit(savedFeeOverrides.value, 'pixgo')) {
-            fees = { ...fees, pixgo: { ...nextBlock } };
-        }
-        if (!feeKeysTouched.value.open_finance && !overrideBlockIsExplicit(savedFeeOverrides.value, 'open_finance')) {
-            fees = { ...fees, open_finance: { ...nextBlock } };
-        }
-    }
-    if (key === 'card') {
-        if (!feeKeysTouched.value.apple_pay && !overrideBlockIsExplicit(savedFeeOverrides.value, 'apple_pay')) {
-            fees = { ...fees, apple_pay: { ...nextBlock } };
-        }
-        if (!feeKeysTouched.value.google_pay && !overrideBlockIsExplicit(savedFeeOverrides.value, 'google_pay')) {
-            fees = { ...fees, google_pay: { ...nextBlock } };
-        }
-    }
-    editForm.merchant_fees = fees;
-}
-
-function markSettlementDirty() {
-    settlementDirty.value = true;
-}
-
-function formatFeePreview(percent, fixed) {
-    const p = Number(percent) || 0;
-    const f = Number(fixed) || 0;
-    const parts = [];
-    if (p > 0) {
-        parts.push(`${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 }).format(p)}%`);
-    }
-    if (f > 0) {
-        parts.push(`R$ ${new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(f)}`);
-    }
-    return parts.length ? parts.join(' + ') : '0%';
-}
-
-const isEditModalOpen = computed(() => editUser.value !== null);
-
-function openEditModal(u) {
-    editUser.value = u;
-    savedFeeOverrides.value = u.merchant_fees ?? null;
-    savedSettlementOverrides.value = u.merchant_settlement_overrides ?? null;
-    feesDirty.value = false;
-    feeKeysTouched.value = {};
-    clearingAllFeeOverrides.value = false;
-    settlementDirty.value = false;
-    gatewayOrderDirty.value = false;
-    cajupayAccountDirty.value = false;
-    limitsDirty.value = false;
-    apiPixDirty.value = false;
-    const wa = u.wallet_admin;
-    const cl = u.charge_limits || {};
-    editForm.defaults({
-        name: u.name,
-        email: u.email,
-        phone: formatPhoneForInput(u.phone),
-        password: '',
-        password_confirmation: '',
-        account_status: u.account_status || 'approved',
-        admin_withdrawal_blocked: !!(wa && wa.admin_withdrawal_blocked),
-        admin_blocked_amount:
-            wa && wa.admin_blocked_amount != null && wa.admin_blocked_amount !== '' ? String(wa.admin_blocked_amount) : '',
-        admin_block_until: formatBlockUntilForInput(wa?.admin_block_until),
-        admin_block_note: wa?.admin_block_note || '',
-        merchant_fees: feesFormFromEffective(u.merchant_fees),
-        merchant_settlement_overrides: mergeSettlementOverrides(u.merchant_settlement_overrides),
-        referral_commission_percent:
-            u.referral_commission_percent != null && u.referral_commission_percent !== ''
-                ? String(u.referral_commission_percent)
-                : '',
-        api_pix_mode: u.api_pix_mode || 'inherit',
-        med_zero_enabled: !!u.med_zero_enabled,
-        api_pix_minimum_charge_brl:
-            cl.api_pix_minimum_charge_brl != null ? String(cl.api_pix_minimum_charge_brl) : '',
-        platform_minimum_charge_brl:
-            cl.platform_minimum_charge_brl != null ? String(cl.platform_minimum_charge_brl) : '',
-        use_platform_api_pix_minimum: cl.api_pix_minimum_charge_brl == null,
-        use_platform_platform_minimum: cl.platform_minimum_charge_brl == null,
-        cajupay_account_id: u.cajupay_account_id != null ? String(u.cajupay_account_id) : '',
-    });
-    editForm.reset();
-    syncMerchantPrimaryFromUser(u);
-    initialGatewayPrimary.value = {
-        pix: merchantGatewayPrimary.pix,
-        card: merchantGatewayPrimary.card,
-        boleto: merchantGatewayPrimary.boleto,
-        pix_auto: merchantGatewayPrimary.pix_auto,
-    };
-    editForm.clearErrors();
-}
-
-function onAdminNotesCountChanged(userId, count) {
-    adminNotesCountByUser.value = { ...adminNotesCountByUser.value, [userId]: count };
-}
-
-function closeEditModal() {
-    editUser.value = null;
-    if (props.edit_user_id) {
-        router.get('/plataforma/usuarios', listingQuery(), { preserveState: true, replace: true });
-    }
-}
-
-function restoreFeesDefaults() {
-    feesDirty.value = true;
-    clearingAllFeeOverrides.value = true;
-    feeKeysTouched.value = {};
-    editForm.merchant_fees = feesFormFromEffective(null);
-}
-
-function restoreSettlementDefaults() {
-    settlementDirty.value = true;
-    editForm.merchant_settlement_overrides = defaultSettlementOverrides();
-}
-
-function markLimitsDirty() {
-    limitsDirty.value = true;
-}
-
-function markApiPixDirty() {
-    apiPixDirty.value = true;
-}
-
-const effectiveApiPixMinimumPreview = computed(() => {
-    if (!isEditModalOpen.value) return null;
-    if (editForm.use_platform_api_pix_minimum) {
-        return Number(props.platform_charge_limits?.api_pix_minimum_charge_brl) || 0;
-    }
-    const v = parseFloat(editForm.api_pix_minimum_charge_brl);
-    return Number.isFinite(v) ? v : Number(props.platform_charge_limits?.api_pix_minimum_charge_brl) || 0;
-});
-
-const effectivePlatformMinimumPreview = computed(() => {
-    if (!isEditModalOpen.value) return null;
-    if (editForm.use_platform_platform_minimum) {
-        return Number(props.platform_charge_limits?.platform_minimum_charge_brl) || 0;
-    }
-    const v = parseFloat(editForm.platform_minimum_charge_brl);
-    return Number.isFinite(v) ? v : Number(props.platform_charge_limits?.platform_minimum_charge_brl) || 0;
-});
-
-onMounted(() => {
-    if (props.edit_user_id) {
-        const u = usersList.value.find((row) => row.id === props.edit_user_id);
-        if (u) {
-            openEditModal(u);
-        }
-    }
-});
-
-function submitEdit() {
-    if (!editUser.value) return;
-    flushFeeInputs();
-    editForm
-        .transform((data) => {
-            const order = {};
-            for (const m of ['pix', 'card', 'boleto', 'pix_auto']) {
-                const p = merchantGatewayPrimary[m];
-                if (!p) {
-                    continue;
-                }
-                const built = buildGatewayOrderListForMerchant(m, p);
-                if (built && built.length) {
-                    order[m] = built;
-                }
-            }
-
-            const payload = { ...data };
-            const refPct = String(data.referral_commission_percent ?? '').trim();
-            payload.referral_commission_percent = refPct === '' ? null : Number(refPct.replace(',', '.'));
-
-            if (gatewayOrderDirty.value) {
-                payload.merchant_gateway_order = Object.keys(order).length ? order : null;
-            } else {
-                delete payload.merchant_gateway_order;
-            }
-            if (feesDirty.value) {
-                payload.merchant_fees = buildMerchantFeesPayloadFromForm(data.merchant_fees);
-            } else {
-                delete payload.merchant_fees;
-            }
-            if (settlementDirty.value) {
-                payload.merchant_settlement_overrides = normalizeMerchantSettlementOverridesForSubmit(
-                    data.merchant_settlement_overrides
-                );
-            } else {
-                delete payload.merchant_settlement_overrides;
-            }
-            if (apiPixDirty.value) {
-                payload.api_pix_mode = data.api_pix_mode || 'inherit';
-                payload.med_zero_enabled = !!data.med_zero_enabled;
-            } else {
-                delete payload.api_pix_mode;
-                delete payload.med_zero_enabled;
-            }
-            if (limitsDirty.value) {
-                payload.use_platform_api_pix_minimum = !!data.use_platform_api_pix_minimum;
-                payload.use_platform_platform_minimum = !!data.use_platform_platform_minimum;
-                if (data.use_platform_api_pix_minimum) {
-                    payload.api_pix_minimum_charge_brl = '';
-                } else {
-                    payload.api_pix_minimum_charge_brl = data.api_pix_minimum_charge_brl;
-                }
-                if (data.use_platform_platform_minimum) {
-                    payload.platform_minimum_charge_brl = '';
-                } else {
-                    payload.platform_minimum_charge_brl = data.platform_minimum_charge_brl;
-                }
-            } else {
-                delete payload.api_pix_minimum_charge_brl;
-                delete payload.platform_minimum_charge_brl;
-                delete payload.use_platform_api_pix_minimum;
-                delete payload.use_platform_platform_minimum;
-            }
-            if (cajupayAccountDirty.value) {
-                payload.cajupay_account_id = data.cajupay_account_id ? Number(data.cajupay_account_id) : null;
-            } else {
-                delete payload.cajupay_account_id;
-            }
-            return payload;
-        })
-        .put(`/plataforma/usuarios/${editUser.value.id}`, {
-            preserveScroll: true,
-            onSuccess: () => closeEditModal(),
-        });
-}
-
 function destroyUser(id) {
     if (!confirm('Excluir este infoprodutor? Esta ação não pode ser desfeita.')) return;
     deletingId.value = id;
-    router.delete(`/plataforma/usuarios/${id}`, {
-        preserveScroll: true,
-        onFinish: () => {
-            deletingId.value = null;
-        },
-    });
+    router.delete(`/plataforma/usuarios/${id}`, { preserveScroll: true, onFinish: () => { deletingId.value = null; } });
 }
-
-const selectedCount = computed(() => selectedIds.value.length);
-
-const allVisibleSelected = computed(() => {
-    if (!usersList.value.length) return false;
-    return usersList.value.every((u) => selectedIds.value.includes(u.id));
-});
-
-const bulkDeleteTargets = computed(() =>
-    usersList.value.filter((u) => selectedIds.value.includes(u.id))
-);
-
-const bulkDeleteResult = computed(() => page.props.flash?.bulk_delete_result ?? null);
-
-function toggleUserSelection(id) {
-    if (selectedIds.value.includes(id)) {
-        selectedIds.value = selectedIds.value.filter((rowId) => rowId !== id);
-        return;
-    }
-    selectedIds.value = [...selectedIds.value, id];
-}
-
-function toggleSelectAllVisible() {
-    if (allVisibleSelected.value) {
-        const visibleIds = new Set(usersList.value.map((u) => u.id));
-        selectedIds.value = selectedIds.value.filter((id) => !visibleIds.has(id));
-        return;
-    }
-    const merged = new Set([...selectedIds.value, ...usersList.value.map((u) => u.id)]);
-    selectedIds.value = [...merged];
-}
-
-function selectPendingWithoutSales() {
-    const ids = usersList.value
-        .filter((u) => (u.account_status || 'approved') === 'pending' && Number(u.vendas_totais || 0) === 0)
-        .map((u) => u.id);
-    selectedIds.value = [...new Set([...selectedIds.value, ...ids])];
-}
-
 function openBulkDeleteModal(force = false) {
     if (!selectedIds.value.length) return;
     bulkDeleteForce.value = force;
     bulkDeleteOpen.value = true;
 }
-
 function closeBulkDeleteModal() {
     bulkDeleteOpen.value = false;
     bulkDeleteLoading.value = false;
 }
-
-function closeBulkStepUp() {
-    bulkStepUpOpen.value = false;
-    bulkDeleteLoading.value = false;
-}
-
 function requestBulkDelete() {
-    if (!selectedIds.value.length) return;
     if (platformTotpEnabled.value) {
         bulkDeleteOpen.value = false;
         bulkStepUpOpen.value = true;
@@ -912,64 +113,31 @@ function requestBulkDelete() {
     }
     submitBulkDelete();
 }
-
-function onBulkStepUpConfirm(payload) {
-    bulkDeleteLoading.value = true;
-    submitBulkDelete(payload.totp_code);
-}
-
 function submitBulkDelete(totpCode = '') {
     bulkDeleteLoading.value = true;
-    router.post(
-        '/plataforma/usuarios/excluir-em-massa',
-        {
-            ids: selectedIds.value,
-            confirm: true,
-            force: bulkDeleteForce.value,
-            totp_code: totpCode || undefined,
-        },
-        {
-            preserveScroll: true,
-            onSuccess: () => {
-                selectedIds.value = [];
-                closeBulkDeleteModal();
-            },
-            onFinish: () => {
-                bulkDeleteLoading.value = false;
-                bulkStepUpOpen.value = false;
-            },
-        }
-    );
+    router.post('/plataforma/usuarios/excluir-em-massa', {
+        ids: selectedIds.value, confirm: true, force: bulkDeleteForce.value, totp_code: totpCode || undefined,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => { selectedIds.value = []; closeBulkDeleteModal(); },
+        onFinish: () => { bulkDeleteLoading.value = false; bulkStepUpOpen.value = false; },
+    });
 }
-
 function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 }
-
-function formatCreatedAt(iso) {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleString('pt-BR');
+function formatCreatedAt(value) {
+    const date = value ? new Date(value) : null;
+    return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('pt-BR') : '—';
 }
-
-function statusLabel(s) {
-    const map = {
-        approved: 'Aprovado',
-        pending: 'Pendente',
-        rejected: 'Rejeitado',
-        suspended: 'Suspenso',
-        blocked: 'Bloqueado',
-    };
-    return map[s] || s || '—';
+function statusLabel(status) {
+    return { approved: 'Aprovado', pending: 'Pendente', rejected: 'Rejeitado', suspended: 'Suspenso', blocked: 'Bloqueado' }[status] || status || '—';
 }
-
-function formatBlockUntilForInput(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '';
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function hasCustomFees(user) {
+    return user?.merchant_fees && Object.keys(user.merchant_fees).length > 0;
+}
+function hasCustomSettlement(user) {
+    return user?.merchant_settlement_overrides && Object.keys(user.merchant_settlement_overrides).length > 0;
 }
 </script>
 
@@ -980,771 +148,106 @@ function formatBlockUntilForInput(iso) {
                 <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Infoprodutores</h2>
                 <p class="text-sm text-zinc-500 dark:text-zinc-400">Saldo, documento e status da conta</p>
             </div>
-            <Link
-                href="/plataforma/usuarios/create"
-                class="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-                <UserPlus class="h-4 w-4" />
-                Novo infoprodutor
+            <Link href="/plataforma/usuarios/create" class="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900">
+                <UserPlus class="h-4 w-4" /> Novo infoprodutor
             </Link>
         </div>
 
         <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
             <div class="relative min-w-[200px] flex-1">
                 <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                <input
-                    v-model="searchQ"
-                    type="search"
-                    placeholder="Nome, e-mail, documento ou ID"
-                    class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
-                />
+                <input v-model="searchQ" type="search" placeholder="Nome, e-mail, documento ou ID" class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900" />
             </div>
-            <select
-                v-model="statusFilter"
-                class="min-w-[11rem] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
-                @change="applySearch"
-            >
+            <select v-model="statusFilter" class="min-w-[11rem] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900" @change="applySearch">
                 <option value="">Todos os status</option>
-                <option v-for="opt in status_options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                <option v-for="option in status_options" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
-            <button
-                type="submit"
-                class="rounded-xl bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-            >
-                Pesquisar
-            </button>
-            <button
-                v-if="searchQ || statusFilter"
-                type="button"
-                class="rounded-xl border border-zinc-300 px-4 py-2 text-sm text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                @click="clearFilters"
-            >
-                Limpar
-            </button>
+            <button type="submit" class="rounded-xl bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white">Pesquisar</button>
+            <button v-if="searchQ || statusFilter" type="button" class="rounded-xl border border-zinc-300 px-4 py-2 text-sm" @click="clearFilters">Limpar</button>
             <label class="ml-auto flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                <span class="whitespace-nowrap">Por página</span>
-                <select
-                    v-model="perPage"
-                    class="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
-                    @change="changePerPage"
-                >
-                    <option :value="25">25</option>
-                    <option :value="50">50</option>
-                    <option :value="100">100</option>
+                <span>Por página</span>
+                <select v-model="perPage" class="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900" @change="changePerPage">
+                    <option :value="25">25</option><option :value="50">50</option><option :value="100">100</option>
                 </select>
             </label>
         </form>
 
-        <p
-            v-if="page.props.flash?.success"
-            class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-        >
-            {{ page.props.flash.success }}
-        </p>
-
-        <p
-            v-if="page.props.flash?.error"
-            class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200"
-        >
-            {{ page.props.flash.error }}
-        </p>
-
-        <div
-            v-if="bulkDeleteResult"
-            class="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-200"
-        >
+        <p v-if="page.props.flash?.success" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ page.props.flash.success }}</p>
+        <p v-if="page.props.flash?.error" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ page.props.flash.error }}</p>
+        <div v-if="bulkDeleteResult" class="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-700 dark:bg-zinc-900/60">
             <p class="font-medium">Resultado da exclusão em massa</p>
-            <p v-if="bulkDeleteResult.deleted?.length" class="mt-2 text-xs">
-                Excluídos: {{ bulkDeleteResult.deleted.join(', ') }}
-            </p>
-            <ul v-if="bulkDeleteResult.skipped?.length" class="mt-2 list-inside list-disc space-y-1 text-xs">
-                <li v-for="row in bulkDeleteResult.skipped" :key="`${row.id}-${row.reason}`">
-                    #{{ row.id }} — {{ row.reason }}
-                </li>
+            <p v-if="bulkDeleteResult.deleted?.length" class="mt-2 text-xs">Excluídos: {{ bulkDeleteResult.deleted.join(', ') }}</p>
+            <ul v-if="bulkDeleteResult.skipped?.length" class="mt-2 list-inside list-disc text-xs">
+                <li v-for="row in bulkDeleteResult.skipped" :key="`${row.id}-${row.reason}`">#{{ row.id }} — {{ row.reason }}</li>
             </ul>
         </div>
-
-        <div
-            v-if="selectedCount > 0"
-            class="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/60"
-        >
-            <span class="text-sm font-medium text-zinc-800 dark:text-zinc-200">{{ selectedCount }} selecionado(s)</span>
-            <button
-                type="button"
-                class="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
-                @click="openBulkDeleteModal(false)"
-            >
-                Excluir selecionados ({{ selectedCount }})
-            </button>
-            <button
-                type="button"
-                class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-white dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                @click="selectPendingWithoutSales"
-            >
-                Selecionar pendentes sem vendas
-            </button>
-            <button
-                type="button"
-                class="rounded-lg px-3 py-1.5 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
-                @click="selectedIds = []"
-            >
-                Limpar seleção
-            </button>
+        <div v-if="selectedCount" class="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900/60">
+            <span class="text-sm font-medium">{{ selectedCount }} selecionado(s)</span>
+            <button type="button" class="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white" @click="openBulkDeleteModal()">Excluir selecionados</button>
+            <button type="button" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm" @click="selectPendingWithoutSales">Selecionar pendentes sem vendas</button>
+            <button type="button" class="rounded-lg px-3 py-1.5 text-sm" @click="selectedIds = []">Limpar seleção</button>
         </div>
 
-        <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
-            <table class="w-full min-w-[1080px] text-left text-sm">
-                <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-400">
+        <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white md:overflow-visible dark:border-zinc-700 dark:bg-zinc-900/60">
+            <table class="w-full table-fixed text-left text-sm">
+                <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80">
                     <tr>
-                        <th class="w-10 px-3 py-3">
-                            <input
-                                type="checkbox"
-                                class="h-4 w-4 rounded border-zinc-300"
-                                :checked="allVisibleSelected"
-                                :disabled="!usersList.length"
-                                @change="toggleSelectAllVisible"
-                            />
-                        </th>
-                        <th class="px-4 py-3">Nome</th>
-                        <th class="px-4 py-3">Empresa</th>
-                        <th class="px-4 py-3">E-mail</th>
-                        <th class="px-4 py-3">Documento</th>
-                        <th class="px-4 py-3">Status</th>
-                        <th class="px-4 py-3">
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
-                                @click="toggleSort('created_at')"
-                            >
-                                Data de cadastro
-                                <ChevronUp v-if="sortIndicator('created_at') === 'asc'" class="h-3.5 w-3.5" />
-                                <ChevronDown v-else-if="sortIndicator('created_at') === 'desc'" class="h-3.5 w-3.5" />
-                            </button>
-                        </th>
-                        <th class="px-4 py-3 text-right" title="Pedidos concluídos via gateway (exclui aprovação manual)">
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
-                                @click="toggleSort('total_sales')"
-                            >
-                                Vendas totais
-                                <ChevronUp v-if="sortIndicator('total_sales') === 'asc'" class="h-3.5 w-3.5" />
-                                <ChevronDown v-else-if="sortIndicator('total_sales') === 'desc'" class="h-3.5 w-3.5" />
-                            </button>
-                        </th>
-                        <th class="px-4 py-3 text-right">
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-1 uppercase hover:text-zinc-800 dark:hover:text-zinc-200"
-                                @click="toggleSort('balance')"
-                            >
-                                Saldo
-                                <ChevronUp v-if="sortIndicator('balance') === 'asc'" class="h-3.5 w-3.5" />
-                                <ChevronDown v-else-if="sortIndicator('balance') === 'desc'" class="h-3.5 w-3.5" />
-                            </button>
-                        </th>
-                        <th class="px-4 py-3 text-right">Pendente</th>
-                        <th class="px-4 py-3 text-right">Ações</th>
+                        <th class="w-10 px-3 py-2.5"><input type="checkbox" :checked="allVisibleSelected" :disabled="!usersList.length" @change="toggleSelectAllVisible" /></th>
+                        <th class="w-[28%] px-3 py-2.5">Infoprodutor</th>
+                        <th class="w-[13%] px-3 py-2.5">Documento</th>
+                        <th class="w-[10%] px-3 py-2.5">Status</th>
+                        <th class="w-[12%] px-3 py-2.5"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('created_at')">Cadastro <ChevronUp v-if="sortIndicator('created_at') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('created_at') === 'desc'" class="h-3 w-3" /></button></th>
+                        <th class="w-[12%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('total_sales')">Vendas <ChevronUp v-if="sortIndicator('total_sales') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('total_sales') === 'desc'" class="h-3 w-3" /></button></th>
+                        <th class="w-[12%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('balance')">Saldo <ChevronUp v-if="sortIndicator('balance') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('balance') === 'desc'" class="h-3 w-3" /></button></th>
+                        <th class="w-[13%] px-3 py-2.5 text-right">Ações</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="u in usersList" :key="u.id" class="border-b border-zinc-100 dark:border-zinc-800">
-                        <td class="px-3 py-3">
-                            <input
-                                type="checkbox"
-                                class="h-4 w-4 rounded border-zinc-300"
-                                :checked="selectedIds.includes(u.id)"
-                                @change="toggleUserSelection(u.id)"
-                            />
-                        </td>
-                        <td class="px-4 py-3 font-medium text-zinc-900 dark:text-white">
-                            <span>{{ u.name }}</span>
-                            <span
-                                v-if="u.totp_enabled"
-                                class="ml-2 inline-flex items-center gap-1 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
-                                title="Autenticação em dois fatores ativa"
-                            >
-                                <Shield class="h-3 w-3" />
-                                2FA
-                            </span>
-                            <span
-                                v-if="(adminNotesCountByUser[u.id] ?? u.admin_notes_count) > 0"
-                                class="ml-2 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
-                                title="Observações internas"
-                            >
-                                <MessageSquare class="h-3 w-3" />
-                                {{ adminNotesCountByUser[u.id] ?? u.admin_notes_count }}
-                            </span>
-                            <span
-                                v-if="hasCustomFees(u)"
-                                class="ml-2 inline-flex rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 dark:bg-violet-950/50 dark:text-violet-200"
-                                title="Taxas personalizadas"
-                            >
-                                Taxas custom
-                            </span>
-                            <span
-                                v-if="hasCustomSettlement(u)"
-                                class="ml-2 inline-flex rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 dark:bg-sky-950/50 dark:text-sky-200"
-                                title="Liquidação personalizada"
-                            >
-                                Liquidação custom
-                            </span>
-                            <span
-                                v-if="u.med_zero_enabled"
-                                class="ml-2 inline-flex rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"
-                                title="MED Zero ativo"
-                            >
-                                MED Zero
-                            </span>
-                        </td>
-                        <td class="max-w-[180px] truncate px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                            {{ u.trade_name || '—' }}
-                        </td>
-                        <td class="max-w-[200px] truncate px-4 py-3 text-zinc-600 dark:text-zinc-300">{{ u.email }}</td>
-                        <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">{{ u.document || '—' }}</td>
-                        <td class="px-4 py-3">
-                            <span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ statusLabel(u.account_status) }}</span>
-                        </td>
-                        <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">
-                            {{ formatCreatedAt(u.created_at) }}
-                        </td>
-                        <td class="px-4 py-3 text-right tabular-nums font-medium text-zinc-900 dark:text-white">
-                            {{ formatBRL(u.vendas_totais) }}
-                        </td>
-                        <td class="px-4 py-3 text-right tabular-nums">{{ formatBRL(u.saldo_disponivel) }}</td>
-                        <td class="px-4 py-3 text-right tabular-nums text-zinc-500">{{ formatBRL(u.saldo_pix) }}</td>
-                        <td class="px-4 py-3 text-right">
-                            <div class="flex justify-end gap-1">
-                                <Link
-                                    :href="`/plataforma/usuarios/${u.id}`"
-                                    class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-[var(--color-primary)] dark:hover:bg-zinc-800"
-                                    title="Ver infoprodutor"
-                                >
-                                    <Eye class="h-4 w-4" />
-                                </Link>
-                                <Link
-                                    :href="`/plataforma/verificacoes-kyc/usuario/${u.id}`"
-                                    class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
-                                    title="Ver KYC"
-                                >
-                                    <BadgeCheck class="h-4 w-4" />
-                                </Link>
-                                <button
-                                    type="button"
-                                    class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
-                                    title="Editar"
-                                    @click="openEditModal(u)"
-                                >
-                                    <Pencil class="h-4 w-4" />
-                                </button>
-                                <button
-                                    type="button"
-                                    class="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
-                                    title="Excluir"
-                                    :disabled="deletingId === u.id"
-                                    @click="destroyUser(u.id)"
-                                >
-                                    <Trash2 class="h-4 w-4" />
-                                </button>
+                    <tr v-for="user in usersList" :key="user.id" class="border-b border-zinc-100 dark:border-zinc-800">
+                        <td class="px-3 py-2.5"><input type="checkbox" :checked="selectedIds.includes(user.id)" @change="toggleUserSelection(user.id)" /></td>
+                        <td class="min-w-0 px-3 py-2.5">
+                            <div class="truncate font-medium text-zinc-900 dark:text-white">{{ user.name }}</div>
+                            <div class="truncate text-xs text-zinc-500">{{ user.trade_name || user.email }}</div>
+                            <div v-if="user.trade_name" class="truncate text-[11px] text-zinc-400">{{ user.email }}</div>
+                            <div class="mt-1 flex flex-wrap gap-1">
+                                <span v-if="user.totp_enabled" class="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 text-[10px]"><Shield class="h-3 w-3" />2FA</span>
+                                <span v-if="user.admin_notes_count" class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 text-[10px]"><MessageSquare class="h-3 w-3" />{{ user.admin_notes_count }}</span>
+                                <span v-if="hasCustomFees(user)" class="rounded bg-violet-100 px-1.5 text-[10px]">Taxas custom</span>
+                                <span v-if="hasCustomSettlement(user)" class="rounded bg-sky-100 px-1.5 text-[10px]">Liquidação custom</span>
                             </div>
                         </td>
+                        <td class="truncate px-3 py-2.5 text-zinc-600">{{ user.document || '—' }}</td>
+                        <td class="px-3 py-2.5"><span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ statusLabel(user.account_status) }}</span></td>
+                        <td class="truncate px-3 py-2.5 text-zinc-600">{{ formatCreatedAt(user.created_at) }}</td>
+                        <td class="truncate px-3 py-2.5 text-right tabular-nums font-medium">{{ formatBRL(user.vendas_totais) }}</td>
+                        <td class="truncate px-3 py-2.5 text-right tabular-nums" :title="`Pendente: ${formatBRL(user.saldo_pix)}`">{{ formatBRL(user.saldo_disponivel) }}</td>
+                        <td class="px-3 py-2.5"><div class="flex flex-wrap justify-end gap-1">
+                            <Link :href="`/plataforma/usuarios/${user.id}`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="Ver"><Eye class="h-4 w-4" /></Link>
+                            <Link :href="`/plataforma/verificacoes-kyc/usuario/${user.id}`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="KYC"><BadgeCheck class="h-4 w-4" /></Link>
+                            <Link :href="`/plataforma/usuarios/${user.id}/edit`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="Editar"><Pencil class="h-4 w-4" /></Link>
+                            <button type="button" class="rounded-lg p-1.5 text-red-500 hover:bg-red-50" :disabled="deletingId === user.id" @click="destroyUser(user.id)"><Trash2 class="h-4 w-4" /></button>
+                        </div></td>
                     </tr>
-                    <tr v-if="!usersList.length">
-                        <td colspan="10" class="px-4 py-10 text-center text-zinc-500">
-                            {{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}
-                        </td>
-                    </tr>
+                    <tr v-if="!usersList.length"><td colspan="8" class="px-3 py-10 text-center text-zinc-500">{{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}</td></tr>
                 </tbody>
             </table>
         </div>
 
-        <div
-            v-if="usersMeta.total > 0"
-            class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-        >
-            <p class="text-sm text-zinc-500 dark:text-zinc-400">
-                Exibindo {{ usersMeta.from ?? 0 }}–{{ usersMeta.to ?? 0 }} de {{ usersMeta.total }} infoprodutores
-            </p>
+        <div v-if="usersMeta.total > 0" class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-sm text-zinc-500">Exibindo {{ usersMeta.from ?? 0 }}–{{ usersMeta.to ?? 0 }} de {{ usersMeta.total }} infoprodutores</p>
             <div v-if="paginationLinks.length > 3" class="flex flex-wrap gap-1">
-                <Link
-                    v-for="(link, i) in paginationLinks"
-                    :key="i"
-                    :href="link.url || '#'"
-                    class="rounded-lg px-3 py-1.5 text-sm"
-                    :class="
-                        link.active
-                            ? 'bg-[var(--color-primary)] text-white'
-                            : link.url
-                              ? 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'
-                              : 'pointer-events-none text-zinc-300 dark:text-zinc-600'
-                    "
-                    v-text="htmlToText(link.label)"
-                />
+                <Link v-for="(link, index) in paginationLinks" :key="index" :href="link.url || '#'" class="rounded-lg px-3 py-1.5 text-sm" :class="link.active ? 'bg-[var(--color-primary)] text-white' : link.url ? 'text-zinc-600 hover:bg-zinc-100' : 'pointer-events-none text-zinc-300'" v-text="htmlToText(link.label)" />
             </div>
         </div>
 
-        <!-- Modal editar -->
-        <div
-            v-if="isEditModalOpen"
-            class="fixed inset-0 z-[200000] flex items-center justify-center bg-black/50 p-4"
-            role="dialog"
-            aria-modal="true"
-        >
-            <div class="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-900">
-                <div class="mb-4 flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">Editar infoprodutor</h3>
-                    <button type="button" class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" @click="closeEditModal">
-                        <X class="h-5 w-5" />
-                    </button>
-                </div>
-                <form class="space-y-4" @submit.prevent="submitEdit">
-                    <div>
-                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome</label>
-                        <input v-model="editForm.name" type="text" required class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" />
-                        <p v-if="editForm.errors.name" class="mt-1 text-sm text-red-600">{{ editForm.errors.name }}</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">E-mail</label>
-                        <input v-model="editForm.email" type="email" required class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" />
-                        <p v-if="editForm.errors.email" class="mt-1 text-sm text-red-600">{{ editForm.errors.email }}</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">WhatsApp / telefone</label>
-                        <input
-                            :value="editForm.phone"
-                            type="tel"
-                            inputmode="tel"
-                            placeholder="(11) 99999-9999"
-                            class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
-                            @input="editForm.phone = formatPhoneForInput($event.target.value)"
-                        />
-                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Exibido no contato do infoprodutor com link para o WhatsApp.</p>
-                        <p v-if="editForm.errors.phone" class="mt-1 text-sm text-red-600">{{ editForm.errors.phone }}</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nova senha (opcional)</label>
-                        <input v-model="editForm.password" type="password" minlength="8" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" />
-                        <p v-if="editForm.errors.password" class="mt-1 text-sm text-red-600">{{ editForm.errors.password }}</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Confirmar senha</label>
-                        <input v-model="editForm.password_confirmation" type="password" minlength="8" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" />
-                    </div>
-                    <div class="rounded-xl border border-amber-200/80 bg-amber-50/50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Conta e acesso ao painel</p>
-                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Status da conta</label>
-                        <select
-                            v-model="editForm.account_status"
-                            class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
-                        >
-                            <option value="approved">Aprovado</option>
-                            <option value="pending">Pendente</option>
-                            <option value="rejected">Rejeitado</option>
-                            <option value="suspended">Suspenso (não acessa o painel)</option>
-                            <option value="blocked">Bloqueado (não acessa o painel)</option>
-                        </select>
-                        <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                            Suspenso ou bloqueado: o infoprodutor e a equipe não conseguem entrar no painel do vendedor.
-                        </p>
-                    </div>
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Saldo e saques</p>
-                        <p v-if="editUser" class="mb-3 text-xs text-zinc-600 dark:text-zinc-400">
-                            Disponível (total): <strong class="text-zinc-800 dark:text-zinc-200">{{ formatBRL(editUser.saldo_disponivel) }}</strong>
-                            · PIX pendente: <strong class="text-zinc-800 dark:text-zinc-200">{{ formatBRL(editUser.saldo_pix) }}</strong>
-                            · MED (contestação, ref. carteira):
-                            <strong class="text-zinc-800 dark:text-zinc-200">{{ formatBRL(editUser.med_total ?? 0) }}</strong>
-                        </p>
-                        <label class="flex cursor-pointer items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                            <input v-model="editForm.admin_withdrawal_blocked" type="checkbox" class="rounded border-zinc-300" />
-                            Bloquear todos os saques (administrativo)
-                        </label>
-                        <div class="mt-3">
-                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Valor adicional bloqueado (R$)</label>
-                            <input
-                                v-model="editForm.admin_blocked_amount"
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="0,00"
-                                class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
-                            />
-                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                                Reduz o saldo disponível para saque neste valor (por carteira ao solicitar). MED já retira valor do disponível automaticamente.
-                            </p>
-                        </div>
-                        <div class="mt-3">
-                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Bloqueio automático até (opcional)</label>
-                            <input
-                                v-model="editForm.admin_block_until"
-                                type="datetime-local"
-                                class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
-                            />
-                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Após esta data/hora, bloqueio total e valor extra são limpos automaticamente.</p>
-                        </div>
-                        <div class="mt-3">
-                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Observação interna (opcional)</label>
-                            <input
-                                v-model="editForm.admin_block_note"
-                                type="text"
-                                maxlength="500"
-                                class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
-                            />
-                        </div>
-                    </div>
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Indique e Ganhe</p>
-                        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-                            Percentual da taxa da plataforma que este infoprodutor recebe quando um indicado dele vende.
-                            Deixe em branco para usar o padrão da plataforma
-                            ({{ Number(platform_referral_commission_percent || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 }) }}%).
-                        </p>
-                        <label class="block text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                            Taxa de indicação (%)
-                        </label>
-                        <input
-                            v-model="editForm.referral_commission_percent"
-                            type="text"
-                            inputmode="decimal"
-                            placeholder="Herdar padrão"
-                            class="mt-1 w-full max-w-xs rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"
-                        />
-                        <p v-if="editForm.errors.referral_commission_percent" class="mt-1 text-xs text-red-500">
-                            {{ editForm.errors.referral_commission_percent }}
-                        </p>
-                    </div>
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Taxas (opcional)</p>
-                            <button
-                                type="button"
-                                class="text-xs font-medium text-[var(--color-primary)] hover:underline"
-                                @click="restoreFeesDefaults"
-                            >
-                                Restaurar padrões da plataforma
-                            </button>
-                        </div>
-                        <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Mostra a taxa efetiva atual em cada campo. Edite para personalizar só aquele canal; canais não editados
-                            continuam herdando (API PIX / PixGo acompanham PIX checkout; Apple/Google Pay acompanham Cartão).
-                            Percentual de 0 a 100 (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">2,5</code> = 2,5%). Fixo em reais (ex.: <code class="rounded bg-zinc-100 px-1 dark:bg-zinc-800">1,50</code> = R$ 1,50).
-                        </p>
-                        <div class="hidden gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500 sm:grid sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] dark:text-zinc-400">
-                            <span>Canal</span>
-                            <span>Percentual (%)</span>
-                            <span>Valor fixo (R$)</span>
-                        </div>
-                        <div class="space-y-3 text-sm">
-                            <div
-                                v-for="row in feeOverrideRows"
-                                :key="row.key"
-                                class="grid gap-2 rounded-lg p-2 sm:grid-cols-[minmax(0,1.1fr)_1fr_1fr] sm:items-center"
-                                :class="
-                                    feeRowHasSavedOverride(row.key) || feeRowHasDraftOverride(row.key)
-                                        ? 'bg-violet-50/80 ring-1 ring-violet-200/80 dark:bg-violet-950/20 dark:ring-violet-800/50'
-                                        : ''
-                                "
-                            >
-                                <div>
-                                    <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
-                                    <p v-if="row.inheritHint" class="text-[11px] text-zinc-500 dark:text-zinc-400">
-                                        {{ row.inheritHint }}
-                                    </p>
-                                </div>
-                                <FeePercentInput
-                                    :ref="(el) => setFeePercentRef(row.key, el)"
-                                    :model-value="editForm.merchant_fees[row.key].percent"
-                                    allow-empty
-                                    @update:model-value="(v) => updateMerchantFeeField(row.key, 'percent', v)"
-                                />
-                                <FeeFixedInput
-                                    :ref="(el) => setFeeFixedRef(row.key, el)"
-                                    :model-value="editForm.merchant_fees[row.key].fixed"
-                                    allow-empty
-                                    @update:model-value="(v) => updateMerchantFeeField(row.key, 'fixed', v)"
-                                />
-                            </div>
-                        </div>
-                        <div class="mt-4 rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
-                            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Taxa efetiva após salvar</p>
-                            <div class="overflow-x-auto">
-                                <div class="mb-1 grid min-w-[280px] grid-cols-[minmax(0,1.2fr)_1fr_1fr] gap-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                                    <span>Canal</span>
-                                    <span class="text-right">Global</span>
-                                    <span class="text-right">Efetiva</span>
-                                </div>
-                                <div class="min-w-[280px] space-y-1 text-xs">
-                                    <div
-                                        v-for="row in feesComparisonPreview"
-                                        :key="'prev-' + row.key"
-                                        class="grid grid-cols-[minmax(0,1.2fr)_1fr_1fr] gap-2 text-zinc-700 dark:text-zinc-300"
-                                    >
-                                        <span class="truncate">{{ row.label }}</span>
-                                        <span class="tabular-nums text-right text-zinc-500 dark:text-zinc-400">
-                                            {{ formatFeePreview(row.global_percent, row.global_fixed) }}
-                                        </span>
-                                        <span
-                                            class="tabular-nums text-right"
-                                            :class="
-                                                row.differs
-                                                    ? 'font-medium text-[var(--color-primary)]'
-                                                    : 'text-zinc-900 dark:text-white'
-                                            "
-                                        >
-                                            {{ formatFeePreview(row.effective_percent, row.effective_fixed) }}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">Liquidação (opcional)</p>
-                            <button
-                                type="button"
-                                class="text-xs font-medium text-[var(--color-primary)] hover:underline"
-                                @click="restoreSettlementDefaults"
-                            >
-                                Restaurar padrões da plataforma
-                            </button>
-                        </div>
-                        <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Sobrescreve Financeiro → Liquidação. Deixe em branco para herdar da plataforma.
-                        </p>
-                        <div class="space-y-3 text-sm">
-                            <div
-                                v-for="row in settlementOverrideRows"
-                                :key="'set-' + row.key"
-                                class="grid gap-2 sm:grid-cols-[100px_1fr_1fr_1fr] sm:items-center"
-                            >
-                                <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</span>
-                                <input
-                                    v-model="editForm.merchant_settlement_overrides[row.key].days_to_available"
-                                    type="number"
-                                    min="0"
-                                    max="365"
-                                    step="1"
-                                    placeholder="Dias D+N"
-                                    class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
-                                    @input="markSettlementDirty"
-                                />
-                                <input
-                                    v-model="editForm.merchant_settlement_overrides[row.key].reserve_percent"
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    step="0.01"
-                                    placeholder="Reserva %"
-                                    class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
-                                    @input="markSettlementDirty"
-                                />
-                                <input
-                                    v-model="editForm.merchant_settlement_overrides[row.key].reserve_hold_days"
-                                    type="number"
-                                    min="0"
-                                    max="365"
-                                    step="1"
-                                    placeholder="Extra reserva (dias)"
-                                    class="rounded-lg border border-zinc-300 px-2 py-1.5 dark:border-zinc-600 dark:bg-zinc-800"
-                                    @input="markSettlementDirty"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">API PIX</p>
-                        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-                            Controla se este infoprodutor pode usar a API PIX (REST, checkout hospedado e chaves de API).
-                            Padrão global: {{ platform_api_pix_enabled ? 'habilitada' : 'desabilitada' }} em Financeiro → Taxas.
-                        </p>
-                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Modo</label>
-                        <select
-                            v-model="editForm.api_pix_mode"
-                            class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
-                            @change="markApiPixDirty"
-                        >
-                            <option value="inherit">Herdar plataforma</option>
-                            <option value="enabled">Habilitada</option>
-                            <option value="disabled">Desabilitada</option>
-                        </select>
-                        <p v-if="editUser" class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                            Efetivo após salvar:
-                            <strong class="text-zinc-700 dark:text-zinc-200">
-                                {{
-                                    editForm.api_pix_mode === 'enabled'
-                                        ? 'Habilitada'
-                                        : editForm.api_pix_mode === 'disabled'
-                                          ? 'Desabilitada'
-                                          : platform_api_pix_enabled
-                                            ? 'Habilitada (herda plataforma)'
-                                            : 'Desabilitada (herda plataforma)'
-                                }}
-                            </strong>
-                        </p>
-                        <label class="mt-4 flex cursor-pointer items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                            <input
-                                v-model="editForm.med_zero_enabled"
-                                type="checkbox"
-                                class="rounded border-zinc-300"
-                                @change="markApiPixDirty"
-                            />
-                            MED Zero — plataforma assume MED de API PIX (sem retenção no infoprodutor)
-                        </label>
-                    </div>
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Limites de cobrança (opcional)</p>
-                        <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Sobrescreve Financeiro → Limites. Vazio ou «usar padrão» herda os valores globais
-                            (API PIX: {{ formatBRL(platform_charge_limits.api_pix_minimum_charge_brl) }},
-                            plataforma: {{ formatBRL(platform_charge_limits.platform_minimum_charge_brl) }}).
-                        </p>
-                        <div class="grid gap-4 sm:grid-cols-2">
-                            <div>
-                                <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                                    Ticket mínimo API PIX (R$)
-                                </label>
-                                <input
-                                    v-model="editForm.api_pix_minimum_charge_brl"
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    :disabled="editForm.use_platform_api_pix_minimum"
-                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800"
-                                    @input="markLimitsDirty"
-                                />
-                                <label class="mt-2 flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                                    <input
-                                        v-model="editForm.use_platform_api_pix_minimum"
-                                        type="checkbox"
-                                        class="rounded border-zinc-300"
-                                        @change="markLimitsDirty"
-                                    />
-                                    Usar padrão da plataforma
-                                </label>
-                                <p class="mt-1 text-xs text-zinc-500">Efetivo: {{ formatBRL(effectiveApiPixMinimumPreview) }}</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                                    Ticket mínimo plataforma (R$)
-                                </label>
-                                <input
-                                    v-model="editForm.platform_minimum_charge_brl"
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    :disabled="editForm.use_platform_platform_minimum"
-                                    class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800"
-                                    @input="markLimitsDirty"
-                                />
-                                <label class="mt-2 flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                                    <input
-                                        v-model="editForm.use_platform_platform_minimum"
-                                        type="checkbox"
-                                        class="rounded border-zinc-300"
-                                        @change="markLimitsDirty"
-                                    />
-                                    Usar padrão da plataforma
-                                </label>
-                                <p class="mt-1 text-xs text-zinc-500">Efetivo: {{ formatBRL(effectivePlatformMinimumPreview) }}</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div v-if="showCajuPayAccountField" class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">Conta CajuPay</p>
-                        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-                            Direciona pagamentos, saques e API PIX deste infoprodutor para uma conta específica. Deixe em padrão para usar a conta global.
-                        </p>
-                        <select
-                            v-model="editForm.cajupay_account_id"
-                            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
-                            @change="cajupayAccountDirty = true"
-                        >
-                            <option value="">Padrão da plataforma</option>
-                            <option v-for="acc in props.cajupay_accounts" :key="acc.id" :value="String(acc.id)">
-                                {{ acc.name }}{{ acc.is_default ? ' (padrão global)' : '' }}
-                            </option>
-                        </select>
-                    </div>
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Ordem de adquirentes (opcional)</p>
-                        <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Escolha o adquirente principal por forma de pagamento (entre os já conectados na plataforma). «Padrão da
-                            plataforma» herda a ordem de Financeiro → Adquirentes.
-                        </p>
-                        <div class="space-y-3 text-sm">
-                            <template v-for="row in gatewayOrderRows" :key="'go-' + row.key">
-                                <div
-                                    v-if="row.key !== 'pix_auto' || showPixAutoRow"
-                                    class="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3"
-                                >
-                                    <label class="w-40 shrink-0 font-medium text-zinc-700 dark:text-zinc-300">{{ row.label }}</label>
-                                    <select
-                                        v-model="merchantGatewayPrimary[row.key]"
-                                        class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
-                                    >
-                                        <option value="">Padrão da plataforma</option>
-                                        <option v-for="g in gatewaysForSelectMethod(row.key)" :key="g.slug" :value="g.slug">
-                                            {{ g.name }}{{ g.is_connected ? '' : ' (não conectado)' }}
-                                        </option>
-                                    </select>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                    <div v-if="editUser" class="rounded-xl border border-amber-200/80 bg-amber-50/40 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
-                        <p class="mb-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">Observações internas</p>
-                        <MerchantAdminNotesPanel
-                            :merchant-user-id="editUser.id"
-                            compact
-                            :initial-count="editUser.admin_notes_count || 0"
-                            @count-changed="(n) => onAdminNotesCountChanged(editUser.id, n)"
-                        />
-                    </div>
-                    <div class="flex justify-end gap-2 pt-2">
-                        <Button type="button" variant="secondary" @click="closeEditModal">Cancelar</Button>
-                        <Button type="submit" :disabled="editForm.processing">Salvar</Button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <div
-            v-if="bulkDeleteOpen"
-            class="fixed inset-0 z-[200001] flex items-center justify-center bg-black/50 p-4"
-            role="dialog"
-            aria-modal="true"
-            @click.self="closeBulkDeleteModal"
-        >
+        <div v-if="bulkDeleteOpen" class="fixed inset-0 z-[200001] flex items-center justify-center bg-black/50 p-4" @click.self="closeBulkDeleteModal">
             <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-zinc-900">
-                <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">Excluir contas selecionadas</h3>
-                <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                    Esta ação não pode ser desfeita. Contas com saldo ou pedidos pagos/em disputa serão ignoradas.
-                </p>
-                <ul class="mt-4 max-h-48 space-y-1 overflow-y-auto text-sm text-zinc-700 dark:text-zinc-300">
-                    <li v-for="u in bulkDeleteTargets" :key="u.id">
-                        #{{ u.id }} — {{ u.name }} ({{ u.email }})
-                    </li>
-                </ul>
-                <div class="mt-6 flex justify-end gap-2">
-                    <Button type="button" variant="secondary" :disabled="bulkDeleteLoading" @click="closeBulkDeleteModal">
-                        Cancelar
-                    </Button>
-                    <Button type="button" :disabled="bulkDeleteLoading" @click="requestBulkDelete">
-                        Excluir {{ selectedCount }} conta(s)
-                    </Button>
-                </div>
+                <h3 class="text-lg font-semibold">Excluir contas selecionadas</h3>
+                <p class="mt-2 text-sm text-zinc-600">Esta ação não pode ser desfeita. Contas com saldo ou pedidos pagos/em disputa serão ignoradas.</p>
+                <ul class="mt-4 max-h-48 space-y-1 overflow-y-auto text-sm"><li v-for="user in bulkDeleteTargets" :key="user.id">#{{ user.id }} — {{ user.name }} ({{ user.email }})</li></ul>
+                <div class="mt-6 flex justify-end gap-2"><Button type="button" variant="secondary" :disabled="bulkDeleteLoading" @click="closeBulkDeleteModal">Cancelar</Button><Button type="button" :disabled="bulkDeleteLoading" @click="requestBulkDelete">Excluir {{ selectedCount }} conta(s)</Button></div>
             </div>
         </div>
-
-        <PlatformStepUpModal
-            :open="bulkStepUpOpen"
-            title="Confirmar exclusão em massa"
-            description="Informe o código 2FA para excluir as contas selecionadas."
-            confirm-label="Excluir contas"
-            :loading="bulkDeleteLoading"
-            @close="closeBulkStepUp"
-            @confirm="onBulkStepUpConfirm"
-        />
+        <PlatformStepUpModal :open="bulkStepUpOpen" title="Confirmar exclusão em massa" description="Informe o código 2FA para excluir as contas selecionadas." confirm-label="Excluir contas" :loading="bulkDeleteLoading" @close="bulkStepUpOpen = false" @confirm="(payload) => submitBulkDelete(payload.totp_code)" />
     </div>
 </template>

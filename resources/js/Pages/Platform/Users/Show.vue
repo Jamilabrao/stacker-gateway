@@ -275,7 +275,7 @@ function formatFeePreview(percent, fixed) {
             </div>
             <div class="flex flex-wrap gap-2">
                 <Link
-                    :href="`/plataforma/usuarios?edit=${merchant.id}`"
+                    :href="`/plataforma/usuarios/${merchant.id}/edit`"
                     class="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"
                 >
                     Editar configurações
@@ -665,7 +665,7 @@ function formatFeePreview(percent, fixed) {
                             </template>
                             <div class="mt-1">
                                 <Link
-                                    :href="`/plataforma/usuarios?edit=${merchant.id}`"
+                                    :href="`/plataforma/usuarios/${merchant.id}/edit`"
                                     class="text-xs text-[var(--color-primary)] underline"
                                 >
                                     Editar no cadastro

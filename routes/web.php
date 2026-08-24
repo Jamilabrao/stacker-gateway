@@ -353,6 +353,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             Route::post('/excluir-em-massa', [\App\Http\Controllers\Platform\UsersController::class, 'bulkDestroy'])
                 ->middleware('throttle:5,1')
                 ->name('bulk-destroy');
+            Route::get('/{user}/edit', [\App\Http\Controllers\Platform\UsersController::class, 'edit'])->name('edit');
             Route::get('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'show'])->name('show');
             Route::get('/{user}/taxas-efetivas', [\App\Http\Controllers\Platform\UsersController::class, 'effectiveFees'])->name('effective-fees');
             Route::get('/{user}/observacoes', [\App\Http\Controllers\Platform\MerchantAdminNotesController::class, 'index'])->name('notes.index');
