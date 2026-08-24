@@ -71,4 +71,9 @@ return [
         'base_url' => rtrim(env('PAGARME_API_BASE_URL', 'https://api.pagar.me/core/v5'), '/'),
     ],
 
+    'brasilapi' => [
+        'cnpj_url' => rtrim(env('BRASILAPI_CNPJ_URL', 'https://brasilapi.com.br/api/cnpj/v1'), '/'),
+        'timeout' => (float) env('BRASILAPI_CNPJ_TIMEOUT', 3),
+    ],
+
 ];

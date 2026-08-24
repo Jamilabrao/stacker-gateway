@@ -257,6 +257,7 @@ Route::get('/email/verificar/{id}/{hash}', [\App\Http\Controllers\EmailVerificat
 Route::post('/cadastro', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'store'])->middleware('throttle:registration-store');
 Route::post('/cadastro/validar-email', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateEmail'])->middleware('throttle:registration-validate');
 Route::post('/cadastro/validar-documento', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'validateDocument'])->middleware('throttle:registration-validate');
+Route::post('/cadastro/consultar-cnpj', [\App\Http\Controllers\InfoprodutorRegistrationController::class, 'lookupCnpj'])->middleware('throttle:registration-validate');
 
 Route::middleware('throttle:10,1')->group(function () {
     Route::post('/demo/login/admin', [\App\Http\Controllers\DemoLoginController::class, 'loginAdmin'])->name('demo.login.admin');
@@ -608,6 +609,7 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/verificacoes-kyc/usuario/{user}', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'show'])->name('kyc.show');
         Route::post('/verificacoes-kyc/usuario/{user}/aprovar', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'approve'])->name('kyc.approve')->middleware('throttle:30,1');
         Route::post('/verificacoes-kyc/usuario/{user}/rejeitar', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'reject'])->name('kyc.reject')->middleware('throttle:30,1');
+        Route::post('/verificacoes-kyc/usuario/{user}/consultar-cnpj', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'refreshCnpj'])->name('kyc.refresh-cnpj')->middleware('throttle:20,1');
 
         Route::get('/log-infoprodutor', [\App\Http\Controllers\Platform\SellerActivityLogsController::class, 'index'])
             ->name('seller-activity-logs.index');

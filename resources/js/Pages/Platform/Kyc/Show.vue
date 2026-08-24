@@ -1,18 +1,26 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { useForm, Link, router } from '@inertiajs/vue3';
+import { useForm, Link, router, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
 import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
-import { Download, Eye, X } from 'lucide-vue-next';
+import { Download, Eye, MessageCircle, RefreshCw, X } from 'lucide-vue-next';
 
 defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
     merchant: { type: Object, required: true },
     documents: { type: Array, default: () => [] },
+    cnpj_lookup: { type: Object, default: null },
     platform_totp_enabled: { type: Boolean, default: false },
 });
+
+const page = usePage();
+const flashSuccess = computed(() => page.props.flash?.success ?? null);
+const flashError = computed(() => page.props.flash?.error ?? null);
+const flashInfo = computed(() => page.props.flash?.info ?? null);
+
+const refreshingCnpj = ref(false);
 
 const rejectForm = useForm({
     reason: '',
@@ -81,6 +89,27 @@ function closeStepUp() {
 
 function kycActionBase() {
     return `/plataforma/verificacoes-kyc/usuario/${props.merchant.id}`;
+}
+
+function refreshCnpj() {
+    refreshingCnpj.value = true;
+    router.post(
+        `${kycActionBase()}/consultar-cnpj`,
+        {},
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                refreshingCnpj.value = false;
+            },
+        },
+    );
+}
+
+function alertClass(tone) {
+    if (tone === 'danger') {
+        return 'border-red-200 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200';
+    }
+    return 'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100';
 }
 
 function submitApprove() {
@@ -157,6 +186,124 @@ function onStepUpConfirm(payload) {
         <div>
             <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">{{ merchant.name }}</h1>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{{ merchant.email }}</p>
+            <div
+                v-if="merchant.whatsapp || merchant.phone || merchant.whatsapp_url"
+                class="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+            >
+                <span>{{ merchant.whatsapp || merchant.phone || '—' }}</span>
+                <a
+                    v-if="merchant.whatsapp_url"
+                    :href="merchant.whatsapp_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500"
+                    title="Abrir conversa no WhatsApp"
+                >
+                    <MessageCircle class="h-3.5 w-3.5" />
+                    WhatsApp
+                </a>
+            </div>
+        </div>
+
+        <div
+            v-if="flashSuccess"
+            class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+        >
+            {{ flashSuccess }}
+        </div>
+        <div
+            v-if="flashError"
+            class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+        >
+            {{ flashError }}
+        </div>
+        <div
+            v-if="flashInfo"
+            class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
+        >
+            {{ flashInfo }}
+        </div>
+
+        <div v-if="cnpj_lookup" class="space-y-3">
+            <div
+                v-for="alert in cnpj_lookup.alerts || []"
+                :key="alert.code"
+                class="rounded-xl border px-4 py-3 text-sm"
+                :class="alertClass(alert.tone)"
+            >
+                <p class="font-medium">Atenção na análise</p>
+                <p class="mt-1">{{ alert.message }}</p>
+            </div>
+
+            <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/40">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Consulta CNPJ (BrasilAPI)</h2>
+                        <p class="mt-1 text-xs text-zinc-500">
+                            Compare o que o infoprodutor preencheu com o retorno da Receita.
+                            <span v-if="cnpj_lookup.checked_at"> Última consulta: {{ cnpj_lookup.checked_at }}</span>
+                        </p>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" class="inline-flex items-center gap-1.5" :disabled="refreshingCnpj" @click="refreshCnpj">
+                        <RefreshCw class="h-3.5 w-3.5" :class="refreshingCnpj ? 'animate-spin' : ''" />
+                        {{ refreshingCnpj ? 'Consultando…' : 'Consultar novamente' }}
+                    </Button>
+                </div>
+
+                <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div class="rounded-xl border border-zinc-100 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-800/40">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Preenchido no cadastro</p>
+                        <dl class="mt-3 space-y-2 text-sm">
+                            <div>
+                                <dt class="text-xs text-zinc-500">Razão social</dt>
+                                <dd class="font-medium text-zinc-900 dark:text-white">{{ cnpj_lookup.submitted?.company_name || '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500">Endereço</dt>
+                                <dd class="text-zinc-700 dark:text-zinc-300">{{ cnpj_lookup.submitted?.address_line || '—' }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+                    <div class="rounded-xl border border-zinc-100 bg-zinc-50/80 p-4 dark:border-zinc-800 dark:bg-zinc-800/40">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Retorno da API</p>
+                        <dl class="mt-3 space-y-2 text-sm">
+                            <div>
+                                <dt class="text-xs text-zinc-500">Razão social</dt>
+                                <dd class="font-medium text-zinc-900 dark:text-white">{{ cnpj_lookup.official?.razao_social || '—' }}</dd>
+                            </div>
+                            <div v-if="cnpj_lookup.official?.nome_fantasia">
+                                <dt class="text-xs text-zinc-500">Nome fantasia</dt>
+                                <dd>{{ cnpj_lookup.official.nome_fantasia }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500">Situação</dt>
+                                <dd
+                                    class="font-medium"
+                                    :class="cnpj_lookup.official?.situacao_irregular ? 'text-red-700 dark:text-red-300' : 'text-zinc-900 dark:text-white'"
+                                >
+                                    {{ cnpj_lookup.official?.situacao || '—' }}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500">Endereço na Receita</dt>
+                                <dd class="text-zinc-700 dark:text-zinc-300">{{ cnpj_lookup.official?.address_line || '—' }}</dd>
+                            </div>
+                            <div v-if="cnpj_lookup.official?.cnae">
+                                <dt class="text-xs text-zinc-500">CNAE</dt>
+                                <dd>{{ cnpj_lookup.official.cnae }}</dd>
+                            </div>
+                            <div v-if="cnpj_lookup.official?.qsa?.length">
+                                <dt class="text-xs text-zinc-500">Quadro societário</dt>
+                                <dd>
+                                    <ul class="mt-1 list-disc pl-4 text-zinc-700 dark:text-zinc-300">
+                                        <li v-for="(socio, idx) in cnpj_lookup.official.qsa" :key="idx">{{ socio }}</li>
+                                    </ul>
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="grid gap-6 lg:grid-cols-2">
@@ -166,6 +313,27 @@ function onStepUpConfirm(payload) {
                     <div class="flex justify-between gap-2">
                         <dt class="text-zinc-500">Tipo</dt>
                         <dd>{{ merchant.person_type === 'pj' ? 'Pessoa jurídica' : 'Pessoa física' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">E-mail</dt>
+                        <dd class="break-all text-right">{{ merchant.email }}</dd>
+                    </div>
+                    <div class="flex items-start justify-between gap-2">
+                        <dt class="shrink-0 text-zinc-500">Telefone</dt>
+                        <dd class="flex flex-wrap items-center justify-end gap-2 text-right">
+                            <span>{{ merchant.whatsapp || merchant.phone || '—' }}</span>
+                            <a
+                                v-if="merchant.whatsapp_url"
+                                :href="merchant.whatsapp_url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500"
+                                title="Abrir conversa no WhatsApp"
+                            >
+                                <MessageCircle class="h-3.5 w-3.5" />
+                                WhatsApp
+                            </a>
+                        </dd>
                     </div>
                     <div v-if="merchant.company_name" class="flex justify-between gap-2">
                         <dt class="text-zinc-500">Razão social</dt>

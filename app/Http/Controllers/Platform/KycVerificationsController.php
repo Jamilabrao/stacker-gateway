@@ -9,8 +9,10 @@ use App\Models\User;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformEmailNotifications;
+use App\Support\CnpjLookup;
 use App\Support\KycRequiredDocuments;
 use App\Support\KycUpload;
+use App\Support\MerchantProfileSnapshot;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -66,6 +68,8 @@ class KycVerificationsController extends Controller
     {
         abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
 
+        $profile = MerchantProfileSnapshot::forUser($user);
+
         $documents = $user->kycDocuments()->orderBy('kind')->get()->map(function (KycDocument $d) {
             $base = route('plataforma.kyc.document', ['document' => $d]);
 
@@ -85,6 +89,9 @@ class KycVerificationsController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'phone' => $profile['phone'] ?? null,
+                'whatsapp' => $profile['whatsapp'] ?? null,
+                'whatsapp_url' => $profile['whatsapp_url'] ?? null,
                 'person_type' => $user->person_type,
                 'document' => $user->document,
                 'company_name' => $user->company_name,
@@ -102,6 +109,7 @@ class KycVerificationsController extends Controller
                 'kyc_rejection_reason' => $user->kyc_rejection_reason,
                 'kyc_reviewed_at' => $user->kyc_reviewed_at?->toIso8601String(),
             ],
+            'cnpj_lookup' => CnpjLookup::forKycAdmin($user),
             'documents' => $documents,
             'platform_totp_enabled' => PlatformTotpService::isEnabledFor(request()->user()),
         ]);
@@ -164,6 +172,59 @@ class KycVerificationsController extends Controller
         $platformEmailNotifications->kycRejected($user->fresh(), $validated['reason']);
 
         return redirect()->route('plataforma.kyc.show', ['user' => $user->id])->with('success', 'Verificação rejeitada. O infoprodutor pode reenviar documentos.');
+    }
+
+    public function refreshCnpj(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
+        abort_unless($user->person_type === 'pj', 422);
+
+        $cnpj = preg_replace('/\D/', '', (string) $user->document) ?? '';
+        if (strlen($cnpj) !== 14) {
+            return redirect()
+                ->route('plataforma.kyc.show', ['user' => $user->id])
+                ->with('error', 'CNPJ do cadastro inválido para consulta.');
+        }
+
+        try {
+            $snapshot = CnpjLookup::persistForUser(
+                $user->fresh(),
+                $cnpj,
+                (string) ($user->company_name ?? ''),
+                null,
+                true,
+            );
+        } catch (\Throwable $e) {
+            PlatformAuditService::log('platform.kyc.cnpj_refresh_failed', [
+                'merchant_id' => $user->id,
+                'error' => $e->getMessage(),
+            ], $request);
+
+            return redirect()
+                ->route('plataforma.kyc.show', ['user' => $user->id])
+                ->with('error', 'Não foi possível consultar o CNPJ agora. Tente de novo em instantes.');
+        }
+
+        $refreshOk = ($snapshot['status'] ?? '') === \App\Services\Cnpj\BrasilApiCnpjClient::STATUS_OK
+            && filled($snapshot['razao_social'] ?? null)
+            && ($snapshot['has_official_data'] ?? true) !== false
+            && empty($snapshot['last_error']);
+
+        PlatformAuditService::log('platform.kyc.cnpj_refreshed', [
+            'merchant_id' => $user->id,
+            'status' => $snapshot['status'] ?? null,
+            'ok' => $refreshOk,
+        ], $request);
+
+        if ($refreshOk) {
+            return redirect()
+                ->route('plataforma.kyc.show', ['user' => $user->id])
+                ->with('success', 'Consulta CNPJ atualizada. Compare os dados da Receita com o cadastro.');
+        }
+
+        return redirect()
+            ->route('plataforma.kyc.show', ['user' => $user->id])
+            ->with('error', 'A consulta via API não foi bem-sucedida. Os dados anteriores, se houver, foram mantidos. Atenção na análise.');
     }
 
     public function downloadDocument(Request $request, KycDocument $document): StreamedResponse|\Symfony\Component\HttpFoundation\Response
