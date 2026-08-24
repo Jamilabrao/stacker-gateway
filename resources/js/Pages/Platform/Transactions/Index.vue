@@ -132,6 +132,20 @@ function formatBRL(value) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 }
 
+function formatDateParts(value) {
+    if (!value) {
+        return { date: '—', time: '' };
+    }
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+        return { date: '—', time: '' };
+    }
+    return {
+        date: d.toLocaleDateString('pt-BR'),
+        time: d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    };
+}
+
 function statusLabel(orderOrStatus) {
     if (orderOrStatus && typeof orderOrStatus === 'object') {
         if (orderOrStatus.status_label) return orderOrStatus.status_label;
@@ -461,6 +475,8 @@ onUnmounted(() => {
 });
 
 const paginationLinks = computed(() => props.orders?.links ?? []);
+
+const tableColCount = computed(() => (isRefundRequestsFilter.value ? 12 : 11));
 </script>
 
 <template>
@@ -590,11 +606,11 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
         <div
             class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
         >
-            <div class="overflow-x-auto">
-                <table class="w-full min-w-[1100px] text-left text-sm">
-                    <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900/50">
+            <div class="overflow-x-auto lg:overflow-x-visible">
+                <table class="w-full min-w-[720px] table-fixed text-left text-sm lg:min-w-0">
+                    <thead class="border-b border-zinc-200 bg-zinc-50 text-[11px] uppercase leading-tight text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900/50">
                         <tr>
-                            <th class="w-12 px-3 py-3">
+                            <th class="w-9 px-2 py-2.5">
                                 <input
                                     type="checkbox"
                                     class="rounded border-zinc-300"
@@ -605,17 +621,17 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                                     @click.stop
                                 />
                             </th>
-                            <th class="px-4 py-3">Data</th>
-                            <th class="px-4 py-3">Pedido</th>
-                            <th class="px-4 py-3">Cliente</th>
-                            <th class="px-4 py-3">Infoprodutor</th>
-                            <th class="px-4 py-3">Produto</th>
-                            <th class="px-4 py-3">Status</th>
-                            <th v-if="isRefundRequestsFilter" class="px-4 py-3">Solicitação</th>
-                            <th class="px-4 py-3">Método</th>
-                            <th class="px-4 py-3">Recebedor</th>
-                            <th class="px-4 py-3 text-right">Valor (bruto)</th>
-                            <th class="relative w-14 px-2 py-3"><span class="sr-only">Ações</span></th>
+                            <th class="w-[4.75rem] px-2 py-2.5">Data</th>
+                            <th class="w-14 px-2 py-2.5">Pedido</th>
+                            <th class="min-w-0 px-2 py-2.5">Cliente</th>
+                            <th class="min-w-0 px-2 py-2.5">Infoprodutor</th>
+                            <th class="min-w-0 px-2 py-2.5">Produto</th>
+                            <th class="w-[6.75rem] px-2 py-2.5">Status</th>
+                            <th v-if="isRefundRequestsFilter" class="min-w-0 px-2 py-2.5">Solicitação</th>
+                            <th class="w-[5.25rem] px-2 py-2.5">Método</th>
+                            <th class="w-[6.25rem] px-2 py-2.5">Recebedor</th>
+                            <th class="w-[6.5rem] px-2 py-2.5 text-right">Valor (bruto)</th>
+                            <th class="relative w-10 px-1 py-2.5"><span class="sr-only">Ações</span></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-zinc-100 dark:divide-zinc-700">
@@ -629,7 +645,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             @keydown.enter.prevent="openDetail(o)"
                             @keydown.space.prevent="openDetail(o)"
                         >
-                            <td class="px-3 py-3" @click.stop>
+                            <td class="px-2 py-2.5 align-top" @click.stop>
                                 <input
                                     v-if="o.status === 'pending'"
                                     type="checkbox"
@@ -639,34 +655,50 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                                 />
                                 <span v-else class="inline-block w-4" aria-hidden="true" />
                             </td>
-                            <td class="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                                {{ o.created_at ? new Date(o.created_at).toLocaleString('pt-BR') : '—' }}
+                            <td class="px-2 py-2.5 align-top text-zinc-600 dark:text-zinc-300">
+                                <div class="leading-tight">{{ formatDateParts(o.created_at).date }}</div>
+                                <div
+                                    v-if="formatDateParts(o.created_at).time"
+                                    class="mt-0.5 text-[11px] leading-tight text-zinc-500 dark:text-zinc-400"
+                                >
+                                    {{ formatDateParts(o.created_at).time }}
+                                </div>
                             </td>
-                            <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-200">#{{ o.id }}</td>
-                            <td class="max-w-[200px] px-4 py-3">
-                                <div class="font-medium text-zinc-900 dark:text-white">{{ o.customer_name }}</div>
-                                <div class="truncate text-xs text-zinc-500">{{ o.customer_email }}</div>
+                            <td class="px-2 py-2.5 align-top font-mono text-xs text-zinc-700 dark:text-zinc-200">
+                                #{{ o.id }}
                             </td>
-                            <td class="max-w-[200px] px-4 py-3">
-                                <div class="font-medium text-zinc-900 dark:text-white">{{ o.infoprodutor_name }}</div>
-                                <div class="truncate text-xs text-zinc-500">{{ o.infoprodutor_email ?? '—' }}</div>
+                            <td class="min-w-0 px-2 py-2.5 align-top">
+                                <div class="truncate font-medium text-zinc-900 dark:text-white" :title="o.customer_name">
+                                    {{ o.customer_name }}
+                                </div>
+                                <div class="truncate text-xs text-zinc-500" :title="o.customer_email">
+                                    {{ o.customer_email }}
+                                </div>
                             </td>
-                            <td class="max-w-[220px] px-4 py-3">
-                                <span class="line-clamp-2">{{ o.product_label }}</span>
+                            <td class="min-w-0 px-2 py-2.5 align-top">
+                                <div class="truncate font-medium text-zinc-900 dark:text-white" :title="o.infoprodutor_name">
+                                    {{ o.infoprodutor_name }}
+                                </div>
+                                <div class="truncate text-xs text-zinc-500" :title="o.infoprodutor_email ?? ''">
+                                    {{ o.infoprodutor_email ?? '—' }}
+                                </div>
+                            </td>
+                            <td class="min-w-0 px-2 py-2.5 align-top">
+                                <span class="line-clamp-2 break-words" :title="o.product_label">{{ o.product_label }}</span>
                                 <span
                                     v-if="o.is_pixgo"
                                     class="mt-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
                                 >{{ o.pixgo_label || 'PixGO' }}</span>
                             </td>
-                            <td class="whitespace-nowrap px-4 py-3">
+                            <td class="px-2 py-2.5 align-top">
                                 <div class="flex flex-col gap-1">
                                     <span
-                                        :class="['inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium', statusBadgeClass(o)]"
+                                        :class="['inline-flex w-fit max-w-full rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight', statusBadgeClass(o)]"
                                     >
                                         {{ statusLabel(o) }}
                                     </span>
                                     <span
-                                        v-if="o.pending_refund_request"
+                                        v-if="o.pending_refund_request && !isRefundRequestsFilter"
                                         class="inline-flex w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
                                     >
                                         Reembolso pendente
@@ -679,41 +711,49 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                                     </span>
                                 </div>
                             </td>
-                            <td v-if="isRefundRequestsFilter" class="max-w-[260px] px-4 py-3">
-                                <div class="text-xs text-zinc-500 dark:text-zinc-400">
-                                    {{
-                                        o.pending_refund_request?.created_at
-                                            ? new Date(o.pending_refund_request.created_at).toLocaleString('pt-BR')
-                                            : '—'
-                                    }}
+                            <td v-if="isRefundRequestsFilter" class="min-w-0 px-2 py-2.5 align-top">
+                                <div class="leading-tight text-zinc-500 dark:text-zinc-400">
+                                    <div>{{ formatDateParts(o.pending_refund_request?.created_at).date }}</div>
+                                    <div
+                                        v-if="formatDateParts(o.pending_refund_request?.created_at).time"
+                                        class="text-[11px]"
+                                    >
+                                        {{ formatDateParts(o.pending_refund_request?.created_at).time }}
+                                    </div>
                                 </div>
-                                <p class="mt-0.5 line-clamp-3 text-sm text-zinc-800 dark:text-zinc-200">
+                                <p
+                                    class="mt-1 line-clamp-2 break-words text-sm text-zinc-800 dark:text-zinc-200"
+                                    :title="o.pending_refund_request?.customer_reason || ''"
+                                >
                                     {{ o.pending_refund_request?.customer_reason || 'Sem motivo informado' }}
                                 </p>
                             </td>
-                            <td class="max-w-[140px] px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                                <span class="line-clamp-2">{{ o.payment_method_label }}</span>
+                            <td class="min-w-0 px-2 py-2.5 align-top text-zinc-600 dark:text-zinc-300">
+                                <span class="line-clamp-2 break-words" :title="o.payment_method_label">{{ o.payment_method_label }}</span>
                             </td>
-                            <td class="max-w-[160px] px-4 py-3">
-                                <div class="font-medium text-zinc-900 dark:text-white">{{ o.recebedor || '—' }}</div>
+                            <td class="min-w-0 px-2 py-2.5 align-top">
+                                <div class="truncate font-medium text-zinc-900 dark:text-white" :title="o.recebedor || ''">
+                                    {{ o.recebedor || '—' }}
+                                </div>
                                 <div
                                     v-if="o.cajupay_account_badge"
                                     class="truncate text-xs text-zinc-500"
+                                    :title="o.cajupay_account_badge"
                                 >
                                     {{ o.cajupay_account_badge }}
                                 </div>
                             </td>
-                            <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium text-zinc-900 dark:text-white">
+                            <td class="px-2 py-2.5 align-top text-right text-xs tabular-nums font-medium leading-tight text-zinc-900 dark:text-white">
                                 {{ formatBRL(o.amount_gross) }}
                             </td>
-                            <td class="relative px-2 py-2 text-right align-middle" @click.stop>
+                            <td class="relative px-1 py-2 text-right align-top" @click.stop>
                                 <div
                                     class="relative flex justify-end"
                                     :data-tx-menu="o.id"
                                 >
                                     <button
                                         type="button"
-                                        class="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                                        class="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                                         :aria-expanded="openMenuId === o.id"
                                         aria-label="Abrir ações"
                                         @click="toggleMenu(o.id, $event)"
@@ -724,7 +764,7 @@ const paginationLinks = computed(() => props.orders?.links ?? []);
                             </td>
                         </tr>
                         <tr v-if="!rows.length">
-                            <td :colspan="isRefundRequestsFilter ? 12 : 11" class="px-4 py-12 text-center text-zinc-500">
+                            <td :colspan="tableColCount" class="px-4 py-12 text-center text-zinc-500">
                                 {{
                                     isRefundRequestsFilter
                                         ? 'Nenhuma solicitação de reembolso pendente.'
