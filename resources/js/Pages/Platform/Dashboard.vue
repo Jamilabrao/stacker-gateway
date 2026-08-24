@@ -293,7 +293,7 @@ const paymentMax = computed(() => Math.max(1, ...props.payment_methods.map((m) =
 </script>
 
 <template>
-    <div class="space-y-6">
+    <div class="min-w-0 space-y-6 overflow-x-hidden">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
                 <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Visão consolidada</h2>
@@ -564,76 +564,73 @@ const paymentMax = computed(() => Math.max(1, ...props.payment_methods.map((m) =
             </div>
         </section>
 
-        <section class="grid gap-4 lg:grid-cols-2">
-            <div class="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+        <section class="grid min-w-0 gap-4 lg:grid-cols-2">
+            <div class="min-w-0 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
+                <div class="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between dark:border-zinc-700">
                     <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Top infoprodutores</h3>
-                    <div class="flex items-center gap-2">
+                    <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                         <button type="button" class="text-xs" :class="sellerSort === 'volume' ? 'font-semibold text-[var(--color-primary)]' : 'text-zinc-500'" @click="sellerSort = 'volume'">Faturamento</button>
                         <button type="button" class="text-xs" :class="sellerSort === 'quantidade' ? 'font-semibold text-[var(--color-primary)]' : 'text-zinc-500'" @click="sellerSort = 'quantidade'">Vendas</button>
                         <Link href="/plataforma/usuarios?sort_by=total_sales&sort_direction=desc" class="inline-flex items-center gap-1 text-xs text-[var(--color-primary)]">
-                            Ranking completo <ExternalLink class="h-3 w-3" />
+                            Ranking completo <ExternalLink class="h-3 w-3 shrink-0" />
                         </Link>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table v-if="sortedSellers.length" class="w-full text-left text-sm">
-                        <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-800/80">
-                            <tr>
-                                <th class="px-4 py-2">Seller</th>
-                                <th class="px-4 py-2 text-right">Vendas</th>
-                                <th class="px-4 py-2 text-right">Volume</th>
-                                <th class="px-4 py-2 text-right">TM</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="s in sortedSellers" :key="s.tenant_id" class="border-t border-zinc-100 dark:border-zinc-800">
-                                <td class="max-w-[180px] truncate px-4 py-2" :title="s.email">{{ s.nome }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums">{{ displayNumber(s.quantidade) }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums">{{ displayCurrency(s.volume) }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums text-zinc-500">{{ displayCurrency(s.ticket_medio) }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <p v-else class="px-4 py-8 text-center text-sm text-zinc-500">Sem vendas no período.</p>
-                </div>
+                <ul v-if="sortedSellers.length" class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    <li
+                        v-for="s in sortedSellers"
+                        :key="s.tenant_id"
+                        class="flex min-w-0 items-start justify-between gap-3 px-4 py-3"
+                    >
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate text-sm font-medium text-zinc-900 dark:text-white" :title="s.email">{{ s.nome }}</p>
+                            <p class="mt-0.5 text-xs text-zinc-500 sm:hidden">
+                                {{ displayNumber(s.quantidade) }} vendas · TM {{ displayCurrency(s.ticket_medio) }}
+                            </p>
+                        </div>
+                        <div class="shrink-0 text-right">
+                            <p class="text-sm font-medium tabular-nums text-zinc-900 dark:text-white">{{ displayCurrency(s.volume) }}</p>
+                            <p class="hidden text-xs tabular-nums text-zinc-500 sm:block">
+                                {{ displayNumber(s.quantidade) }} vendas · TM {{ displayCurrency(s.ticket_medio) }}
+                            </p>
+                        </div>
+                    </li>
+                </ul>
+                <p v-else class="px-4 py-8 text-center text-sm text-zinc-500">Sem vendas no período.</p>
             </div>
 
-            <div class="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
-                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
-                    <div>
+            <div class="min-w-0 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900/60">
+                <div class="flex flex-col gap-2 border-b border-zinc-200 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between dark:border-zinc-700">
+                    <div class="min-w-0">
                         <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Produtos em destaque</h3>
                         <p class="text-xs text-zinc-500">+{{ displayNumber(growth.produtos_criados) }} cadastrados no período</p>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                         <button type="button" class="text-xs" :class="productSort === 'volume' ? 'font-semibold text-[var(--color-primary)]' : 'text-zinc-500'" @click="productSort = 'volume'">Volume</button>
                         <button type="button" class="text-xs" :class="productSort === 'quantidade' ? 'font-semibold text-[var(--color-primary)]' : 'text-zinc-500'" @click="productSort = 'quantidade'">Vendas</button>
                         <Link href="/plataforma/produtos" class="inline-flex items-center gap-1 text-xs text-[var(--color-primary)]">
-                            Ver produtos <ExternalLink class="h-3 w-3" />
+                            Ver produtos <ExternalLink class="h-3 w-3 shrink-0" />
                         </Link>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table v-if="sortedProducts.length" class="w-full text-left text-sm">
-                        <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-800/80">
-                            <tr>
-                                <th class="px-4 py-2">Produto</th>
-                                <th class="px-4 py-2">Seller</th>
-                                <th class="px-4 py-2 text-right">Vendas</th>
-                                <th class="px-4 py-2 text-right">Volume</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="p in sortedProducts" :key="p.product_id" class="border-t border-zinc-100 dark:border-zinc-800">
-                                <td class="max-w-[160px] truncate px-4 py-2">{{ p.produto }}</td>
-                                <td class="max-w-[120px] truncate px-4 py-2 text-zinc-500">{{ p.seller }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums">{{ displayNumber(p.quantidade) }}</td>
-                                <td class="px-4 py-2 text-right tabular-nums">{{ displayCurrency(p.volume) }}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <p v-else class="px-4 py-8 text-center text-sm text-zinc-500">Sem produtos vendidos no período.</p>
-                </div>
+                <ul v-if="sortedProducts.length" class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    <li
+                        v-for="p in sortedProducts"
+                        :key="p.product_id"
+                        class="flex min-w-0 items-start justify-between gap-3 px-4 py-3"
+                    >
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate text-sm font-medium text-zinc-900 dark:text-white" :title="p.produto">{{ p.produto }}</p>
+                            <p class="mt-0.5 truncate text-xs text-zinc-500" :title="p.seller">{{ p.seller }}</p>
+                            <p class="mt-0.5 text-xs text-zinc-500 sm:hidden">{{ displayNumber(p.quantidade) }} vendas</p>
+                        </div>
+                        <div class="shrink-0 text-right">
+                            <p class="text-sm font-medium tabular-nums text-zinc-900 dark:text-white">{{ displayCurrency(p.volume) }}</p>
+                            <p class="hidden text-xs tabular-nums text-zinc-500 sm:block">{{ displayNumber(p.quantidade) }} vendas</p>
+                        </div>
+                    </li>
+                </ul>
+                <p v-else class="px-4 py-8 text-center text-sm text-zinc-500">Sem produtos vendidos no período.</p>
             </div>
         </section>
 

@@ -62,8 +62,13 @@ class UsersController extends Controller
         protected MerchantRevenueBreakdownService $merchantRevenueBreakdown,
     ) {}
 
-    public function index(Request $request): Response
+    public function index(Request $request): Response|RedirectResponse
     {
+        $legacyEditUserId = $request->query('edit');
+        if (is_numeric($legacyEditUserId)) {
+            return redirect()->route('plataforma.usuarios.edit', ['user' => (int) $legacyEditUserId]);
+        }
+
         $search = $request->query('q');
         $search = is_string($search) ? trim($search) : '';
         $search = $search !== '' ? $search : null;
@@ -228,8 +233,6 @@ class UsersController extends Controller
         $paginator->setCollection($rows);
 
         $settingsTenantId = PlatformConfigContext::settingsTenantId();
-        $editUserId = $request->query('edit');
-        $editUserId = is_numeric($editUserId) ? (int) $editUserId : null;
 
         return Inertia::render('Platform/Users/Index', [
             'users' => $paginator,
@@ -245,7 +248,6 @@ class UsersController extends Controller
                 ['value' => 'suspended', 'label' => 'Suspenso'],
                 ['value' => 'blocked', 'label' => 'Bloqueado'],
             ],
-            'edit_user_id' => $editUserId,
             'gateways' => $this->buildGatewaysListForMerchantPicker(),
             'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
             'platform_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::platformDefaults()),
@@ -265,6 +267,100 @@ class UsersController extends Controller
                     'id' => $a->id,
                     'name' => $a->name,
                     'is_default' => $a->is_default,
+                ])
+                ->values()
+                ->all(),
+        ]);
+    }
+
+    public function edit(User $user): Response
+    {
+        Gate::authorize('manageMerchantForPlatform', $user);
+
+        $tenantId = (int) ($user->tenant_id ?? $user->id);
+        $wallet = null;
+        if (Schema::hasTable('tenant_wallets') && $tenantId > 0) {
+            $wallet = TenantWallet::query()->where('tenant_id', $tenantId)->first();
+        }
+
+        $walletAdmin = null;
+        if ($wallet && Schema::hasColumn('tenant_wallets', 'admin_withdrawal_blocked')) {
+            $walletAdmin = [
+                'admin_withdrawal_blocked' => (bool) $wallet->admin_withdrawal_blocked,
+                'admin_blocked_amount' => $wallet->admin_blocked_amount !== null ? (float) $wallet->admin_blocked_amount : null,
+                'admin_block_until' => $wallet->admin_block_until?->toIso8601String(),
+                'admin_block_note' => $wallet->admin_block_note,
+            ];
+        }
+
+        $salesTotals = $this->salesAchievements->getValidSalesTotalsForTenants(collect([$tenantId]));
+        $medTotal = 0.0;
+        if (Schema::hasTable('wallet_transactions') && $tenantId > 0) {
+            $medTotal = round((float) WalletTransaction::query()
+                ->where('tenant_id', $tenantId)
+                ->where('type', WalletTransaction::TYPE_MED_HOLD)
+                ->sum('amount_net'), 2);
+        }
+
+        $adminNotesCount = 0;
+        if (Schema::hasTable('merchant_admin_notes')) {
+            $adminNotesCount = MerchantAdminNote::query()->where('merchant_user_id', $user->id)->count();
+        }
+
+        $merchant = [
+            'id' => $user->id,
+            'name' => $user->name,
+            'trade_name' => $user->trade_name,
+            'email' => $user->email,
+            'phone' => Schema::hasColumn('users', 'phone') ? ($user->phone ?? null) : null,
+            'avatar_url' => $user->avatar ? app(\App\Services\StorageService::class)->url($user->avatar) : null,
+            'tenant_id' => $user->tenant_id,
+            'person_type' => $user->person_type,
+            'document' => $user->document,
+            'account_status' => $user->account_status ?? 'approved',
+            'merchant_fees' => $user->merchant_fees ?? [],
+            'merchant_settlement_overrides' => $user->merchant_settlement_overrides ?? [],
+            'merchant_gateway_order' => $user->merchant_gateway_order ?? [],
+            'cajupay_account_id' => $user->cajupay_account_id,
+            'api_pix_mode' => $tenantId > 0 ? ApiPixAccess::tenantMode($tenantId) : ApiPixAccess::MODE_INHERIT,
+            'med_zero_enabled' => $tenantId > 0 ? app(MedPolicyService::class)->medZeroForTenant($tenantId) : false,
+            'charge_limits' => $tenantId > 0 ? $this->chargeLimitsPayloadForTenant($tenantId) : $this->emptyChargeLimitsPayload(),
+            'saldo_disponivel' => $wallet ? (float) $wallet->available_balance : 0.0,
+            'saldo_pix' => $wallet ? (float) $wallet->pending_balance : 0.0,
+            'vendas_totais' => $salesTotals[$tenantId] ?? 0.0,
+            'med_total' => $medTotal,
+            'wallet_admin' => $walletAdmin,
+            'admin_notes_count' => $adminNotesCount,
+            'totp_enabled' => PlatformTotpService::isEnabledFor($user),
+            'referral_commission_percent' => Schema::hasColumn('users', 'referral_commission_percent')
+                ? ($user->referral_commission_percent !== null ? (float) $user->referral_commission_percent : null)
+                : null,
+            'created_at' => $user->created_at?->toIso8601String(),
+        ];
+
+        $settingsTenantId = PlatformConfigContext::settingsTenantId();
+
+        return Inertia::render('Platform/Users/Edit', [
+            'merchant' => $merchant,
+            'gateways' => $this->buildGatewaysListForMerchantPicker(),
+            'platform_gateway_order' => $this->buildGatewayOrderForSettings($settingsTenantId),
+            'platform_merchant_fees' => $this->formatEffectiveFeesForFrontend(EffectiveMerchantFees::platformDefaults()),
+            'platform_referral_commission_percent' => \App\Support\ReferralProgramSettings::commissionPercent(),
+            'platform_charge_limits' => [
+                'api_pix_minimum_charge_brl' => $this->minimumChargeService->apiPixMinimumBrl(),
+                'platform_minimum_charge_brl' => $this->minimumChargeService->platformMinimumBrl(),
+            ],
+            'platform_api_pix_enabled' => ApiPixAccess::globalEnabled(),
+            'cajupay_accounts' => CajuPayAccount::query()
+                ->enabled()
+                ->connected()
+                ->orderByDesc('is_default')
+                ->orderBy('name')
+                ->get(['id', 'name', 'is_default'])
+                ->map(fn (CajuPayAccount $account) => [
+                    'id' => $account->id,
+                    'name' => $account->name,
+                    'is_default' => $account->is_default,
                 ])
                 ->values()
                 ->all(),
@@ -875,7 +971,9 @@ class UsersController extends Controller
 
         PlatformAuditService::log('platform.merchant.updated', ['user_id' => $user->id], $request);
 
-        return redirect()->route('plataforma.usuarios.index')->with('success', 'Usuário atualizado.');
+        return redirect()
+            ->route('plataforma.usuarios.show', $user)
+            ->with('success', 'Infoprodutor atualizado.');
     }
 
     /**
