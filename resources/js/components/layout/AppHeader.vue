@@ -142,6 +142,7 @@ const dashboardGreetingSubtitleClass = computed(() => {
                 :variant="controlsVariant"
             />
             <LocaleThemeControls
+                v-if="!customerPanel"
                 language-only
                 :variant="controlsVariant"
                 size="md"
