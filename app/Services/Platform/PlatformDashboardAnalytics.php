@@ -329,25 +329,29 @@ class PlatformDashboardAnalytics
      */
     private static function funnelFromCounts(array $counts): array
     {
-        $tentativas = array_sum($counts);
         $aprovadas = $counts['completed'];
         $recusadas = $counts['rejected'];
-        $denominadorAprovacao = $aprovadas + $recusadas;
-        $taxaAprovacao = $denominadorAprovacao > 0
-            ? round($aprovadas / $denominadorAprovacao * 100, 1)
+        $pendentes = $counts['pending'];
+        $canceladas = $counts['cancelled'];
+        $reembolsadas = $counts['refunded'];
+
+        // Taxa real: aprovadas ÷ (aprovadas + recusadas + pendentes + canceladas + reembolsadas + demais eventos).
+        $eventos = array_sum($counts);
+        $taxaAprovacao = $eventos > 0
+            ? round($aprovadas / $eventos * 100, 1)
             : 0.0;
 
-        $pct = static fn (int $n): float => $tentativas > 0 ? round($n / $tentativas * 100, 1) : 0.0;
+        $pct = static fn (int $n): float => $eventos > 0 ? round($n / $eventos * 100, 1) : 0.0;
 
         return [
-            'tentativas' => $tentativas,
+            'eventos' => $eventos,
             'taxa_aprovacao' => $taxaAprovacao,
             'items' => [
                 ['key' => 'completed', 'label' => 'Aprovadas', 'quantidade' => $aprovadas, 'percent' => $pct($aprovadas)],
                 ['key' => 'rejected', 'label' => 'Recusadas', 'quantidade' => $recusadas, 'percent' => $pct($recusadas)],
-                ['key' => 'pending', 'label' => 'Pendentes', 'quantidade' => $counts['pending'], 'percent' => $pct($counts['pending'])],
-                ['key' => 'cancelled', 'label' => 'Canceladas', 'quantidade' => $counts['cancelled'], 'percent' => $pct($counts['cancelled'])],
-                ['key' => 'refunded', 'label' => 'Reembolsadas', 'quantidade' => $counts['refunded'], 'percent' => $pct($counts['refunded'])],
+                ['key' => 'pending', 'label' => 'Pendentes', 'quantidade' => $pendentes, 'percent' => $pct($pendentes)],
+                ['key' => 'cancelled', 'label' => 'Canceladas', 'quantidade' => $canceladas, 'percent' => $pct($canceladas)],
+                ['key' => 'refunded', 'label' => 'Reembolsadas', 'quantidade' => $reembolsadas, 'percent' => $pct($reembolsadas)],
                 ['key' => 'disputed', 'label' => 'Em disputa', 'quantidade' => $counts['disputed'], 'percent' => $pct($counts['disputed'])],
                 ['key' => 'refund_pending', 'label' => 'Reembolso pendente', 'quantidade' => $counts['refund_pending'], 'percent' => $pct($counts['refund_pending'])],
             ],
@@ -441,16 +445,16 @@ class PlatformDashboardAnalytics
         return $rows->map(function ($row) {
             $aprovadas = (int) $row->aprovadas;
             $recusadas = (int) $row->recusadas;
-            $denominador = $aprovadas + $recusadas;
+            $transacoes = (int) $row->transacoes;
 
             return [
                 'slug' => (string) $row->gateway,
                 'nome' => self::acquirerLabel((string) $row->gateway),
                 'volume' => round((float) $row->volume, 2),
-                'transacoes' => (int) $row->transacoes,
+                'transacoes' => $transacoes,
                 'aprovadas' => $aprovadas,
                 'recusadas' => $recusadas,
-                'taxa_aprovacao' => $denominador > 0 ? round($aprovadas / $denominador * 100, 1) : 0.0,
+                'taxa_aprovacao' => $transacoes > 0 ? round($aprovadas / $transacoes * 100, 1) : 0.0,
             ];
         })->values()->all();
     }
