@@ -18,6 +18,7 @@ use App\Support\RegistrationTurnstileSettings;
 use App\Support\InfoproducerRegistrationSettings;
 use App\Support\AccountManagerSettings;
 use App\Support\ProductApprovalSettings;
+use App\Support\KycRequirementSettings;
 use App\Support\SellerPanelSupportSettings;
 use App\Support\PlatformCompanySettings;
 use App\Support\BrazilianDocuments;
@@ -146,6 +147,7 @@ class SettingsController extends Controller
                 ...($tenantId === null ? RegistrationEmailVerificationSettings::forSettingsForm() : []),
                 ...($tenantId === null ? InfoproducerRegistrationSettings::forSettingsForm() : []),
                 ...($tenantId === null ? ProductApprovalSettings::forSettingsForm() : []),
+                ...($tenantId === null ? KycRequirementSettings::forSettingsForm() : []),
                 ...($tenantId === null ? AccountManagerSettings::forSettingsForm() : []),
                 ...($tenantId === null ? SellerPanelSupportSettings::forSettingsForm() : []),
                 ...($tenantId === null ? PlatformCompanySettings::forSettingsForm() : []),
@@ -221,6 +223,12 @@ class SettingsController extends Controller
             'legal_terms_of_use_html' => ['nullable', 'string', 'max:200000'],
             'legal_privacy_contact_email' => ['nullable', 'email', 'max:255'],
             'legal_cookie_banner_enabled' => ['nullable', 'boolean'],
+            'kyc_allowed_identity_types' => ['nullable', 'array', 'min:1'],
+            'kyc_allowed_identity_types.*' => ['string', 'in:rg,cnh,passport'],
+            'kyc_require_address_proof' => ['nullable', 'boolean'],
+            'kyc_require_selfie_with_document' => ['nullable', 'boolean'],
+            'kyc_require_company_address_proof' => ['nullable', 'boolean'],
+            'kyc_require_company_constitution' => ['nullable', 'boolean'],
             'platform_legal_name' => ['nullable', 'string', 'max:255'],
             'platform_cnpj' => [
                 'nullable',
@@ -328,6 +336,7 @@ class SettingsController extends Controller
 
             SellerPanelSupportSettings::persistFromValidated($validated);
             PlatformCompanySettings::persistFromValidated($validated);
+            KycRequirementSettings::persistFromValidated($validated);
         }
 
         if ($tenantId === null && array_key_exists('physical_products_enabled', $validated)) {
@@ -371,6 +380,13 @@ class SettingsController extends Controller
             'checkout_turnstile_site_key',
             'checkout_turnstile_secret_key',
             'physical_products_enabled',
+        ];
+        $kycRequirementKeys = [
+            'kyc_allowed_identity_types',
+            'kyc_require_address_proof',
+            'kyc_require_selfie_with_document',
+            'kyc_require_company_address_proof',
+            'kyc_require_company_constitution',
         ];
         // Handle passwords separately (encrypt)
         if (array_key_exists('smtp_password', $validated) && $validated['smtp_password'] !== null && $validated['smtp_password'] !== '') {
@@ -416,6 +432,9 @@ class SettingsController extends Controller
                 continue;
             }
             if (in_array($key, $securityToggleKeys, true)) {
+                continue;
+            }
+            if (in_array($key, $kycRequirementKeys, true)) {
                 continue;
             }
             if (in_array($key, $brandingKeys, true)) {

@@ -746,6 +746,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
     Route::redirect('/reembolsos', '/vendas/reembolsos')->middleware('team.permission:vendas.view');
 
     Route::get('/kyc', [\App\Http\Controllers\SellerKycController::class, 'show'])->name('kyc.upload');
+    Route::post('/kyc/preferences', [\App\Http\Controllers\SellerKycController::class, 'updatePreferences'])->middleware('throttle:30,1')->name('kyc.preferences');
     Route::post('/kyc/document', [\App\Http\Controllers\SellerKycController::class, 'uploadDocument'])->middleware('throttle:30,1')->name('kyc.document');
     Route::post('/kyc/finalize', [\App\Http\Controllers\SellerKycController::class, 'finalize'])->middleware('throttle:15,1')->name('kyc.finalize');
     Route::post('/kyc', [\App\Http\Controllers\SellerKycController::class, 'store'])->middleware('throttle:15,1')->name('kyc.store');

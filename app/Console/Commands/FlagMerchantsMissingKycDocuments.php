@@ -38,7 +38,7 @@ class FlagMerchantsMissingKycDocuments extends Command
             ->orderBy('id')
             ->chunkById(100, function ($users) use (&$flagged, $dryRun) {
                 foreach ($users as $user) {
-                    $docCount = KycDocument::query()->where('user_id', $user->id)->count();
+                    $docCount = KycDocument::query()->where('user_id', $user->id)->active()->count();
                     if ($docCount > 0) {
                         continue;
                     }

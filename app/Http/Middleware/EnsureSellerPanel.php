@@ -73,6 +73,7 @@ class EnsureSellerPanel
     {
         return $request->routeIs(
             'kyc.upload',
+            'kyc.preferences',
             'kyc.document',
             'kyc.finalize',
             'kyc.store',

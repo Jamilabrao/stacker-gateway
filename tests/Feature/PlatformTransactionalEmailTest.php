@@ -80,12 +80,14 @@ class PlatformTransactionalEmailTest extends TestCase
         ]);
         $seller->update(['tenant_id' => $seller->id]);
 
-        $front = UploadedFile::fake()->image('rg-f.jpg', 100, 100);
-        $back = UploadedFile::fake()->image('rg-v.jpg', 100, 100);
+        $img = fn (string $name) => UploadedFile::fake()->image($name, 400, 300);
 
         $this->actingAs($seller)->post('/kyc', [
-            'rg_front' => $front,
-            'rg_back' => $back,
+            'identity_document_type' => 'rg',
+            'rg_front' => $img('rg-f.jpg'),
+            'rg_back' => $img('rg-v.jpg'),
+            'address_proof' => $img('addr.jpg'),
+            'selfie_with_document' => $img('selfie.jpg'),
         ])->assertRedirect();
 
         Mail::assertSent(KycSubmittedAdminMail::class, function (KycSubmittedAdminMail $mail) use ($seller) {
@@ -113,6 +115,7 @@ class PlatformTransactionalEmailTest extends TestCase
             'person_type' => 'pf',
             'document' => '52998224725',
             'kyc_status' => User::KYC_PENDING_REVIEW,
+            'kyc_requirements_version' => 1,
             'birth_date' => '1990-01-01',
             'address_zip' => '01310100',
             'address_street' => 'Rua A',
@@ -123,6 +126,16 @@ class PlatformTransactionalEmailTest extends TestCase
             'monthly_revenue_range' => 'up_to_10k',
         ]);
         $merchant->update(['tenant_id' => $merchant->id]);
+
+        foreach (\App\Support\KycRequiredDocuments::kindsForUser($merchant) as $kind) {
+            \App\Models\KycDocument::query()->create([
+                'user_id' => $merchant->id,
+                'kind' => $kind,
+                'disk_path' => 'kyc/test/'.$kind.'.jpg',
+                'original_mime' => 'image/jpeg',
+                'size_bytes' => 1000,
+            ]);
+        }
 
         $this->actingAs($admin)->post(
             route('plataforma.kyc.approve', ['user' => $merchant->id])

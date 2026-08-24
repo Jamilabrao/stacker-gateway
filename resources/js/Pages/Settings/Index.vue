@@ -25,6 +25,7 @@ import {
     Puzzle,
     Globe,
     Building2,
+    BadgeCheck,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
@@ -34,12 +35,12 @@ import DashboardBannersTab from '@/Pages/Settings/Tabs/DashboardBannersTab.vue';
 import DashboardTemplateTab from '@/Pages/Settings/Tabs/DashboardTemplateTab.vue';
 import LanguagesTab from '@/Pages/Settings/Tabs/LanguagesTab.vue';
 import SecurityTab from '@/Pages/Settings/Tabs/SecurityTab.vue';
+import KycTab from '@/Pages/Settings/Tabs/KycTab.vue';
 import DemoTab from '@/Pages/Settings/Tabs/DemoTab.vue';
 import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
 import SellerPanelSupportTab from '@/Pages/Settings/Tabs/SellerPanelSupportTab.vue';
 import PublicUrlTab from '@/Pages/Settings/Tabs/PublicUrlTab.vue';
 import PlatformDataTab from '@/Pages/Settings/Tabs/PlatformDataTab.vue';
-
 defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
@@ -102,7 +103,7 @@ const props = defineProps({
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'lgpd', 'dados_plataforma', 'url_publica', 'cron', 'update', 'demo'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'kyc', 'lgpd', 'dados_plataforma', 'url_publica', 'cron', 'update', 'demo'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -207,6 +208,13 @@ const form = useForm({
     platform_cnpj: props.settings.platform_cnpj ?? '',
     platform_checkout_notice_enabled: props.settings.platform_checkout_notice_enabled ?? '0',
     platform_checkout_notice: props.settings.platform_checkout_notice ?? '',
+    kyc_allowed_identity_types: Array.isArray(props.settings.kyc_allowed_identity_types)
+        ? [...props.settings.kyc_allowed_identity_types]
+        : ['rg', 'cnh', 'passport'],
+    kyc_require_address_proof: props.settings.kyc_require_address_proof ?? '1',
+    kyc_require_selfie_with_document: props.settings.kyc_require_selfie_with_document ?? '1',
+    kyc_require_company_address_proof: props.settings.kyc_require_company_address_proof ?? '1',
+    kyc_require_company_constitution: props.settings.kyc_require_company_constitution ?? '1',
 });
 
 const showCloudR2Override = ref(false);
@@ -233,6 +241,7 @@ const coreTabsStatic = [
     { id: 'recursos', label: 'Recursos', icon: Truck, group: 'operacao' },
     { id: 'suporte_painel', label: 'Suporte do painel', icon: Headset, group: 'operacao' },
     { id: 'seguranca', label: 'Segurança', icon: Shield, group: 'seguranca' },
+    { id: 'kyc', label: 'KYC', icon: BadgeCheck, group: 'seguranca' },
     { id: 'lgpd', label: 'LGPD', icon: Scale, group: 'seguranca' },
     { id: 'dados_plataforma', label: 'Dados da plataforma', icon: Building2, group: 'sistema' },
     { id: 'url_publica', label: 'URL pública', icon: Globe, group: 'sistema' },
@@ -673,6 +682,21 @@ function syncSecuritySettingsFromProps() {
     applySecuritySettingsFromSettings(page.props.settings);
 }
 
+function applyKycSettingsFromSettings(s) {
+    if (!s) return;
+    form.kyc_allowed_identity_types = Array.isArray(s.kyc_allowed_identity_types)
+        ? [...s.kyc_allowed_identity_types]
+        : ['rg', 'cnh', 'passport'];
+    form.kyc_require_address_proof = s.kyc_require_address_proof ?? '1';
+    form.kyc_require_selfie_with_document = s.kyc_require_selfie_with_document ?? '1';
+    form.kyc_require_company_address_proof = s.kyc_require_company_address_proof ?? '1';
+    form.kyc_require_company_constitution = s.kyc_require_company_constitution ?? '1';
+}
+
+function syncKycSettingsFromProps() {
+    applyKycSettingsFromSettings(page.props.settings);
+}
+
 function applySupportSettingsFromSettings(s) {
     if (!s) return;
     form.seller_panel_support_enabled = s.seller_panel_support_enabled ?? '0';
@@ -725,6 +749,15 @@ function buildSettingsPayload() {
             registration_email_verification_enabled: data.registration_email_verification_enabled,
             allow_new_infoproducers: data.allow_new_infoproducers,
             account_manager_auto_assign_mode: data.account_manager_auto_assign_mode,
+        };
+    }
+    if (activeTab.value === 'kyc') {
+        return {
+            kyc_allowed_identity_types: data.kyc_allowed_identity_types,
+            kyc_require_address_proof: data.kyc_require_address_proof,
+            kyc_require_selfie_with_document: data.kyc_require_selfie_with_document,
+            kyc_require_company_address_proof: data.kyc_require_company_address_proof,
+            kyc_require_company_constitution: data.kyc_require_company_constitution,
         };
     }
     if (activeTab.value === 'suporte_painel') {
@@ -824,6 +857,7 @@ function putSettings(payload, { onSuccess } = {}) {
                 syncEmailSettingsFromProps();
                 syncLegalSettingsFromProps();
                 syncSecuritySettingsFromProps();
+                syncKycSettingsFromProps();
                 syncSupportSettingsFromProps();
                 syncPlatformCompanySettingsFromProps();
             },
@@ -1626,6 +1660,19 @@ const selectClass =
             >
                 <div v-show="activeTab === 'seguranca'" class="space-y-6">
                     <SecurityTab :form="form" />
+                </div>
+            </Transition>
+
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'kyc'" class="space-y-6">
+                    <KycTab :form="form" />
                 </div>
             </Transition>
 

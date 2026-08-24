@@ -44,6 +44,20 @@ const props = defineProps({
     kyc_status: { type: String, default: null },
     kyc_person_type: { type: String, default: 'pf' },
     kyc_rejection_reason: { type: String, default: null },
+    kyc_identity_document_type: { type: String, default: null },
+    kyc_company_legal_nature: { type: String, default: null },
+    kyc_company_nature_suggestion: { type: String, default: null },
+    kyc_uploaded_kinds: { type: Array, default: () => [] },
+    kyc_requirements: {
+        type: Object,
+        default: () => ({
+            allowed_identity_types: ['rg', 'cnh', 'passport'],
+            require_address_proof: true,
+            require_selfie_with_document: true,
+            require_company_address_proof: true,
+            require_company_constitution: true,
+        }),
+    },
     /** Dados do cadastro inicial (somente leitura). */
     registration_snapshot: {
         type: Object,
@@ -1047,6 +1061,11 @@ const inputClass =
                             :person_type="kyc_person_type"
                             :kyc_status="kyc_status || 'not_submitted'"
                             :rejection_reason="kyc_rejection_reason"
+                            :identity_document_type="kyc_identity_document_type"
+                            :company_legal_nature="kyc_company_legal_nature"
+                            :company_nature_suggestion="kyc_company_nature_suggestion"
+                            :uploaded_kinds="kyc_uploaded_kinds"
+                            :requirements="kyc_requirements"
                         />
                     </div>
                 </div>
@@ -1731,6 +1750,11 @@ const inputClass =
                                 :person_type="kyc_person_type"
                                 :kyc_status="kyc_status || 'not_submitted'"
                                 :rejection_reason="kyc_rejection_reason"
+                                :identity_document_type="kyc_identity_document_type"
+                                :company_legal_nature="kyc_company_legal_nature"
+                                :company_nature_suggestion="kyc_company_nature_suggestion"
+                                :uploaded_kinds="kyc_uploaded_kinds"
+                                :requirements="kyc_requirements"
                             />
                         </div>
                     </div>
