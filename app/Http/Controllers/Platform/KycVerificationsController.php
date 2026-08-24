@@ -70,7 +70,8 @@ class KycVerificationsController extends Controller
 
         $profile = MerchantProfileSnapshot::forUser($user);
 
-        $documents = $user->kycDocuments()->orderBy('kind')->get()->map(function (KycDocument $d) {
+        $allDocuments = $user->kycDocuments()->orderByDesc('created_at')->get();
+        $mapDoc = function (KycDocument $d) {
             $base = route('plataforma.kyc.document', ['document' => $d]);
 
             return [
@@ -79,10 +80,15 @@ class KycVerificationsController extends Controller
                 'kind' => $d->kind,
                 'mime' => $d->original_mime,
                 'size_bytes' => $d->size_bytes,
+                'superseded_at' => $d->superseded_at?->toIso8601String(),
+                'is_active' => $d->superseded_at === null,
+                'created_at' => $d->created_at?->toIso8601String(),
                 'view_url' => $base,
                 'download_url' => $base.'?download=1',
             ];
-        });
+        };
+
+        $documents = $allDocuments->map($mapDoc)->values();
 
         return Inertia::render('Platform/Kyc/Show', [
             'merchant' => [
@@ -108,6 +114,9 @@ class KycVerificationsController extends Controller
                 'kyc_status' => $user->kyc_status,
                 'kyc_rejection_reason' => $user->kyc_rejection_reason,
                 'kyc_reviewed_at' => $user->kyc_reviewed_at?->toIso8601String(),
+                'identity_document_type' => $user->identity_document_type ?? null,
+                'company_legal_nature' => $user->company_legal_nature ?? null,
+                'kyc_requirements_version' => (int) ($user->kyc_requirements_version ?? 1),
             ],
             'cnpj_lookup' => CnpjLookup::forKycAdmin($user),
             'documents' => $documents,

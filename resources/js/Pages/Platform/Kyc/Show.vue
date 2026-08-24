@@ -59,16 +59,74 @@ function closePreview() {
     previewDoc.value = null;
 }
 
-function kindLabel(k) {
+function identityTypeLabel(t) {
     const m = {
-        rg_front: 'RG — frente',
-        rg_back: 'RG — verso',
-        company_document: 'CNPJ ou contrato social',
-        cnpj_card: 'Cartão CNPJ',
-        social_contract: 'Contrato social',
+        rg: 'RG / CIN',
+        cnh: 'CNH',
+        passport: 'Passaporte',
+    };
+    return m[t] || t || '—';
+}
+
+function companyNatureLabel(t) {
+    const m = {
+        mei: 'MEI',
+        other: 'Demais empresas',
+    };
+    return m[t] || t || '—';
+}
+
+function kindLabel(k) {
+    const type = props.merchant?.identity_document_type;
+    const m = {
+        rg_front:
+            type === 'cnh'
+                ? 'CNH'
+                : type === 'passport'
+                  ? 'Passaporte — página de identificação'
+                  : 'Documento de identificação — frente',
+        rg_back: 'Documento de identificação — verso',
+        address_proof: 'Comprovante de residência',
+        selfie_with_document: 'Selfie com documento',
+        company_address_proof: 'Comprovante de endereço da empresa',
+        ccmei: 'CCMEI',
+        social_contract: 'Contrato social / ato constitutivo',
+        company_document: 'Documento da empresa (legado)',
+        cnpj_card: 'Cartão CNPJ (legado)',
     };
     return m[k] || k;
 }
+
+const activeDocuments = computed(() =>
+    (props.documents || []).filter((d) => d.is_active !== false && !d.superseded_at)
+);
+const supersededDocuments = computed(() =>
+    (props.documents || []).filter((d) => d.is_active === false || d.superseded_at)
+);
+
+function docsOfKinds(kinds) {
+    return activeDocuments.value.filter((d) => kinds.includes(d.kind));
+}
+
+const identityDocs = computed(() => docsOfKinds(['rg_front', 'rg_back']));
+const pfExtraDocs = computed(() => docsOfKinds(['address_proof', 'selfie_with_document']));
+const pjExtraDocs = computed(() =>
+    docsOfKinds(['company_address_proof', 'ccmei', 'social_contract', 'company_document', 'cnpj_card'])
+);
+const otherActiveDocs = computed(() => {
+    const known = new Set([
+        'rg_front',
+        'rg_back',
+        'address_proof',
+        'selfie_with_document',
+        'company_address_proof',
+        'ccmei',
+        'social_contract',
+        'company_document',
+        'cnpj_card',
+    ]);
+    return activeDocuments.value.filter((d) => !known.has(d.kind));
+});
 
 function revenueLabel(v) {
     const m = {
@@ -348,6 +406,18 @@ function onStepUpConfirm(payload) {
                         <dd class="font-mono text-xs">{{ merchant.legal_representative_cpf }}</dd>
                     </div>
                     <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">Tipo de documento</dt>
+                        <dd>{{ identityTypeLabel(merchant.identity_document_type) }}</dd>
+                    </div>
+                    <div v-if="merchant.person_type === 'pj'" class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">Natureza jurídica (KYC)</dt>
+                        <dd>{{ companyNatureLabel(merchant.company_legal_nature) }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-zinc-500">Versão dos requisitos</dt>
+                        <dd>v{{ merchant.kyc_requirements_version || 1 }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
                         <dt class="text-zinc-500">Nascimento</dt>
                         <dd>{{ merchant.birth_date || '—' }}</dd>
                     </div>
@@ -371,34 +441,167 @@ function onStepUpConfirm(payload) {
             </div>
         </div>
 
-        <div class="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/40">
+        <div class="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/40">
             <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Documentos</h2>
-            <ul class="mt-4 space-y-2">
-                <li
-                    v-for="d in documents"
-                    :key="d.public_token || d.id"
-                    class="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800 dark:bg-zinc-800/40"
-                >
-                    <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ kindLabel(d.kind) }}</span>
-                    <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                        <button
-                            type="button"
-                            class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
-                            @click="openPreview(d)"
-                        >
-                            <Eye class="h-4 w-4" />
-                            Abrir
-                        </button>
-                        <a
-                            :href="documentDownloadUrl(d)"
-                            class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                        >
-                            <Download class="h-4 w-4" />
-                            Baixar
-                        </a>
-                    </div>
-                </li>
-            </ul>
+
+            <section>
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    {{ merchant.person_type === 'pj' ? 'Identificação do responsável' : 'Documento de identificação' }}
+                </h3>
+                <ul class="mt-2 space-y-2">
+                    <li
+                        v-for="d in identityDocs"
+                        :key="d.public_token || d.id"
+                        class="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800 dark:bg-zinc-800/40"
+                    >
+                        <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ kindLabel(d.kind) }}</span>
+                        <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <button
+                                type="button"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                                @click="openPreview(d)"
+                            >
+                                <Eye class="h-4 w-4" />
+                                Abrir
+                            </button>
+                            <a
+                                :href="documentDownloadUrl(d)"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                                <Download class="h-4 w-4" />
+                                Baixar
+                            </a>
+                        </div>
+                    </li>
+                </ul>
+                <p v-if="!identityDocs.length" class="mt-2 text-sm text-zinc-500">Nenhum arquivo nesta seção.</p>
+            </section>
+
+            <section v-if="merchant.person_type !== 'pj'">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Residência e selfie</h3>
+                <ul class="mt-2 space-y-2">
+                    <li
+                        v-for="d in pfExtraDocs"
+                        :key="d.public_token || d.id"
+                        class="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800 dark:bg-zinc-800/40"
+                    >
+                        <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ kindLabel(d.kind) }}</span>
+                        <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <button
+                                type="button"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                                @click="openPreview(d)"
+                            >
+                                <Eye class="h-4 w-4" />
+                                Abrir
+                            </button>
+                            <a
+                                :href="documentDownloadUrl(d)"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                                <Download class="h-4 w-4" />
+                                Baixar
+                            </a>
+                        </div>
+                    </li>
+                </ul>
+                <p v-if="!pfExtraDocs.length" class="mt-2 text-sm text-zinc-500">Nenhum arquivo nesta seção.</p>
+            </section>
+
+            <section v-if="merchant.person_type === 'pj'">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Documentação da empresa</h3>
+                <ul class="mt-2 space-y-2">
+                    <li
+                        v-for="d in pjExtraDocs"
+                        :key="d.public_token || d.id"
+                        class="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800 dark:bg-zinc-800/40"
+                    >
+                        <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ kindLabel(d.kind) }}</span>
+                        <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <button
+                                type="button"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                                @click="openPreview(d)"
+                            >
+                                <Eye class="h-4 w-4" />
+                                Abrir
+                            </button>
+                            <a
+                                :href="documentDownloadUrl(d)"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                                <Download class="h-4 w-4" />
+                                Baixar
+                            </a>
+                        </div>
+                    </li>
+                </ul>
+                <p v-if="!pjExtraDocs.length" class="mt-2 text-sm text-zinc-500">Nenhum arquivo nesta seção.</p>
+            </section>
+
+            <section v-if="otherActiveDocs.length">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Outros</h3>
+                <ul class="mt-2 space-y-2">
+                    <li
+                        v-for="d in otherActiveDocs"
+                        :key="d.public_token || d.id"
+                        class="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/80 p-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800 dark:bg-zinc-800/40"
+                    >
+                        <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ kindLabel(d.kind) }}</span>
+                        <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <button
+                                type="button"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                                @click="openPreview(d)"
+                            >
+                                <Eye class="h-4 w-4" />
+                                Abrir
+                            </button>
+                            <a
+                                :href="documentDownloadUrl(d)"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                                <Download class="h-4 w-4" />
+                                Baixar
+                            </a>
+                        </div>
+                    </li>
+                </ul>
+            </section>
+
+            <section v-if="supersededDocuments.length" class="border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Documentos anteriores (histórico)</h3>
+                <ul class="mt-2 space-y-2">
+                    <li
+                        v-for="d in supersededDocuments"
+                        :key="'old-' + (d.public_token || d.id)"
+                        class="flex flex-col gap-2 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/50 p-3 text-sm opacity-80 sm:flex-row sm:items-center sm:justify-between dark:border-zinc-700 dark:bg-zinc-900/30"
+                    >
+                        <span class="font-medium text-zinc-700 dark:text-zinc-300">
+                            {{ kindLabel(d.kind) }}
+                            <span class="ml-2 text-[10px] uppercase text-zinc-400">substituído</span>
+                        </span>
+                        <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                            <button
+                                type="button"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                @click="openPreview(d)"
+                            >
+                                <Eye class="h-4 w-4" />
+                                Abrir
+                            </button>
+                            <a
+                                :href="documentDownloadUrl(d)"
+                                class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                                <Download class="h-4 w-4" />
+                                Baixar
+                            </a>
+                        </div>
+                    </li>
+                </ul>
+            </section>
+
             <p v-if="!documents.length" class="mt-2 text-sm text-zinc-500">Nenhum arquivo enviado.</p>
         </div>
 

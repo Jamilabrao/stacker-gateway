@@ -32,6 +32,7 @@ class KycUploadSecurityTest extends TestCase
             'password' => Hash::make('password'),
             'role' => User::ROLE_INFOPRODUTOR,
             'person_type' => 'pf',
+            'identity_document_type' => 'rg',
             'kyc_status' => User::KYC_NOT_SUBMITTED,
             'account_status' => 'pending',
         ]);
@@ -50,6 +51,7 @@ class KycUploadSecurityTest extends TestCase
         $this->actingAs($seller)
             ->postJson(route('kyc.document'), [
                 'field' => 'rg_front',
+                'identity_document_type' => 'rg',
                 'rg_front' => $jpeg,
             ])
             ->assertOk()
@@ -160,6 +162,7 @@ class KycUploadSecurityTest extends TestCase
         $this->actingAs($seller)
             ->postJson(route('kyc.document'), [
                 'field' => 'rg_front',
+                'identity_document_type' => 'rg',
                 'rg_front' => $jpeg,
             ])
             ->assertOk();

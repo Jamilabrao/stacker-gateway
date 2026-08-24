@@ -213,6 +213,24 @@ class SellerFinancialController extends Controller
             'kyc_rejection_reason' => Schema::hasColumn('users', 'kyc_rejection_reason')
                 ? ($subject->kyc_rejection_reason ?? null)
                 : null,
+            'kyc_identity_document_type' => Schema::hasColumn('users', 'identity_document_type')
+                ? ($subject->identity_document_type ?? null)
+                : null,
+            'kyc_company_legal_nature' => Schema::hasColumn('users', 'company_legal_nature')
+                ? ($subject->company_legal_nature ?? null)
+                : null,
+            'kyc_company_nature_suggestion' => ($subject->person_type ?? '') === 'pj'
+                ? \App\Support\KycRequiredDocuments::suggestCompanyNatureFromLookup($subject)
+                : null,
+            'kyc_uploaded_kinds' => Schema::hasTable('kyc_documents')
+                ? \App\Models\KycDocument::query()
+                    ->where('user_id', $subject->id)
+                    ->active()
+                    ->pluck('kind')
+                    ->values()
+                    ->all()
+                : [],
+            'kyc_requirements' => \App\Support\KycRequirementSettings::forSellerForm(),
             'kyc_finance_locked' => $kycFinanceLocked,
             'registration_snapshot' => MerchantProfileSnapshot::forUser($subject, maskDocuments: false),
             'payout_settings' => is_array($user->payout_settings) ? $user->payout_settings : [],
