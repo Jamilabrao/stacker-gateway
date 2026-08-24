@@ -23,6 +23,7 @@ use App\Services\PaymentService;
 use App\Services\MemberAccessGrantService;
 use App\Services\MinimumChargeService;
 use App\Services\PhysicalProductAccess;
+use App\Services\SellerIntegrationVisibility;
 use App\Services\ProductApprovalService;
 use App\Services\SellerActivityLogService;
 use App\Services\StorageService;
@@ -428,12 +429,18 @@ class ProdutosController extends Controller
             : null;
         $globalPaymentMethodsAvailable = $paymentService->globallyAvailablePaymentMethodKeys($produto, $basePlanForGlobalMethods);
 
-        $cademiIntegrations = CademiIntegration::forTenant($tenantId)
-            ->orderBy('name')
-            ->get(['id', 'name'])
-            ->map(fn (CademiIntegration $i) => ['id' => $i->id, 'name' => $i->name])
-            ->values()
-            ->all();
+        $cademiAvailable = SellerIntegrationVisibility::effectiveForTenant(
+            SellerIntegrationVisibility::CADEMI,
+            $tenantId !== null ? (int) $tenantId : null
+        );
+        $cademiIntegrations = $cademiAvailable
+            ? CademiIntegration::forTenant($tenantId)
+                ->orderBy('name')
+                ->get(['id', 'name'])
+                ->map(fn (CademiIntegration $i) => ['id' => $i->id, 'name' => $i->name])
+                ->values()
+                ->all()
+            : [];
 
         $produtoArray['coproducers'] = $produto->coproducers()
             ->with('coProducer:id,name,email')
@@ -517,6 +524,7 @@ class ProdutosController extends Controller
             'checkout_gateway_ui' => $checkoutGatewayUi,
             'global_payment_methods_available' => $globalPaymentMethodsAvailable,
             'cademi_integrations' => $cademiIntegrations,
+            'cademi_available' => $cademiAvailable,
             'shipping_stores' => PhysicalProductAccess::globalEnabled() ? $shippingStores : [],
             'layoutContentFlushLeft' => true,
             'pageTitleBadge' => $produto->name,
@@ -536,6 +544,13 @@ class ProdutosController extends Controller
         ]);
 
         $tenantId = auth()->user()->tenant_id;
+        $cademiAvailable = SellerIntegrationVisibility::effectiveForTenant(
+            SellerIntegrationVisibility::CADEMI,
+            $tenantId !== null ? (int) $tenantId : null
+        );
+        if (! $cademiAvailable && ! empty($validated['cademi_integration_id'])) {
+            abort(403, 'A integração Cademí não está disponível.');
+        }
         if (! empty($validated['cademi_integration_id'])) {
             $exists = CademiIntegration::forTenant($tenantId)->where('id', (int) $validated['cademi_integration_id'])->exists();
             if (! $exists) {

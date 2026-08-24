@@ -19,6 +19,8 @@ const props = defineProps({
     platform_referral_commission_percent: { type: Number, default: 20 },
     platform_charge_limits: { type: Object, default: () => ({ api_pix_minimum_charge_brl: 0.01, platform_minimum_charge_brl: 0 }) },
     platform_api_pix_enabled: { type: Boolean, default: true },
+    platform_integrations_enabled: { type: Object, default: () => ({}) },
+    platform_integrations: { type: Array, default: () => [] },
     cajupay_accounts: { type: Array, default: () => [] },
 });
 
@@ -53,10 +55,19 @@ const gatewayDirty = ref(false);
 const cajupayDirty = ref(false);
 const limitsDirty = ref(false);
 const apiPixDirty = ref(false);
+const integrationsDirty = ref(false);
 const initialGatewayPrimary = ref({});
 const feePercentRefs = {};
 const feeFixedRefs = {};
 
+function defaultIntegrationModes() {
+    const modes = {};
+    for (const item of props.platform_integrations) modes[item.id] = 'inherit';
+    if (!Object.keys(modes).length) {
+        for (const id of ['webhook', 'utmify', 'spedy', 'cademi']) modes[id] = 'inherit';
+    }
+    return modes;
+}
 function defaultFees() {
     return Object.fromEntries(feeKeys.map((key) => [key, { percent: '', fixed: '' }]));
 }
@@ -127,7 +138,7 @@ const form = useForm({
     name: '', email: '', phone: '', password: '', password_confirmation: '', account_status: 'approved',
     admin_withdrawal_blocked: false, admin_blocked_amount: '', admin_block_until: '', admin_block_note: '',
     merchant_fees: defaultFees(), merchant_settlement_overrides: defaultSettlement(),
-    referral_commission_percent: '', api_pix_mode: 'inherit', med_zero_enabled: false,
+    referral_commission_percent: '', api_pix_mode: 'inherit', integration_modes: defaultIntegrationModes(), med_zero_enabled: false,
     api_pix_minimum_charge_brl: '', platform_minimum_charge_brl: '',
     use_platform_api_pix_minimum: true, use_platform_platform_minimum: true, cajupay_account_id: '',
 });
@@ -162,7 +173,9 @@ function initialize() {
         merchant_fees: feesFormFromEffective(merchant.merchant_fees),
         merchant_settlement_overrides: mergeSettlement(merchant.merchant_settlement_overrides),
         referral_commission_percent: merchant.referral_commission_percent != null ? String(merchant.referral_commission_percent) : '',
-        api_pix_mode: merchant.api_pix_mode || 'inherit', med_zero_enabled: Boolean(merchant.med_zero_enabled),
+        api_pix_mode: merchant.api_pix_mode || 'inherit',
+        integration_modes: { ...defaultIntegrationModes(), ...(merchant.integration_modes || {}) },
+        med_zero_enabled: Boolean(merchant.med_zero_enabled),
         api_pix_minimum_charge_brl: limits.api_pix_minimum_charge_brl != null ? String(limits.api_pix_minimum_charge_brl) : '',
         platform_minimum_charge_brl: limits.platform_minimum_charge_brl != null ? String(limits.platform_minimum_charge_brl) : '',
         use_platform_api_pix_minimum: limits.api_pix_minimum_charge_brl == null,
@@ -252,6 +265,7 @@ function submit() {
         if (settlementDirty.value) payload.merchant_settlement_overrides = normalizeMerchantSettlementOverridesForSubmit(data.merchant_settlement_overrides); else delete payload.merchant_settlement_overrides;
         if (gatewayDirty.value) payload.merchant_gateway_order = Object.keys(order).length ? order : null; else delete payload.merchant_gateway_order;
         if (!apiPixDirty.value) { delete payload.api_pix_mode; delete payload.med_zero_enabled; }
+        if (!integrationsDirty.value) { delete payload.integration_modes; }
         if (limitsDirty.value) {
             if (data.use_platform_api_pix_minimum) payload.api_pix_minimum_charge_brl = '';
             if (data.use_platform_platform_minimum) payload.platform_minimum_charge_brl = '';
@@ -341,6 +355,23 @@ function submit() {
                     <div><label class="text-sm">Ticket mínimo API PIX</label><input v-model="form.api_pix_minimum_charge_brl" type="number" min="0" step="0.01" :disabled="form.use_platform_api_pix_minimum" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800" @input="limitsDirty = true" /><label class="mt-1 flex gap-2 text-xs"><input v-model="form.use_platform_api_pix_minimum" type="checkbox" @change="limitsDirty = true" /> Usar padrão (efetivo: {{ formatBRL(effectiveApiMinimum) }})</label></div>
                     <div><label class="text-sm">Ticket mínimo plataforma</label><input v-model="form.platform_minimum_charge_brl" type="number" min="0" step="0.01" :disabled="form.use_platform_platform_minimum" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-800" @input="limitsDirty = true" /><label class="mt-1 flex gap-2 text-xs"><input v-model="form.use_platform_platform_minimum" type="checkbox" @change="limitsDirty = true" /> Usar padrão (efetivo: {{ formatBRL(effectivePlatformMinimum) }})</label></div>
                 </div></div>
+            </section>
+
+            <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                <h2 class="font-semibold">Integrações</h2>
+                <p class="mt-1 text-xs text-zinc-500">Herdar o padrão da plataforma, ou forçar habilitada/desabilitada para este infoprodutor — inclusive se a integração estiver oculta globalmente.</p>
+                <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div v-for="item in platform_integrations" :key="item.id">
+                        <label class="text-sm font-medium">{{ item.label }}</label>
+                        <p class="mt-0.5 text-[11px] text-zinc-500">Padrão global: {{ platform_integrations_enabled[item.id] ? 'visível' : 'oculta' }}.</p>
+                        <select v-model="form.integration_modes[item.id]" class="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" @change="integrationsDirty = true">
+                            <option value="inherit">Herdar plataforma</option>
+                            <option value="enabled">Habilitada</option>
+                            <option value="disabled">Desabilitada</option>
+                        </select>
+                    </div>
+                </div>
+                <p v-if="form.errors.integration_modes" class="mt-2 text-sm text-red-600">{{ form.errors.integration_modes }}</p>
             </section>
 
             <section v-if="showCajuPay" class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">

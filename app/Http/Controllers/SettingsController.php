@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Models\Setting;
 use App\Services\LegalDocumentsService;
 use App\Services\PhysicalProductAccess;
+use App\Services\SellerIntegrationVisibility;
 use App\Support\RemoteStorage;
 use App\Services\PlatformAuditService;
 use App\Support\HtmlSanitizer;
@@ -141,6 +142,7 @@ class SettingsController extends Controller
                 'storage_s3_url' => $cloudR2Managed ? '' : $storageS3Url,
                 'storage_cloud_r2_managed' => $cloudR2Managed,
                 'physical_products_enabled' => PhysicalProductAccess::globalEnabled(),
+                ...($tenantId === null ? SellerIntegrationVisibility::forSettingsForm() : []),
                 ...($tenantId === null ? CheckoutTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? LoginTurnstileSettings::forSettingsForm() : []),
                 ...($tenantId === null ? RegistrationTurnstileSettings::forSettingsForm() : []),
@@ -159,6 +161,7 @@ class SettingsController extends Controller
                 ] : []),
             ],
             'legal_defaults' => $tenantId === null ? ($legalForm['legal_defaults'] ?? []) : [],
+            'seller_integrations_catalog' => $tenantId === null ? SellerIntegrationVisibility::catalog() : [],
         ]);
     }
 
@@ -205,6 +208,7 @@ class SettingsController extends Controller
             'storage_s3_endpoint' => ['nullable', 'string', 'max:512'],
             'storage_s3_url' => ['nullable', 'string', 'max:512'],
             'physical_products_enabled' => ['nullable', 'boolean'],
+            ...SellerIntegrationVisibility::validationRules(),
             'checkout_turnstile_site_key' => ['nullable', 'string', 'max:255'],
             'checkout_turnstile_secret_key' => ['nullable', 'string', 'max:512'],
             'login_turnstile_enabled' => ['nullable', 'boolean'],
@@ -347,6 +351,25 @@ class SettingsController extends Controller
             );
         }
 
+        if ($tenantId === null) {
+            foreach (SellerIntegrationVisibility::ids() as $integrationId) {
+                $key = SellerIntegrationVisibility::settingKey($integrationId);
+                if (! array_key_exists($key, $validated)) {
+                    continue;
+                }
+                $enabling = filter_var($validated[$key], FILTER_VALIDATE_BOOLEAN);
+                $wasEnabled = SellerIntegrationVisibility::globalEnabled($integrationId);
+                SellerIntegrationVisibility::setGlobal($integrationId, $enabling);
+                if ($wasEnabled !== $enabling) {
+                    PlatformAuditService::log('settings.seller_integration.updated', [
+                        'integration' => $integrationId,
+                        'from' => $wasEnabled ? '1' : '0',
+                        'to' => $enabling ? '1' : '0',
+                    ], $request);
+                }
+            }
+        }
+
         $emailKeys = [
             'smtp_host', 'smtp_port', 'smtp_username', 'smtp_encryption',
             'mail_from_address', 'mail_from_name', 'reply_to',
@@ -380,6 +403,7 @@ class SettingsController extends Controller
             'checkout_turnstile_site_key',
             'checkout_turnstile_secret_key',
             'physical_products_enabled',
+            ...SellerIntegrationVisibility::settingKeys(),
         ];
         $kycRequirementKeys = [
             'kyc_allowed_identity_types',

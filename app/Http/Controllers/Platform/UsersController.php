@@ -18,6 +18,7 @@ use App\Services\AccountManagerAssignmentService;
 use App\Services\EffectiveMerchantFees;
 use App\Services\MinimumChargeService;
 use App\Services\ApiPixAccess;
+use App\Services\SellerIntegrationVisibility;
 use App\Services\Med\MedPolicyService;
 use App\Services\Platform\MerchantRevenueBreakdownService;
 use App\Services\Platform\PlatformTotpService;
@@ -323,6 +324,7 @@ class UsersController extends Controller
             'merchant_gateway_order' => $user->merchant_gateway_order ?? [],
             'cajupay_account_id' => $user->cajupay_account_id,
             'api_pix_mode' => $tenantId > 0 ? ApiPixAccess::tenantMode($tenantId) : ApiPixAccess::MODE_INHERIT,
+            'integration_modes' => $tenantId > 0 ? SellerIntegrationVisibility::tenantModes($tenantId) : SellerIntegrationVisibility::tenantModes(null),
             'med_zero_enabled' => $tenantId > 0 ? app(MedPolicyService::class)->medZeroForTenant($tenantId) : false,
             'charge_limits' => $tenantId > 0 ? $this->chargeLimitsPayloadForTenant($tenantId) : $this->emptyChargeLimitsPayload(),
             'saldo_disponivel' => $wallet ? (float) $wallet->available_balance : 0.0,
@@ -351,6 +353,8 @@ class UsersController extends Controller
                 'platform_minimum_charge_brl' => $this->minimumChargeService->platformMinimumBrl(),
             ],
             'platform_api_pix_enabled' => ApiPixAccess::globalEnabled(),
+            'platform_integrations_enabled' => SellerIntegrationVisibility::globalMap(),
+            'platform_integrations' => SellerIntegrationVisibility::catalog(),
             'cajupay_accounts' => CajuPayAccount::query()
                 ->enabled()
                 ->connected()
@@ -780,6 +784,8 @@ class UsersController extends Controller
             'admin_block_until' => ['nullable', 'date'],
             'admin_block_note' => ['nullable', 'string', 'max:500'],
             'api_pix_mode' => ['nullable', 'string', 'in:inherit,enabled,disabled'],
+            'integration_modes' => ['nullable', 'array'],
+            'integration_modes.*' => ['nullable', 'string', 'in:inherit,enabled,disabled'],
             'med_zero_enabled' => ['nullable', 'boolean'],
             'api_pix_minimum_charge_brl' => ['nullable', 'numeric', 'min:0', 'max:999999'],
             'platform_minimum_charge_brl' => ['nullable', 'numeric', 'min:0', 'max:999999'],
@@ -881,6 +887,34 @@ class UsersController extends Controller
                     PlatformAuditService::log('platform.merchant.api_pix_mode', [
                         'merchant_user_id' => $user->id,
                         'tenant_id' => $tenantId,
+                        'from' => $prevMode,
+                        'to' => $newMode,
+                    ], $request);
+                }
+            }
+
+            if ($request->has('integration_modes') && is_array($validated['integration_modes'] ?? null)) {
+                foreach (SellerIntegrationVisibility::ids() as $integrationId) {
+                    if (! array_key_exists($integrationId, $validated['integration_modes'])) {
+                        continue;
+                    }
+                    $newMode = (string) $validated['integration_modes'][$integrationId];
+                    if (! in_array($newMode, [
+                        SellerIntegrationVisibility::MODE_INHERIT,
+                        SellerIntegrationVisibility::MODE_ENABLED,
+                        SellerIntegrationVisibility::MODE_DISABLED,
+                    ], true)) {
+                        continue;
+                    }
+                    $prevMode = SellerIntegrationVisibility::tenantMode($integrationId, $tenantId);
+                    if ($prevMode === $newMode) {
+                        continue;
+                    }
+                    SellerIntegrationVisibility::setTenantMode($integrationId, $tenantId, $newMode);
+                    PlatformAuditService::log('platform.merchant.integration_mode', [
+                        'merchant_user_id' => $user->id,
+                        'tenant_id' => $tenantId,
+                        'integration' => $integrationId,
                         'from' => $prevMode,
                         'to' => $newMode,
                     ], $request);

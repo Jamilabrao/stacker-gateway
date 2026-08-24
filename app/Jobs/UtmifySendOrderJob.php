@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Order;
 use App\Models\UtmifyIntegration;
 use App\Models\UtmifyOrderDispatch;
+use App\Services\SellerIntegrationVisibility;
 use App\Services\UtmifyService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -49,6 +50,11 @@ class UtmifySendOrderJob implements ShouldQueue
             ->find($this->utmifyIntegrationId);
 
         if (! $integration || ! $integration->is_active || ! $integration->api_key) {
+            return;
+        }
+
+        $tenantId = $integration->tenant_id !== null ? (int) $integration->tenant_id : null;
+        if (! SellerIntegrationVisibility::effectiveForTenant(SellerIntegrationVisibility::UTMIFY, $tenantId)) {
             return;
         }
 

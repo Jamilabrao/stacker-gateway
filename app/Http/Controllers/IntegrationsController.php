@@ -10,6 +10,7 @@ use App\Models\UtmifyIntegration;
 use App\Models\Webhook;
 use App\Plugins\PluginRegistry;
 use App\Services\SellerActivityLogService;
+use App\Services\SellerIntegrationVisibility;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -92,14 +93,16 @@ class IntegrationsController extends Controller
             ->all();
 
         $products = Product::forTenant($tenantId)->orderBy('name')->get(['id', 'name']);
+        $visibleIds = SellerIntegrationVisibility::visibleIdsForTenant($tenantId !== null ? (int) $tenantId : null);
 
         return Inertia::render('Integrations/Index', [
-            'webhooks' => $webhooks,
+            'webhooks' => in_array(SellerIntegrationVisibility::WEBHOOK, $visibleIds, true) ? $webhooks : [],
             'webhook_events' => $webhookEvents,
-            'utmify_integrations' => $utmifyIntegrations,
-            'spedy_integrations' => $spedyIntegrations,
-            'cademi_integrations' => $cademiIntegrations,
+            'utmify_integrations' => in_array(SellerIntegrationVisibility::UTMIFY, $visibleIds, true) ? $utmifyIntegrations : [],
+            'spedy_integrations' => in_array(SellerIntegrationVisibility::SPEDY, $visibleIds, true) ? $spedyIntegrations : [],
+            'cademi_integrations' => in_array(SellerIntegrationVisibility::CADEMI, $visibleIds, true) ? $cademiIntegrations : [],
             'products' => $products,
+            'visible_integrations' => $visibleIds,
         ]);
     }
 

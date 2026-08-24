@@ -16,6 +16,7 @@ use App\Events\SubscriptionPastDue;
 use App\Events\SubscriptionRenewed;
 use App\Jobs\DispatchWebhookJob;
 use App\Models\Webhook;
+use App\Services\SellerIntegrationVisibility;
 use App\Models\Order;
 use App\Models\CheckoutSession;
 use App\Models\Subscription;
@@ -87,6 +88,11 @@ class WebhookEventSubscriber
 
             foreach ($webhooks as $webhook) {
                 if (! $webhook->listensTo($eventClass) || ! $webhook->shouldFireForProduct($productId)) {
+                    continue;
+                }
+
+                $webhookTenantId = $webhook->tenant_id !== null ? (int) $webhook->tenant_id : null;
+                if (! SellerIntegrationVisibility::effectiveForTenant(SellerIntegrationVisibility::WEBHOOK, $webhookTenantId)) {
                     continue;
                 }
 

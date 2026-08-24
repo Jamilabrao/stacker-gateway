@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Order;
 use App\Models\SpedyIntegration;
+use App\Services\SellerIntegrationVisibility;
 use App\Services\SpedyService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,6 +33,11 @@ class SpedyIssueInvoiceJob implements ShouldQueue
                 ->find($this->spedyIntegrationId);
 
             if (! $integration || ! $integration->is_active || ! $integration->api_key) {
+                return;
+            }
+
+            $tenantId = $integration->tenant_id !== null ? (int) $integration->tenant_id : null;
+            if (! SellerIntegrationVisibility::effectiveForTenant(SellerIntegrationVisibility::SPEDY, $tenantId)) {
                 return;
             }
 
