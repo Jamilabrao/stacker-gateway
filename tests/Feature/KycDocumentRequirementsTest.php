@@ -58,6 +58,23 @@ class KycDocumentRequirementsTest extends TestCase
         return UploadedFile::fake()->image($name, 400, 300);
     }
 
+    public function test_pending_kyc_seller_can_save_document_preferences(): void
+    {
+        $seller = $this->createSeller(['person_type' => 'pf']);
+
+        $this->actingAs($seller)
+            ->postJson(route('kyc.preferences'), [
+                'identity_document_type' => 'cnh',
+            ])
+            ->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'identity_document_type' => 'cnh',
+            ]);
+
+        $this->assertSame('cnh', $seller->fresh()->identity_document_type);
+    }
+
     public function test_new_pf_submission_requires_v2_documents(): void
     {
         $seller = $this->createSeller(['person_type' => 'pf']);
