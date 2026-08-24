@@ -15,7 +15,7 @@
         }
         .wrap { max-width: 420px; margin: 0 auto; }
         .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
-        .brand img { height: 28px; width: auto; }
+        .brand img { height: 32px; width: auto; max-width: 180px; object-fit: contain; display: block; }
         .brand span { font-weight: 700; font-size: 18px; letter-spacing: 0.02em; }
         h1 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
         .summary {
@@ -78,8 +78,9 @@
         <div class="brand">
             @if($app_logo !== '')
                 <img src="{{ $app_logo }}" alt="{{ $app_name }}">
+            @else
+                <span>{{ $app_name }}</span>
             @endif
-            <span>{{ $app_name }}</span>
         </div>
 
         <h1>Comprovante Pix</h1>
