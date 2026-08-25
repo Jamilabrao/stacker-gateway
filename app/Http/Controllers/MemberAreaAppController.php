@@ -955,7 +955,7 @@ class MemberAreaAppController extends Controller
         return [
             'id' => $m->id,
             'title' => $m->title,
-            'thumbnail' => $m->thumbnail,
+            'thumbnail' => $this->moduleThumbnailUrl($product, $m->thumbnail),
             'show_title_on_cover' => $m->show_title_on_cover ?? true,
             'external_url' => $m->external_url,
         ];
