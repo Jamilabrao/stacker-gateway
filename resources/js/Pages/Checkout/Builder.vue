@@ -48,7 +48,6 @@ const sectionsOpen = ref({
     redirect: true,
     seo: true,
     support_button: true,
-    footer: true,
     exit_popup: true,
 });
 
@@ -160,6 +159,13 @@ const form = useForm({
 
 function submit() {
     const config = JSON.parse(JSON.stringify(configForm));
+    // Rodapé personalizado desativado: infoprodutor não edita; logo da plataforma é fixa no checkout
+    config.footer = {
+        enabled: false,
+        logo_url: '',
+        support_email: '',
+        text: '',
+    };
     // Preservar upsell/downsell (configurados na aba do produto, não no Builder)
     if (props.config?.upsell) config.upsell = props.config.upsell;
     if (props.config?.downsell) config.downsell = props.config.downsell;
@@ -831,41 +837,6 @@ const inputClass =
                                     />
                                     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Vazio = favicon da plataforma</p>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Rodapé do checkout -->
-                    <div class="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
-                        <button
-                            type="button"
-                            class="flex w-full items-center justify-between gap-2 px-4 py-3 text-left font-semibold text-zinc-900 dark:text-white"
-                            @click="toggleSection('footer')"
-                        >
-                            <span class="flex items-center gap-2">Rodapé do checkout</span>
-                            <ChevronDown v-if="sectionsOpen.footer" class="h-5 w-5 shrink-0" />
-                            <ChevronRight v-else class="h-5 w-5 shrink-0" />
-                        </button>
-                        <div v-show="sectionsOpen.footer" class="border-t border-zinc-200 px-4 py-4 dark:border-zinc-700">
-                            <div class="space-y-4">
-                                <Toggle v-model="configForm.footer.enabled" label="Ativar rodapé personalizado" />
-                                <template v-if="configForm.footer.enabled">
-                                    <div>
-                                        <ImageUpload
-                                            v-model="configForm.footer.logo_url"
-                                            :upload-url="uploadUrl"
-                                            label="Logo do rodapé (opcional)"
-                                            recommended-size="240×80 px (horizontal)"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Nome/Texto</label>
-                                        <input v-model="configForm.footer.text" type="text" :class="inputClass" placeholder="Ex.: Minha Empresa" />
-                                    </div>
-                                    <div>
-                                        <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">E-mail de suporte</label>
-                                        <input v-model="configForm.footer.support_email" type="email" :class="inputClass" placeholder="suporte@exemplo.com" />
-                                    </div>
-                                </template>
                             </div>
                         </div>
                     </div>
