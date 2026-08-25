@@ -210,10 +210,34 @@ function hasCustomSettlement(user) {
                             <div class="truncate text-xs text-zinc-500">{{ user.trade_name || user.email }}</div>
                             <div v-if="user.trade_name" class="truncate text-[11px] text-zinc-400">{{ user.email }}</div>
                             <div class="mt-1 flex flex-wrap gap-1">
-                                <span v-if="user.totp_enabled" class="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 text-[10px]"><Shield class="h-3 w-3" />2FA</span>
-                                <span v-if="user.admin_notes_count" class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 text-[10px]"><MessageSquare class="h-3 w-3" />{{ user.admin_notes_count }}</span>
-                                <span v-if="hasCustomFees(user)" class="rounded bg-violet-100 px-1.5 text-[10px]">Taxas custom</span>
-                                <span v-if="hasCustomSettlement(user)" class="rounded bg-sky-100 px-1.5 text-[10px]">Liquidação custom</span>
+                                <span
+                                    v-if="user.totp_enabled"
+                                    class="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-950 dark:bg-emerald-700 dark:text-white"
+                                    title="Autenticação em dois fatores ativa"
+                                >
+                                    <Shield class="h-3 w-3" />2FA
+                                </span>
+                                <span
+                                    v-if="user.admin_notes_count"
+                                    class="inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950 dark:bg-amber-600 dark:text-white"
+                                    title="Observações internas"
+                                >
+                                    <MessageSquare class="h-3 w-3" />{{ user.admin_notes_count }}
+                                </span>
+                                <span
+                                    v-if="hasCustomFees(user)"
+                                    class="rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-950 dark:bg-violet-700 dark:text-white"
+                                    title="Taxas personalizadas"
+                                >
+                                    Taxas custom
+                                </span>
+                                <span
+                                    v-if="hasCustomSettlement(user)"
+                                    class="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-950 dark:bg-sky-700 dark:text-white"
+                                    title="Liquidação personalizada"
+                                >
+                                    Liquidação custom
+                                </span>
                             </div>
                         </td>
                         <td class="truncate px-3 py-2.5 text-zinc-600">{{ user.document || '—' }}</td>

@@ -4,11 +4,14 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\EnsureInstalled;
 use App\Http\Middleware\EnsureStackerLicense;
+use App\Models\BrandingSetting;
 use App\Models\User;
 use App\Models\Withdrawal;
 use App\Services\MerchantWithdrawalService;
 use App\Services\WithdrawalPixReceiptService;
+use App\Support\BrandingAssetUrls;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -244,5 +247,44 @@ class WithdrawalPixReceiptTest extends TestCase
 
         $withdrawal->refresh();
         $this->assertSame($before, $withdrawal->updated_at?->toIso8601String());
+    }
+
+    public function test_view_data_uses_light_theme_logo_with_public_url(): void
+    {
+        if (! Schema::hasTable('branding_settings')) {
+            $this->markTestSkipped('branding_settings table missing');
+        }
+
+        $request = Request::create(
+            'https://meu-dominio.test/plataforma/saques/1/comprovante',
+            'GET',
+            server: ['HTTP_HOST' => 'meu-dominio.test', 'HTTPS' => 'on']
+        );
+        $this->app->instance('request', $request);
+
+        BrandingSetting::query()->updateOrCreate(
+            ['tenant_id' => null],
+            ['data' => [
+                'app_name' => 'Stacker Test',
+                'app_logo' => 'white-label/global/logo-claro.png',
+                'app_logo_dark' => 'white-label/global/logo-escuro.png',
+            ]]
+        );
+
+        $merchant = $this->createMerchant();
+        $withdrawal = $this->createPaidWithdrawal($merchant);
+        $data = app(WithdrawalPixReceiptService::class)->viewData($withdrawal, includePayerSection: true);
+
+        $this->assertSame(
+            BrandingAssetUrls::resolve('white-label/global/logo-claro.png'),
+            $data['app_logo']
+        );
+        $this->assertStringNotContainsString('logo-escuro.png', $data['app_logo']);
+
+        $response = $this->actingAs($merchant)->get(route('financeiro.seller.receipt', $withdrawal));
+        $response->assertOk();
+        $response->assertSee('white-label/global/logo-claro.png', false);
+        $response->assertDontSee('logo-escuro.png', false);
+        $response->assertDontSee('>'.$data['app_name'].'</span>', false);
     }
 }

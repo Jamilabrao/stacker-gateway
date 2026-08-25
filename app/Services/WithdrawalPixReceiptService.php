@@ -9,6 +9,7 @@ use App\Models\Withdrawal;
 use App\Services\CajuPay\CajuPayAccountResolver;
 use App\Services\CajuPay\CajuPayPayoutService;
 use App\Services\Payout\PayoutUserSettings;
+use App\Support\BrandingAssetUrls;
 use App\Support\BrazilianDocumentDigits;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -215,9 +216,11 @@ class WithdrawalPixReceiptService
             ]);
         }
 
+        $logoStored = trim((string) ($brandingData['app_logo'] ?? ''));
+
         return [
             'app_name' => (string) ($brandingData['app_name'] ?? config('app.name', 'Getfy')),
-            'app_logo' => (string) ($brandingData['app_logo_dark'] ?? $brandingData['app_logo'] ?? ''),
+            'app_logo' => $logoStored !== '' ? BrandingAssetUrls::resolve($logoStored) : '',
             'theme_primary' => (string) ($brandingData['theme_primary'] ?? '#22c55e'),
             'amount_formatted' => 'R$ '.number_format($amount, 2, ',', '.'),
             'paid_at_formatted' => $paidAt?->format('d/m/Y H:i:s') ?? '—',
