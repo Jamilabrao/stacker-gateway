@@ -82,6 +82,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'platform.admin' => \App\Http\Middleware\EnsurePlatformAdmin::class,
             'customer.panel' => \App\Http\Middleware\EnsureCustomerPanel::class,
             'physical.products' => \App\Http\Middleware\EnsurePhysicalProductsEnabled::class,
+            'seller.integration' => \App\Http\Middleware\EnsureSellerIntegrationEnabled::class,
             'installer.access' => \App\Http\Middleware\EnsureInstallerAccess::class,
             'mp.balance.tool' => \App\Http\Middleware\EnsureMercadoPagoBalanceToolEnabled::class,
             'stacker.license' => \App\Http\Middleware\EnsureStackerLicense::class,

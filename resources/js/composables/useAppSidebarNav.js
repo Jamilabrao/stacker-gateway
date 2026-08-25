@@ -129,7 +129,7 @@ export function useAppSidebarNav() {
 
         items.push({ separator: true });
 
-        if (canView('integracoes.view')) {
+        if (canView('integracoes.view') && page.props.seller_integrations_any_visible !== false) {
             items.push({ name: t('sidebar.integrations', 'Integrações'), href: '/integracoes', icon: Cable });
         }
 

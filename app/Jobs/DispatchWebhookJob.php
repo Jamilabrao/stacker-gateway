@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Webhook;
 use App\Models\WebhookLog;
+use App\Services\SellerIntegrationVisibility;
 use App\Support\WebhookUrlValidator;
 use InvalidArgumentException;
 use Illuminate\Bus\Queueable;
@@ -34,6 +35,11 @@ class DispatchWebhookJob implements ShouldQueue
         $webhook = Webhook::find($this->webhookId);
 
         if (! $webhook || ! $webhook->is_active) {
+            return;
+        }
+
+        $tenantId = $webhook->tenant_id !== null ? (int) $webhook->tenant_id : null;
+        if (! SellerIntegrationVisibility::effectiveForTenant(SellerIntegrationVisibility::WEBHOOK, $tenantId)) {
             return;
         }
 

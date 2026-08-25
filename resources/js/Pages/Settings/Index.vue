@@ -26,6 +26,7 @@ import {
     Globe,
     Building2,
     BadgeCheck,
+    Cable,
 } from 'lucide-vue-next';
 import IntegrationCard from '@/components/IntegrationCard.vue';
 import EmailProviderSidebar from '@/components/EmailProviderSidebar.vue';
@@ -41,6 +42,7 @@ import LegalTab from '@/Pages/Settings/Tabs/LegalTab.vue';
 import SellerPanelSupportTab from '@/Pages/Settings/Tabs/SellerPanelSupportTab.vue';
 import PublicUrlTab from '@/Pages/Settings/Tabs/PublicUrlTab.vue';
 import PlatformDataTab from '@/Pages/Settings/Tabs/PlatformDataTab.vue';
+import SellerIntegrationsTab from '@/Pages/Settings/Tabs/SellerIntegrationsTab.vue';
 defineOptions({ layout: LayoutPlatform });
 
 const props = defineProps({
@@ -100,10 +102,14 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
+    seller_integrations_catalog: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 function allAllowedTabIds() {
-    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'kyc', 'lgpd', 'dados_plataforma', 'url_publica', 'cron', 'update', 'demo'];
+    const core = ['email', 'storage', 'personalizacao', 'banners_dashboard', 'template_dashboard', 'idiomas', 'traducoes', 'moedas', 'recursos', 'suporte_painel', 'seguranca', 'kyc', 'lgpd', 'integracoes', 'dados_plataforma', 'url_publica', 'cron', 'update', 'demo'];
     const extra = (props.settings_plugin_tabs || []).map((t) => t.id).filter(Boolean);
     return [...core, ...extra];
 }
@@ -183,6 +189,10 @@ const form = useForm({
     storage_s3_endpoint: props.settings.storage_s3_endpoint ?? '',
     storage_s3_url: props.settings.storage_s3_url ?? '',
     physical_products_enabled: Boolean(props.settings.physical_products_enabled),
+    integration_webhook_enabled: props.settings.integration_webhook_enabled !== false,
+    integration_utmify_enabled: props.settings.integration_utmify_enabled !== false,
+    integration_spedy_enabled: props.settings.integration_spedy_enabled !== false,
+    integration_cademi_enabled: props.settings.integration_cademi_enabled !== false,
     checkout_turnstile_site_key: props.settings.checkout_turnstile_site_key ?? '',
     checkout_turnstile_secret_key: '',
     checkout_turnstile_secret_configured: Boolean(props.settings.checkout_turnstile_secret_configured),
@@ -243,6 +253,7 @@ const coreTabsStatic = [
     { id: 'seguranca', label: 'Segurança', icon: Shield, group: 'seguranca' },
     { id: 'kyc', label: 'KYC', icon: BadgeCheck, group: 'seguranca' },
     { id: 'lgpd', label: 'LGPD', icon: Scale, group: 'seguranca' },
+    { id: 'integracoes', label: 'Integrações', icon: Cable, group: 'sistema' },
     { id: 'dados_plataforma', label: 'Dados da plataforma', icon: Building2, group: 'sistema' },
     { id: 'url_publica', label: 'URL pública', icon: Globe, group: 'sistema' },
     { id: 'cron', label: 'Cron', icon: Clock, group: 'sistema' },
@@ -738,6 +749,14 @@ function buildSettingsPayload() {
         return {
             physical_products_enabled: data.physical_products_enabled,
             auto_approve_products: data.auto_approve_products,
+        };
+    }
+    if (activeTab.value === 'integracoes') {
+        return {
+            integration_webhook_enabled: data.integration_webhook_enabled,
+            integration_utmify_enabled: data.integration_utmify_enabled,
+            integration_spedy_enabled: data.integration_spedy_enabled,
+            integration_cademi_enabled: data.integration_cademi_enabled,
         };
     }
     if (activeTab.value === 'seguranca') {
@@ -1647,6 +1666,19 @@ const selectClass =
                         :notice-default="settings.platform_checkout_notice_default || ''"
                         :placeholders="settings.platform_checkout_notice_placeholders || []"
                     />
+                </div>
+            </Transition>
+
+            <Transition
+                enter-active-class="transition duration-200 ease-out"
+                enter-from-class="opacity-0"
+                enter-to-class="opacity-100"
+                leave-active-class="transition duration-150 ease-in"
+                leave-from-class="opacity-100"
+                leave-to-class="opacity-0"
+            >
+                <div v-show="activeTab === 'integracoes'" class="space-y-6">
+                    <SellerIntegrationsTab :form="form" :catalog="seller_integrations_catalog" />
                 </div>
             </Transition>
 

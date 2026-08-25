@@ -47,10 +47,12 @@ const props = defineProps({
     spedy_integrations: { type: Array, default: () => [] },
     cademi_integrations: { type: Array, default: () => [] },
     products: { type: Array, default: () => [] },
+    visible_integrations: { type: Array, default: () => ['webhook', 'utmify', 'spedy', 'cademi'] },
 });
 
-const APPS = computed(() =>
-    APPS_BASE.map((app) => {
+const APPS = computed(() => {
+    const allowed = new Set(props.visible_integrations || []);
+    return APPS_BASE.filter((app) => allowed.has(app.id)).map((app) => {
         if (app.id === 'utmify') {
             const hasActive = (props.utmify_integrations || []).some(
                 (i) => i.configured && i.is_active
@@ -79,8 +81,8 @@ const APPS = computed(() =>
             };
         }
         return app;
-    })
-);
+    });
+});
 
 const webhookSidebarOpen = ref(false);
 const utmifySidebarOpen = ref(false);
@@ -160,7 +162,7 @@ function onAppClick(app) {
             <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
                 {{ t('integrations.subtitle', 'Conecte sua plataforma com sistemas externos via webhooks e outras integrações.') }}
             </p>
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div v-if="APPS.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <AppCard
                     v-for="app in APPS"
                     :key="app.id"
@@ -168,6 +170,9 @@ function onAppClick(app) {
                     @click="onAppClick(app)"
                 />
             </div>
+            <p v-else class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400">
+                Nenhuma integração está disponível para esta conta no momento.
+            </p>
         </section>
 
         <WebhookSidebar

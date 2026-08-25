@@ -6,6 +6,7 @@ use App\Models\CademiIntegration;
 use App\Models\Order;
 use App\Models\CheckoutSession;
 use App\Services\CademiService;
+use App\Services\SellerIntegrationVisibility;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -34,6 +35,16 @@ class CademiGrantAccessJob implements ShouldQueue
             Log::info('CademiGrantAccessJob: integração inválida/inativa (skip)', [
                 'integration_id' => $this->integrationId,
                 'order_id' => $this->orderId,
+            ]);
+            return;
+        }
+
+        $tenantId = $integration->tenant_id !== null ? (int) $integration->tenant_id : null;
+        if (! SellerIntegrationVisibility::effectiveForTenant(SellerIntegrationVisibility::CADEMI, $tenantId)) {
+            Log::info('CademiGrantAccessJob: integração indisponível para o tenant (skip)', [
+                'integration_id' => $this->integrationId,
+                'order_id' => $this->orderId,
+                'tenant_id' => $tenantId,
             ]);
             return;
         }

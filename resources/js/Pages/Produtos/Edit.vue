@@ -91,6 +91,7 @@ const props = defineProps({
     billingTypes: { type: Array, default: () => [] },
     exchange_rates: { type: Object, default: () => ({ brl_eur: 0.16, brl_usd: 0.18 }) },
     cademi_integrations: { type: Array, default: () => [] },
+    cademi_available: { type: Boolean, default: true },
     checkout_gateway_ui: {
         type: Object,
         default: () => ({
@@ -1981,7 +1982,7 @@ function submit() {
 
                 <!-- Área de membros externa (Cademí) -->
                 <section
-                    v-if="form.type === 'area_membros_externa'"
+                    v-if="form.type === 'area_membros_externa' && cademi_available"
                     class="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-700/80 dark:bg-zinc-800/95"
                 >
                     <div class="border-b border-zinc-200/80 bg-zinc-50/80 px-6 py-4 dark:border-zinc-700/80 dark:bg-zinc-800/50">
