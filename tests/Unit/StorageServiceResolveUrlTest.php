@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Models\Setting;
+use App\Models\User;
 use App\Services\StorageService;
 use App\Support\RemoteStorage;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -156,5 +157,78 @@ class StorageServiceResolveUrlTest extends TestCase
         $resolved = $service->resolvePublicUrl($broken);
 
         $this->assertSame('https://media.valuxpay.com/avatars/Z.png', $resolved);
+    }
+
+    public function test_tenant_without_storage_config_inherits_global_r2_urls(): void
+    {
+        $seller = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+        ]);
+        $seller->update(['tenant_id' => $seller->id]);
+        $this->actingAs($seller);
+
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'test-key', null);
+        Setting::set('storage_s3_secret', encrypt('test-secret'), null);
+        Setting::set('storage_s3_bucket', 'my-bucket', null);
+        Setting::set('storage_s3_endpoint', 'https://acc.r2.cloudflarestorage.com', null);
+        Setting::set('storage_s3_url', 'https://pub-abc123.r2.dev', null);
+
+        $service = new StorageService($seller->tenant_id);
+        $resolved = $service->resolvePublicUrl('products/foto.jpg');
+
+        $this->assertSame('https://pub-abc123.r2.dev/products/foto.jpg', $resolved);
+    }
+
+    public function test_tenant_with_explicit_local_ignores_global_r2(): void
+    {
+        $seller = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+        ]);
+        $seller->update(['tenant_id' => $seller->id]);
+        $this->actingAs($seller);
+
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'test-key', null);
+        Setting::set('storage_s3_secret', encrypt('test-secret'), null);
+        Setting::set('storage_s3_bucket', 'my-bucket', null);
+        Setting::set('storage_s3_url', 'https://pub-abc123.r2.dev', null);
+
+        Setting::set('storage_provider', 'local', $seller->tenant_id);
+
+        Config::set('app.url', 'https://loja.example.com');
+
+        $service = new StorageService($seller->tenant_id);
+        $resolved = $service->resolvePublicUrl('products/foto.jpg');
+
+        $this->assertStringContainsString('/storage/products/foto.jpg', $resolved);
+        $this->assertStringNotContainsString('pub-abc123.r2.dev', $resolved);
+    }
+
+    public function test_tenant_with_explicit_r2_uses_tenant_credentials(): void
+    {
+        $seller = User::factory()->create([
+            'role' => User::ROLE_INFOPRODUTOR,
+        ]);
+        $seller->update(['tenant_id' => $seller->id]);
+        $this->actingAs($seller);
+
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'global-key', null);
+        Setting::set('storage_s3_secret', encrypt('global-secret'), null);
+        Setting::set('storage_s3_bucket', 'global-bucket', null);
+        Setting::set('storage_s3_url', 'https://pub-global.r2.dev', null);
+
+        Setting::set('storage_provider', 'r2', $seller->tenant_id);
+        Setting::set('storage_s3_key', 'tenant-key', $seller->tenant_id);
+        Setting::set('storage_s3_secret', encrypt('tenant-secret'), $seller->tenant_id);
+        Setting::set('storage_s3_bucket', 'tenant-bucket', $seller->tenant_id);
+        Setting::set('storage_s3_endpoint', 'https://acc.r2.cloudflarestorage.com', $seller->tenant_id);
+        Setting::set('storage_s3_url', 'https://pub-tenant.r2.dev', $seller->tenant_id);
+
+        $service = new StorageService($seller->tenant_id);
+        $resolved = $service->resolvePublicUrl('avatars/photo.png');
+
+        $this->assertSame('https://pub-tenant.r2.dev/avatars/photo.png', $resolved);
     }
 }

@@ -52,6 +52,24 @@ class StorageService
     }
 
     /**
+     * Tenant cujas settings de storage serão lidas.
+     * Quando o tenant não escolheu storage explicitamente, herda a config global da plataforma.
+     */
+    private function storageSettingsTenantId(): ?int
+    {
+        if ($this->tenantId === null) {
+            return null;
+        }
+
+        $tenantProvider = Setting::get('storage_provider', null, $this->tenantId);
+        if ($tenantProvider !== null && $tenantProvider !== '') {
+            return $this->tenantId;
+        }
+
+        return null;
+    }
+
+    /**
      * @return array{provider: string, key: string, secret: string, bucket: string, region: string, endpoint: string, url: string}
      */
     public function resolveRemoteCredentials(): array
@@ -62,8 +80,9 @@ class StorageService
 
         $cloudMode = (bool) config('getfy.cloud_mode', false);
         $r2Env = $this->r2EnvConfig();
+        $settingsTenantId = $this->storageSettingsTenantId();
 
-        $provider = Setting::get('storage_provider', null, $this->tenantId);
+        $provider = Setting::get('storage_provider', null, $settingsTenantId);
         if ($provider === null || $provider === '') {
             $provider = ($cloudMode && $r2Env['configured']) ? 'r2' : 'local';
         }
@@ -82,8 +101,8 @@ class StorageService
             return $this->remoteCredentials;
         }
 
-        $key = (string) Setting::get('storage_s3_key', '', $this->tenantId);
-        $secretRaw = Setting::get('storage_s3_secret', '', $this->tenantId);
+        $key = (string) Setting::get('storage_s3_key', '', $settingsTenantId);
+        $secretRaw = Setting::get('storage_s3_secret', '', $settingsTenantId);
         $secret = '';
         if ($secretRaw) {
             try {
@@ -92,10 +111,10 @@ class StorageService
                 $secret = '';
             }
         }
-        $bucket = (string) Setting::get('storage_s3_bucket', '', $this->tenantId);
-        $region = (string) Setting::get('storage_s3_region', 'us-east-1', $this->tenantId);
-        $endpoint = (string) Setting::get('storage_s3_endpoint', '', $this->tenantId);
-        $url = (string) Setting::get('storage_s3_url', '', $this->tenantId);
+        $bucket = (string) Setting::get('storage_s3_bucket', '', $settingsTenantId);
+        $region = (string) Setting::get('storage_s3_region', 'us-east-1', $settingsTenantId);
+        $endpoint = (string) Setting::get('storage_s3_endpoint', '', $settingsTenantId);
+        $url = (string) Setting::get('storage_s3_url', '', $settingsTenantId);
 
         $useEnvR2 = $cloudMode
             && $provider === 'r2'
