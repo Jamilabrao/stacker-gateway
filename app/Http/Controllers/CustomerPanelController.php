@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\RefundRequest;
 use App\Services\MemberAreaResolver;
 use App\Services\RefundRequestService;
 use App\Services\StorageService;
 use App\Support\RefundEligibility;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -26,7 +28,7 @@ class CustomerPanelController extends Controller
         $orders = Order::query()
             ->where('user_id', $user->id)
             ->where('status', 'completed')
-            ->with(['product', 'orderItems.product'])
+            ->with(['product.tenantOwner', 'orderItems.product.tenantOwner', 'refundRequests'])
             ->orderByDesc('id')
             ->get();
 
@@ -49,6 +51,7 @@ class CustomerPanelController extends Controller
             ->all();
 
         $grantedProducts = $user->products()
+            ->with('tenantOwner')
             ->when($purchasedProductIds !== [], fn ($q) => $q->whereNotIn('products.id', $purchasedProductIds))
             ->orderBy('name')
             ->get();
@@ -105,6 +108,7 @@ class CustomerPanelController extends Controller
         MemberAreaResolver $resolver
     ): array {
         $productId = $product?->id ?? $order->product_id;
+        $accessUrl = $this->productAccessUrl($product, $resolver);
 
         return [
             'purchase_key' => $order->id.'-'.($productId ?? 'main').'-'.$position,
@@ -114,8 +118,18 @@ class CustomerPanelController extends Controller
             'product_id' => $productId,
             'product_name' => $product?->name ?? 'Produto',
             'product_type' => $product?->type,
+            'product_type_label' => $this->productTypeLabel($product),
             'product_image_url' => $this->productImageUrl($product),
-            'access_url' => $this->productAccessUrl($product, $resolver),
+            'access_url' => $accessUrl,
+            'access_cta' => $this->accessCta($product, $accessUrl),
+            'access_hint' => $this->accessHint($product, $accessUrl),
+            'purchased_at' => $this->dateIso($order->created_at),
+            'purchased_at_label' => $this->dateLabel($order->created_at),
+            'payment_method_label' => $this->paymentMethodLabel($order),
+            'seller_name' => $this->sellerName($product),
+            'support_email' => $this->supportEmail($product),
+            'shipping' => $this->shippingSummary($order, $product),
+            'refund_status' => $position === 0 ? $this->latestRefundStatus($order) : null,
             'is_order_bump' => $position > 0,
             'is_manual_grant' => false,
             'can_request_refund' => $position === 0 && RefundEligibility::canCustomerRequestRefund($order),
@@ -129,6 +143,9 @@ class CustomerPanelController extends Controller
      */
     private function grantedAccessRow(Product $product, MemberAreaResolver $resolver): array
     {
+        $accessUrl = $this->productAccessUrl($product, $resolver);
+        $grantedAt = $product->pivot?->created_at;
+
         return [
             'purchase_key' => 'granted-'.$product->id,
             'order_id' => null,
@@ -137,8 +154,18 @@ class CustomerPanelController extends Controller
             'product_id' => $product->id,
             'product_name' => $product->name,
             'product_type' => $product->type,
+            'product_type_label' => $this->productTypeLabel($product),
             'product_image_url' => $this->productImageUrl($product),
-            'access_url' => $this->productAccessUrl($product, $resolver),
+            'access_url' => $accessUrl,
+            'access_cta' => $this->accessCta($product, $accessUrl),
+            'access_hint' => $this->accessHint($product, $accessUrl),
+            'purchased_at' => $this->dateIso($grantedAt),
+            'purchased_at_label' => $this->dateLabel($grantedAt),
+            'payment_method_label' => null,
+            'seller_name' => $this->sellerName($product),
+            'support_email' => $this->supportEmail($product),
+            'shipping' => null,
+            'refund_status' => null,
             'is_order_bump' => false,
             'is_manual_grant' => true,
             'can_request_refund' => false,
@@ -155,11 +182,172 @@ class CustomerPanelController extends Controller
             return $resolver->baseUrlForProduct($product);
         }
 
-        if ($product->type === Product::TYPE_LINK) {
-            return $product->checkout_config['deliverable_link'] ?? null;
+        if (in_array($product->type, [
+            Product::TYPE_LINK,
+            Product::TYPE_AREA_MEMBROS_EXTERNA,
+            Product::TYPE_APLICATIVO,
+        ], true)) {
+            $link = $product->checkout_config['deliverable_link'] ?? null;
+
+            return is_string($link) && trim($link) !== '' ? trim($link) : null;
         }
 
         return null;
+    }
+
+    private function dateIso(mixed $date): ?string
+    {
+        if ($date === null || $date === '') {
+            return null;
+        }
+
+        return Carbon::parse($date)->toIso8601String();
+    }
+
+    private function dateLabel(mixed $date): ?string
+    {
+        if ($date === null || $date === '') {
+            return null;
+        }
+
+        return Carbon::parse($date)->timezone(config('app.timezone'))->format('d/m/Y');
+    }
+
+    private function productTypeLabel(?Product $product): ?string
+    {
+        if ($product === null || $product->type === null) {
+            return null;
+        }
+
+        return Product::typeConfig()[$product->type]['label'] ?? null;
+    }
+
+    private function accessCta(?Product $product, ?string $accessUrl): ?string
+    {
+        if ($accessUrl === null || $accessUrl === '') {
+            return null;
+        }
+
+        return match ($product?->type) {
+            Product::TYPE_AREA_MEMBROS => 'Entrar na área de membros',
+            Product::TYPE_AREA_MEMBROS_EXTERNA => 'Acessar plataforma',
+            Product::TYPE_LINK => 'Abrir conteúdo',
+            Product::TYPE_APLICATIVO => 'Abrir aplicativo',
+            default => 'Acessar',
+        };
+    }
+
+    private function accessHint(?Product $product, ?string $accessUrl): ?string
+    {
+        if ($accessUrl !== null && $accessUrl !== '') {
+            return null;
+        }
+
+        return match ($product?->type) {
+            Product::TYPE_PRODUTO_FISICO => 'Produto físico. O envio segue para o endereço informado na compra.',
+            Product::TYPE_LINK_PAGAMENTO => 'Este pedido não inclui conteúdo digital para acessar aqui.',
+            Product::TYPE_AREA_MEMBROS_EXTERNA => 'O acesso é liberado na plataforma externa. Confira o e-mail da compra.',
+            default => 'O acesso é enviado por e-mail pelo vendedor.',
+        };
+    }
+
+    private function paymentMethodLabel(Order $order): ?string
+    {
+        return match ($order->resolveCheckoutPaymentMethodKey()) {
+            'pix' => 'Pix',
+            'pix_auto' => 'Pix automático',
+            'card' => 'Cartão',
+            'boleto' => 'Boleto',
+            'apple_pay' => 'Apple Pay',
+            'google_pay' => 'Google Pay',
+            'open_finance' => 'Open Finance',
+            default => null,
+        };
+    }
+
+    private function sellerName(?Product $product): ?string
+    {
+        $owner = $product?->tenantOwner;
+        if ($owner === null) {
+            return null;
+        }
+
+        $name = trim((string) ($owner->trade_name ?: $owner->name));
+
+        return $name !== '' ? $name : null;
+    }
+
+    private function supportEmail(?Product $product): ?string
+    {
+        $email = trim((string) ($product?->support_email ?? ''));
+
+        return $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : null;
+    }
+
+    /**
+     * @return array{lines: list<string>, delivery_label: ?string}|null
+     */
+    private function shippingSummary(Order $order, ?Product $product): ?array
+    {
+        if ($product?->type !== Product::TYPE_PRODUTO_FISICO) {
+            return null;
+        }
+
+        $addr = is_array($order->shipping_address) ? $order->shipping_address : [];
+        $street = trim((string) ($addr['street'] ?? ''));
+        $number = trim((string) ($addr['number'] ?? ''));
+        $streetLine = $street !== ''
+            ? ($number !== '' ? $street.', '.$number : $street)
+            : null;
+
+        $city = trim((string) ($addr['city'] ?? ''));
+        $state = trim((string) ($addr['state'] ?? ''));
+        $cityLine = ($city !== '' || $state !== '')
+            ? trim($city.($state !== '' ? ' — '.$state : ''))
+            : null;
+
+        $zip = trim((string) ($addr['zip'] ?? ''));
+
+        $lines = array_values(array_filter([
+            $streetLine,
+            trim((string) ($addr['complement'] ?? '')) ?: null,
+            trim((string) ($addr['neighborhood'] ?? '')) ?: null,
+            $cityLine,
+            $zip !== '' ? 'CEP '.$zip : null,
+        ]));
+
+        $meta = is_array($order->metadata) ? $order->metadata : [];
+        $min = $meta['delivery_days_min'] ?? null;
+        $max = $meta['delivery_days_max'] ?? null;
+        $deliveryLabel = null;
+        if ($min !== null && $min !== '') {
+            $deliveryLabel = (int) $min === (int) ($max ?? $min)
+                ? ((int) $min).' dias úteis'
+                : ((int) $min).'–'.((int) $max).' dias úteis';
+        }
+
+        if ($lines === [] && $deliveryLabel === null) {
+            return null;
+        }
+
+        return [
+            'lines' => $lines,
+            'delivery_label' => $deliveryLabel,
+        ];
+    }
+
+    private function latestRefundStatus(Order $order): ?string
+    {
+        $latest = $order->refundRequests->sortByDesc('id')->first();
+        if ($latest === null) {
+            return null;
+        }
+
+        return in_array($latest->status, [
+            RefundRequest::STATUS_PENDING,
+            RefundRequest::STATUS_APPROVED,
+            RefundRequest::STATUS_REJECTED,
+        ], true) ? $latest->status : null;
     }
 
     private function productImageUrl(?Product $product): ?string

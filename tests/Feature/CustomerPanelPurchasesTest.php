@@ -56,6 +56,8 @@ class CustomerPanelPurchasesTest extends TestCase
             ->has('purchases', 2)
             ->where('purchases.0.product_name', 'Curso principal')
             ->where('purchases.0.is_order_bump', false)
+            ->where('purchases.0.purchased_at_label', $order->created_at->timezone(config('app.timezone'))->format('d/m/Y'))
+            ->where('purchases.0.product_type_label', 'Link')
             ->where('purchases.1.product_name', 'Bump extra')
             ->where('purchases.1.is_order_bump', true)
         );
@@ -179,6 +181,84 @@ class CustomerPanelPurchasesTest extends TestCase
             ->where('purchases.0.is_manual_grant', false)
             ->where('purchases.1.product_name', 'Liberado manual')
             ->where('purchases.1.is_manual_grant', true)
+            ->where('purchases.1.access_cta', 'Entrar na área de membros')
+        );
+    }
+
+    public function test_painel_cliente_exposes_external_member_area_link_and_physical_hint(): void
+    {
+        User::factory()->create(['role' => User::ROLE_INFOPRODUTOR, 'tenant_id' => 1]);
+
+        $buyer = User::factory()->create([
+            'role' => User::ROLE_CLIENTE,
+            'tenant_id' => 1,
+            'email' => 'buyer@test.com',
+        ]);
+
+        $external = $this->createTestProduct([
+            'name' => 'Curso externo',
+            'tenant_id' => 1,
+            'type' => Product::TYPE_AREA_MEMBROS_EXTERNA,
+            'checkout_config' => ['deliverable_link' => 'https://escola.example/acesso'],
+        ]);
+        $physical = $this->createTestProduct([
+            'name' => 'Livro impresso',
+            'tenant_id' => 1,
+            'type' => Product::TYPE_PRODUTO_FISICO,
+        ]);
+
+        $externalOrder = Order::create([
+            'tenant_id' => 1,
+            'user_id' => $buyer->id,
+            'product_id' => $external->id,
+            'status' => 'completed',
+            'amount' => 40,
+            'email' => $buyer->email,
+            'payment_method' => 'pix',
+        ]);
+        OrderItem::create([
+            'order_id' => $externalOrder->id,
+            'product_id' => $external->id,
+            'amount' => 40,
+            'position' => 0,
+        ]);
+
+        $physicalOrder = Order::create([
+            'tenant_id' => 1,
+            'user_id' => $buyer->id,
+            'product_id' => $physical->id,
+            'status' => 'completed',
+            'amount' => 90,
+            'email' => $buyer->email,
+            'shipping_address' => [
+                'street' => 'Rua das Flores',
+                'number' => '10',
+                'city' => 'São Paulo',
+                'state' => 'SP',
+                'zip' => '01000-000',
+            ],
+        ]);
+        OrderItem::create([
+            'order_id' => $physicalOrder->id,
+            'product_id' => $physical->id,
+            'amount' => 90,
+            'position' => 0,
+        ]);
+
+        $response = $this->actingAs($buyer)->get('/painel-cliente');
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) => $page
+            ->component('Cliente/Index')
+            ->has('purchases', 2)
+            ->where('purchases.0.product_name', 'Livro impresso')
+            ->where('purchases.0.access_url', null)
+            ->where('purchases.0.access_hint', 'Produto físico. O envio segue para o endereço informado na compra.')
+            ->where('purchases.0.shipping.lines.0', 'Rua das Flores, 10')
+            ->where('purchases.1.product_name', 'Curso externo')
+            ->where('purchases.1.access_url', 'https://escola.example/acesso')
+            ->where('purchases.1.access_cta', 'Acessar plataforma')
+            ->where('purchases.1.payment_method_label', 'Pix')
         );
     }
 }

@@ -47,7 +47,7 @@ const isPixGoRoute = computed(() => {
     const path = (page.url ?? '').split('?')[0];
     return path === '/pixgo' || path.startsWith('/pixgo/');
 });
-const showAppHeader = computed(() => !customerPanel.value && !isPixGoRoute.value);
+const showAppHeader = computed(() => !isPixGoRoute.value);
 const showMobileBottomNav = computed(() => !customerPanel.value && !isPixGoRoute.value);
 const pageTitle = computed(() => page.props.pageTitle ?? null);
 const pageTitleBadge = computed(() => page.props.pageTitleBadge ?? null);
