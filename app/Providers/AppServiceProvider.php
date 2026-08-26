@@ -13,6 +13,7 @@ use App\Listeners\ForgetInertiaSharedCacheOnOrderCompleted;
 use App\Listeners\SyncSalesAchievementsOnOrderCompleted;
 use App\Listeners\IncrementCouponUsageOnOrderCompleted;
 use App\Listeners\RevokeProductAccessOnOrderRejected;
+use App\Listeners\GrantMemberModuleAccessOnOrderCompleted;
 use App\Listeners\SendAccessEmailOnOrderCompleted;
 use App\Listeners\SendPanelPushOnBoletoGenerated;
 use App\Listeners\SendPanelPushOnOrderCompleted;
@@ -235,6 +236,7 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(OrderCompleted::class, ForgetInertiaSharedCacheOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, SyncSalesAchievementsOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, IncrementCouponUsageOnOrderCompleted::class);
+        Event::listen(OrderCompleted::class, GrantMemberModuleAccessOnOrderCompleted::class);
         Event::listen(OrderCompleted::class, SendAccessEmailOnOrderCompleted::class);
         Event::listen(OrderRejected::class, RevokeProductAccessOnOrderRejected::class);
         Event::listen(PixGenerated::class, SendPanelPushOnPixGenerated::class);

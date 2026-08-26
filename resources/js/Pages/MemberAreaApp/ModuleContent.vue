@@ -4,6 +4,7 @@ import { Link, router } from '@inertiajs/vue3';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import MemberAreaVideoPlayer from '@/components/MemberAreaVideoPlayer.vue';
+import MemberModuleRenewalPix from '@/components/member-area/MemberModuleRenewalPix.vue';
 import { formatLessonDescription } from '@/lib/utils';
 import { sanitizeHtmlAllowlist } from '@/lib/sanitizeHtml';
 import { Link as LinkIcon, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-vue-next';
@@ -281,7 +282,14 @@ function scrollCarousel(sectionId, direction) {
             </template>
             <template v-else>
                 <div class="rounded-xl border border-zinc-700 bg-zinc-800/50 p-12 text-center">
-                    <p class="text-zinc-500">Selecione uma aula na lista à direita.</p>
+                    <template v-if="module.lock_reason === 'expired'">
+                        <p class="text-zinc-200">{{ module.lock_message || 'O acesso a este módulo encerrou.' }}</p>
+                        <p class="mt-2 text-sm text-zinc-400">O restante da área de membros continua disponível.</p>
+                        <div v-if="module.can_renew" class="mt-4 flex justify-center">
+                            <MemberModuleRenewalPix :slug="slug" :module="module" />
+                        </div>
+                    </template>
+                    <p v-else class="text-zinc-500">Selecione uma aula na lista à direita.</p>
                     <Link :href="`/m/${slug}`" class="mt-4 inline-block text-sm text-[var(--ma-primary)] hover:underline">← Voltar ao início</Link>
                 </div>
             </template>

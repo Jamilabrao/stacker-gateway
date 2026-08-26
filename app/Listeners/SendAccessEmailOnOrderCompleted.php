@@ -15,6 +15,9 @@ class SendAccessEmailOnOrderCompleted
     public function handle(OrderCompleted $event): void
     {
         $order = $event->order;
+        if (\App\Services\MemberModuleAccessService::isRenewalOrder($order)) {
+            return;
+        }
         Log::info('SendAccessEmailOnOrderCompleted: disparando envio de e-mail de acesso.', ['order_id' => $order->id]);
 
         try {

@@ -20,6 +20,9 @@ class MemberModule extends Model
         'external_url',
         'release_after_days',
         'release_at_date',
+        'expire_after_days',
+        'expire_at_date',
+        'renewal_price',
     ];
 
     protected function casts(): array
@@ -29,6 +32,9 @@ class MemberModule extends Model
             'show_title_on_cover' => 'boolean',
             'release_after_days' => 'integer',
             'release_at_date' => 'date:Y-m-d',
+            'expire_after_days' => 'integer',
+            'expire_at_date' => 'date:Y-m-d',
+            'renewal_price' => 'decimal:2',
         ];
     }
 
@@ -50,5 +56,10 @@ class MemberModule extends Model
     public function lessons(): HasMany
     {
         return $this->hasMany(MemberLesson::class, 'member_module_id')->orderBy('position');
+    }
+
+    public function accessGrants(): HasMany
+    {
+        return $this->hasMany(MemberModuleAccess::class, 'member_module_id');
     }
 }

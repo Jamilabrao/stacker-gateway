@@ -916,6 +916,11 @@ const editingModuleExternalUrl = ref('');
 const editingModuleReleaseMode = ref('none'); // none | days | date
 const editingModuleReleaseAfterDays = ref('');
 const editingModuleReleaseAtDate = ref('');
+const editingModuleExpireEnabled = ref(false);
+const editingModuleExpireMode = ref('days'); // days | date
+const editingModuleExpireAfterDays = ref('');
+const editingModuleExpireAtDate = ref('');
+const editingModuleRenewalPrice = ref('');
 
 const sectionModalOpen = ref(false);
 const sectionModalTitle = ref('');
@@ -939,6 +944,52 @@ const moduleModalExternalUrl = ref('');
 const moduleModalReleaseMode = ref('none'); // none | days | date
 const moduleModalReleaseAfterDays = ref('');
 const moduleModalReleaseAtDate = ref('');
+const moduleModalExpireEnabled = ref(false);
+const moduleModalExpireMode = ref('days'); // days | date
+const moduleModalExpireAfterDays = ref('');
+const moduleModalExpireAtDate = ref('');
+const moduleModalRenewalPrice = ref('');
+
+function packModuleExpirePayload(enabled, mode, daysStr, dateStr, priceStr) {
+    const payload = {
+        expire_after_days: null,
+        expire_at_date: null,
+        renewal_price: null,
+    };
+    if (!enabled) return payload;
+    if (mode === 'days') {
+        const days = parseInt(daysStr, 10);
+        payload.expire_after_days = Number.isFinite(days) && days > 0 ? days : null;
+    } else if (mode === 'date') {
+        payload.expire_at_date = dateStr?.trim() || null;
+    }
+    const normalized = String(priceStr ?? '').replace(',', '.').trim();
+    const price = parseFloat(normalized);
+    if (Number.isFinite(price) && price > 0) {
+        payload.renewal_price = Math.round(price * 100) / 100;
+    }
+    return payload;
+}
+
+function applyModuleExpireToForm(mod) {
+    if (mod.expire_at_date) {
+        editingModuleExpireEnabled.value = true;
+        editingModuleExpireMode.value = 'date';
+        editingModuleExpireAtDate.value = mod.expire_at_date;
+        editingModuleExpireAfterDays.value = '';
+    } else if (mod.expire_after_days) {
+        editingModuleExpireEnabled.value = true;
+        editingModuleExpireMode.value = 'days';
+        editingModuleExpireAfterDays.value = String(mod.expire_after_days);
+        editingModuleExpireAtDate.value = '';
+    } else {
+        editingModuleExpireEnabled.value = false;
+        editingModuleExpireMode.value = 'days';
+        editingModuleExpireAfterDays.value = '';
+        editingModuleExpireAtDate.value = '';
+    }
+    editingModuleRenewalPrice.value = mod.renewal_price ? String(mod.renewal_price) : '';
+}
 
 function openSectionEdit(section) {
     editingSectionTitle.value = section.title;
@@ -978,6 +1029,7 @@ function openModuleEdit(mod) {
         editingModuleReleaseAfterDays.value = '';
         editingModuleReleaseAtDate.value = '';
     }
+    applyModuleExpireToForm(mod);
     startEditModule(mod.id);
 }
 
@@ -1001,6 +1053,13 @@ async function saveModuleTitle() {
             payload.release_after_days = null;
             payload.release_at_date = null;
         }
+        Object.assign(payload, packModuleExpirePayload(
+            editingModuleExpireEnabled.value,
+            editingModuleExpireMode.value,
+            editingModuleExpireAfterDays.value,
+            editingModuleExpireAtDate.value,
+            editingModuleRenewalPrice.value,
+        ));
     } else if (sectionType === 'products') {
         payload.related_product_id = editingModuleRelatedProductId.value;
         payload.access_type = editingModuleAccessType.value;
@@ -1487,6 +1546,11 @@ function openModuleModal(sectionId) {
     moduleModalReleaseMode.value = 'none';
     moduleModalReleaseAfterDays.value = '';
     moduleModalReleaseAtDate.value = '';
+    moduleModalExpireEnabled.value = false;
+    moduleModalExpireMode.value = 'days';
+    moduleModalExpireAfterDays.value = '';
+    moduleModalExpireAtDate.value = '';
+    moduleModalRenewalPrice.value = '';
     clearModuleModalFile();
     moduleModalOpen.value = true;
 }
@@ -1536,6 +1600,13 @@ async function confirmNewModule() {
                 payload.release_after_days = null;
                 payload.release_at_date = null;
             }
+            Object.assign(payload, packModuleExpirePayload(
+                moduleModalExpireEnabled.value,
+                moduleModalExpireMode.value,
+                moduleModalExpireAfterDays.value,
+                moduleModalExpireAtDate.value,
+                moduleModalRenewalPrice.value,
+            ));
         } else if (sectionType === 'products') {
             payload.related_product_id = moduleModalRelatedProductId.value;
             payload.access_type = moduleModalAccessType.value;
@@ -2473,6 +2544,50 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                                                 class="!py-1.5 !text-xs w-full"
                                                             />
                                                             <div v-else class="hidden sm:block" />
+                                                        </div>
+                                                    </div>
+                                                    <div class="mb-3">
+                                                        <label class="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                                            <input v-model="editingModuleExpireEnabled" type="checkbox" class="h-3.5 w-3.5 rounded border-zinc-300 text-[var(--color-primary)]" />
+                                                            Ativar validade do acesso
+                                                        </label>
+                                                        <div v-if="editingModuleExpireEnabled" class="space-y-2">
+                                                            <div class="grid gap-2 sm:grid-cols-3">
+                                                                <select v-model="editingModuleExpireMode" :class="inputClass" class="!py-1.5 !text-xs w-full">
+                                                                    <option value="days">Por X dias</option>
+                                                                    <option value="date">Até a data</option>
+                                                                </select>
+                                                                <input
+                                                                    v-if="editingModuleExpireMode === 'days'"
+                                                                    v-model="editingModuleExpireAfterDays"
+                                                                    type="number"
+                                                                    min="1"
+                                                                    step="1"
+                                                                    :class="inputClass"
+                                                                    class="!py-1.5 !text-xs w-full"
+                                                                    placeholder="Ex.: 365"
+                                                                />
+                                                                <input
+                                                                    v-else
+                                                                    v-model="editingModuleExpireAtDate"
+                                                                    type="date"
+                                                                    :class="inputClass"
+                                                                    class="!py-1.5 !text-xs w-full"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Valor para renovar acesso (R$)</label>
+                                                                <input
+                                                                    v-model="editingModuleRenewalPrice"
+                                                                    type="number"
+                                                                    min="0.01"
+                                                                    step="0.01"
+                                                                    :class="inputClass"
+                                                                    class="!py-1.5 !text-xs w-full"
+                                                                    placeholder="Opcional"
+                                                                />
+                                                                <p class="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">Se preenchido e a validade for em dias, o aluno pode pagar PIX para renovar só este módulo. Conta a partir da compra de cada aluno.</p>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div v-if="editingModule?.thumbnail" class="mb-3 flex items-center gap-3">
@@ -3718,6 +3833,50 @@ const inputClass = 'block w-full rounded-lg border border-zinc-300 bg-white px-3
                                         class="w-full"
                                     />
                                     <div v-else class="hidden sm:block" />
+                                </div>
+                            </div>
+                            <div>
+                                <label class="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                    <input v-model="moduleModalExpireEnabled" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-[var(--color-primary)]" />
+                                    Ativar validade do acesso
+                                </label>
+                                <div v-if="moduleModalExpireEnabled" class="space-y-2">
+                                    <div class="grid gap-2 sm:grid-cols-3">
+                                        <select v-model="moduleModalExpireMode" :class="inputClass" class="w-full">
+                                            <option value="days">Por X dias</option>
+                                            <option value="date">Até a data</option>
+                                        </select>
+                                        <input
+                                            v-if="moduleModalExpireMode === 'days'"
+                                            v-model="moduleModalExpireAfterDays"
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            :class="inputClass"
+                                            class="w-full"
+                                            placeholder="Ex.: 365"
+                                        />
+                                        <input
+                                            v-else
+                                            v-model="moduleModalExpireAtDate"
+                                            type="date"
+                                            :class="inputClass"
+                                            class="w-full"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Valor para renovar acesso (R$)</label>
+                                        <input
+                                            v-model="moduleModalRenewalPrice"
+                                            type="number"
+                                            min="0.01"
+                                            step="0.01"
+                                            :class="inputClass"
+                                            class="w-full"
+                                            placeholder="Opcional"
+                                        />
+                                        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Se preenchido e a validade for em dias, o aluno pode pagar PIX para renovar só este módulo. O prazo conta da compra de cada aluno.</p>
+                                    </div>
                                 </div>
                             </div>
                             <div>
