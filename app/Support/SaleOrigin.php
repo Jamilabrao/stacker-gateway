@@ -24,6 +24,8 @@ final class SaleOrigin
 
     public const PIXGO = 'pixgo';
 
+    public const MEMBER_MODULE_RENEWAL = 'member_module_renewal';
+
     /** @return array<string, string> */
     public static function labels(): array
     {
@@ -37,6 +39,7 @@ final class SaleOrigin
             self::API => 'API',
             self::API_CHECKOUT => 'Checkout Personalizado',
             self::PIXGO => 'PixGO',
+            self::MEMBER_MODULE_RENEWAL => 'Renovação de módulo',
         ];
     }
 
@@ -86,6 +89,10 @@ final class SaleOrigin
         }
         if (in_array($source, ['api', 'api_checkout_pro'], true)) {
             return $source === 'api_checkout_pro' ? self::API_CHECKOUT : self::API;
+        }
+
+        if (! empty($meta[self::MEMBER_MODULE_RENEWAL])) {
+            return self::MEMBER_MODULE_RENEWAL;
         }
 
         if (! empty($meta['upsell']) || ! empty($meta['upsell_token']) || ! empty($context['upsell'])) {

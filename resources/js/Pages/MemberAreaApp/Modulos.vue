@@ -1,6 +1,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
+import MemberModuleRenewalPix from '@/components/member-area/MemberModuleRenewalPix.vue';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -34,6 +35,12 @@ const props = defineProps({
                         <div class="p-4">
                             <p class="font-medium">{{ mod.title }}</p>
                             <p v-if="mod.is_locked && mod.lock_message" class="mt-1 text-xs text-zinc-400">{{ mod.lock_message }}</p>
+                            <MemberModuleRenewalPix
+                                v-if="mod.is_locked && mod.can_renew"
+                                :slug="slug"
+                                :module="mod"
+                                compact
+                            />
                             <ul class="mt-2 space-y-1">
                                 <li v-for="lesson in mod.lessons" :key="lesson.id" class="flex items-center justify-between gap-2 text-sm">
                                     <span class="flex min-w-0 items-center gap-2 truncate">

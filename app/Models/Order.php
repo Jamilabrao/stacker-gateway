@@ -600,6 +600,12 @@ class Order extends Model
             return;
         }
 
+        if (\App\Services\MemberModuleAccessService::isRenewalOrder($this)) {
+            app(\App\Services\MemberModuleAccessService::class)->revokeFromOrder($this);
+
+            return;
+        }
+
         $this->loadMissing('orderItems.product', 'product');
         $productIds = [];
         if ($this->product && $this->product->type !== Product::TYPE_PRODUTO_FISICO) {

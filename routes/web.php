@@ -1093,6 +1093,8 @@ Route::prefix('m/{slug}')->where(['slug' => '[a-zA-Z0-9]{6,16}'])->middleware('m
         Route::get('modulos', fn (string $slug) => redirect()->route('member-area-app.show', $slug))->name('member-area-app.modulos');
         Route::get('modulo/{module}', [\App\Http\Controllers\MemberAreaAppController::class, 'moduleContent'])->name('member-area-app.module');
         Route::get('aula/{lesson}', [\App\Http\Controllers\MemberAreaAppController::class, 'lesson'])->name('member-area-app.lesson');
+        Route::post('modulo/{module}/renovar-pix', [\App\Http\Controllers\MemberModuleRenewalController::class, 'createPix'])->middleware('throttle:10,1')->name('member-area-app.module.renew-pix');
+        Route::get('modulo/{module}/renovar-pix/{order}', [\App\Http\Controllers\MemberModuleRenewalController::class, 'status'])->middleware('throttle:60,1')->name('member-area-app.module.renew-pix.status');
         Route::post('aula/{lesson}/complete', [\App\Http\Controllers\MemberAreaAppController::class, 'completeLesson'])->name('member-area-app.lesson.complete');
         Route::post('aula/{lesson}/comments', [\App\Http\Controllers\MemberAreaAppController::class, 'storeLessonComment'])->name('member-area-app.lesson.comments.store');
         Route::get('loja', [\App\Http\Controllers\MemberAreaAppController::class, 'loja'])->name('member-area-app.loja');
@@ -1144,6 +1146,8 @@ Route::middleware(['web', 'member.area.resolve.by.host'])->group(function () {
         Route::get('modulos', [\App\Http\Controllers\MemberAreaAppController::class, 'modulos'])->name('member-area-app.modulos.host');
         Route::get('modulo/{module}', [\App\Http\Controllers\MemberAreaAppController::class, 'moduleContent'])->name('member-area-app.module.host');
         Route::get('aula/{lesson}', [\App\Http\Controllers\MemberAreaAppController::class, 'lesson'])->name('member-area-app.lesson.host');
+        Route::post('modulo/{module}/renovar-pix', [\App\Http\Controllers\MemberModuleRenewalController::class, 'createPix'])->middleware('throttle:10,1')->name('member-area-app.module.renew-pix.host');
+        Route::get('modulo/{module}/renovar-pix/{order}', [\App\Http\Controllers\MemberModuleRenewalController::class, 'status'])->middleware('throttle:60,1')->name('member-area-app.module.renew-pix.status.host');
         Route::post('aula/{lesson}/complete', [\App\Http\Controllers\MemberAreaAppController::class, 'completeLesson'])->name('member-area-app.lesson.complete.host');
         Route::post('aula/{lesson}/comments', [\App\Http\Controllers\MemberAreaAppController::class, 'storeLessonComment'])->name('member-area-app.lesson.comments.store.host');
         Route::get('loja', [\App\Http\Controllers\MemberAreaAppController::class, 'loja'])->name('member-area-app.loja.host');

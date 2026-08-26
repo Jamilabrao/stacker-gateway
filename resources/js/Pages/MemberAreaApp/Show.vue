@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import MemberAreaAppLayout from '@/Layouts/MemberAreaAppLayout.vue';
 import Button from '@/components/ui/Button.vue';
 import MemberCertificateHighlight from '@/components/member-area/MemberCertificateHighlight.vue';
+import MemberModuleRenewalPix from '@/components/member-area/MemberModuleRenewalPix.vue';
 
 defineOptions({ layout: MemberAreaAppLayout });
 
@@ -203,7 +204,8 @@ function checkoutHref(item) {
                         </Link>
                         <div
                             v-else
-                            class="flex w-64 shrink-0 cursor-not-allowed flex-col rounded-xl overflow-hidden bg-zinc-800/30 text-left opacity-70"
+                            class="flex w-64 shrink-0 flex-col overflow-hidden rounded-xl bg-zinc-800/30 text-left opacity-90"
+                            :class="mod.can_renew ? '' : 'cursor-not-allowed opacity-70'"
                         >
                             <div :class="[(section.cover_mode === 'horizontal' ? 'aspect-video' : 'aspect-[2/3]'), 'relative w-full bg-zinc-700 flex items-center justify-center overflow-hidden']">
                                 <img v-if="mod.thumbnail" :src="mod.thumbnail" :alt="mod.title" class="absolute inset-0 h-full w-full object-cover" />
@@ -212,6 +214,12 @@ function checkoutHref(item) {
                                 <div class="absolute inset-x-0 bottom-0 px-3 pb-3 pt-8">
                                     <p class="truncate text-base font-medium text-white">{{ mod.title }}</p>
                                     <p v-if="mod.lock_message" class="mt-1 text-xs text-white/80">{{ mod.lock_message }}</p>
+                                    <MemberModuleRenewalPix
+                                        v-if="mod.can_renew"
+                                        :slug="slug"
+                                        :module="mod"
+                                        compact
+                                    />
                                 </div>
                             </div>
                         </div>
