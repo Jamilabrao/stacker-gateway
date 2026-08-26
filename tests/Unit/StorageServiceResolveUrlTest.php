@@ -231,4 +231,34 @@ class StorageServiceResolveUrlTest extends TestCase
 
         $this->assertSame('https://pub-tenant.r2.dev/avatars/photo.png', $resolved);
     }
+
+    public function test_resolve_public_url_keeps_member_badge_library_off_r2_and_storage(): void
+    {
+        Config::set('app.url', 'https://loja.example.com');
+        Setting::set('storage_provider', 'r2', null);
+        Setting::set('storage_s3_key', 'test-key', null);
+        Setting::set('storage_s3_secret', encrypt('test-secret'), null);
+        Setting::set('storage_s3_bucket', 'my-bucket', null);
+        Setting::set('storage_s3_endpoint', 'https://acc.r2.cloudflarestorage.com', null);
+        Setting::set('storage_s3_url', 'https://pub-abc123.r2.dev', null);
+        Setting::set('storage_s3_region', 'auto', null);
+
+        $service = new StorageService(null);
+        $resolved = $service->resolvePublicUrl('/images/level-badge/color fill/badge.png');
+
+        $this->assertStringNotContainsString('r2.dev', $resolved);
+        $this->assertStringNotContainsString('/storage/', $resolved);
+        $this->assertStringContainsString('/images/level-badge/color%20fill/badge.png', $resolved);
+    }
+
+    public function test_resolve_public_url_keeps_public_icons_off_storage(): void
+    {
+        Config::set('app.url', 'https://loja.example.com');
+
+        $service = new StorageService(null);
+        $resolved = $service->resolvePublicUrl('/icons/icon-192x192.png');
+
+        $this->assertStringNotContainsString('/storage/', $resolved);
+        $this->assertStringContainsString('/icons/icon-192x192.png', $resolved);
+    }
 }
