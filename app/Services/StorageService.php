@@ -386,6 +386,10 @@ class StorageService
 
     private function resolvePublicUrlUnsafe(string $stored): string
     {
+        if ($this->isPublicWebAssetPath($stored)) {
+            return $this->publicWebAssetPath($stored);
+        }
+
         $stored = RemoteStorage::normalizeStoredObjectReference($stored);
         $normalizer = new StorageUrlNormalizer;
         $creds = $this->resolveRemoteCredentials();
@@ -436,6 +440,10 @@ class StorageService
 
     private function fallbackPublicUrl(string $stored): string
     {
+        if ($this->isPublicWebAssetPath($stored)) {
+            return $this->publicWebAssetPath($stored);
+        }
+
         if (preg_match('#^https?://#i', $stored)) {
             return $stored;
         }
@@ -445,6 +453,36 @@ class StorageService
         }
 
         return '/storage/'.ltrim($stored, '/');
+    }
+
+    /**
+     * Arquivos em public/images e public/icons — não são objetos de storage/R2.
+     * Usado pelas badges da gamificação (/images/level-badge/...).
+     */
+    private function isPublicWebAssetPath(string $stored): bool
+    {
+        $path = trim($stored);
+        if ($path === '' || preg_match('#^https?://#i', $path)) {
+            return false;
+        }
+
+        $path = '/'.ltrim(rawurldecode($path), '/');
+
+        return str_starts_with($path, '/images/') || str_starts_with($path, '/icons/');
+    }
+
+    private function publicWebAssetPath(string $stored): string
+    {
+        $path = '/'.ltrim(trim($stored), '/');
+        $segments = explode('/', $path);
+        foreach ($segments as $i => $segment) {
+            if ($segment === '') {
+                continue;
+            }
+            $segments[$i] = rawurlencode(rawurldecode($segment));
+        }
+
+        return implode('/', $segments);
     }
 
     /**
