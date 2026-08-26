@@ -3,7 +3,6 @@ import { computed } from 'vue';
 import CheckoutBanners from './CheckoutBanners.vue';
 import CheckoutReviews from './CheckoutReviews.vue';
 import { Receipt, ShieldCheck } from 'lucide-vue-next';
-import { usePlatformBranding } from '@/composables/usePlatformBranding';
 
 const INTERVAL_LABELS = {
     weekly: 'Semanal',
@@ -38,10 +37,6 @@ const props = defineProps({
 const appearance = computed(() => props.config?.appearance ?? {});
 const primaryColor = computed(() => appearance.value.primary_color || '#7427F1');
 const sideBanners = computed(() => appearance.value.side_banners ?? []);
-const { branding, appName } = usePlatformBranding();
-const platformLogoUrl = computed(() =>
-    String(branding.value?.app_logo || branding.value?.app_logo_icon || '').trim()
-);
 
 const mainProductPriceBrl = computed(() => {
     const applied = props.appliedCoupon;
@@ -109,17 +104,8 @@ const productPriceDisplay = computed(() => props.priceInCurrency(productPriceBrl
                     {{ formatPrice(totalPrice, displayCurrency) }}<span v-if="subscriptionPlan?.interval" class="text-sm font-medium text-gray-500 ml-1 align-baseline">{{ intervalLabel(subscriptionPlan.interval) }}</span>
                 </span>
             </div>
-            <div v-if="platformLogoUrl" class="mt-5 flex justify-center sm:hidden" data-checkout="platform-logo">
-                <img
-                    :src="platformLogoUrl"
-                    :alt="appName"
-                    class="h-8 w-auto max-w-[180px] object-contain"
-                    loading="lazy"
-                />
-            </div>
             <div
-                class="flex items-center justify-center gap-2 rounded-xl bg-gray-50 py-3 text-sm font-medium text-gray-600"
-                :class="platformLogoUrl ? 'mt-3 sm:mt-5' : 'mt-5'"
+                class="mt-5 flex items-center justify-center gap-2 rounded-xl bg-gray-50 py-3 text-sm font-medium text-gray-600"
                 data-checkout="sidebar-trust-badge"
             >
                 <ShieldCheck class="h-4 w-4 text-emerald-500" aria-hidden="true" />

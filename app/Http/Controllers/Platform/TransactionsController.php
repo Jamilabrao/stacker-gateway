@@ -77,11 +77,6 @@ class TransactionsController extends Controller
 
         if (Schema::hasTable('orders')) {
             $query = $this->baseOrdersQuery();
-            if ($status === PlatformTransactionsListing::STATUS_REFUND_REQUESTS) {
-                $query->with(['refundRequests' => function ($rr) {
-                    $rr->where('status', RefundRequest::STATUS_PENDING)->orderByDesc('id');
-                }]);
-            }
             PlatformTransactionsListing::applyStatusFilter($query, $status);
             PlatformTransactionsListing::applySearchFilter($query, $q);
 
@@ -185,7 +180,7 @@ class TransactionsController extends Controller
      */
     private function baseOrdersQuery()
     {
-        return Order::query()
+        $query = Order::query()
             ->with([
                 'user:id,name,email',
                 'tenantOwner:id,name,email',
@@ -201,6 +196,14 @@ class TransactionsController extends Controller
                 'cajupayAccount:id,name,is_default',
             ])
             ->orderByDesc('created_at');
+
+        if (Schema::hasTable('refund_requests')) {
+            $query->with(['refundRequests' => function ($rr) {
+                $rr->where('status', RefundRequest::STATUS_PENDING)->orderByDesc('id');
+            }]);
+        }
+
+        return $query;
     }
 
     /**

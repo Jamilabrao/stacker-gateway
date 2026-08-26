@@ -3375,8 +3375,16 @@ function submit() {
             <input type="hidden" name="_token" :value="getCsrfToken()" />
             <span data-pagarmecheckout-element="brand" class="hidden" aria-hidden="true" />
         </form>
+        <div v-if="platformLogoUrl" class="mt-6 flex justify-center sm:hidden" data-checkout="platform-logo">
+            <img
+                :src="platformLogoUrl"
+                :alt="appName"
+                class="h-8 w-auto max-w-[180px] object-contain"
+                loading="lazy"
+            />
+        </div>
         <footer class="mt-8 hidden border-t border-gray-100 pt-6 sm:block" data-checkout="form-footer-desktop">
-            <div v-if="platformLogoUrl" class="mb-4 flex justify-center" data-checkout="platform-logo">
+            <div v-if="platformLogoUrl" class="mb-4 flex justify-center" data-checkout="platform-logo-desktop">
                 <img
                     :src="platformLogoUrl"
                     :alt="appName"
@@ -3398,10 +3406,15 @@ function submit() {
         <CheckoutPlatformNotice
             v-if="platformCheckoutNotice"
             data-checkout="platform-notice"
-            class="mt-4 text-center text-xs leading-relaxed text-gray-400 sm:mt-2"
+            class="text-center text-xs leading-relaxed text-gray-400"
+            :class="platformLogoUrl ? 'mt-3 sm:mt-2' : 'mt-4 sm:mt-2'"
             :text="platformCheckoutNotice"
         />
-        <p v-else class="mt-4 text-center text-xs text-gray-400 sm:mt-2">
+        <p
+            v-else
+            class="text-center text-xs text-gray-400"
+            :class="platformLogoUrl ? 'mt-3 sm:mt-2' : 'mt-4 sm:mt-2'"
+        >
             <a href="/termos-de-uso" target="_blank" rel="noopener" class="underline hover:text-gray-600">Termos</a>
             <span class="mx-1">·</span>
             <a href="/politica-privacidade" target="_blank" rel="noopener" class="underline hover:text-gray-600">Privacidade</a>
