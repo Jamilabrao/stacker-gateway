@@ -3,7 +3,7 @@ import { router } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
 import MetricsNav from '@/components/metrics/MetricsNav.vue';
-import CoproducaoTabs from '@/components/coproducao/CoproducaoTabs.vue';
+import ProdutosTabs from '@/components/produtos/ProdutosTabs.vue';
 import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
 
 defineOptions({ layout: LayoutInfoprodutor });
@@ -57,7 +57,7 @@ function reload(extra = {}) {
     <div :class="pageClass">
         <AuroraPageHeader title="Coprodutor - Origem" subtitle="Performance das suas indicacoes." />
         <div class="mt-4 space-y-4">
-            <CoproducaoTabs />
+            <ProdutosTabs />
             <MetricsNav :tab="tab" :period="period" :date_from="date_from" :date_to="date_to" :filters="filters" :base-path="base_path">
                 <template #filters>
                     <select

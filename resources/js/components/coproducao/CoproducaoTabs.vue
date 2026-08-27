@@ -1,24 +1,21 @@
-﻿<script setup>
+<script setup>
 import { computed } from 'vue';
-import { Link, usePage } from '@inertiajs/vue3';
-import { Handshake, CircleDollarSign, ChartNoAxesCombined } from 'lucide-vue-next';
+import { Link } from '@inertiajs/vue3';
+import { CircleDollarSign, Handshake } from 'lucide-vue-next';
 import { useI18n } from '@/composables/useI18n';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
 
-const page = usePage();
 const { t } = useI18n();
 const { isAurora, isKawaii, themePrefix } = useSellerDashboardTemplate();
 
-const path = computed(() => page.url.split('?')[0]);
+const props = defineProps({
+    tab: { type: String, default: 'painel' },
+});
 
-const panelPath = '/' + ('co' + 'produ' + 'cao');
-const legacyPath = '/produtos/' + ('co' + 'produ' + 'cao');
-const metricsPath = '/produtos/' + ('co' + 'produ' + 'cao') + '/metricas';
+const panelHref = '/coproducao';
+const participacoesHref = '/coproducao?tab=participacoes';
 
-const isPainel = computed(() => path.value === panelPath || path.value === legacyPath);
-const isMetricas = computed(
-    () => path.value === metricsPath || path.value.startsWith(metricsPath + '/')
-);
+const activeTab = computed(() => (props.tab === 'participacoes' ? 'participacoes' : 'painel'));
 
 const navClass = computed(() => {
     if (isAurora.value) return 'aurora-subnav';
@@ -41,17 +38,13 @@ function linkClass(active) {
 
 <template>
     <nav :class="navClass" :aria-label="t('sidebar.coproduction', 'Co-produção')">
-        <Link :href="panelPath" :class="linkClass(isPainel)">
+        <Link :href="panelHref" :class="linkClass(activeTab === 'painel')">
             <CircleDollarSign class="h-4 w-4 shrink-0" aria-hidden="true" />
             {{ t('coproduction.tab_panel', 'Painel') }}
         </Link>
-        <Link :href="metricsPath" :class="linkClass(isMetricas)">
-            <ChartNoAxesCombined class="h-4 w-4 shrink-0" aria-hidden="true" />
-            {{ t('coproduction.tab_metrics', 'Métricas') }}
+        <Link :href="participacoesHref" :class="linkClass(activeTab === 'participacoes')">
+            <Handshake class="h-4 w-4 shrink-0" aria-hidden="true" />
+            {{ t('coproduction.tab_participations', 'Suas participações') }}
         </Link>
-        <span class="hidden items-center gap-2 px-2 text-xs text-zinc-400 sm:inline-flex">
-            <Handshake class="h-3.5 w-3.5" aria-hidden="true" />
-            {{ t('coproduction.tab_hint', 'Suas participações') }}
-        </span>
     </nav>
 </template>
