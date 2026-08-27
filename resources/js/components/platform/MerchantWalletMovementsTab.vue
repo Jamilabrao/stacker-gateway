@@ -96,6 +96,40 @@ function formatDate(iso) {
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR');
 }
 
+function formatSettlementDate(iso) {
+    if (!iso) return 'A confirmar';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return 'A confirmar';
+    return d.toLocaleDateString('pt-BR');
+}
+
+function settlementLabel(t) {
+    if (t.settlement_status === 'available') return 'Disponível';
+    if (t.settlement_status === 'pending') return formatSettlementDate(t.settlement_at);
+    return '—';
+}
+
+function settlementTitle(t) {
+    if (t.settlement_status === 'available') {
+        return t.released_at
+            ? `Liberado em ${formatDate(t.released_at)}`
+            : 'Já disponível na carteira do seller';
+    }
+    if (t.settlement_status === 'pending' && t.settlement_at) {
+        return `Previsto para ${formatDate(t.settlement_at)}`;
+    }
+    if (t.settlement_status === 'pending') {
+        return 'Data de liquidação a confirmar';
+    }
+    return '';
+}
+
+function settlementClass(t) {
+    if (t.settlement_status === 'available') return 'text-emerald-700 dark:text-emerald-300';
+    if (t.settlement_status === 'pending') return 'text-amber-700 dark:text-amber-300';
+    return 'text-zinc-500 dark:text-zinc-400';
+}
+
 function bucketLabel(b) {
     const map = { pix: 'PIX', card: 'Cartão', boleto: 'Boleto' };
     return map[b] || b || '—';
@@ -162,7 +196,7 @@ function amountClass(n) {
 
         <div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div class="overflow-x-auto">
-                <table class="min-w-[800px] w-full text-left text-sm">
+                <table class="min-w-[920px] w-full text-left text-sm">
                     <thead class="border-b border-zinc-100 text-xs uppercase text-zinc-500 dark:border-zinc-700">
                         <tr>
                             <th class="px-4 py-3">
@@ -175,13 +209,16 @@ function amountClass(n) {
                             <th class="px-4 py-3 text-right">
                                 <button type="button" class="hover:underline" @click="changeSort('amount_net')">Líquido</button>
                             </th>
+                            <th class="px-4 py-3" title="Quando o valor entra no saldo disponível da carteira do seller">
+                                Liquidação
+                            </th>
                             <th class="px-4 py-3">Ref.</th>
                             <th class="px-4 py-3">Obs.</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr v-if="!rows.length">
-                            <td colspan="6" class="px-4 py-8 text-center text-zinc-500">
+                            <td colspan="7" class="px-4 py-8 text-center text-zinc-500">
                                 {{
                                     hasFilters
                                         ? 'Nenhuma movimentação encontrada no período selecionado.'
@@ -201,6 +238,9 @@ function amountClass(n) {
                             <td class="px-4 py-3">{{ bucketLabel(t.bucket) }}</td>
                             <td class="px-4 py-3 text-right tabular-nums" :class="amountClass(t.amount_net)">
                                 {{ formatBRL(t.amount_net) }}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap" :class="settlementClass(t)" :title="settlementTitle(t)">
+                                {{ settlementLabel(t) }}
                             </td>
                             <td class="px-4 py-3 text-xs text-zinc-500">
                                 <span v-if="t.order_id">Pedido #{{ t.order_id }}</span>

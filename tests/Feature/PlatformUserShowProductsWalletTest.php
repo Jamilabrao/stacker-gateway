@@ -363,4 +363,68 @@ class PlatformUserShowProductsWalletTest extends TestCase
                 ->where('wallet_transactions.total', 1)
             );
     }
+
+    public function test_wallet_movements_include_settlement_date(): void
+    {
+        if (! Schema::hasTable('wallet_transactions')) {
+            $this->markTestSkipped('wallet_transactions');
+        }
+
+        $admin = $this->platformAdmin();
+        $seller = $this->seller();
+        $clearsAt = '2026-09-16T12:00:00+00:00';
+
+        WalletTransaction::query()->create([
+            'tenant_id' => $seller->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE_PENDING,
+            'amount_gross' => 100,
+            'amount_fee' => 10,
+            'amount_net' => 90,
+            'meta' => ['clears_at' => $clearsAt],
+        ]);
+        WalletTransaction::query()->create([
+            'tenant_id' => $seller->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_CREDIT_SALE,
+            'amount_gross' => 50,
+            'amount_fee' => 5,
+            'amount_net' => 45,
+            'meta' => [
+                'clears_at' => '2026-08-01T12:00:00+00:00',
+                'released_at' => '2026-08-01T12:00:00+00:00',
+            ],
+        ]);
+        WalletTransaction::query()->create([
+            'tenant_id' => $seller->id,
+            'bucket' => 'pix',
+            'type' => WalletTransaction::TYPE_ADMIN_ADJUSTMENT,
+            'amount_gross' => 20,
+            'amount_fee' => 0,
+            'amount_net' => 20,
+            'meta' => ['note' => 'ajuste'],
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('plataforma.usuarios.show', [
+                'user' => $seller,
+                'tab' => 'wallet',
+                'wallet_sort' => 'id',
+                'wallet_direction' => 'asc',
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('tab', 'wallet')
+                ->where('wallet_transactions.total', 3)
+                ->where('wallet_transactions.data.0.type', WalletTransaction::TYPE_CREDIT_SALE_PENDING)
+                ->where('wallet_transactions.data.0.settlement_status', 'pending')
+                ->where('wallet_transactions.data.0.settlement_at', $clearsAt)
+                ->where('wallet_transactions.data.0.clears_at', $clearsAt)
+                ->where('wallet_transactions.data.1.type', WalletTransaction::TYPE_CREDIT_SALE)
+                ->where('wallet_transactions.data.1.settlement_status', 'available')
+                ->where('wallet_transactions.data.2.type', WalletTransaction::TYPE_ADMIN_ADJUSTMENT)
+                ->where('wallet_transactions.data.2.settlement_status', fn ($v) => $v === null)
+                ->where('wallet_transactions.data.2.settlement_at', fn ($v) => $v === null)
+            );
+    }
 }

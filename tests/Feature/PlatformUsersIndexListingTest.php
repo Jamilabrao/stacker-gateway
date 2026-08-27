@@ -302,4 +302,26 @@ class PlatformUsersIndexListingTest extends TestCase
                 ->where('users.data.0.created_at', fn ($v) => is_string($v) && $v !== '')
             );
     }
+
+    public function test_listing_includes_available_and_pending_balances(): void
+    {
+        $admin = $this->platformAdmin();
+        $seller = $this->merchant('Wallet Seller');
+
+        TenantWallet::query()->create([
+            'tenant_id' => $seller->id,
+            'available_balance' => 120.5,
+            'pending_balance' => 45.75,
+            'currency' => 'BRL',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('plataforma.usuarios.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('users.data.0.id', $seller->id)
+                ->where('users.data.0.saldo_disponivel', fn ($v) => (float) $v === 120.5)
+                ->where('users.data.0.saldo_pix', fn ($v) => (float) $v === 45.75)
+            );
+    }
 }
