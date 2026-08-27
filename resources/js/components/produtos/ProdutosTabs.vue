@@ -12,7 +12,9 @@ const { isAurora, isKawaii, themePrefix } = useSellerDashboardTemplate();
 const path = computed(() => page.url.split('?')[0]);
 
 const isCoproducao = computed(() =>
-    path.value === '/produtos/coproducao' || path.value.startsWith('/produtos/coproducao/')
+    path.value === '/coproducao'
+    || path.value === '/produtos/coproducao'
+    || path.value.startsWith('/produtos/coproducao/')
 );
 
 const isAfiliados = computed(() =>
@@ -24,7 +26,8 @@ const isAfiliados = computed(() =>
 const isProdutos = computed(() => {
     const p = path.value;
     if (
-        p === '/produtos/coproducao'
+        p === '/coproducao'
+        || p === '/produtos/coproducao'
         || p.startsWith('/produtos/coproducao/')
         || p === '/produtos/afiliados'
         || p.startsWith('/produtos/afiliados/')
@@ -63,7 +66,7 @@ function linkClass(active) {
             <Package class="h-4 w-4 shrink-0" aria-hidden="true" />
             {{ t('products.tab_products', 'Produtos') }}
         </Link>
-        <Link href="/produtos/coproducao" :class="linkClass(isCoproducao)">
+        <Link href="/coproducao" :class="linkClass(isCoproducao)">
             <Handshake class="h-4 w-4 shrink-0" aria-hidden="true" />
             {{ t('products.tab_coproduction', 'Co-produção') }}
         </Link>

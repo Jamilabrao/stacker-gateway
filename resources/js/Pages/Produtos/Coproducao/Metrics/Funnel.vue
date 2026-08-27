@@ -2,7 +2,7 @@
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
 import MetricsNav from '@/components/metrics/MetricsNav.vue';
-import ProdutosTabs from '@/components/produtos/ProdutosTabs.vue';
+import CoproducaoTabs from '@/components/coproducao/CoproducaoTabs.vue';
 import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
 import { computed } from 'vue';
 
@@ -28,7 +28,7 @@ const maxValue = computed(() => Math.max(...(props.funnel.steps || []).map((s) =
     <div :class="pageClass">
         <AuroraPageHeader title="Coprodutor - Funil" subtitle="Da visita à venda aprovada, com perda entre etapas." />
         <div class="mt-4 space-y-6">
-            <ProdutosTabs />
+            <CoproducaoTabs />
             <MetricsNav :tab="tab" :period="period" :date_from="date_from" :date_to="date_to" :filters="filters" :base-path="base_path" />
 
             <div :class="[innerPanelClass, 'p-6']">
