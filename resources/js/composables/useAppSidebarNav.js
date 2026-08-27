@@ -20,6 +20,7 @@ import {
     TicketPercent,
     GraduationCap,
     UserPlus,
+    Handshake,
     Gift,
     Truck,
     Zap,
@@ -125,6 +126,7 @@ export function useAppSidebarNav() {
             items.push({ name: t('sidebar.coupons', 'Cupons'), href: '/produtos/cupons', icon: TicketPercent });
             items.push({ name: t('sidebar.students', 'Alunos'), href: '/produtos/alunos', icon: GraduationCap });
             items.push({ name: t('sidebar.affiliates_menu', 'Afiliados'), href: '/afiliados', icon: UserPlus });
+            items.push({ name: t('sidebar.coproduction', 'Co-produção'), href: '/coproducao', icon: Handshake });
         }
 
         items.push({ separator: true });
@@ -188,6 +190,9 @@ export function useAppSidebarNav() {
         }
         if (href === '/afiliados') {
             return url === '/afiliados' || url.startsWith('/afiliados/');
+        }
+        if (href === '/coproducao') {
+            return url === '/coproducao' || url.startsWith('/coproducao/') || url.startsWith('/produtos/coproducao');
         }
         if (href === '/produtos') {
             if (

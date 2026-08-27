@@ -845,7 +845,8 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         Route::get('/produtos/afiliados/metricas/cliques', [\App\Http\Controllers\AffiliateMetricsTrackingController::class, 'clicks'])->name('produtos.afiliados.metrics.clicks');
         Route::get('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'show'])->name('produtos.painel-afiliado.show');
         Route::put('/produtos/{produto}/painel-afiliado', [\App\Http\Controllers\AffiliateProductPanelController::class, 'updatePixels'])->name('produtos.painel-afiliado.update');
-        Route::get('/produtos/coproducao', [\App\Http\Controllers\ProdutosController::class, 'coproductionIndex'])->name('produtos.coproducao');
+        Route::get('/coproducao', [\App\Http\Controllers\CoproductionPanelController::class, 'index'])->name('coproducao.index');
+        Route::redirect('/produtos/coproducao', '/coproducao')->name('produtos.coproducao');
         Route::get('/produtos/coproducao/metricas', [\App\Http\Controllers\CoproducerMetricsTrackingController::class, 'index'])->name('produtos.coproducao.metrics.index');
         Route::get('/produtos/coproducao/metricas/origem', [\App\Http\Controllers\CoproducerMetricsTrackingController::class, 'origins'])->name('produtos.coproducao.metrics.origins');
         Route::get('/produtos/coproducao/metricas/funil', [\App\Http\Controllers\CoproducerMetricsTrackingController::class, 'funnel'])->name('produtos.coproducao.metrics.funnel');

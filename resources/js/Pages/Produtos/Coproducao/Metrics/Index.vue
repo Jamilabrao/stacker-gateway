@@ -6,7 +6,7 @@ import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import AuroraPageHeader from '@/components/aurora/AuroraPageHeader.vue';
 import AuroraStatCard from '@/components/aurora/AuroraStatCard.vue';
 import MetricsNav from '@/components/metrics/MetricsNav.vue';
-import ProdutosTabs from '@/components/produtos/ProdutosTabs.vue';
+import CoproducaoTabs from '@/components/coproducao/CoproducaoTabs.vue';
 import { usePanelThemeClasses } from '@/composables/usePanelThemeClasses';
 import { useThemeMode } from '@/composables/useThemeMode';
 import {
@@ -124,7 +124,7 @@ function onProductChange(e) {
         />
 
         <div class="mt-4 space-y-6">
-            <ProdutosTabs />
+            <CoproducaoTabs />
             <MetricsNav
                 :tab="tab"
                 :period="period"
