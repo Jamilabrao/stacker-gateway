@@ -188,73 +188,198 @@ function hasCustomSettlement(user) {
             <button type="button" class="rounded-lg px-3 py-1.5 text-sm" @click="selectedIds = []">Limpar seleção</button>
         </div>
 
-        <div class="overflow-x-auto rounded-2xl border border-zinc-200 bg-white md:overflow-visible dark:border-zinc-700 dark:bg-zinc-900/60">
-            <table class="w-full table-fixed text-left text-sm">
-                <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80">
-                    <tr>
-                        <th class="w-10 px-3 py-2.5"><input type="checkbox" :checked="allVisibleSelected" :disabled="!usersList.length" @change="toggleSelectAllVisible" /></th>
-                        <th class="w-[28%] px-3 py-2.5">Infoprodutor</th>
-                        <th class="w-[13%] px-3 py-2.5">Documento</th>
-                        <th class="w-[10%] px-3 py-2.5">Status</th>
-                        <th class="w-[12%] px-3 py-2.5"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('created_at')">Cadastro <ChevronUp v-if="sortIndicator('created_at') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('created_at') === 'desc'" class="h-3 w-3" /></button></th>
-                        <th class="w-[12%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('total_sales')">Vendas <ChevronUp v-if="sortIndicator('total_sales') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('total_sales') === 'desc'" class="h-3 w-3" /></button></th>
-                        <th class="w-[12%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('balance')">Saldo <ChevronUp v-if="sortIndicator('balance') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('balance') === 'desc'" class="h-3 w-3" /></button></th>
-                        <th class="w-[13%] px-3 py-2.5 text-right">Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="user in usersList" :key="user.id" class="border-b border-zinc-100 dark:border-zinc-800">
-                        <td class="px-3 py-2.5"><input type="checkbox" :checked="selectedIds.includes(user.id)" @change="toggleUserSelection(user.id)" /></td>
-                        <td class="min-w-0 px-3 py-2.5">
-                            <div class="truncate font-medium text-zinc-900 dark:text-white">{{ user.name }}</div>
-                            <div class="truncate text-xs text-zinc-500">{{ user.trade_name || user.email }}</div>
-                            <div v-if="user.trade_name" class="truncate text-[11px] text-zinc-400">{{ user.email }}</div>
-                            <div class="mt-1 flex flex-wrap gap-1">
-                                <span
-                                    v-if="user.totp_enabled"
-                                    class="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-950 dark:bg-emerald-700 dark:text-white"
-                                    title="Autenticação em dois fatores ativa"
-                                >
-                                    <Shield class="h-3 w-3" />2FA
-                                </span>
-                                <span
-                                    v-if="user.admin_notes_count"
-                                    class="inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950 dark:bg-amber-600 dark:text-white"
-                                    title="Observações internas"
-                                >
-                                    <MessageSquare class="h-3 w-3" />{{ user.admin_notes_count }}
-                                </span>
-                                <span
-                                    v-if="hasCustomFees(user)"
-                                    class="rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-950 dark:bg-violet-700 dark:text-white"
-                                    title="Taxas personalizadas"
-                                >
-                                    Taxas custom
-                                </span>
-                                <span
-                                    v-if="hasCustomSettlement(user)"
-                                    class="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-950 dark:bg-sky-700 dark:text-white"
-                                    title="Liquidação personalizada"
-                                >
-                                    Liquidação custom
-                                </span>
+        <div v-if="usersList.length" class="space-y-3 md:hidden">
+            <div class="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/60">
+                <label class="inline-flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" class="rounded border-zinc-300" :checked="allVisibleSelected" :disabled="!usersList.length" @change="toggleSelectAllVisible" />
+                    Selecionar todos
+                </label>
+                <span class="text-xs text-zinc-500">{{ usersList.length }} nesta página</span>
+            </div>
+            <article
+                v-for="user in usersList"
+                :key="`mobile-${user.id}`"
+                class="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/60"
+            >
+                <div class="flex items-start gap-3">
+                    <input
+                        type="checkbox"
+                        class="mt-1 rounded border-zinc-300"
+                        :checked="selectedIds.includes(user.id)"
+                        @change="toggleUserSelection(user.id)"
+                    />
+                    <div class="min-w-0 flex-1">
+                        <p class="break-words text-sm font-semibold text-zinc-900 dark:text-white">{{ user.name }}</p>
+                        <p class="mt-0.5 break-all text-xs text-zinc-500 dark:text-zinc-400">{{ user.trade_name || user.email }}</p>
+                        <p v-if="user.trade_name" class="mt-0.5 break-all text-[11px] text-zinc-400">{{ user.email }}</p>
+                        <p class="mt-1 text-xs text-zinc-400">ID {{ user.id }}</p>
+                        <div class="mt-2 flex flex-wrap gap-1">
+                            <span
+                                v-if="user.totp_enabled"
+                                class="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-950 dark:bg-emerald-700 dark:text-white"
+                                title="Autenticação em dois fatores ativa"
+                            >
+                                <Shield class="h-3 w-3" />2FA
+                            </span>
+                            <span
+                                v-if="user.admin_notes_count"
+                                class="inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950 dark:bg-amber-600 dark:text-white"
+                                title="Observações internas"
+                            >
+                                <MessageSquare class="h-3 w-3" />{{ user.admin_notes_count }}
+                            </span>
+                            <span
+                                v-if="hasCustomFees(user)"
+                                class="rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-950 dark:bg-violet-700 dark:text-white"
+                                title="Taxas personalizadas"
+                            >
+                                Taxas custom
+                            </span>
+                            <span
+                                v-if="hasCustomSettlement(user)"
+                                class="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-950 dark:bg-sky-700 dark:text-white"
+                                title="Liquidação personalizada"
+                            >
+                                Liquidação custom
+                            </span>
+                        </div>
+                        <dl class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                                <dt class="text-zinc-500">Documento</dt>
+                                <dd class="break-all text-zinc-800 dark:text-zinc-200">{{ user.document || '—' }}</dd>
                             </div>
-                        </td>
-                        <td class="truncate px-3 py-2.5 text-zinc-600">{{ user.document || '—' }}</td>
-                        <td class="px-3 py-2.5"><span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ statusLabel(user.account_status) }}</span></td>
-                        <td class="truncate px-3 py-2.5 text-zinc-600">{{ formatCreatedAt(user.created_at) }}</td>
-                        <td class="truncate px-3 py-2.5 text-right tabular-nums font-medium">{{ formatBRL(user.vendas_totais) }}</td>
-                        <td class="truncate px-3 py-2.5 text-right tabular-nums" :title="`Pendente: ${formatBRL(user.saldo_pix)}`">{{ formatBRL(user.saldo_disponivel) }}</td>
-                        <td class="px-3 py-2.5"><div class="flex flex-wrap justify-end gap-1">
-                            <Link :href="`/plataforma/usuarios/${user.id}`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="Ver"><Eye class="h-4 w-4" /></Link>
-                            <Link :href="`/plataforma/verificacoes-kyc/usuario/${user.id}`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="KYC"><BadgeCheck class="h-4 w-4" /></Link>
-                            <Link :href="`/plataforma/usuarios/${user.id}/edit`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="Editar"><Pencil class="h-4 w-4" /></Link>
-                            <button type="button" class="rounded-lg p-1.5 text-red-500 hover:bg-red-50" :disabled="deletingId === user.id" @click="destroyUser(user.id)"><Trash2 class="h-4 w-4" /></button>
-                        </div></td>
-                    </tr>
-                    <tr v-if="!usersList.length"><td colspan="8" class="px-3 py-10 text-center text-zinc-500">{{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}</td></tr>
-                </tbody>
-            </table>
+                            <div>
+                                <dt class="text-zinc-500">Status</dt>
+                                <dd>
+                                    <span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+                                        {{ statusLabel(user.account_status) }}
+                                    </span>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-zinc-500">Cadastro</dt>
+                                <dd class="text-zinc-800 dark:text-zinc-200">{{ formatCreatedAt(user.created_at) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-zinc-500">Vendas</dt>
+                                <dd class="font-semibold tabular-nums text-zinc-900 dark:text-white">{{ formatBRL(user.vendas_totais) }}</dd>
+                            </div>
+                            <div class="col-span-2">
+                                <dt class="text-zinc-500">Saldo disponível</dt>
+                                <dd class="font-semibold tabular-nums text-zinc-900 dark:text-white" :title="`Pendente: ${formatBRL(user.saldo_pix)}`">
+                                    {{ formatBRL(user.saldo_disponivel) }}
+                                </dd>
+                                <p class="mt-0.5 text-[11px] text-zinc-400">Pendente: {{ formatBRL(user.saldo_pix) }}</p>
+                            </div>
+                        </dl>
+                    </div>
+                </div>
+                <div class="mt-4 flex flex-col gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                    <Link :href="`/plataforma/usuarios/${user.id}`" class="block">
+                        <Button type="button" size="sm" class="w-full justify-center">
+                            <Eye class="h-4 w-4" /> Visualizar
+                        </Button>
+                    </Link>
+                    <Link :href="`/plataforma/verificacoes-kyc/usuario/${user.id}`" class="block">
+                        <Button type="button" size="sm" variant="secondary" class="w-full justify-center">
+                            <BadgeCheck class="h-4 w-4" /> KYC
+                        </Button>
+                    </Link>
+                    <Link :href="`/plataforma/usuarios/${user.id}/edit`" class="block">
+                        <Button type="button" size="sm" variant="secondary" class="w-full justify-center">
+                            <Pencil class="h-4 w-4" /> Editar
+                        </Button>
+                    </Link>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        class="w-full justify-center !text-red-700 dark:!text-red-300"
+                        :disabled="deletingId === user.id"
+                        @click="destroyUser(user.id)"
+                    >
+                        <Trash2 class="h-4 w-4" /> Excluir
+                    </Button>
+                </div>
+            </article>
+        </div>
+
+        <div
+            v-if="!usersList.length"
+            class="rounded-xl border border-dashed border-zinc-200 p-8 text-center text-sm text-zinc-500 md:hidden dark:border-zinc-700"
+        >
+            {{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}
+        </div>
+
+        <div class="hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60 md:block">
+            <div class="overflow-x-auto">
+                <table class="w-full table-fixed text-left text-sm">
+                    <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80">
+                        <tr>
+                            <th class="w-10 px-3 py-2.5"><input type="checkbox" :checked="allVisibleSelected" :disabled="!usersList.length" @change="toggleSelectAllVisible" /></th>
+                            <th class="w-[28%] px-3 py-2.5">Infoprodutor</th>
+                            <th class="w-[13%] px-3 py-2.5">Documento</th>
+                            <th class="w-[10%] px-3 py-2.5">Status</th>
+                            <th class="w-[12%] px-3 py-2.5"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('created_at')">Cadastro <ChevronUp v-if="sortIndicator('created_at') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('created_at') === 'desc'" class="h-3 w-3" /></button></th>
+                            <th class="w-[12%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('total_sales')">Vendas <ChevronUp v-if="sortIndicator('total_sales') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('total_sales') === 'desc'" class="h-3 w-3" /></button></th>
+                            <th class="w-[12%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('balance')">Saldo <ChevronUp v-if="sortIndicator('balance') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('balance') === 'desc'" class="h-3 w-3" /></button></th>
+                            <th class="w-[13%] px-3 py-2.5 text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="user in usersList" :key="user.id" class="border-b border-zinc-100 dark:border-zinc-800">
+                            <td class="px-3 py-2.5"><input type="checkbox" :checked="selectedIds.includes(user.id)" @change="toggleUserSelection(user.id)" /></td>
+                            <td class="min-w-0 px-3 py-2.5">
+                                <div class="truncate font-medium text-zinc-900 dark:text-white">{{ user.name }}</div>
+                                <div class="truncate text-xs text-zinc-500">{{ user.trade_name || user.email }}</div>
+                                <div v-if="user.trade_name" class="truncate text-[11px] text-zinc-400">{{ user.email }}</div>
+                                <div class="mt-1 flex flex-wrap gap-1">
+                                    <span
+                                        v-if="user.totp_enabled"
+                                        class="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-950 dark:bg-emerald-700 dark:text-white"
+                                        title="Autenticação em dois fatores ativa"
+                                    >
+                                        <Shield class="h-3 w-3" />2FA
+                                    </span>
+                                    <span
+                                        v-if="user.admin_notes_count"
+                                        class="inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950 dark:bg-amber-600 dark:text-white"
+                                        title="Observações internas"
+                                    >
+                                        <MessageSquare class="h-3 w-3" />{{ user.admin_notes_count }}
+                                    </span>
+                                    <span
+                                        v-if="hasCustomFees(user)"
+                                        class="rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-950 dark:bg-violet-700 dark:text-white"
+                                        title="Taxas personalizadas"
+                                    >
+                                        Taxas custom
+                                    </span>
+                                    <span
+                                        v-if="hasCustomSettlement(user)"
+                                        class="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-950 dark:bg-sky-700 dark:text-white"
+                                        title="Liquidação personalizada"
+                                    >
+                                        Liquidação custom
+                                    </span>
+                                </div>
+                            </td>
+                            <td class="truncate px-3 py-2.5 text-zinc-600">{{ user.document || '—' }}</td>
+                            <td class="px-3 py-2.5"><span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ statusLabel(user.account_status) }}</span></td>
+                            <td class="truncate px-3 py-2.5 text-zinc-600">{{ formatCreatedAt(user.created_at) }}</td>
+                            <td class="truncate px-3 py-2.5 text-right tabular-nums font-medium">{{ formatBRL(user.vendas_totais) }}</td>
+                            <td class="truncate px-3 py-2.5 text-right tabular-nums" :title="`Pendente: ${formatBRL(user.saldo_pix)}`">{{ formatBRL(user.saldo_disponivel) }}</td>
+                            <td class="px-3 py-2.5"><div class="flex flex-wrap justify-end gap-1">
+                                <Link :href="`/plataforma/usuarios/${user.id}`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="Ver"><Eye class="h-4 w-4" /></Link>
+                                <Link :href="`/plataforma/verificacoes-kyc/usuario/${user.id}`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="KYC"><BadgeCheck class="h-4 w-4" /></Link>
+                                <Link :href="`/plataforma/usuarios/${user.id}/edit`" class="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100" title="Editar"><Pencil class="h-4 w-4" /></Link>
+                                <button type="button" class="rounded-lg p-1.5 text-red-500 hover:bg-red-50" :disabled="deletingId === user.id" @click="destroyUser(user.id)"><Trash2 class="h-4 w-4" /></button>
+                            </div></td>
+                        </tr>
+                        <tr v-if="!usersList.length"><td colspan="8" class="px-3 py-10 text-center text-zinc-500">{{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div v-if="usersMeta.total > 0" class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
