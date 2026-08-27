@@ -4,12 +4,17 @@ namespace App\Http\Middleware;
 
 use App\Models\Product;
 use App\Models\Subscription;
+use App\Services\MemberAccessGrantService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureMemberAreaAccess
 {
+    public function __construct(
+        protected MemberAccessGrantService $memberAccessGrant
+    ) {}
+
     /**
      * Require auth and that the user has access to the member area product.
      *
@@ -37,7 +42,7 @@ class EnsureMemberAreaAccess
             abort(404, 'Área de membros não encontrada.');
         }
 
-        if (! $product->hasMemberAreaAccess($request->user())) {
+        if (! $this->memberAccessGrant->userHasMemberAreaAccess($request->user(), $product)) {
             if ($product instanceof Product && ($product->billing_type ?? Product::BILLING_ONE_TIME) === Product::BILLING_SUBSCRIPTION) {
                 $subscription = Subscription::query()
                     ->with('subscriptionPlan')

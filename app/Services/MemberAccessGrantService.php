@@ -84,7 +84,7 @@ class MemberAccessGrantService
             ?? $plans->first();
     }
 
-    protected function hasValidActiveSubscription(User $user, Product $product): bool
+    public function hasValidActiveSubscription(User $user, Product $product): bool
     {
         $today = now()->startOfDay()->toDateString();
 
@@ -100,5 +100,47 @@ class MemberAccessGrantService
                     });
             })
             ->exists();
+    }
+
+    /**
+     * Repara matrícula manual legada: product_user sem nenhuma Subscription em produto recorrente.
+     * Não altera quem comprou e teve assinatura expirada (fluxo de renovação/checkout).
+     */
+    public function repairLegacyEnrollmentIfNeeded(User $user, Product $product): bool
+    {
+        if (($product->billing_type ?? Product::BILLING_ONE_TIME) !== Product::BILLING_SUBSCRIPTION) {
+            return false;
+        }
+
+        if (! $product->users()->where('user_id', $user->id)->exists()) {
+            return false;
+        }
+
+        if ($this->hasValidActiveSubscription($user, $product)) {
+            return false;
+        }
+
+        $hasAnySubscription = Subscription::query()
+            ->where('user_id', $user->id)
+            ->where('product_id', $product->id)
+            ->exists();
+
+        if ($hasAnySubscription) {
+            return false;
+        }
+
+        $this->grant($user, $product);
+
+        return $this->hasValidActiveSubscription($user, $product);
+    }
+
+    /**
+     * Valida acesso à área de membros, reparando matrículas legadas antes da checagem.
+     */
+    public function userHasMemberAreaAccess(User $user, Product $product): bool
+    {
+        $this->repairLegacyEnrollmentIfNeeded($user, $product);
+
+        return $product->hasMemberAreaAccess($user);
     }
 }
