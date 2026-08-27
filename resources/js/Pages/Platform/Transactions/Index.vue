@@ -146,6 +146,12 @@ function formatDateParts(value) {
     };
 }
 
+function formatDateTime(value) {
+    const parts = formatDateParts(value);
+    if (!parts.time) return parts.date;
+    return `${parts.date} · ${parts.time}`;
+}
+
 function statusLabel(orderOrStatus) {
     if (orderOrStatus && typeof orderOrStatus === 'object') {
         if (orderOrStatus.status_label) return orderOrStatus.status_label;
@@ -443,9 +449,11 @@ function closeMenu() {
 
 function handleClickOutside(event) {
     if (openMenuId.value == null) return;
-    const wrap = document.querySelector(`[data-tx-menu="${openMenuId.value}"]`);
+    const wraps = document.querySelectorAll(`[data-tx-menu="${openMenuId.value}"]`);
     const menu = menuEl.value;
-    if (wrap && wrap.contains(event.target)) return;
+    for (const wrap of wraps) {
+        if (wrap.contains(event.target)) return;
+    }
     if (menu && menu.contains(event.target)) return;
     closeMenu();
 }
@@ -603,8 +611,164 @@ const tableColCount = computed(() => (isRefundRequestsFilter.value ? 12 : 11));
             <p>{{ resultsSummary }}</p>
         </div>
 
+        <div v-if="rows.length" class="space-y-3 lg:hidden">
+            <article
+                v-for="o in rows"
+                :key="`mobile-${o.id}`"
+                class="cursor-pointer rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700/40"
+                tabindex="0"
+                role="button"
+                @click="openDetail(o)"
+                @keydown.enter.prevent="openDetail(o)"
+                @keydown.space.prevent="openDetail(o)"
+            >
+                <div class="flex items-start gap-3">
+                    <div class="pt-1" @click.stop>
+                        <input
+                            v-if="o.status === 'pending'"
+                            type="checkbox"
+                            class="rounded border-zinc-300"
+                            :checked="selectedIds.includes(o.id)"
+                            :aria-label="`Selecionar pedido ${o.id}`"
+                            @change="toggleSelect(o.id)"
+                        />
+                        <span v-else class="inline-block w-4" aria-hidden="true" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0">
+                                <p class="font-mono text-sm font-semibold text-zinc-900 dark:text-white">
+                                    Pedido #{{ o.id }}
+                                </p>
+                                <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                    {{ formatDateTime(o.created_at) }}
+                                </p>
+                            </div>
+                            <div class="relative shrink-0" :data-tx-menu="o.id" @click.stop>
+                                <button
+                                    type="button"
+                                    class="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                                    :aria-expanded="openMenuId === o.id"
+                                    aria-label="Abrir ações"
+                                    @click="toggleMenu(o.id, $event)"
+                                >
+                                    <MoreVertical class="h-4 w-4 shrink-0" />
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
+                            <span
+                                :class="['inline-flex w-fit max-w-full rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight', statusBadgeClass(o)]"
+                            >
+                                {{ statusLabel(o) }}
+                            </span>
+                            <span
+                                v-if="o.pending_refund_request && !isRefundRequestsFilter"
+                                class="inline-flex w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
+                            >
+                                Reembolso pendente
+                            </span>
+                            <span
+                                v-if="o.approved_manually"
+                                class="text-[10px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-400"
+                            >
+                                Aprovação manual
+                            </span>
+                            <span class="ml-auto text-sm font-semibold tabular-nums text-zinc-900 dark:text-white">
+                                {{ formatBRL(o.amount_gross) }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <dl class="mt-4 grid grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] gap-x-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
+                    <div class="min-w-0 space-y-3">
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                Cliente
+                            </dt>
+                            <dd class="mt-0.5 break-words text-sm font-medium text-zinc-900 dark:text-white">
+                                {{ o.customer_name }}
+                            </dd>
+                            <dd class="mt-0.5 break-all text-xs text-zinc-500 dark:text-zinc-400">
+                                {{ o.customer_email }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                Infoprodutor
+                            </dt>
+                            <dd class="mt-0.5 break-words text-sm font-medium text-zinc-900 dark:text-white">
+                                {{ o.infoprodutor_name }}
+                            </dd>
+                            <dd class="mt-0.5 break-all text-xs text-zinc-500 dark:text-zinc-400">
+                                {{ o.infoprodutor_email ?? '—' }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                Produto
+                            </dt>
+                            <dd class="mt-0.5 break-words text-sm text-zinc-800 dark:text-zinc-200">
+                                {{ o.product_label }}
+                            </dd>
+                            <span
+                                v-if="o.is_pixgo"
+                                class="mt-1 inline-flex rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lime-900 dark:bg-lime-900/40 dark:text-lime-200"
+                            >{{ o.pixgo_label || 'PixGO' }}</span>
+                        </div>
+                    </div>
+                    <div class="min-w-0 space-y-3 border-l border-zinc-100 pl-3 dark:border-zinc-700">
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                Método
+                            </dt>
+                            <dd class="mt-0.5 break-words text-sm text-zinc-800 dark:text-zinc-200">
+                                {{ o.payment_method_label }}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                                Recebedor
+                            </dt>
+                            <dd class="mt-0.5 break-words text-sm font-medium text-zinc-900 dark:text-white">
+                                {{ o.recebedor || '—' }}
+                            </dd>
+                            <dd
+                                v-if="o.cajupay_account_badge"
+                                class="mt-0.5 break-words text-xs text-zinc-500 dark:text-zinc-400"
+                            >
+                                {{ o.cajupay_account_badge }}
+                            </dd>
+                        </div>
+                    </div>
+                    <div v-if="isRefundRequestsFilter" class="col-span-2 mt-3">
+                        <dt class="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                            Solicitação
+                        </dt>
+                        <dd class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            {{ formatDateTime(o.pending_refund_request?.created_at) }}
+                        </dd>
+                        <dd class="mt-0.5 break-words text-sm text-zinc-800 dark:text-zinc-200">
+                            {{ o.pending_refund_request?.customer_reason || 'Sem motivo informado' }}
+                        </dd>
+                    </div>
+                </dl>
+            </article>
+        </div>
         <div
-            class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800"
+            v-else
+            class="rounded-2xl border border-dashed border-zinc-200 px-4 py-12 text-center text-sm text-zinc-500 dark:border-zinc-700 lg:hidden"
+        >
+            {{
+                isRefundRequestsFilter
+                    ? 'Nenhuma solicitação de reembolso pendente.'
+                    : 'Nenhuma transação encontrada com os filtros aplicados.'
+            }}
+        </div>
+
+        <div
+            class="hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800 lg:block"
         >
             <div class="overflow-x-auto lg:overflow-x-visible">
                 <table class="w-full min-w-[720px] table-fixed text-left text-sm lg:min-w-0">
@@ -691,7 +855,7 @@ const tableColCount = computed(() => (isRefundRequestsFilter.value ? 12 : 11));
                                 >{{ o.pixgo_label || 'PixGO' }}</span>
                             </td>
                             <td class="px-2 py-2.5 align-top">
-                                <div class="flex flex-col gap-1">
+                                <div class="flex flex-wrap items-center gap-1">
                                     <span
                                         :class="['inline-flex w-fit max-w-full rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight', statusBadgeClass(o)]"
                                     >
