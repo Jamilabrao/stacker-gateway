@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\User;
+use App\Services\MemberAccessGrantService;
 use App\Services\MemberAreaMagicAccessToken;
 use App\Services\StorageService;
 use Illuminate\Http\RedirectResponse;
@@ -15,7 +16,8 @@ use Inertia\Response;
 class MemberAreaLoginController extends Controller
 {
     public function __construct(
-        protected MemberAreaMagicAccessToken $magicTokens
+        protected MemberAreaMagicAccessToken $magicTokens,
+        protected MemberAccessGrantService $memberAccessGrant,
     ) {}
 
     public function showLoginForm(Request $request, string $slug): Response|RedirectResponse
@@ -25,7 +27,7 @@ class MemberAreaLoginController extends Controller
             abort(404, 'Área de membros não encontrada.');
         }
         $slug = $request->route('slug') ?? $request->attributes->get('member_area_slug') ?? $slug;
-        if (Auth::check() && $product->hasMemberAreaAccess(Auth::user())) {
+        if (Auth::check() && $this->memberAccessGrant->userHasMemberAreaAccess(Auth::user(), $product)) {
             return redirect()->to($this->memberAreaHomePath($request, $slug));
         }
         $config = (new StorageService($product->tenant_id))->resolveMediaUrlsInConfig($product->member_area_config ?? []) ?? [];
@@ -66,7 +68,7 @@ class MemberAreaLoginController extends Controller
             return back()->withErrors(['email' => 'Credenciais inválidas.'])->onlyInput('email');
         }
         $request->session()->regenerate();
-        if (! $product->hasMemberAreaAccess(Auth::user())) {
+        if (! $this->memberAccessGrant->userHasMemberAreaAccess(Auth::user(), $product)) {
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
@@ -93,7 +95,7 @@ class MemberAreaLoginController extends Controller
         if (! $user || $user->canAccessPanel()) {
             return back()->withErrors(['email' => 'Credenciais inválidas.'])->onlyInput('email');
         }
-        if (! $product->hasMemberAreaAccess($user)) {
+        if (! $this->memberAccessGrant->userHasMemberAreaAccess($user, $product)) {
             return back()->withErrors(['email' => 'Credenciais inválidas.'])->onlyInput('email');
         }
         Auth::login($user, $request->boolean('remember'));
@@ -116,7 +118,7 @@ class MemberAreaLoginController extends Controller
             $userId = (int) $userId;
         }
         $user = $userId > 0 ? User::find($userId) : null;
-        if (! $user || ! $product->hasMemberAreaAccess($user)) {
+        if (! $user || ! $this->memberAccessGrant->userHasMemberAreaAccess($user, $product)) {
             return redirect()->to($this->memberAreaLoginPath($request, $slug))->with('error', 'Link inválido ou expirado.');
         }
         Auth::login($user);
@@ -142,7 +144,7 @@ class MemberAreaLoginController extends Controller
             $userId = (int) $userId;
         }
         $user = $userId > 0 ? User::find($userId) : null;
-        if (! $user || ! $product->hasMemberAreaAccess($user)) {
+        if (! $user || ! $this->memberAccessGrant->userHasMemberAreaAccess($user, $product)) {
             return redirect()->to('/login')->with('error', 'Link inválido ou expirado.');
         }
         Auth::login($user);

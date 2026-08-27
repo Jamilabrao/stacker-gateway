@@ -91,7 +91,7 @@ Route::get('/', function (\Illuminate\Http\Request $request) {
             return redirect()->to('/login')->with('error', 'Faça login para acessar a área de membros.');
         }
 
-        if (! $resolved['product']->hasMemberAreaAccess($request->user())) {
+        if (! app(\App\Services\MemberAccessGrantService::class)->userHasMemberAreaAccess($request->user(), $resolved['product'])) {
             return redirect()->route('checkout.show', ['slug' => $resolved['product']->checkout_slug])
                 ->with('error', 'Você não tem acesso a esta área. Adquira o produto para continuar.');
         }
