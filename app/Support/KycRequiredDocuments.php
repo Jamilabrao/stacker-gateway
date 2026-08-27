@@ -61,11 +61,54 @@ class KycRequiredDocuments
      */
     public static function kindsForUser(User $user): array
     {
+        if (PjConversion::isCollectingOrPending($user)) {
+            return self::conversionKindsForUser($user);
+        }
+
         if (self::effectiveVersion($user) === self::VERSION_LEGACY) {
             return self::legacyKindsForUser($user);
         }
 
         return self::currentKindsForUser($user);
+    }
+
+    /**
+     * Docs da migração PF→PJ: identidade já enviada + documentos atuais da empresa.
+     *
+     * @return list<string>
+     */
+    public static function conversionKindsForUser(User $user): array
+    {
+        $identityType = self::normalizeIdentityType($user->identity_document_type ?? null);
+        $identity = $identityType !== null
+            ? self::identityKindsForType($identityType)
+            : [KycDocument::KIND_RG_FRONT, KycDocument::KIND_RG_BACK];
+
+        return array_values(array_unique(array_merge($identity, self::conversionCompanyKinds($user))));
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function conversionCompanyKinds(User $user): array
+    {
+        $cfg = KycRequirementSettings::resolved();
+        $kinds = [];
+        if ($cfg['require_company_address_proof']) {
+            $kinds[] = KycDocument::KIND_COMPANY_ADDRESS_PROOF;
+        }
+        if ($cfg['require_company_constitution']) {
+            $nature = self::normalizeCompanyNature(
+                PjConversion::companyLegalNature($user) ?? $user->company_legal_nature ?? null
+            );
+            if ($nature === self::COMPANY_NATURE_MEI) {
+                $kinds[] = KycDocument::KIND_CCMEI;
+            } elseif ($nature === self::COMPANY_NATURE_OTHER) {
+                $kinds[] = KycDocument::KIND_SOCIAL_CONTRACT;
+            }
+        }
+
+        return $kinds;
     }
 
     /**
@@ -192,6 +235,10 @@ class KycRequiredDocuments
 
     public static function hasAllRequired(User $user): bool
     {
+        if (PjConversion::isCollectingOrPending($user)) {
+            return self::hasAllRequiredForPjConversion($user);
+        }
+
         if (self::effectiveVersion($user) === self::VERSION_CURRENT) {
             $cfg = KycRequirementSettings::resolved();
             $identityType = self::normalizeIdentityType($user->identity_document_type ?? null);
@@ -208,6 +255,17 @@ class KycRequiredDocuments
         return self::missingKindsForUser($user) === [];
     }
 
+    public static function hasAllRequiredForPjConversion(User $user): bool
+    {
+        $cfg = KycRequirementSettings::resolved();
+        if ($cfg['require_company_constitution']
+            && self::normalizeCompanyNature(PjConversion::companyLegalNature($user) ?? $user->company_legal_nature ?? null) === null) {
+            return false;
+        }
+
+        return self::missingKindsForUser($user) === [];
+    }
+
     /**
      * @return list<string> labels legíveis dos documentos/campos faltantes
      */
@@ -215,7 +273,13 @@ class KycRequiredDocuments
     {
         $labels = [];
 
-        if (self::effectiveVersion($user) === self::VERSION_CURRENT) {
+        if (PjConversion::isCollectingOrPending($user)) {
+            $cfg = KycRequirementSettings::resolved();
+            if ($cfg['require_company_constitution']
+                && self::normalizeCompanyNature(PjConversion::companyLegalNature($user) ?? $user->company_legal_nature ?? null) === null) {
+                $labels[] = 'natureza jurídica da empresa (MEI ou demais)';
+            }
+        } elseif (self::effectiveVersion($user) === self::VERSION_CURRENT) {
             $cfg = KycRequirementSettings::resolved();
             $identityType = self::normalizeIdentityType($user->identity_document_type ?? null);
             if ($identityType === null || ! in_array($identityType, $cfg['allowed_identity_types'], true)) {

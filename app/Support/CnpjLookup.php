@@ -186,7 +186,7 @@ final class CnpjLookup
      */
     public static function forKycAdmin(User $user): ?array
     {
-        if ($user->person_type !== 'pj') {
+        if ($user->person_type !== 'pj' && ! PjConversion::hasCnpj($user)) {
             return null;
         }
 
@@ -249,7 +249,9 @@ final class CnpjLookup
                 'qsa' => is_array($raw['qsa'] ?? null) ? $raw['qsa'] : [],
             ],
             'submitted' => [
-                'company_name' => $user->company_name,
+                'company_name' => $user->person_type === 'pj'
+                    ? $user->company_name
+                    : (PjConversion::companyName($user) ?? $user->company_name),
                 'address_line' => self::formatSubmittedAddress($user),
             ],
             'razao_social_overridden' => $overridden,

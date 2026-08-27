@@ -25,6 +25,7 @@ use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
 use App\Services\SalesAchievementsService;
+use App\Support\BrazilianDocumentDigits;
 use App\Support\MerchantAdminProductsListing;
 use App\Support\MerchantAdminWalletMovementsListing;
 use App\Support\MerchantProfileSnapshot;
@@ -107,16 +108,7 @@ class UsersController extends Controller
         }
 
         if ($search !== null) {
-            $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
-            $usersQuery->where(function ($q) use ($like, $search) {
-                $q->where('users.name', 'like', $like)
-                    ->orWhere('users.email', 'like', $like)
-                    ->orWhere('users.document', 'like', $like);
-                if (ctype_digit($search)) {
-                    $id = (int) $search;
-                    $q->orWhere('users.id', $id)->orWhere('users.tenant_id', $id);
-                }
-            });
+            $this->applyInfoprodutorSearch($usersQuery, $search);
         }
 
         $dirSql = $sortDirection === 'desc' ? 'desc' : 'asc';
@@ -207,6 +199,7 @@ class UsersController extends Controller
                 'avatar_url' => $u->avatar ? app(\App\Services\StorageService::class)->url($u->avatar) : null,
                 'tenant_id' => $u->tenant_id,
                 'person_type' => $u->person_type,
+                'document_type' => $this->documentTypeLabel($u),
                 'document' => $u->document,
                 'account_status' => $u->account_status ?? 'approved',
                 'merchant_fees' => $u->merchant_fees ?? [],
@@ -1216,5 +1209,80 @@ class UsersController extends Controller
         }
 
         return round(max(0, (float) $raw), 2);
+    }
+
+    /**
+     * Busca por nome, e-mail, nome fantasia, CPF/CNPJ (com ou sem máscara) e ID.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<User>  $usersQuery
+     */
+    private function applyInfoprodutorSearch($usersQuery, string $search): void
+    {
+        $like = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $search).'%';
+        $digits = BrazilianDocumentDigits::onlyDigits($search);
+        $digitLike = $digits !== ''
+            ? '%'.str_replace(['%', '_'], ['\\%', '\\_'], $digits).'%'
+            : null;
+
+        $usersQuery->where(function ($q) use ($like, $search, $digitLike) {
+            $q->where('users.name', 'like', $like)
+                ->orWhere('users.email', 'like', $like);
+
+            if (Schema::hasColumn('users', 'trade_name')) {
+                $q->orWhere('users.trade_name', 'like', $like);
+            }
+
+            if (Schema::hasColumn('users', 'document')) {
+                $q->orWhere('users.document', 'like', $like);
+                if ($digitLike !== null) {
+                    $q->orWhere('users.document', 'like', $digitLike);
+                    $this->orWhereDocumentDigitsMatch($q, $digitLike);
+                }
+            }
+
+            if ($digitLike !== null && Schema::hasColumn('users', 'legal_representative_cpf')) {
+                $q->orWhere('users.legal_representative_cpf', 'like', $digitLike);
+            }
+
+            if (ctype_digit($search)) {
+                $id = (int) $search;
+                $q->orWhere('users.id', $id)->orWhere('users.tenant_id', $id);
+            }
+        });
+    }
+
+    private function orWhereDocumentDigitsMatch($query, string $digitLike): void
+    {
+        $driver = Schema::getConnection()->getDriverName();
+        if ($driver === 'pgsql') {
+            $query->orWhereRaw("regexp_replace(COALESCE(users.document, ''), '[^0-9]', '', 'g') LIKE ?", [$digitLike]);
+
+            return;
+        }
+
+        $query->orWhereRaw(
+            "REPLACE(REPLACE(REPLACE(COALESCE(users.document, ''), '.', ''), '-', ''), '/', '') LIKE ?",
+            [$digitLike]
+        );
+    }
+
+    private function documentTypeLabel(User $user): string
+    {
+        if (($user->person_type ?? '') === 'pj') {
+            return 'CNPJ';
+        }
+        if (($user->person_type ?? '') === 'pf') {
+            return 'CPF';
+        }
+
+        $digits = BrazilianDocumentDigits::onlyDigits((string) ($user->document ?? ''));
+        if (strlen($digits) === 14) {
+            return 'CNPJ';
+        }
+        if (strlen($digits) === 11) {
+            return 'CPF';
+        }
+
+        return '—';
     }
 }

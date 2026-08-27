@@ -26,6 +26,16 @@ const rejectForm = useForm({
     reason: '',
 });
 
+const conversionRejectForm = useForm({
+    reason: '',
+});
+
+const conversionPending = computed(() => props.merchant?.pj_conversion?.status === 'pending_review');
+const conversionActive = computed(() => {
+    const s = props.merchant?.pj_conversion?.status;
+    return s === 'collecting_docs' || s === 'pending_review' || s === 'rejected';
+});
+
 const stepUpOpen = ref(false);
 const stepUpLoading = ref(false);
 const pendingAction = ref(null);
@@ -180,10 +190,27 @@ function submitApprove() {
     });
 }
 
+function submitApprovePjConversion() {
+    stepUpLoading.value = true;
+    router.post(`${kycActionBase()}/aprovar-migracao-pj`, {}, {
+        preserveScroll: true,
+        onFinish: () => {
+            stepUpLoading.value = false;
+        },
+    });
+}
+
 function submitRejectDirect() {
     rejectForm.post(`${kycActionBase()}/rejeitar`, {
         preserveScroll: true,
         onSuccess: () => rejectForm.reset('reason'),
+    });
+}
+
+function submitRejectPjDirect() {
+    conversionRejectForm.post(`${kycActionBase()}/rejeitar-migracao-pj`, {
+        preserveScroll: true,
+        onSuccess: () => conversionRejectForm.reset('reason'),
     });
 }
 
@@ -197,6 +224,16 @@ function approve() {
     submitApprove();
 }
 
+function approvePjConversion() {
+    if (!confirm('Aprovar a migração desta conta de CPF para CNPJ? O CPF atual passará a ser o do responsável legal.')) return;
+    if (props.platform_totp_enabled) {
+        pendingAction.value = 'approve-pj';
+        stepUpOpen.value = true;
+        return;
+    }
+    submitApprovePjConversion();
+}
+
 function submitReject() {
     if (!rejectForm.reason?.trim()) return;
     if (props.platform_totp_enabled) {
@@ -205,6 +242,16 @@ function submitReject() {
         return;
     }
     submitRejectDirect();
+}
+
+function submitRejectPjConversion() {
+    if (!conversionRejectForm.reason?.trim()) return;
+    if (props.platform_totp_enabled) {
+        pendingAction.value = 'reject-pj';
+        stepUpOpen.value = true;
+        return;
+    }
+    submitRejectPjDirect();
 }
 
 function onStepUpConfirm(payload) {
@@ -219,6 +266,32 @@ function onStepUpConfirm(payload) {
                 onFinish: closeStepUp,
             },
         );
+        return;
+    }
+
+    if (pendingAction.value === 'approve-pj') {
+        router.post(
+            `${kycActionBase()}/aprovar-migracao-pj`,
+            { totp_code: payload.totp_code },
+            {
+                preserveScroll: true,
+                onFinish: closeStepUp,
+            },
+        );
+        return;
+    }
+
+    if (pendingAction.value === 'reject-pj') {
+        conversionRejectForm
+            .transform((data) => ({
+                ...data,
+                totp_code: payload.totp_code,
+            }))
+            .post(`${kycActionBase()}/rejeitar-migracao-pj`, {
+                preserveScroll: true,
+                onSuccess: () => conversionRejectForm.reset('reason'),
+                onFinish: closeStepUp,
+            });
         return;
     }
 
@@ -280,6 +353,26 @@ function onStepUpConfirm(payload) {
             class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
         >
             {{ flashInfo }}
+        </div>
+
+        <div
+            v-if="conversionActive"
+            class="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-4 text-sm text-violet-950 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100"
+        >
+            <p class="font-semibold">Migração PF → PJ</p>
+            <p class="mt-1 text-xs leading-relaxed">
+                Status:
+                {{
+                    merchant.pj_conversion?.status === 'pending_review'
+                        ? 'aguardando análise'
+                        : merchant.pj_conversion?.status === 'collecting_docs'
+                          ? 'coletando documentos'
+                          : 'rejeitada'
+                }}.
+                CNPJ informado: {{ merchant.pj_conversion?.cnpj_formatted || merchant.pj_conversion?.cnpj || '—' }}.
+                CPF atual permanece o do responsável após a aprovação. A conta segue operacional como pessoa física até você decidir.
+            </p>
+            <p v-if="merchant.pj_conversion?.company_name" class="mt-1 text-xs">Razão social: {{ merchant.pj_conversion.company_name }}</p>
         </div>
 
         <div v-if="cnpj_lookup" class="space-y-3">
@@ -409,9 +502,9 @@ function onStepUpConfirm(payload) {
                         <dt class="text-zinc-500">Tipo de documento</dt>
                         <dd>{{ identityTypeLabel(merchant.identity_document_type) }}</dd>
                     </div>
-                    <div v-if="merchant.person_type === 'pj'" class="flex justify-between gap-2">
+                    <div v-if="merchant.person_type === 'pj' || conversionActive" class="flex justify-between gap-2">
                         <dt class="text-zinc-500">Natureza jurídica (KYC)</dt>
-                        <dd>{{ companyNatureLabel(merchant.company_legal_nature) }}</dd>
+                        <dd>{{ companyNatureLabel(merchant.pj_conversion?.company_legal_nature || merchant.company_legal_nature) }}</dd>
                     </div>
                     <div class="flex justify-between gap-2">
                         <dt class="text-zinc-500">Versão dos requisitos</dt>
@@ -508,7 +601,7 @@ function onStepUpConfirm(payload) {
                 <p v-if="!pfExtraDocs.length" class="mt-2 text-sm text-zinc-500">Nenhum arquivo nesta seção.</p>
             </section>
 
-            <section v-if="merchant.person_type === 'pj'">
+            <section v-if="merchant.person_type === 'pj' || conversionActive">
                 <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Documentação da empresa</h3>
                 <ul class="mt-2 space-y-2">
                     <li
@@ -610,6 +703,35 @@ function onStepUpConfirm(payload) {
             {{ merchant.kyc_rejection_reason }}
         </div>
 
+        <div v-if="conversionPending" class="flex flex-col gap-4 rounded-2xl border border-violet-200 bg-violet-50/50 p-5 dark:border-violet-900 dark:bg-violet-950/30">
+            <p class="text-sm text-violet-950 dark:text-violet-100">Esta migração de CPF para CNPJ está aguardando sua decisão. A conta permanece operacional como pessoa física.</p>
+            <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Button type="button" class="w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto" @click="approvePjConversion">
+                    Aprovar migração para CNPJ
+                </Button>
+            </div>
+            <form class="space-y-2 border-t border-violet-200 pt-4 dark:border-violet-800" @submit.prevent="submitRejectPjConversion">
+                <label class="block text-sm font-medium text-zinc-800 dark:text-zinc-200">Rejeitar migração (informe o motivo)</label>
+                <textarea
+                    v-model="conversionRejectForm.reason"
+                    required
+                    rows="3"
+                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                />
+                <p v-if="conversionRejectForm.errors.reason" class="text-sm text-red-600">{{ conversionRejectForm.errors.reason }}</p>
+                <p v-if="conversionRejectForm.errors.totp_code" class="text-sm text-red-600">{{ conversionRejectForm.errors.totp_code }}</p>
+                <p v-if="conversionRejectForm.errors.pj_conversion" class="text-sm text-red-600">{{ conversionRejectForm.errors.pj_conversion }}</p>
+                <Button
+                    type="submit"
+                    variant="outline"
+                    class="w-full border-red-300 text-red-800 hover:bg-red-50 sm:w-auto dark:border-red-800 dark:text-red-200"
+                    :disabled="conversionRejectForm.processing"
+                >
+                    Rejeitar migração
+                </Button>
+            </form>
+        </div>
+
         <div v-if="merchant.kyc_status === 'pending_review'" class="flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50/50 p-5 dark:border-amber-900 dark:bg-amber-950/30">
             <p class="text-sm text-amber-950 dark:text-amber-100">Esta conta está aguardando sua decisão.</p>
             <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -642,7 +764,15 @@ function onStepUpConfirm(payload) {
             v-if="platform_totp_enabled"
             :open="stepUpOpen"
             :loading="stepUpLoading"
-            :title="pendingAction === 'reject' ? 'Rejeitar verificação KYC' : 'Aprovar verificação KYC'"
+            :title="
+                pendingAction === 'reject' || pendingAction === 'reject-pj'
+                    ? pendingAction === 'reject-pj'
+                        ? 'Rejeitar migração para CNPJ'
+                        : 'Rejeitar verificação KYC'
+                    : pendingAction === 'approve-pj'
+                      ? 'Aprovar migração para CNPJ'
+                      : 'Aprovar verificação KYC'
+            "
             description="Informe o código 2FA do seu perfil de operador."
             :confirm-label="pendingAction === 'reject' ? 'Rejeitar' : 'Aprovar'"
             @close="closeStepUp"

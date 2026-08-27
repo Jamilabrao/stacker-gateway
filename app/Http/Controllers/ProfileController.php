@@ -8,6 +8,7 @@ use App\Services\SellerActivityLogService;
 use App\Services\StorageService;
 use App\Support\HtmlSanitizer;
 use App\Support\MerchantProfileSnapshot;
+use App\Support\PjConversion;
 use App\Support\RemoteStorage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -37,6 +38,22 @@ class ProfileController extends Controller
                 'avatar_url' => $user->avatar ? app(StorageService::class)->url($user->avatar) : null,
             ],
             'registration' => MerchantProfileSnapshot::forUser($user, maskDocuments: false),
+            'pj_conversion' => PjConversion::forFrontend($user),
+            'pj_conversion_eligible' => PjConversion::isEligible($user) && ! PjConversion::isCollecting($user),
+            'kyc_identity_document_type' => $user->identity_document_type ?? null,
+            'kyc_company_legal_nature' => $user->company_legal_nature ?? null,
+            'kyc_company_nature_suggestion' => PjConversion::isCollectingOrPending($user)
+                ? \App\Support\KycRequiredDocuments::suggestCompanyNatureFromLookup($user)
+                : null,
+            'kyc_uploaded_kinds' => \Illuminate\Support\Facades\Schema::hasTable('kyc_documents')
+                ? \App\Models\KycDocument::query()
+                    ->where('user_id', $user->kycSubjectUser()->id)
+                    ->active()
+                    ->pluck('kind')
+                    ->values()
+                    ->all()
+                : [],
+            'kyc_requirements' => \App\Support\KycRequirementSettings::forSellerForm(),
             'totp_enabled' => PlatformTotpService::isEnabledFor($user),
             'push_preferences' => \App\Support\UserPushPreferences::forUserId((int) $user->id),
         ]);
