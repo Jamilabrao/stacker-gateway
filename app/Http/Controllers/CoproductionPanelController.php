@@ -44,7 +44,13 @@ class CoproductionPanelController extends Controller
         $pendingCount = collect($participations)->where('status', 'pending')->count();
         $activeCount = collect($participations)->where('status', 'active')->count();
 
+        $tab = (string) $request->query('tab', 'painel');
+        if (! in_array($tab, ['painel', 'participacoes'], true)) {
+            $tab = 'painel';
+        }
+
         return Inertia::render('Coproducao/Index', [
+            'tab' => $tab,
             'transactions' => $transactions,
             'stats' => CoproductionCommissionQuery::statsFor($user, $request),
             'participations' => $participations,
