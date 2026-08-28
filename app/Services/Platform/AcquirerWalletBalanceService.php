@@ -6,6 +6,7 @@ use App\Gateways\Bspay\BspayDriver;
 use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\Efi\EfiDriver;
 use App\Gateways\GatewayRegistry;
+use App\Gateways\Stripe\StripeDriver;
 use App\Gateways\Woovi\WooviDriver;
 use App\Gateways\Versell\VersellCredentials;
 use App\Models\CajuPayAccount;
@@ -13,7 +14,6 @@ use App\Models\GatewayCredential;
 use App\Services\MercadoPago\MercadoPagoBalanceService;
 use App\Services\Versell\VersellHttpClient;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -24,8 +24,6 @@ use Throwable;
 class AcquirerWalletBalanceService
 {
     private const CACHE_TTL_SECONDS = 45;
-
-    private const REQUEST_TIMEOUT_SECONDS = 8;
 
     /** @var list<string> */
     private const BALANCE_SLUGS = ['cajupay', 'bspay', 'efi', 'woovi', 'mercadopago', 'stripe', 'versell'];
@@ -80,8 +78,10 @@ class AcquirerWalletBalanceService
                 'nome' => $this->gatewayName($slug),
                 'conta' => null,
                 'image' => $this->gatewayImage($slug),
-                'cache_key' => 'acquirer-wallet:v1:'.$slug.':'.$credential->id,
-                'fetch' => fn (): float => $this->fetchBySlug($slug, $creds),
+                'cache_key' => 'acquirer-wallet:v2:'.$slug.':'.$credential->id,
+                'fetch' => $slug === 'stripe'
+                    ? fn (): array => $this->fetchStripe($creds)
+                    : fn (): float => $this->fetchBySlug($slug, $creds),
             ]);
         }
 
@@ -96,7 +96,7 @@ class AcquirerWalletBalanceService
      *     conta: string|null,
      *     image: string|null,
      *     cache_key: string,
-     *     fetch: callable(): float
+     *     fetch: callable(): float|array{available: float, currency?: string}
      * }  $target
      * @return array{
      *     id: string,
@@ -122,15 +122,30 @@ class AcquirerWalletBalanceService
         ];
 
         try {
-            $available = Cache::remember(
+            $cached = Cache::remember(
                 $target['cache_key'],
                 self::CACHE_TTL_SECONDS,
                 fn () => $target['fetch']()
             );
 
+            if (is_array($cached)) {
+                $available = (float) ($cached['available'] ?? 0);
+                $currency = strtoupper((string) ($cached['currency'] ?? 'BRL'));
+                if ($currency === '') {
+                    $currency = 'BRL';
+                }
+
+                return array_merge($base, [
+                    'status' => 'ok',
+                    'available' => round($available, 2),
+                    'currency' => $currency,
+                    'error' => null,
+                ]);
+            }
+
             return array_merge($base, [
                 'status' => 'ok',
-                'available' => round((float) $available, 2),
+                'available' => round((float) $cached, 2),
                 'error' => null,
             ]);
         } catch (Throwable $e) {
@@ -278,7 +293,7 @@ class AcquirerWalletBalanceService
             'efi' => $this->fetchEfi($credentials),
             'woovi' => $this->fetchWoovi($credentials),
             'mercadopago' => $this->fetchMercadoPago($credentials),
-            'stripe' => $this->fetchStripe($credentials),
+            'stripe' => $this->fetchStripe($credentials)['available'],
             'versell' => $this->fetchVersell($credentials),
             default => throw new \RuntimeException('Adquirente sem consulta de saldo.'),
         };
@@ -337,26 +352,13 @@ class AcquirerWalletBalanceService
 
     /**
      * @param  array<string, mixed>  $credentials
+     * @return array{available: float, currency: string}
      */
-    private function fetchStripe(array $credentials): float
+    private function fetchStripe(array $credentials): array
     {
-        $secret = trim((string) ($credentials['secret_key'] ?? ''));
-        $response = Http::withToken($secret)
-            ->acceptJson()
-            ->timeout(self::REQUEST_TIMEOUT_SECONDS)
-            ->withOptions(['connect_timeout' => 4])
-            ->get('https://api.stripe.com/v1/balance');
+        $payload = app(StripeDriver::class)->fetchAccountBalance($credentials);
 
-        if (! $response->successful()) {
-            throw new \RuntimeException('Stripe: falha ao consultar saldo (HTTP '.$response->status().').');
-        }
-
-        $body = $response->json();
-        if (! is_array($body)) {
-            throw new \RuntimeException('Stripe: resposta de saldo inválida.');
-        }
-
-        return $this->parseStripeAvailable($body);
+        return $this->parseStripeAvailableDetails($payload);
     }
 
     /**
@@ -437,26 +439,23 @@ class AcquirerWalletBalanceService
             return $fromCurrency;
         }
 
-        if (isset($data['balances']) && is_array($data['balances'])) {
-            $fromCurrency = $this->numericFromCurrencyMap($data['balances'], 'BRL');
+        $balanceRows = $data['balances'] ?? null;
+        if (is_array($balanceRows)) {
+            $fromRows = $this->bspayAvailableFromBalanceRows($balanceRows);
+            if ($fromRows !== null) {
+                return $fromRows;
+            }
+
+            $fromCurrency = $this->numericFromCurrencyMap($balanceRows, 'BRL');
             if ($fromCurrency !== null) {
                 return $fromCurrency;
             }
         }
 
         if (array_is_list($data)) {
-            foreach ($data as $row) {
-                if (! is_array($row)) {
-                    continue;
-                }
-                $currency = strtoupper((string) ($row['currency'] ?? $row['currency_id'] ?? ''));
-                if ($currency !== '' && $currency !== 'BRL') {
-                    continue;
-                }
-                $amount = $this->firstNumeric($row, ['available', 'available_balance', 'balance', 'amount']);
-                if ($amount !== null) {
-                    return $amount;
-                }
+            $fromRows = $this->bspayAvailableFromBalanceRows($data);
+            if ($fromRows !== null) {
+                return $fromRows;
             }
         }
 
@@ -466,6 +465,35 @@ class AcquirerWalletBalanceService
         }
 
         throw new \RuntimeException('BSPay: saldo disponível não encontrado na resposta.');
+    }
+
+    /**
+     * Envelope oficial GET /v2/account/balance: data.balances[] com currency + available.
+     *
+     * @param  array<int|string, mixed>  $rows
+     */
+    private function bspayAvailableFromBalanceRows(array $rows): ?float
+    {
+        $fallback = null;
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $currency = strtoupper((string) ($row['currency'] ?? $row['currency_id'] ?? ''));
+            $amount = $this->firstNumeric($row, ['available', 'available_balance', 'balance', 'amount']);
+            if ($amount === null) {
+                continue;
+            }
+            if ($currency === 'BRL') {
+                return $amount;
+            }
+            if ($currency === '' && $fallback === null) {
+                $fallback = $amount;
+            }
+        }
+
+        return $fallback;
     }
 
     /**
@@ -532,35 +560,79 @@ class AcquirerWalletBalanceService
     }
 
     /**
+     * GET /v1/balance: available[] em unidade menor (centavos), por moeda.
+     * Prefere BRL quando há saldo; senão USD ou a primeira moeda com fundo.
+     *
      * @param  array<string, mixed>  $body
      */
     public function parseStripeAvailable(array $body): float
+    {
+        return $this->parseStripeAvailableDetails($body)['available'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array{available: float, currency: string}
+     */
+    public function parseStripeAvailableDetails(array $body): array
     {
         $buckets = $body['available'] ?? null;
         if (! is_array($buckets)) {
             throw new \RuntimeException('Stripe: saldo disponível não encontrado na resposta.');
         }
 
-        $brlCents = 0;
-        $foundBrl = false;
-        $fallbackCents = 0;
-
+        $byCurrency = [];
         foreach ($buckets as $bucket) {
             if (! is_array($bucket)) {
                 continue;
             }
-            $amount = (int) ($bucket['amount'] ?? 0);
-            $currency = strtolower((string) ($bucket['currency'] ?? ''));
-            if ($currency === 'brl') {
-                $brlCents += $amount;
-                $foundBrl = true;
+            $currency = strtolower(trim((string) ($bucket['currency'] ?? '')));
+            if ($currency === '') {
+                continue;
             }
-            $fallbackCents += $amount;
+            $amount = $bucket['amount'] ?? null;
+            if (! is_numeric($amount)) {
+                continue;
+            }
+            $byCurrency[$currency] = ($byCurrency[$currency] ?? 0) + (int) $amount;
         }
 
-        $cents = $foundBrl ? $brlCents : $fallbackCents;
+        if ($byCurrency === []) {
+            return ['available' => 0.0, 'currency' => 'BRL'];
+        }
 
-        return round($cents / 100, 2);
+        $chosen = $this->chooseStripeCurrency($byCurrency);
+
+        return [
+            'available' => StripeDriver::fromSmallestUnit($byCurrency[$chosen], $chosen),
+            'currency' => strtoupper($chosen),
+        ];
+    }
+
+    /**
+     * @param  array<string, int>  $byCurrency
+     */
+    private function chooseStripeCurrency(array $byCurrency): string
+    {
+        $nonZero = array_filter($byCurrency, fn (int $amount) => $amount !== 0);
+
+        if (isset($nonZero['brl'])) {
+            return 'brl';
+        }
+        if (isset($nonZero['usd'])) {
+            return 'usd';
+        }
+        if ($nonZero !== []) {
+            return (string) array_key_first($nonZero);
+        }
+        if (isset($byCurrency['brl'])) {
+            return 'brl';
+        }
+        if (isset($byCurrency['usd'])) {
+            return 'usd';
+        }
+
+        return (string) array_key_first($byCurrency);
     }
 
     /**

@@ -125,15 +125,24 @@ function setPeriod(value) {
 }
 
 function formatBRL(value) {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0);
+    return formatMoney(value, 'BRL');
+}
+
+function formatMoney(value, currency = 'BRL') {
+    const code = String(currency || 'BRL').toUpperCase();
+    try {
+        return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: code }).format(value ?? 0);
+    } catch {
+        return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0);
+    }
 }
 
 function formatNumber(value) {
     return new Intl.NumberFormat('pt-BR').format(value ?? 0);
 }
 
-function displayCurrency(value) {
-    return valuesVisible.value ? formatBRL(value) : '••••••';
+function displayCurrency(value, currency = 'BRL') {
+    return valuesVisible.value ? formatMoney(value, currency) : '••••••';
 }
 
 function displayNumber(value) {
@@ -439,7 +448,7 @@ const paymentMax = computed(() => Math.max(1, ...props.payment_methods.map((m) =
                         </div>
                     </div>
                     <p v-if="w.status === 'ok'" class="shrink-0 text-sm font-semibold tabular-nums text-zinc-900 dark:text-white">
-                        {{ displayCurrency(w.available) }}
+                        {{ displayCurrency(w.available, w.currency) }}
                     </p>
                     <p v-else-if="w.status === 'inactive'" class="shrink-0 text-xs font-medium text-zinc-400 dark:text-zinc-500">
                         Fora de uso

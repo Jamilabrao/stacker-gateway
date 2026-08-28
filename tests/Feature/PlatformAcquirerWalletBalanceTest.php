@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Middleware\EnsureInstalled;
 use App\Http\Middleware\EnsureStackerLicense;
 use App\Gateways\Efi\EfiDriver;
+use App\Gateways\Stripe\StripeDriver;
 use App\Models\CajuPayAccount;
 use App\Models\GatewayCredential;
 use App\Models\User;
@@ -91,12 +92,48 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
             'client_secret' => 'efi-secret',
         ], enabled: true);
 
+        $this->mock(StripeDriver::class, function ($mock) {
+            $mock->shouldReceive('fetchAccountBalance')
+                ->atLeast()
+                ->once()
+                ->andReturn([
+                    'object' => 'balance',
+                    'available' => [
+                        ['amount' => 45000, 'currency' => 'brl', 'source_types' => ['card' => 45000]],
+                        ['amount' => 100, 'currency' => 'usd', 'source_types' => ['card' => 100]],
+                    ],
+                    'pending' => [],
+                ]);
+        });
+
         Http::fake([
             'api.cajupay.com.br/api/wallet/balance*' => Http::response(['available_cents' => 25990], 200),
             'api.bspay.co/v2/oauth/token' => Http::response(['access_token' => 'bspay-token', 'expires_in' => 3600], 200),
             'api.bspay.co/v2/account/balance' => Http::response([
                 'success' => true,
-                'data' => ['BRL' => ['available' => 1234.56]],
+                'data' => [
+                    'balances' => [
+                        [
+                            'type' => 'fiat',
+                            'currency' => 'BRL',
+                            'available' => '1234.56',
+                            'blocked' => '10.00',
+                            'pending' => '0.00',
+                            'balance_hold' => '0.00',
+                            'total' => '1244.56',
+                        ],
+                        [
+                            'type' => 'crypto',
+                            'currency' => 'USDT',
+                            'available' => '101639.40402605',
+                            'blocked' => '0.00000000',
+                            'pending' => '0.00000000',
+                            'total' => '101639.40402605',
+                        ],
+                    ],
+                    'wallet_total_usd' => '106172.09817828',
+                    'wallet_total_brl' => '547701.08443680',
+                ],
             ], 200),
             'api.mercadopago.com/users/me' => Http::response(['id' => 99, 'email' => 'mp@test.com'], 200),
             'api.mercadopago.com/users/99/mercadopago_account/balance' => Http::response([
@@ -104,13 +141,6 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
                 'total_amount' => 1500.0,
                 'unavailable_balance' => 299.5,
                 'currency_id' => 'BRL',
-            ], 200),
-            'api.stripe.com/v1/balance' => Http::response([
-                'available' => [
-                    ['amount' => 45000, 'currency' => 'brl'],
-                    ['amount' => 100, 'currency' => 'usd'],
-                ],
-                'pending' => [],
             ], 200),
         ]);
 
@@ -135,9 +165,38 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
         $this->assertSame(1200.5, $bySlug['mercadopago']['available']);
         $this->assertSame('ok', $bySlug['stripe']['status']);
         $this->assertSame(450.0, $bySlug['stripe']['available']);
+        $this->assertSame('BRL', $bySlug['stripe']['currency']);
         $this->assertSame('inactive', $bySlug['versell']['status']);
         $this->assertSame('inactive', $bySlug['efi']['status']);
         $this->assertSame('inactive', $bySlug['woovi']['status']);
+    }
+
+    public function test_stripe_reads_usd_available_when_brl_bucket_is_zero(): void
+    {
+        $this->seedCredential('stripe', [
+            'secret_key' => 'sk_test_fake',
+        ]);
+
+        $this->mock(StripeDriver::class, function ($mock) {
+            $mock->shouldReceive('fetchAccountBalance')
+                ->once()
+                ->andReturn([
+                    'object' => 'balance',
+                    'available' => [
+                        ['amount' => 0, 'currency' => 'brl'],
+                        ['amount' => 50000, 'currency' => 'usd', 'source_types' => ['card' => 50000]],
+                    ],
+                    'pending' => [
+                        ['amount' => 10000, 'currency' => 'usd', 'source_types' => ['card' => 10000]],
+                    ],
+                ]);
+        });
+
+        $bySlug = collect(app(AcquirerWalletBalanceService::class)->list())->keyBy('slug');
+
+        $this->assertSame('ok', $bySlug['stripe']['status']);
+        $this->assertSame(500.0, $bySlug['stripe']['available']);
+        $this->assertSame('USD', $bySlug['stripe']['currency']);
     }
 
     public function test_disabled_or_disconnected_credentials_are_marked_inactive(): void
@@ -286,8 +345,64 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
         $this->assertSame(25.9, $service->parseCajuPayAvailable(['available_cents' => 2590]));
         $this->assertSame(10.0, $service->parseCajuPayAvailable(['data' => ['available' => 1000]]));
         $this->assertSame(99.5, $service->parseBspayAvailable(['data' => ['BRL' => ['available' => 99.5]]]));
+        $this->assertSame(8446.75, $service->parseBspayAvailable([
+            'success' => true,
+            'data' => [
+                'balances' => [
+                    [
+                        'type' => 'fiat',
+                        'currency' => 'BRL',
+                        'available' => '8446.75',
+                        'blocked' => '7682.19',
+                        'pending' => '0.00',
+                        'total' => '16128.94',
+                    ],
+                    [
+                        'type' => 'crypto',
+                        'currency' => 'USDT',
+                        'available' => '101639.40402605',
+                    ],
+                ],
+                'wallet_total_brl' => '547701.08443680',
+            ],
+        ]));
         $this->assertSame(12.34, $service->parseStripeAvailable([
             'available' => [['amount' => 1234, 'currency' => 'brl']],
+        ]));
+        $this->assertSame(500.0, $service->parseStripeAvailable([
+            'object' => 'balance',
+            'available' => [
+                [
+                    'amount' => 50000,
+                    'currency' => 'usd',
+                    'source_types' => ['card' => 50000],
+                ],
+            ],
+            'pending' => [
+                [
+                    'amount' => 10000,
+                    'currency' => 'usd',
+                    'source_types' => ['card' => 10000],
+                ],
+            ],
+        ]));
+        $this->assertSame([
+            'available' => 500.0,
+            'currency' => 'USD',
+        ], $service->parseStripeAvailableDetails([
+            'available' => [
+                ['amount' => 0, 'currency' => 'brl'],
+                ['amount' => 50000, 'currency' => 'usd'],
+            ],
+            'pending' => [
+                ['amount' => 99999, 'currency' => 'usd'],
+            ],
+        ]));
+        $this->assertSame([
+            'available' => 0.0,
+            'currency' => 'USD',
+        ], $service->parseStripeAvailableDetails([
+            'available' => [['amount' => 0, 'currency' => 'usd']],
         ]));
         $this->assertSame(100.0, $service->parseEfiAvailable(['saldo' => '100.00']));
         $this->assertSame(1294.3, $service->parseWooviAvailable([
