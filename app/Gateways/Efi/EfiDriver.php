@@ -85,6 +85,41 @@ class EfiDriver implements GatewayDriver
     }
 
     /**
+     * Saldo da conta (GET /v2/gn/saldo). Escopo OAuth: gn.balance.read.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function fetchAccountBalance(array $credentials): array
+    {
+        $options = $this->buildOptions($credentials);
+        if (empty($options['client_id']) || empty($options['client_secret']) || empty($options['certificate'])) {
+            throw new \RuntimeException('Efí: credenciais ou certificado ausentes.');
+        }
+
+        $options['timeout'] = 8;
+
+        try {
+            $api = EfiPay::getInstance($options);
+            $response = $api->getAccountBalance(['bloqueios' => true]);
+        } catch (EfiException $e) {
+            Log::debug('EfiDriver fetchAccountBalance failed', [
+                'code' => $e->code,
+                'error' => $e->error ?? null,
+            ]);
+            throw new \RuntimeException('Efí: falha ao consultar saldo.');
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Efí: falha ao consultar saldo.', 0, $e);
+        }
+
+        if (is_object($response) && isset($response->body) && is_array($response->body)) {
+            return $response->body;
+        }
+
+        return is_array($response) ? $response : [];
+    }
+
+    /**
      * @param  array<string, string>  $credentials
      * @param  array{name: string, document: string, email: string}  $consumer
      * @return array{transaction_id: string, qrcode?: string, copy_paste?: string, raw?: array}

@@ -73,6 +73,35 @@ class CajuPayDriver implements GatewayDriver
     }
 
     /**
+     * Saldo da carteira principal (valores em centavos na API).
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function fetchWalletBalance(array $credentials): array
+    {
+        if (! $this->hasApiKeys($credentials)) {
+            throw new \RuntimeException('CajuPay: chaves da API ausentes.');
+        }
+
+        $response = $this->httpForCredentials($credentials)
+            ->timeout(8)
+            ->withOptions(['connect_timeout' => 4])
+            ->get('/api/wallet/balance', ['kind' => 'main']);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('CajuPay: falha ao consultar saldo (HTTP '.$response->status().').');
+        }
+
+        $body = $response->json();
+        if (! is_array($body)) {
+            throw new \RuntimeException('CajuPay: resposta de saldo inválida.');
+        }
+
+        return $body;
+    }
+
+    /**
      * @param  array<string, mixed>  $credentials
      */
     private function hasApiKeys(array $credentials): bool

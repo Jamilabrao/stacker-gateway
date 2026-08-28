@@ -103,6 +103,15 @@ class DemoPlatformData
                 ['slug' => 'efi', 'nome' => 'Efí', 'volume' => round($vendasTotais * 0.32, 2), 'transacoes' => 143, 'aprovadas' => 106, 'recusadas' => 37, 'taxa_aprovacao' => 74.1],
                 ['slug' => 'mercadopago', 'nome' => 'Mercado Pago', 'volume' => round($vendasTotais * 0.20, 2), 'transacoes' => 88, 'aprovadas' => 70, 'recusadas' => 18, 'taxa_aprovacao' => 79.5],
             ],
+            'acquirer_wallets' => [
+                ['id' => 'demo-cajupay', 'slug' => 'cajupay', 'nome' => 'CajuPay', 'conta' => 'Conta principal', 'image' => 'images/gateways/cajupay.png', 'status' => 'ok', 'available' => round(18450.30 + ($seed % 800), 2), 'currency' => 'BRL', 'error' => null],
+                ['id' => 'demo-bspay', 'slug' => 'bspay', 'nome' => 'BSPay', 'conta' => null, 'image' => 'images/gateways/bspay.png', 'status' => 'ok', 'available' => round(9230.10 + ($seed % 400), 2), 'currency' => 'BRL', 'error' => null],
+                ['id' => 'demo-efi', 'slug' => 'efi', 'nome' => 'Efí', 'conta' => null, 'image' => 'images/gateways/efi.png', 'status' => 'ok', 'available' => round(6120.80 + ($seed % 350), 2), 'currency' => 'BRL', 'error' => null],
+                ['id' => 'demo-woovi', 'slug' => 'woovi', 'nome' => 'Woovi', 'conta' => null, 'image' => 'images/gateways/woovi.png', 'status' => 'ok', 'available' => round(7340.20 + ($seed % 280), 2), 'currency' => 'BRL', 'error' => null],
+                ['id' => 'demo-mercadopago', 'slug' => 'mercadopago', 'nome' => 'Mercado Pago', 'conta' => null, 'image' => 'images/gateways/mercado-pago.webp', 'status' => 'ok', 'available' => round(4100.00 + ($seed % 250), 2), 'currency' => 'BRL', 'error' => null],
+                ['id' => 'demo-stripe', 'slug' => 'stripe', 'nome' => 'Stripe', 'conta' => null, 'image' => 'images/gateways/stripe.png', 'status' => 'ok', 'available' => round(880.50 + ($seed % 120), 2), 'currency' => 'BRL', 'error' => null],
+                ['id' => 'demo-versell', 'slug' => 'versell', 'nome' => 'Versell', 'conta' => null, 'image' => 'images/gateways/versell-logo.svg', 'status' => 'ok', 'available' => round(15670.00 + ($seed % 600), 2), 'currency' => 'BRL', 'error' => null],
+            ],
             'top_sellers' => [
                 ['tenant_id' => 1, 'nome' => 'Academia Digital', 'email' => 'a@demo.local', 'quantidade' => 86, 'volume' => round($vendasTotais * 0.28, 2), 'ticket_medio' => 142.5],
                 ['tenant_id' => 2, 'nome' => 'Mentoria Prime', 'email' => 'b@demo.local', 'quantidade' => 54, 'volume' => round($vendasTotais * 0.19, 2), 'ticket_medio' => 198.0],

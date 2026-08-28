@@ -39,6 +39,42 @@ class BspayDriver implements GatewayDriver
     }
 
     /**
+     * Saldo da conta (envelope { success, data }).
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function fetchAccountBalance(array $credentials): array
+    {
+        $token = $this->getToken($credentials);
+        if ($token === null) {
+            throw new \RuntimeException('BSPay: falha na autenticação (Client ID/Secret).');
+        }
+
+        try {
+            $response = $this->requestWithAuthRetry($credentials, $token, function (string $bearer) {
+                return $this->http($bearer)->timeout(8)->withOptions(['connect_timeout' => 4])->get($this->url('/v2/account/balance'));
+            });
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('BSPay: falha ao consultar saldo.', 0, $e);
+        }
+
+        if ($response->status() === 401) {
+            $this->forgetToken($credentials);
+
+            throw new \RuntimeException('BSPay: token inválido ao consultar saldo.');
+        }
+
+        if (! $response->successful()) {
+            throw new \RuntimeException('BSPay: falha ao consultar saldo (HTTP '.$response->status().').');
+        }
+
+        $payload = $response->json();
+
+        return is_array($payload) ? $payload : [];
+    }
+
+    /**
      * @param  array{name?: string, document?: string, email?: string}  $consumer
      * @return array{transaction_id: string, qrcode?: string|null, copy_paste?: string|null, raw?: array}
      */
@@ -493,9 +529,6 @@ class BspayDriver implements GatewayDriver
         return [];
     }
 
-    /**
-     * @param  mixed  $json
-     */
     private function errorMessage(mixed $json, string $fallback): string
     {
         if (! is_array($json)) {

@@ -70,6 +70,7 @@ const props = defineProps({
     },
     payment_methods: { type: Array, default: () => [] },
     acquirers: { type: Array, default: () => [] },
+    acquirer_wallets: { type: Array, default: () => [] },
     top_sellers: { type: Array, default: () => [] },
     top_products: { type: Array, default: () => [] },
     alerts: { type: Array, default: () => [] },
@@ -406,6 +407,49 @@ const paymentMax = computed(() => Math.max(1, ...props.payment_methods.map((m) =
                     </p>
                 </div>
             </div>
+        </section>
+
+        <section class="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900/60">
+            <div class="mb-3 flex items-start justify-between gap-3">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <Building2 class="h-4 w-4 text-zinc-500" />
+                        <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Saldo nas adquirentes</h3>
+                    </div>
+                    <p class="mt-1 text-xs text-zinc-500">Carteira da PSP quando a credencial está conectada. Sem conexão aparece como fora de uso.</p>
+                </div>
+            </div>
+            <ul class="divide-y divide-zinc-100 dark:divide-zinc-800 sm:grid sm:grid-cols-2 sm:gap-x-8 sm:divide-y-0">
+                <li
+                    v-for="w in acquirer_wallets"
+                    :key="w.id"
+                    class="flex items-center justify-between gap-3 py-2.5 sm:py-2"
+                    :class="w.status === 'inactive' ? 'opacity-70' : ''"
+                >
+                    <div class="flex min-w-0 items-center gap-2.5">
+                        <img
+                            v-if="w.image"
+                            :src="`/${w.image}`"
+                            :alt="w.nome"
+                            class="h-6 w-6 shrink-0 object-contain"
+                        />
+                        <div class="min-w-0">
+                            <p class="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{{ w.nome }}</p>
+                            <p v-if="w.conta" class="truncate text-xs text-zinc-500">{{ w.conta }}</p>
+                        </div>
+                    </div>
+                    <p v-if="w.status === 'ok'" class="shrink-0 text-sm font-semibold tabular-nums text-zinc-900 dark:text-white">
+                        {{ displayCurrency(w.available) }}
+                    </p>
+                    <p v-else-if="w.status === 'inactive'" class="shrink-0 text-xs font-medium text-zinc-400 dark:text-zinc-500">
+                        Fora de uso
+                    </p>
+                    <p v-else class="shrink-0 text-xs font-medium text-amber-600 dark:text-amber-400" :title="w.error || 'Falha ao consultar'">
+                        Indisponível
+                    </p>
+                </li>
+            </ul>
+            <p v-if="!acquirer_wallets.length" class="py-4 text-center text-sm text-zinc-500">Nenhuma adquirente cadastrada.</p>
         </section>
 
         <section class="space-y-3">
