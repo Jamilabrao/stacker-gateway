@@ -470,11 +470,7 @@ class FinancialController extends Controller
                 ->with('error', 'Confirme que o PIX já foi enviado fora do sistema.');
         }
 
-        $this->validatePlatformStepUp(
-            $request,
-            requireManualPin: $manual || WithdrawalPolicyService::requiresManualApprovalPin(),
-            redirectRoute: 'plataforma.saques.index'
-        );
+        $this->validateWithdrawalPayoutStepUp($request, 'plataforma.saques.index');
 
         if (! $manual && trim((string) ($withdrawal->payout_external_id ?? '')) !== '') {
             return redirect()->route('plataforma.saques.index')

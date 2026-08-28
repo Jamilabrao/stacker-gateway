@@ -208,6 +208,21 @@ class WithdrawalPolicyTest extends TestCase
         Mail::assertSent(ManualApprovalPinResetAdminMail::class, 3);
     }
 
+    public function test_payout_barrier_is_totp_or_operation_pin(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $this->assertTrue(WithdrawalPolicyService::requiresOperationPinFor($admin));
+        $this->assertFalse(WithdrawalPolicyService::hasPayoutSecurityBarrier($admin));
+
+        WithdrawalPolicyService::setManualApprovalPin('1234');
+        $this->assertTrue(WithdrawalPolicyService::hasPayoutSecurityBarrier($admin));
+        $this->assertTrue(WithdrawalPolicyService::requiresOperationPinFor($admin));
+    }
+
     private function platformAdmin(): User
     {
         return User::factory()->create([

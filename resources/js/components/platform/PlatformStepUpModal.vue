@@ -12,6 +12,7 @@ const props = defineProps({
     requireExternalConfirm: { type: Boolean, default: false },
     confirmLabel: { type: String, default: 'Confirmar' },
     loading: { type: Boolean, default: false },
+    confirmDisabled: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['close', 'confirm']);
@@ -89,7 +90,7 @@ function submit() {
 
                 <div v-if="requirePin">
                     <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                        PIN de aprovação manual
+                        PIN de operação
                     </label>
                     <input
                         :value="manualPin"
@@ -119,7 +120,7 @@ function submit() {
                 <Button type="button" variant="secondary" @click="emit('close')">
                     Cancelar
                 </Button>
-                <Button type="button" :disabled="loading" @click="submit">
+                <Button type="button" :disabled="loading || confirmDisabled" @click="submit">
                     {{ confirmLabel }}
                 </Button>
             </div>
