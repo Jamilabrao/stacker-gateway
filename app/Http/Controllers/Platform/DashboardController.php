@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Platform;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\Platform\AcquirerWalletBalanceService;
 use App\Services\Platform\PlatformDashboardAnalytics;
-use App\Support\DemoMode;
 use App\Support\Demo\DemoPlatformData;
+use App\Support\DemoMode;
 use App\Support\PlatformDashboardPeriod;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -17,7 +18,7 @@ class DashboardController extends Controller
 {
     private const CACHE_TTL_SECONDS = 120;
 
-    public function __invoke(Request $request): Response
+    public function __invoke(Request $request, AcquirerWalletBalanceService $acquirerWallets): Response
     {
         $period = PlatformDashboardPeriod::normalize($request->query('period', 'hoje'));
 
@@ -42,12 +43,14 @@ class DashboardController extends Controller
         };
 
         if (defined('PHPUNIT_COMPOSER_INSTALL')) {
-            return Inertia::render('Platform/Dashboard', $resolver());
+            $payload = $resolver();
+        } else {
+            [$start, $end] = PlatformDashboardPeriod::range($period);
+            $cacheKey = 'platform-dashboard:v2:'.$period.':'.md5((string) $start.'|'.(string) $end);
+            $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, $resolver);
         }
 
-        [$start, $end] = PlatformDashboardPeriod::range($period);
-        $cacheKey = 'platform-dashboard:v2:'.$period.':'.md5((string) $start.'|'.(string) $end);
-        $payload = Cache::remember($cacheKey, self::CACHE_TTL_SECONDS, $resolver);
+        $payload['acquirer_wallets'] = $acquirerWallets->list();
 
         return Inertia::render('Platform/Dashboard', $payload);
     }
