@@ -81,6 +81,12 @@ function statusLabel(s) {
                     >
                         {{ statusLabel(u.kyc_status) }}
                     </span>
+                    <span
+                        v-if="u.pj_conversion_status === 'pending_review'"
+                        class="mt-1 inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
+                    >
+                        PF→PJ
+                    </span>
                 </div>
                 <div class="mt-3 flex items-center justify-between gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
                     <span class="text-xs text-zinc-500">{{ u.person_type === 'pj' ? 'Pessoa jurídica' : 'Pessoa física' }}</span>
@@ -107,7 +113,15 @@ function statusLabel(s) {
                             <td class="px-4 py-3 text-sm font-medium text-zinc-900 dark:text-white">{{ u.name }}</td>
                             <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-300">{{ u.email }}</td>
                             <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{{ u.person_type === 'pj' ? 'PJ' : 'PF' }}</td>
-                            <td class="px-4 py-3 text-sm">{{ statusLabel(u.kyc_status) }}</td>
+                            <td class="px-4 py-3 text-sm">
+                                {{ statusLabel(u.kyc_status) }}
+                                <span
+                                    v-if="u.pj_conversion_status === 'pending_review'"
+                                    class="ml-2 inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-violet-900 dark:bg-violet-950/50 dark:text-violet-200"
+                                >
+                                    PF→PJ
+                                </span>
+                            </td>
                             <td class="px-4 py-3 text-right">
                                 <Link
                                     :href="`/plataforma/verificacoes-kyc/usuario/${u.id}`"

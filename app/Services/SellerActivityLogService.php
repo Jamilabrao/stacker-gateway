@@ -103,6 +103,12 @@ class SellerActivityLogService
 
     public const KYC_SUBMITTED = 'kyc.submitted';
 
+    public const PJ_CONVERSION_STARTED = 'kyc.pj_conversion.started';
+
+    public const PJ_CONVERSION_SUBMITTED = 'kyc.pj_conversion.submitted';
+
+    public const PJ_CONVERSION_CANCELLED = 'kyc.pj_conversion.cancelled';
+
     public const PRODUCT_CREATED = 'product.created';
 
     public const PRODUCT_UPDATED = 'product.updated';
@@ -262,6 +268,9 @@ class SellerActivityLogService
         self::PROFILE_PASSWORD_UPDATED => ['group' => self::GROUP_AUTH, 'label' => 'Alterou a senha'],
         self::KYC_DOCUMENT_UPLOADED => ['group' => self::GROUP_KYC, 'label' => 'Enviou documento de KYC'],
         self::KYC_SUBMITTED => ['group' => self::GROUP_KYC, 'label' => 'Enviou KYC para análise'],
+        self::PJ_CONVERSION_STARTED => ['group' => self::GROUP_KYC, 'label' => 'Iniciou migração de CPF para CNPJ'],
+        self::PJ_CONVERSION_SUBMITTED => ['group' => self::GROUP_KYC, 'label' => 'Enviou migração para CNPJ para análise'],
+        self::PJ_CONVERSION_CANCELLED => ['group' => self::GROUP_KYC, 'label' => 'Cancelou migração para CNPJ'],
         self::PRODUCT_CREATED => ['group' => self::GROUP_PRODUCT, 'label' => 'Criou produto'],
         self::PRODUCT_UPDATED => ['group' => self::GROUP_PRODUCT, 'label' => 'Atualizou produto'],
         self::PRODUCT_DELETED => ['group' => self::GROUP_PRODUCT, 'label' => 'Excluiu produto'],

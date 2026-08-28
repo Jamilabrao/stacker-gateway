@@ -25,9 +25,14 @@ const props = defineProps({
     },
     /** Quando true, omite título principal (uso na aba Financeiro). */
     embedded: { type: Boolean, default: false },
+    /** Migração PF→PJ: mostra só docs da empresa, mesmo com KYC já aprovado. */
+    conversion_mode: { type: Boolean, default: false },
+    conversion_status: { type: String, default: null },
+    conversion_rejection_reason: { type: String, default: null },
 });
 
-const isPj = computed(() => props.person_type === 'pj');
+const conversionMode = computed(() => !!props.conversion_mode);
+const isPj = computed(() => props.person_type === 'pj' || conversionMode.value);
 
 const req = computed(() => {
     const r = props.requirements || {};
@@ -52,8 +57,16 @@ const identityTypeOptions = computed(() => {
     return all.filter((o) => req.value.allowed_identity_types.includes(o.value));
 });
 
-const isPendingReview = computed(() => props.kyc_status === 'pending_review');
-const isApproved = computed(() => props.kyc_status === 'approved');
+const isPendingReview = computed(
+    () => props.kyc_status === 'pending_review' || props.conversion_status === 'pending_review'
+);
+const isApproved = computed(
+    () =>
+        props.kyc_status === 'approved' &&
+        !conversionMode.value &&
+        props.conversion_status !== 'pending_review' &&
+        props.conversion_status !== 'collecting_docs'
+);
 const isReadOnlyKyc = computed(() => isPendingReview.value || isApproved.value);
 
 const identityType = ref(props.identity_document_type || '');
@@ -165,7 +178,7 @@ function parseAxiosError(err, field) {
 }
 
 async function persistPreferences() {
-    if (!identityType.value) {
+    if (!conversionMode.value && !identityType.value) {
         return false;
     }
     if (isPj.value && req.value.require_company_constitution && !companyNature.value) {
@@ -174,7 +187,10 @@ async function persistPreferences() {
 
     prefsSaving.value = true;
     try {
-        const payload = { identity_document_type: identityType.value };
+        const payload = {};
+        if (identityType.value) {
+            payload.identity_document_type = identityType.value;
+        }
         if (isPj.value && companyNature.value) {
             payload.company_legal_nature = companyNature.value;
         }
@@ -217,7 +233,7 @@ async function onFile(field, event) {
         return;
     }
 
-    if (!identityType.value) {
+    if (!conversionMode.value && !identityType.value) {
         fieldErrors[field] = 'Selecione o tipo de documento de identificação antes de enviar.';
         return;
     }
@@ -237,7 +253,9 @@ async function onFile(field, event) {
     const fd = new FormData();
     fd.append('field', field);
     fd.append(field, f);
-    fd.append('identity_document_type', identityType.value);
+    if (identityType.value) {
+        fd.append('identity_document_type', identityType.value);
+    }
     if (isPj.value && companyNature.value) {
         fd.append('company_legal_nature', companyNature.value);
     }
@@ -257,6 +275,23 @@ async function onFile(field, event) {
 const canFinalize = computed(() => {
     if (isReadOnlyKyc.value) {
         return false;
+    }
+    if (conversionMode.value) {
+        if (req.value.require_company_address_proof && !uploaded.company_address_proof) {
+            return false;
+        }
+        if (req.value.require_company_constitution) {
+            if (!companyNature.value) {
+                return false;
+            }
+            if (companyNature.value === 'mei' && !uploaded.ccmei) {
+                return false;
+            }
+            if (companyNature.value === 'other' && !uploaded.social_contract) {
+                return false;
+            }
+        }
+        return true;
     }
     if (!identityType.value) {
         return false;
@@ -356,18 +391,25 @@ const fileAccept =
             <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">Verificação de identidade (KYC)</h1>
         </div>
         <div v-else-if="embedded && !isReadOnlyKyc">
-            <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Documentos para verificação</h3>
+            <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">
+                {{ conversionMode ? 'Documentos da empresa para migrar para CNPJ' : 'Documentos para verificação' }}
+            </h3>
             <p class="mt-1 text-xs text-zinc-500">
-                Selecione cada arquivo separadamente (até 20 MB). Formatos: JPG, PNG, WebP, HEIC/HEIF ou PDF.
+                <template v-if="conversionMode">
+                    A identidade PF já foi verificada. Envie só os documentos da empresa. A conta continua operando como CPF até a aprovação.
+                </template>
+                <template v-else>
+                    Selecione cada arquivo separadamente (até 20 MB). Formatos: JPG, PNG, WebP, HEIC/HEIF ou PDF.
+                </template>
             </p>
         </div>
 
         <div
-            v-if="rejection_reason && !isReadOnlyKyc"
+            v-if="(conversion_rejection_reason || rejection_reason) && !isReadOnlyKyc"
             class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
         >
             <p class="font-medium">Última análise foi rejeitada:</p>
-            <p class="mt-1">{{ rejection_reason }}</p>
+            <p class="mt-1">{{ conversion_rejection_reason || rejection_reason }}</p>
         </div>
 
         <div
@@ -377,9 +419,16 @@ const fileAccept =
             <div class="flex justify-center">
                 <CheckCircle2 class="h-12 w-12 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
             </div>
-            <h3 class="mt-4 text-base font-semibold text-emerald-950 dark:text-emerald-100">Documentos enviados</h3>
+            <h3 class="mt-4 text-base font-semibold text-emerald-950 dark:text-emerald-100">
+                {{ conversionMode ? 'Migração enviada' : 'Documentos enviados' }}
+            </h3>
             <p class="mt-2 text-sm text-emerald-900/90 dark:text-emerald-200/95">
-                Recebemos seus arquivos. Eles estão <strong>em análise</strong> pela equipe da plataforma. Você será avisado quando a verificação for concluída.
+                <template v-if="conversionMode">
+                    Recebemos os documentos da empresa. A migração para CNPJ está <strong>em análise</strong>. Sua conta CPF continua operando normalmente.
+                </template>
+                <template v-else>
+                    Recebemos seus arquivos. Eles estão <strong>em análise</strong> pela equipe da plataforma. Você será avisado quando a verificação for concluída.
+                </template>
             </p>
         </div>
 
@@ -405,7 +454,7 @@ const fileAccept =
                 {{ uploadError }}
             </p>
 
-            <div>
+            <div v-if="!conversionMode">
                 <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
                     <Upload class="h-4 w-4 text-[var(--color-primary)]" />
                     {{ isPj ? 'Documento do responsável legal' : 'Documento de identificação' }}
@@ -427,7 +476,7 @@ const fileAccept =
                 </select>
             </div>
 
-            <div v-if="identityType" class="space-y-4">
+            <div v-if="identityType && !conversionMode" class="space-y-4">
                 <p v-if="identityType === 'passport'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
                     O passaporte deve estar <strong>dentro da validade</strong> na data do envio.
                 </p>
@@ -554,8 +603,9 @@ const fileAccept =
 
             <!-- PJ extras -->
             <div
-                v-if="isPj && identityType && (req.require_company_address_proof || req.require_company_constitution)"
-                class="space-y-6 border-t border-zinc-200 pt-6 dark:border-zinc-700"
+                v-if="isPj && (identityType || conversionMode) && (req.require_company_address_proof || req.require_company_constitution)"
+                class="space-y-6"
+                :class="conversionMode ? '' : 'border-t border-zinc-200 pt-6 dark:border-zinc-700'"
             >
                 <div>
                     <h2 class="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-white">
@@ -654,7 +704,13 @@ const fileAccept =
 
             <div class="flex flex-wrap justify-end gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
                 <Button type="submit" :disabled="finalizeProcessing || !canFinalize">
-                    {{ finalizeProcessing ? 'Enviando…' : 'Enviar para análise' }}
+                    {{
+                        finalizeProcessing
+                            ? 'Enviando…'
+                            : conversionMode
+                              ? 'Enviar migração para análise'
+                              : 'Enviar para análise'
+                    }}
                 </Button>
             </div>
         </form>

@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Controller;
 use App\Models\KycDocument;
 use App\Models\User;
+use App\Services\PjConversionService;
 use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAuditService;
 use App\Services\PlatformEmailNotifications;
@@ -13,6 +14,7 @@ use App\Support\CnpjLookup;
 use App\Support\KycRequiredDocuments;
 use App\Support\KycUpload;
 use App\Support\MerchantProfileSnapshot;
+use App\Support\PjConversion;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -53,6 +55,7 @@ class KycVerificationsController extends Controller
                     'email' => $u->email,
                     'person_type' => $u->person_type,
                     'kyc_status' => $u->kyc_status,
+                    'pj_conversion_status' => PjConversion::status($u),
                     'updated_at' => $u->updated_at?->toIso8601String(),
                 ];
             })
@@ -117,6 +120,7 @@ class KycVerificationsController extends Controller
                 'identity_document_type' => $user->identity_document_type ?? null,
                 'company_legal_nature' => $user->company_legal_nature ?? null,
                 'kyc_requirements_version' => (int) ($user->kyc_requirements_version ?? 1),
+                'pj_conversion' => PjConversion::forFrontend($user),
             ],
             'cnpj_lookup' => CnpjLookup::forKycAdmin($user),
             'documents' => $documents,
@@ -183,12 +187,57 @@ class KycVerificationsController extends Controller
         return redirect()->route('plataforma.kyc.show', ['user' => $user->id])->with('success', 'Verificação rejeitada. O infoprodutor pode reenviar documentos.');
     }
 
+    public function approvePjConversion(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
+        abort_unless(PjConversion::isPendingReview($user), 422);
+
+        $this->validatePlatformStepUp($request, redirectRoute: 'plataforma.kyc.show');
+
+        $cpfBefore = (string) $user->document;
+        $cnpj = PjConversion::cnpj($user);
+
+        app(PjConversionService::class)->approve($user->fresh());
+
+        PlatformAuditService::log('platform.kyc.pj_conversion_approved', [
+            'merchant_id' => $user->id,
+            'previous_document' => $cpfBefore,
+            'cnpj' => $cnpj,
+        ], $request);
+
+        return redirect()->route('plataforma.kyc.show', ['user' => $user->id])->with('success', 'Migração para CNPJ aprovada. O CPF anterior ficou como responsável legal.');
+    }
+
+    public function rejectPjConversion(Request $request, User $user): RedirectResponse
+    {
+        abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
+        abort_unless(PjConversion::isPendingReview($user), 422);
+
+        $this->validatePlatformStepUp($request, redirectRoute: 'plataforma.kyc.show');
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:2000'],
+        ]);
+
+        app(PjConversionService::class)->reject($user->fresh(), $validated['reason']);
+
+        PlatformAuditService::log('platform.kyc.pj_conversion_rejected', [
+            'merchant_id' => $user->id,
+            'reason' => $validated['reason'],
+        ], $request);
+
+        return redirect()->route('plataforma.kyc.show', ['user' => $user->id])->with('success', 'Migração para CNPJ rejeitada. A conta permanece pessoa física e operacional.');
+    }
+
     public function refreshCnpj(Request $request, User $user): RedirectResponse
     {
         abort_unless($user->role === User::ROLE_INFOPRODUTOR, 404);
-        abort_unless($user->person_type === 'pj', 422);
-
         $cnpj = preg_replace('/\D/', '', (string) $user->document) ?? '';
+        if (strlen($cnpj) !== 14) {
+            $cnpj = PjConversion::cnpj($user) ?? '';
+        }
+        abort_unless($user->person_type === 'pj' || PjConversion::hasCnpj($user), 422);
+
         if (strlen($cnpj) !== 14) {
             return redirect()
                 ->route('plataforma.kyc.show', ['user' => $user->id])
@@ -199,7 +248,7 @@ class KycVerificationsController extends Controller
             $snapshot = CnpjLookup::persistForUser(
                 $user->fresh(),
                 $cnpj,
-                (string) ($user->company_name ?? ''),
+                (string) (PjConversion::companyName($user) ?? $user->company_name ?? ''),
                 null,
                 true,
             );

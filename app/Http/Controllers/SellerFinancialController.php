@@ -219,7 +219,7 @@ class SellerFinancialController extends Controller
             'kyc_company_legal_nature' => Schema::hasColumn('users', 'company_legal_nature')
                 ? ($subject->company_legal_nature ?? null)
                 : null,
-            'kyc_company_nature_suggestion' => ($subject->person_type ?? '') === 'pj'
+            'kyc_company_nature_suggestion' => (($subject->person_type ?? '') === 'pj' || \App\Support\PjConversion::isCollectingOrPending($subject))
                 ? \App\Support\KycRequiredDocuments::suggestCompanyNatureFromLookup($subject)
                 : null,
             'kyc_uploaded_kinds' => Schema::hasTable('kyc_documents')
@@ -232,6 +232,7 @@ class SellerFinancialController extends Controller
                 : [],
             'kyc_requirements' => \App\Support\KycRequirementSettings::forSellerForm(),
             'kyc_finance_locked' => $kycFinanceLocked,
+            'pj_conversion' => \App\Support\PjConversion::forFrontend($subject),
             'registration_snapshot' => MerchantProfileSnapshot::forUser($subject, maskDocuments: false),
             'payout_settings' => is_array($user->payout_settings) ? $user->payout_settings : [],
             /** @var 'label_and_key'|'key_and_receiver'|null Fluxo de cadastro PIX sem expor adquirente ao vendedor */

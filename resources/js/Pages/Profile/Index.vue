@@ -1,10 +1,12 @@
 <script setup>
-import { ref, computed } from 'vue';
-import { useForm } from '@inertiajs/vue3';
+import { ref, computed, watch } from 'vue';
+import { useForm, router } from '@inertiajs/vue3';
 import LayoutInfoprodutor from '@/Layouts/LayoutInfoprodutor.vue';
 import Button from '@/components/ui/Button.vue';
 import ProfileTotpSection from '@/components/profile/ProfileTotpSection.vue';
-import { Camera, IdCard, Lock, Loader2 } from 'lucide-vue-next';
+import KycDocumentsForm from '@/components/kyc/KycDocumentsForm.vue';
+import { Camera, IdCard, Lock, Loader2, Building2, X } from 'lucide-vue-next';
+import axios from 'axios';
 
 defineOptions({ layout: LayoutInfoprodutor });
 
@@ -18,6 +20,22 @@ const props = defineProps({
         default: () => ({}),
     },
     totp_enabled: { type: Boolean, default: false },
+    pj_conversion: { type: Object, default: null },
+    pj_conversion_eligible: { type: Boolean, default: false },
+    kyc_identity_document_type: { type: String, default: null },
+    kyc_company_legal_nature: { type: String, default: null },
+    kyc_company_nature_suggestion: { type: String, default: null },
+    kyc_uploaded_kinds: { type: Array, default: () => [] },
+    kyc_requirements: {
+        type: Object,
+        default: () => ({
+            allowed_identity_types: ['rg', 'cnh', 'passport'],
+            require_address_proof: true,
+            require_selfie_with_document: true,
+            require_company_address_proof: true,
+            require_company_constitution: true,
+        }),
+    },
     push_preferences: {
         type: Object,
         default: () => ({
@@ -132,6 +150,130 @@ function formatDateTime(iso) {
 }
 
 const documentLabel = computed(() => (props.registration?.person_type === 'pj' ? 'CNPJ' : 'CPF'));
+
+const conversionCollecting = computed(() => props.pj_conversion?.status === 'collecting_docs');
+const conversionPending = computed(() => props.pj_conversion?.status === 'pending_review');
+const conversionRejected = computed(() => props.pj_conversion?.status === 'rejected');
+const showMigrateButton = computed(
+    () =>
+        props.pj_conversion_eligible &&
+        props.registration?.person_type === 'pf' &&
+        !conversionCollecting.value &&
+        !conversionPending.value
+);
+
+const showConversionModal = ref(false);
+const cnpjLookupLoading = ref(false);
+const cnpjSituacaoWarning = ref('');
+let cnpjLookupTimer = null;
+let cnpjLookupSeq = 0;
+
+const conversionForm = useForm({
+    cnpj: '',
+    company_name: '',
+    company_legal_nature: '',
+    cnpj_suggested_razao_social: '',
+});
+
+function digitsOnly(value) {
+    return String(value || '').replace(/\D/g, '');
+}
+
+function formatCnpjInput(value) {
+    const d = digitsOnly(value).slice(0, 14);
+    if (d.length <= 2) return d;
+    if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`;
+    if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`;
+    if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`;
+    return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+function onCnpjInput(event) {
+    conversionForm.cnpj = formatCnpjInput(event.target.value);
+}
+
+async function lookupConversionCnpj(cnpj) {
+    const seq = ++cnpjLookupSeq;
+    cnpjLookupLoading.value = true;
+    cnpjSituacaoWarning.value = '';
+    try {
+        const res = await axios.post('/meu-perfil/migrar-para-cnpj/consultar', { document: cnpj });
+        if (seq !== cnpjLookupSeq) {
+            return;
+        }
+        if (!res.data?.ok) {
+            conversionForm.cnpj_suggested_razao_social = '';
+            return;
+        }
+        const razao = String(res.data.razao_social || '').trim();
+        conversionForm.cnpj_suggested_razao_social = razao;
+        if (razao && !String(conversionForm.company_name || '').trim()) {
+            conversionForm.company_name = razao;
+        }
+        if (res.data.company_nature_suggestion && !conversionForm.company_legal_nature) {
+            conversionForm.company_legal_nature = res.data.company_nature_suggestion;
+        }
+        if (res.data.situacao_irregular && res.data.situacao_message) {
+            cnpjSituacaoWarning.value = res.data.situacao_message;
+        }
+    } catch (e) {
+        if (seq !== cnpjLookupSeq) {
+            return;
+        }
+        if (e.response?.status === 422) {
+            conversionForm.errors.cnpj = e.response.data?.message || 'CNPJ inválido.';
+        }
+    } finally {
+        if (seq === cnpjLookupSeq) {
+            cnpjLookupLoading.value = false;
+        }
+    }
+}
+
+watch(
+    () => digitsOnly(conversionForm.cnpj),
+    (doc) => {
+        if (cnpjLookupTimer) {
+            clearTimeout(cnpjLookupTimer);
+            cnpjLookupTimer = null;
+        }
+        conversionForm.errors.cnpj = '';
+        if (doc.length !== 14) {
+            return;
+        }
+        cnpjLookupTimer = setTimeout(() => lookupConversionCnpj(doc), 400);
+    }
+);
+
+function openConversionModal() {
+    conversionForm.cnpj = '';
+    conversionForm.company_name = '';
+    conversionForm.company_legal_nature = '';
+    conversionForm.cnpj_suggested_razao_social = '';
+    conversionForm.clearErrors();
+    cnpjSituacaoWarning.value = '';
+    showConversionModal.value = true;
+}
+
+function closeConversionModal() {
+    showConversionModal.value = false;
+}
+
+function submitConversionStart() {
+    conversionForm.post('/meu-perfil/migrar-para-cnpj', {
+        preserveScroll: true,
+        onSuccess: () => {
+            showConversionModal.value = false;
+        },
+    });
+}
+
+function cancelConversion() {
+    if (!confirm('Cancelar a migração para CNPJ? Sua conta continua como pessoa física.')) {
+        return;
+    }
+    router.post('/meu-perfil/migrar-para-cnpj/cancelar', {}, { preserveScroll: true });
+}
 </script>
 
 <template>
@@ -357,7 +499,78 @@ const documentLabel = computed(() => (props.registration?.person_type === 'pj' ?
                     <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">Endereço</dt>
                     <dd class="mt-0.5 text-zinc-900 dark:text-white">{{ snap(registration.address_line) }}</dd>
                 </div>
+                <div
+                    v-if="registration.person_type === 'pj' && registration.legal_representative_cpf"
+                    class="sm:col-span-2"
+                >
+                    <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">CPF do responsável</dt>
+                    <dd class="mt-0.5 font-mono text-zinc-900 dark:text-white">{{ snap(registration.legal_representative_cpf) }}</dd>
+                </div>
             </dl>
+
+            <div
+                v-if="conversionPending"
+                class="border-t border-amber-200 bg-amber-50 px-6 py-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100 sm:px-8"
+            >
+                <p class="font-medium">Migração para CNPJ em análise</p>
+                <p class="mt-1 text-xs leading-relaxed">
+                    CNPJ {{ pj_conversion?.cnpj_formatted || pj_conversion?.cnpj }}.
+                    Sua conta CPF continua operando normalmente até a aprovação.
+                </p>
+            </div>
+            <div
+                v-else-if="conversionRejected"
+                class="border-t border-red-200 bg-red-50 px-6 py-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200 sm:px-8"
+            >
+                <p class="font-medium">Migração para CNPJ rejeitada</p>
+                <p v-if="pj_conversion?.rejection_reason" class="mt-1 text-xs">{{ pj_conversion.rejection_reason }}</p>
+                <Button type="button" size="sm" class="mt-3" @click="openConversionModal">Tentar novamente</Button>
+            </div>
+            <div
+                v-else-if="showMigrateButton"
+                class="border-t border-zinc-200 px-6 py-4 dark:border-zinc-700 sm:px-8"
+            >
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-zinc-900 dark:text-white">Migrar operação para CNPJ</p>
+                        <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            Seu CPF permanece como responsável legal. A conta continua operando enquanto a nova verificação é analisada.
+                        </p>
+                    </div>
+                    <Button type="button" variant="outline" class="inline-flex shrink-0 items-center gap-2" @click="openConversionModal">
+                        <Building2 class="h-4 w-4" />
+                        Migrar para CNPJ
+                    </Button>
+                </div>
+            </div>
+            <div
+                v-else-if="conversionCollecting"
+                class="space-y-4 border-t border-zinc-200 px-6 py-5 dark:border-zinc-700 sm:px-8"
+            >
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-zinc-900 dark:text-white">Envie os documentos da empresa</p>
+                        <p class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                            CNPJ {{ pj_conversion?.cnpj_formatted || pj_conversion?.cnpj }}
+                            <span v-if="pj_conversion?.company_name"> — {{ pj_conversion.company_name }}</span>.
+                            A chave PIX não muda automaticamente; atualize em Financeiro depois da aprovação, se precisar.
+                        </p>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" @click="cancelConversion">Cancelar migração</Button>
+                </div>
+                <KycDocumentsForm
+                    embedded
+                    conversion_mode
+                    :conversion_status="pj_conversion?.status"
+                    :person_type="'pj'"
+                    :kyc_status="registration.kyc_status || 'approved'"
+                    :identity_document_type="kyc_identity_document_type"
+                    :company_legal_nature="pj_conversion?.company_legal_nature || kyc_company_legal_nature"
+                    :company_nature_suggestion="kyc_company_nature_suggestion"
+                    :uploaded_kinds="kyc_uploaded_kinds"
+                    :requirements="kyc_requirements"
+                />
+            </div>
         </div>
 
         <!-- Card: Alterar senha -->
@@ -554,5 +767,77 @@ const documentLabel = computed(() => (props.registration?.person_type === 'pj' ?
                 </Button>
             </form>
         </div>
+
+        <Teleport to="body">
+            <div
+                v-if="showConversionModal"
+                class="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+                @click.self="closeConversionModal"
+            >
+                <div class="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 sm:rounded-2xl">
+                    <div class="mb-4 flex items-start justify-between gap-3">
+                        <div>
+                            <h3 class="text-base font-semibold text-zinc-900 dark:text-white">Migrar para CNPJ</h3>
+                            <p class="mt-1 text-xs text-zinc-500">
+                                Informe o CNPJ da empresa. Seu CPF atual continua como responsável legal. A operação não é interrompida.
+                            </p>
+                        </div>
+                        <button type="button" class="rounded-lg p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Fechar" @click="closeConversionModal">
+                            <X class="h-5 w-5" />
+                        </button>
+                    </div>
+                    <form class="space-y-4" @submit.prevent="submitConversionStart">
+                        <div>
+                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">CNPJ</label>
+                            <input
+                                :value="conversionForm.cnpj"
+                                type="text"
+                                inputmode="numeric"
+                                autocomplete="off"
+                                maxlength="18"
+                                class="mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 font-mono text-zinc-900 shadow-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                                placeholder="00.000.000/0000-00"
+                                @input="onCnpjInput"
+                            />
+                            <p v-if="cnpjLookupLoading" class="mt-1 text-xs text-zinc-500">Consultando Receita…</p>
+                            <p v-if="conversionForm.errors.cnpj" class="mt-1 text-sm text-red-600">{{ conversionForm.errors.cnpj }}</p>
+                            <p v-if="cnpjSituacaoWarning" class="mt-1 text-xs text-amber-800 dark:text-amber-200">{{ cnpjSituacaoWarning }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Razão social</label>
+                            <input
+                                v-model="conversionForm.company_name"
+                                type="text"
+                                maxlength="255"
+                                class="mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 shadow-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            />
+                            <p v-if="conversionForm.errors.company_name" class="mt-1 text-sm text-red-600">{{ conversionForm.errors.company_name }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">Natureza jurídica</label>
+                            <select
+                                v-model="conversionForm.company_legal_nature"
+                                class="mt-1.5 block w-full rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-zinc-900 shadow-sm focus:border-[var(--color-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/20 dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            >
+                                <option value="" disabled>Selecione…</option>
+                                <option value="mei">MEI — Certificado CCMEI</option>
+                                <option value="other">Demais empresas — Contrato social</option>
+                            </select>
+                            <p v-if="conversionForm.errors.company_legal_nature" class="mt-1 text-sm text-red-600">{{ conversionForm.errors.company_legal_nature }}</p>
+                        </div>
+                        <p v-if="conversionForm.errors.pj_conversion" class="text-sm text-red-600">{{ conversionForm.errors.pj_conversion }}</p>
+                        <p class="text-xs text-zinc-500">
+                            Depois você envia comprovante de endereço da empresa e CCMEI ou contrato social. A chave PIX cadastrada não muda sozinha.
+                        </p>
+                        <div class="flex justify-end gap-2 pt-2">
+                            <Button type="button" variant="outline" @click="closeConversionModal">Cancelar</Button>
+                            <Button type="submit" :disabled="conversionForm.processing">
+                                {{ conversionForm.processing ? 'Salvando…' : 'Continuar' }}
+                            </Button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </Teleport>
     </div>
 </template>

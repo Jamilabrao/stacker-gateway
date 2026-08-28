@@ -610,6 +610,8 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
         Route::get('/verificacoes-kyc/usuario/{user}', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'show'])->name('kyc.show');
         Route::post('/verificacoes-kyc/usuario/{user}/aprovar', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'approve'])->name('kyc.approve')->middleware('throttle:30,1');
         Route::post('/verificacoes-kyc/usuario/{user}/rejeitar', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'reject'])->name('kyc.reject')->middleware('throttle:30,1');
+        Route::post('/verificacoes-kyc/usuario/{user}/aprovar-migracao-pj', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'approvePjConversion'])->name('kyc.approve-pj-conversion')->middleware('throttle:30,1');
+        Route::post('/verificacoes-kyc/usuario/{user}/rejeitar-migracao-pj', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'rejectPjConversion'])->name('kyc.reject-pj-conversion')->middleware('throttle:30,1');
         Route::post('/verificacoes-kyc/usuario/{user}/consultar-cnpj', [\App\Http\Controllers\Platform\KycVerificationsController::class, 'refreshCnpj'])->name('kyc.refresh-cnpj')->middleware('throttle:20,1');
 
         Route::get('/log-infoprodutor', [\App\Http\Controllers\Platform\SellerActivityLogsController::class, 'index'])
@@ -735,6 +737,9 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
     Route::put('/meu-perfil/username', [\App\Http\Controllers\ProfileController::class, 'updateUsername'])->name('profile.update-username');
     Route::put('/meu-perfil/senha', [\App\Http\Controllers\ProfileController::class, 'updatePassword'])->name('profile.update-password');
     Route::put('/meu-perfil/preferencias-push', [\App\Http\Controllers\ProfileController::class, 'updatePushPreferences'])->name('profile.push-preferences');
+    Route::post('/meu-perfil/migrar-para-cnpj', [\App\Http\Controllers\PjConversionController::class, 'start'])->middleware('throttle:10,1')->name('profile.pj-conversion.start');
+    Route::post('/meu-perfil/migrar-para-cnpj/consultar', [\App\Http\Controllers\PjConversionController::class, 'lookupCnpj'])->middleware('throttle:20,1')->name('profile.pj-conversion.lookup');
+    Route::post('/meu-perfil/migrar-para-cnpj/cancelar', [\App\Http\Controllers\PjConversionController::class, 'cancel'])->middleware('throttle:10,1')->name('profile.pj-conversion.cancel');
     Route::post('/seguranca/totp/iniciar', [\App\Http\Controllers\TotpSecurityController::class, 'beginTotp'])->name('security.totp.begin');
     Route::post('/seguranca/totp/confirmar', [\App\Http\Controllers\TotpSecurityController::class, 'confirmTotp'])->name('security.totp.confirm');
     Route::post('/seguranca/totp/desativar', [\App\Http\Controllers\TotpSecurityController::class, 'disableTotp'])->name('security.totp.disable');

@@ -6,10 +6,12 @@ use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\KycDocument;
 use App\Models\User;
 use App\Services\PlatformEmailNotifications;
+use App\Services\PjConversionService;
 use App\Services\SellerActivityLogService;
 use App\Support\KycRequiredDocuments;
 use App\Support\KycRequirementSettings;
 use App\Support\KycUpload;
+use App\Support\PjConversion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,7 +26,8 @@ class SellerKycController extends Controller
     use LogsSellerActivity;
 
     public function __construct(
-        protected PlatformEmailNotifications $platformEmailNotifications
+        protected PlatformEmailNotifications $platformEmailNotifications,
+        protected PjConversionService $pjConversionService,
     ) {}
 
     private static function financeiroKycTabUrl(): string
@@ -71,17 +74,15 @@ class SellerKycController extends Controller
         }
 
         $subject = $user->kycSubjectUser();
-        if ($subject->kyc_status === User::KYC_APPROVED) {
-            return response()->json(['message' => 'Conta já verificada.'], 422);
-        }
-        if ($subject->kyc_status === User::KYC_PENDING_REVIEW) {
-            return response()->json(['message' => 'Documentos em análise. Aguarde a conclusão.'], 422);
+        if ($blocked = $this->kycMutationBlockedMessage($subject)) {
+            return response()->json(['message' => $blocked], 422);
         }
 
-        $isPj = $subject->person_type === 'pj';
+        $isPj = $this->treatAsPjForDocuments($subject);
+        $conversionUpload = PjConversion::allowsDocumentUpload($subject);
 
         $rules = [
-            'identity_document_type' => ['required', 'string', Rule::in(KycRequiredDocuments::IDENTITY_TYPES)],
+            'identity_document_type' => [$conversionUpload ? 'nullable' : 'required', 'string', Rule::in(KycRequiredDocuments::IDENTITY_TYPES)],
         ];
         $cfg = KycRequirementSettings::resolved();
         if ($isPj && $cfg['require_company_constitution']) {
@@ -92,24 +93,31 @@ class SellerKycController extends Controller
 
         $validated = $request->validate($rules);
 
-        $identityType = KycRequiredDocuments::normalizeIdentityType($validated['identity_document_type']);
-        if ($identityType === null || ! KycRequirementSettings::isIdentityTypeAllowed($identityType)) {
-            throw ValidationException::withMessages([
-                'identity_document_type' => 'Tipo de documento não permitido pela plataforma.',
-            ]);
+        $attrs = [];
+        if (! $conversionUpload) {
+            $identityType = KycRequiredDocuments::normalizeIdentityType($validated['identity_document_type'] ?? null);
+            if ($identityType === null || ! KycRequirementSettings::isIdentityTypeAllowed($identityType)) {
+                throw ValidationException::withMessages([
+                    'identity_document_type' => 'Tipo de documento não permitido pela plataforma.',
+                ]);
+            }
+            $attrs['identity_document_type'] = $identityType;
         }
 
-        $attrs = [
-            'identity_document_type' => $identityType,
-        ];
         if ($isPj && array_key_exists('company_legal_nature', $validated) && $validated['company_legal_nature'] !== null) {
-            $attrs['company_legal_nature'] = KycRequiredDocuments::normalizeCompanyNature($validated['company_legal_nature']);
+            $nature = KycRequiredDocuments::normalizeCompanyNature($validated['company_legal_nature']);
+            $attrs['company_legal_nature'] = $nature;
+            if ($conversionUpload && $nature !== null) {
+                $this->pjConversionService->updateCompanyNature($subject, $nature);
+            }
         }
 
-        $subject->forceFill($attrs)->save();
+        if ($attrs !== []) {
+            $subject->forceFill($attrs)->save();
+        }
 
         if ($request->header('X-Inertia') || ! $request->expectsJson()) {
-            return redirect(self::financeiroKycTabUrl())->with('success', 'Preferências de documentos salvas.');
+            return redirect($this->kycReturnUrl($subject))->with('success', 'Preferências de documentos salvas.');
         }
 
         return response()->json([
@@ -134,24 +142,24 @@ class SellerKycController extends Controller
         }
 
         $subject = $user->kycSubjectUser();
-        if ($subject->kyc_status === User::KYC_APPROVED) {
-            return response()->json(['message' => 'Conta já verificada.'], 422);
-        }
-        if ($subject->kyc_status === User::KYC_PENDING_REVIEW) {
-            return response()->json(['message' => 'Documentos em análise. Aguarde a conclusão.'], 422);
+        if ($blocked = $this->kycMutationBlockedMessage($subject)) {
+            return response()->json(['message' => $blocked], 422);
         }
 
-        $isPj = $subject->person_type === 'pj';
+        $isPj = $this->treatAsPjForDocuments($subject);
+        $conversionUpload = PjConversion::allowsDocumentUpload($subject);
 
-        $allowedFields = [
-            'rg_front',
-            'rg_back',
-            'address_proof',
-            'selfie_with_document',
-            'company_address_proof',
-            'ccmei',
-            'social_contract',
-        ];
+        $allowedFields = $conversionUpload
+            ? ['company_address_proof', 'ccmei', 'social_contract']
+            : [
+                'rg_front',
+                'rg_back',
+                'address_proof',
+                'selfie_with_document',
+                'company_address_proof',
+                'ccmei',
+                'social_contract',
+            ];
 
         $validated = $request->validate([
             'field' => ['required', 'string', Rule::in($allowedFields)],
@@ -161,17 +169,22 @@ class SellerKycController extends Controller
 
         $field = $validated['field'];
 
-        if (isset($validated['identity_document_type'])) {
+        if (! $conversionUpload && isset($validated['identity_document_type'])) {
             $subject->forceFill([
                 'identity_document_type' => KycRequiredDocuments::normalizeIdentityType($validated['identity_document_type']),
             ])->save();
             $subject->refresh();
         }
         if ($isPj && isset($validated['company_legal_nature'])) {
+            $nature = KycRequiredDocuments::normalizeCompanyNature($validated['company_legal_nature']);
             $subject->forceFill([
-                'company_legal_nature' => KycRequiredDocuments::normalizeCompanyNature($validated['company_legal_nature']),
+                'company_legal_nature' => $nature,
             ])->save();
             $subject->refresh();
+            if ($conversionUpload && $nature !== null) {
+                $this->pjConversionService->updateCompanyNature($subject, $nature);
+                $subject->refresh();
+            }
         }
 
         $this->assertFieldAllowedForSubject($subject, $field, $isPj);
@@ -207,7 +220,7 @@ class SellerKycController extends Controller
         ]);
 
         if ($request->header('X-Inertia')) {
-            return redirect(self::financeiroKycTabUrl())->with('success', 'Arquivo enviado. Envie os demais e clique em "Enviar para análise".');
+            return redirect($this->kycReturnUrl($subject))->with('success', 'Arquivo enviado. Envie os demais e clique em "Enviar para análise".');
         }
 
         return response()->json([
@@ -232,17 +245,15 @@ class SellerKycController extends Controller
         }
 
         $subject = $user->kycSubjectUser();
-        if ($subject->kyc_status === User::KYC_APPROVED) {
-            return redirect(self::financeiroKycTabUrl())->with('error', 'Conta já verificada.');
-        }
-        if ($subject->kyc_status === User::KYC_PENDING_REVIEW) {
-            return redirect(self::financeiroKycTabUrl())->with('info', 'Seus documentos já estão em análise.');
+        if ($blocked = $this->kycMutationBlockedMessage($subject)) {
+            return redirect($this->kycReturnUrl($subject))->with('error', $blocked);
         }
 
-        $isPj = $subject->person_type === 'pj';
+        $isPj = $this->treatAsPjForDocuments($subject);
+        $conversionUpload = PjConversion::allowsDocumentUpload($subject);
 
         $prefRules = [
-            'identity_document_type' => ['required', 'string', Rule::in(KycRequiredDocuments::IDENTITY_TYPES)],
+            'identity_document_type' => [$conversionUpload ? 'nullable' : 'required', 'string', Rule::in(KycRequiredDocuments::IDENTITY_TYPES)],
         ];
         $cfg = KycRequirementSettings::resolved();
         if ($isPj && $cfg['require_company_constitution']) {
@@ -251,20 +262,28 @@ class SellerKycController extends Controller
             $prefRules['company_legal_nature'] = ['nullable', 'string', Rule::in(KycRequiredDocuments::COMPANY_NATURES)];
         }
         $prefs = $request->validate($prefRules);
-        $identityType = KycRequiredDocuments::normalizeIdentityType($prefs['identity_document_type']);
-        if ($identityType === null || ! KycRequirementSettings::isIdentityTypeAllowed($identityType)) {
-            return redirect(self::financeiroKycTabUrl())->with('error', 'Tipo de documento não permitido pela plataforma.');
+        if (! $conversionUpload) {
+            $identityType = KycRequiredDocuments::normalizeIdentityType($prefs['identity_document_type'] ?? null);
+            if ($identityType === null || ! KycRequirementSettings::isIdentityTypeAllowed($identityType)) {
+                return redirect($this->kycReturnUrl($subject))->with('error', 'Tipo de documento não permitido pela plataforma.');
+            }
+            $subject->forceFill([
+                'identity_document_type' => $identityType,
+            ])->save();
         }
-        $subject->forceFill([
-            'identity_document_type' => $identityType,
-            'company_legal_nature' => $isPj && ! empty($prefs['company_legal_nature'])
-                ? KycRequiredDocuments::normalizeCompanyNature($prefs['company_legal_nature'])
-                : ($isPj ? $subject->company_legal_nature : null),
-        ])->save();
+        if ($isPj && ! empty($prefs['company_legal_nature'])) {
+            $nature = KycRequiredDocuments::normalizeCompanyNature($prefs['company_legal_nature']);
+            $subject->forceFill(['company_legal_nature' => $nature])->save();
+            if ($conversionUpload && $nature !== null) {
+                $this->pjConversionService->updateCompanyNature($subject, $nature);
+            }
+        }
         $subject->refresh();
 
         $kycFile = ['required', 'file', 'max:'.KycUpload::MAX_FILE_KB, 'mimes:jpg,jpeg,png,webp,heic,heif,pdf'];
-        $requiredKinds = KycRequiredDocuments::kindsForUser($subject);
+        $requiredKinds = $conversionUpload
+            ? KycRequiredDocuments::conversionCompanyKinds($subject)
+            : KycRequiredDocuments::kindsForUser($subject);
         $rules = [];
         $messages = [];
         foreach ($requiredKinds as $kind) {
@@ -298,10 +317,10 @@ class SellerKycController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
-            return redirect(self::financeiroKycTabUrl())->with('error', 'Não foi possível processar os arquivos. Use imagem (JPG, PNG, WebP ou HEIC) ou PDF, máx. 20 MB por arquivo.');
+            return redirect($this->kycReturnUrl($subject))->with('error', 'Não foi possível processar os arquivos. Use imagem (JPG, PNG, WebP ou HEIC) ou PDF, máx. 20 MB por arquivo.');
         }
 
-        return $this->markPendingReview($subject);
+        return $this->completeKycSubmission($subject);
     }
 
     public function finalize(Request $request): RedirectResponse
@@ -312,15 +331,15 @@ class SellerKycController extends Controller
         }
 
         $subject = $user->kycSubjectUser();
-        if ($subject->kyc_status === User::KYC_APPROVED) {
-            return redirect(self::financeiroKycTabUrl())->with('error', 'Conta já verificada.');
-        }
-        if ($subject->kyc_status === User::KYC_PENDING_REVIEW) {
-            return redirect(self::financeiroKycTabUrl())->with('info', 'Seus documentos já estão em análise.');
+        if ($blocked = $this->kycMutationBlockedMessage($subject)) {
+            $key = str_contains($blocked, 'análise') ? 'info' : 'error';
+
+            return redirect($this->kycReturnUrl($subject))->with($key, $blocked);
         }
 
         if ($request->filled('identity_document_type') || $request->filled('company_legal_nature')) {
-            $isPj = $subject->person_type === 'pj';
+            $isPj = $this->treatAsPjForDocuments($subject);
+            $conversionUpload = PjConversion::allowsDocumentUpload($subject);
             $prefRules = [
                 'identity_document_type' => ['nullable', 'string', Rule::in(KycRequiredDocuments::IDENTITY_TYPES)],
             ];
@@ -329,7 +348,7 @@ class SellerKycController extends Controller
             }
             $prefs = $request->validate($prefRules);
             $attrs = [];
-            if (! empty($prefs['identity_document_type'])) {
+            if (! $conversionUpload && ! empty($prefs['identity_document_type'])) {
                 $attrs['identity_document_type'] = KycRequiredDocuments::normalizeIdentityType($prefs['identity_document_type']);
             }
             if ($isPj && ! empty($prefs['company_legal_nature'])) {
@@ -339,15 +358,63 @@ class SellerKycController extends Controller
                 $subject->forceFill($attrs)->save();
                 $subject->refresh();
             }
+            if ($conversionUpload && ! empty($prefs['company_legal_nature'])) {
+                $this->pjConversionService->updateCompanyNature($subject, $prefs['company_legal_nature']);
+                $subject->refresh();
+            }
         }
 
         if (! KycRequiredDocuments::hasAllRequired($subject)) {
             $list = implode(', ', KycRequiredDocuments::missingLabelsForUser($subject));
 
-            return redirect(self::financeiroKycTabUrl())->with('error', 'Envie todos os documentos antes de concluir: '.$list.'.');
+            return redirect($this->kycReturnUrl($subject))->with('error', 'Envie todos os documentos antes de concluir: '.$list.'.');
+        }
+
+        return $this->completeKycSubmission($subject);
+    }
+
+    private function completeKycSubmission(User $subject): RedirectResponse
+    {
+        if (PjConversion::allowsDocumentUpload($subject)) {
+            $this->pjConversionService->submitForReview($subject);
+            $this->logSellerActivity(SellerActivityLogService::PJ_CONVERSION_SUBMITTED, $subject);
+
+            return redirect($this->kycReturnUrl($subject->fresh()))->with('success', 'Documentos da empresa enviados. Sua conta PF continua operando enquanto a migração para CNPJ é analisada.');
         }
 
         return $this->markPendingReview($subject);
+    }
+
+    private function kycMutationBlockedMessage(User $subject): ?string
+    {
+        if ($subject->kyc_status === User::KYC_PENDING_REVIEW) {
+            return 'Documentos em análise. Aguarde a conclusão.';
+        }
+        if ($subject->kyc_status !== User::KYC_APPROVED) {
+            return null;
+        }
+        if (PjConversion::isPendingReview($subject)) {
+            return 'A migração para CNPJ está em análise. Aguarde a conclusão.';
+        }
+        if (PjConversion::allowsDocumentUpload($subject)) {
+            return null;
+        }
+
+        return 'Conta já verificada.';
+    }
+
+    private function treatAsPjForDocuments(User $subject): bool
+    {
+        return ($subject->person_type ?? '') === 'pj' || PjConversion::allowsDocumentUpload($subject);
+    }
+
+    private function kycReturnUrl(User $subject): string
+    {
+        if (PjConversion::isCollectingOrPending($subject) || PjConversion::isRejected($subject)) {
+            return route('profile.index');
+        }
+
+        return self::financeiroKycTabUrl();
     }
 
     private function markPendingReview(User $subject): RedirectResponse
@@ -368,7 +435,7 @@ class SellerKycController extends Controller
 
         $this->logSellerActivity(SellerActivityLogService::KYC_SUBMITTED, $subject);
 
-        return redirect(self::financeiroKycTabUrl())->with('success', 'Documentos enviados. Aguarde a análise da plataforma.');
+        return redirect($this->kycReturnUrl($subject))->with('success', 'Documentos enviados. Aguarde a análise da plataforma.');
     }
 
     private function assertFieldAllowedForSubject(User $subject, string $field, bool $isPj): void

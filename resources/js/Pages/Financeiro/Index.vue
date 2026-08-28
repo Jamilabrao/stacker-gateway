@@ -63,6 +63,7 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
+    pj_conversion: { type: Object, default: null },
 });
 
 function snap(v) {
@@ -104,6 +105,11 @@ function setFinanceTab(tab) {
 const needsKycDocuments = computed(() => {
     const s = props.kyc_status || 'not_submitted';
     return s === 'not_submitted' || s === 'rejected';
+});
+
+const pjConversionMode = computed(() => {
+    const status = props.pj_conversion?.status;
+    return status === 'collecting_docs' || status === 'pending_review';
 });
 
 function openKycModal() {
@@ -1058,14 +1064,17 @@ const inputClass =
                         <KycDocumentsForm
                             v-else
                             embedded
-                            :person_type="kyc_person_type"
+                            :person_type="pjConversionMode ? 'pj' : kyc_person_type"
                             :kyc_status="kyc_status || 'not_submitted'"
                             :rejection_reason="kyc_rejection_reason"
                             :identity_document_type="kyc_identity_document_type"
-                            :company_legal_nature="kyc_company_legal_nature"
+                            :company_legal_nature="pj_conversion?.company_legal_nature || kyc_company_legal_nature"
                             :company_nature_suggestion="kyc_company_nature_suggestion"
                             :uploaded_kinds="kyc_uploaded_kinds"
                             :requirements="kyc_requirements"
+                            :conversion_mode="pjConversionMode"
+                            :conversion_status="pj_conversion?.status"
+                            :conversion_rejection_reason="pj_conversion?.rejection_reason"
                         />
                     </div>
                 </div>
