@@ -34,21 +34,20 @@ trait RequiresPlatformStepUp
     }
 
     /**
-     * Aprovação de saque (CajuPay ou manual): 2FA dispensa PIN; sem 2FA o PIN é obrigatório.
-     * Sem nenhum dos dois, a ação é recusada.
+     * Ação sensível: 2FA se ativo; senão PIN. Sem nenhum dos dois, recusa.
      */
-    protected function validateWithdrawalPayoutStepUp(Request $request, ?string $redirectRoute = null): void
-    {
+    protected function validateRequiredSecurityStepUp(
+        Request $request,
+        string $missingBarrierMessage = 'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para autorizar esta ação.',
+        ?string $redirectRoute = null
+    ): void {
         $user = $request->user();
         if ($user === null || ! $user->canAccessPlatformPanel()) {
             abort(403);
         }
 
         if (! WithdrawalPolicyService::hasPayoutSecurityBarrier($user)) {
-            $this->throwStepUpError(
-                'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para autorizar pagamentos.',
-                $redirectRoute
-            );
+            $this->throwStepUpError($missingBarrierMessage, $redirectRoute);
         }
 
         if (PlatformTotpService::isEnabledFor($user)) {
@@ -58,6 +57,19 @@ trait RequiresPlatformStepUp
         }
 
         $this->assertValidOperationPin($request, $redirectRoute);
+    }
+
+    /**
+     * Aprovação de saque (CajuPay ou manual): 2FA dispensa PIN; sem 2FA o PIN é obrigatório.
+     * Sem nenhum dos dois, a ação é recusada.
+     */
+    protected function validateWithdrawalPayoutStepUp(Request $request, ?string $redirectRoute = null): void
+    {
+        $this->validateRequiredSecurityStepUp(
+            $request,
+            'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para autorizar pagamentos.',
+            $redirectRoute
+        );
     }
 
     protected function assertValidTotp(Request $request, User $user, ?string $redirectRoute = null): void

@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import Button from '@/components/ui/Button.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import { htmlToText } from '@/lib/sanitizeHtml';
 
 const props = defineProps({
@@ -9,7 +10,14 @@ const props = defineProps({
     walletTransactions: { type: Object, default: null },
     filters: { type: Object, default: null },
     typeLabels: { type: Object, default: () => ({}) },
+    hasManualApprovalPin: { type: Boolean, default: false },
 });
+
+const page = usePage();
+const totpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
+const barrierMissing = computed(() => !totpEnabled.value && !props.hasManualApprovalPin);
+const requirePin = computed(() => !totpEnabled.value && props.hasManualApprovalPin);
+const stepUpError = computed(() => page.props.errors?.totp_code ?? null);
 
 const typeFilter = ref(props.filters?.wallet_type ?? 'all');
 const searchQ = ref(props.filters?.wallet_q ?? '');
@@ -18,6 +26,10 @@ const dateTo = ref(props.filters?.wallet_date_to ?? '');
 const perPage = ref(String(props.filters?.wallet_per_page ?? 25));
 const sort = ref(props.filters?.wallet_sort ?? 'id');
 const direction = ref(props.filters?.wallet_direction ?? 'desc');
+
+const stepUpOpen = ref(false);
+const stepUpLoading = ref(false);
+const pendingTx = ref(null);
 
 watch(
     () => props.filters,
@@ -53,6 +65,17 @@ const rangeLabel = computed(() => {
 const typeOptions = computed(() =>
     Object.entries(props.typeLabels || {}).map(([value, label]) => ({ value, label }))
 );
+
+const stepUpDescription = computed(() => {
+    if (barrierMissing.value) {
+        return 'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para antecipar saldo.';
+    }
+    const amount = pendingTx.value ? formatBRL(pendingTx.value.amount_net) : '';
+    if (totpEnabled.value) {
+        return `Informe o código 2FA para liberar ${amount} na carteira do infoprodutor.`;
+    }
+    return `Informe o PIN de operação para liberar ${amount} na carteira do infoprodutor.`;
+});
 
 function visitParams(extra = {}) {
     return {
@@ -141,6 +164,50 @@ function amountClass(n) {
     if (v < 0) return 'text-red-600 dark:text-red-400';
     return 'text-zinc-600 dark:text-zinc-400';
 }
+
+function openAnticipate(t) {
+    pendingTx.value = t;
+    stepUpOpen.value = true;
+}
+
+function closeStepUp() {
+    stepUpOpen.value = false;
+    stepUpLoading.value = false;
+    pendingTx.value = null;
+}
+
+function onStepUpConfirm(payload) {
+    const tx = pendingTx.value;
+    if (!tx || barrierMissing.value) {
+        return;
+    }
+    stepUpLoading.value = true;
+    router.post(
+        `/plataforma/usuarios/${props.merchantId}/carteira/transacoes/${tx.id}/antecipar`,
+        {
+            totp_code: payload.totp_code || undefined,
+            manual_approval_pin: payload.manual_approval_pin || undefined,
+            wallet_type: typeFilter.value !== 'all' ? typeFilter.value : undefined,
+            wallet_q: searchQ.value?.trim() || undefined,
+            wallet_date_from: dateFrom.value || undefined,
+            wallet_date_to: dateTo.value || undefined,
+            wallet_per_page: Number(perPage.value) || 25,
+            wallet_sort: sort.value,
+            wallet_direction: direction.value,
+            wallet_page: props.walletTransactions?.current_page || undefined,
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => closeStepUp(),
+            onError: () => {
+                stepUpLoading.value = false;
+            },
+            onFinish: () => {
+                stepUpLoading.value = false;
+            },
+        }
+    );
+}
 </script>
 
 <template>
@@ -148,7 +215,7 @@ function amountClass(n) {
         <div>
             <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500">Movimentações da carteira</h2>
             <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Extrato oficial do ledger deste infoprodutor. Somente consulta — saldos não são recalculados nesta tela.
+                Extrato oficial do ledger deste infoprodutor. Vendas em liquidação podem ser antecipadas com 2FA ou PIN.
             </p>
         </div>
 
@@ -193,10 +260,11 @@ function amountClass(n) {
         </form>
 
         <p v-if="rangeLabel" class="text-sm text-zinc-600 dark:text-zinc-400">{{ rangeLabel }}</p>
+        <p v-if="stepUpError" class="text-sm text-red-600">{{ stepUpError }}</p>
 
         <div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
             <div class="overflow-x-auto">
-                <table class="min-w-[920px] w-full text-left text-sm">
+                <table class="min-w-[1020px] w-full text-left text-sm">
                     <thead class="border-b border-zinc-100 text-xs uppercase text-zinc-500 dark:border-zinc-700">
                         <tr>
                             <th class="px-4 py-3">
@@ -214,11 +282,12 @@ function amountClass(n) {
                             </th>
                             <th class="px-4 py-3">Ref.</th>
                             <th class="px-4 py-3">Obs.</th>
+                            <th class="px-4 py-3 text-right">Ação</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr v-if="!rows.length">
-                            <td colspan="7" class="px-4 py-8 text-center text-zinc-500">
+                            <td colspan="8" class="px-4 py-8 text-center text-zinc-500">
                                 {{
                                     hasFilters
                                         ? 'Nenhuma movimentação encontrada no período selecionado.'
@@ -247,8 +316,20 @@ function amountClass(n) {
                                 <span v-else-if="t.withdrawal_id">Saque #{{ t.withdrawal_id }}</span>
                                 <span v-else>—</span>
                             </td>
-                            <td class="max-w-[200px] truncate px-4 py-3 text-xs text-zinc-500" :title="t.note || ''">
+                            <td class="max-w-[220px] truncate px-4 py-3 text-xs text-zinc-500" :title="t.note || ''">
                                 {{ t.note || '—' }}
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <Button
+                                    v-if="t.can_anticipate"
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    @click="openAnticipate(t)"
+                                >
+                                    Antecipar
+                                </Button>
+                                <span v-else class="text-xs text-zinc-400">—</span>
                             </td>
                         </tr>
                     </tbody>
@@ -267,5 +348,18 @@ function amountClass(n) {
                 @click.prevent="link.url && router.visit(link.url, { preserveState: true })"
             />
         </nav>
+
+        <PlatformStepUpModal
+            :open="stepUpOpen"
+            title="Antecipar saldo em liquidação"
+            :description="stepUpDescription"
+            confirm-label="Antecipar saldo"
+            :loading="stepUpLoading"
+            :require-totp="totpEnabled"
+            :require-pin="requirePin"
+            :confirm-disabled="barrierMissing"
+            @close="closeStepUp"
+            @confirm="onStepUpConfirm"
+        />
     </div>
 </template>

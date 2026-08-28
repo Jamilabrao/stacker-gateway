@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\BuildsMerchantWalletProps;
 use App\Http\Controllers\Concerns\RequiresPlatformStepUp;
 use App\Http\Controllers\Concerns\ProvidesPlatformGatewayProps;
 use App\Http\Controllers\Controller;
+use App\Services\AdminSettlementAnticipateService;
 use App\Services\AdminWalletAdjustmentService;
 use App\Gateways\GatewayRegistry;
 use App\Models\AccountManager;
@@ -25,6 +26,7 @@ use App\Services\Platform\PlatformTotpService;
 use App\Services\PlatformAdminDeletionService;
 use App\Services\PlatformAuditService;
 use App\Services\SalesAchievementsService;
+use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Support\BrazilianDocumentDigits;
 use App\Support\MerchantAdminProductsListing;
 use App\Support\MerchantAdminWalletMovementsListing;
@@ -504,6 +506,7 @@ class UsersController extends Controller
             'admin_notes' => $adminNotes,
             'account_manager' => $this->accountManagerPayload($user),
             'account_managers_options' => $this->activeAccountManagersOptions(),
+            'has_manual_approval_pin' => WithdrawalPolicyService::hasManualApprovalPin(),
         ]);
     }
 
@@ -624,6 +627,67 @@ class UsersController extends Controller
         return redirect()
             ->route('plataforma.usuarios.show', $user)
             ->with('success', 'Saldo ajustado com sucesso.');
+    }
+
+    public function anticipateWalletSale(
+        Request $request,
+        User $user,
+        WalletTransaction $walletTransaction,
+        AdminSettlementAnticipateService $anticipateService
+    ): RedirectResponse {
+        Gate::authorize('manageMerchantForPlatform', $user);
+
+        $this->validateRequiredSecurityStepUp(
+            $request,
+            'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para antecipar saldo.'
+        );
+
+        $request->validate([
+            'totp_code' => ['nullable', 'string', 'max:16'],
+            'manual_approval_pin' => ['nullable', 'string', 'max:'.WithdrawalPolicyService::MANUAL_APPROVAL_PIN_MAX_LENGTH, 'regex:/^\d*$/'],
+        ]);
+
+        $tenantId = $this->tenantIdForUser($user);
+        if ((int) $walletTransaction->tenant_id !== $tenantId) {
+            abort(404);
+        }
+
+        $actor = $request->user();
+        if ($actor === null) {
+            abort(403);
+        }
+
+        try {
+            $anticipateService->anticipate($walletTransaction, $actor);
+        } catch (InvalidArgumentException $e) {
+            return $this->redirectToWalletTab($request, $user)
+                ->with('error', $e->getMessage());
+        }
+
+        PlatformAuditService::log('platform.wallet.settlement_anticipated', [
+            'merchant_user_id' => $user->id,
+            'tenant_id' => $tenantId,
+            'wallet_transaction_id' => $walletTransaction->id,
+            'order_id' => $walletTransaction->order_id,
+            'amount_net' => (float) $walletTransaction->amount_net,
+            'bucket' => $walletTransaction->bucket,
+        ], $request);
+
+        return $this->redirectToWalletTab($request, $user)
+            ->with('success', 'Saldo antecipado com sucesso.');
+    }
+
+    private function redirectToWalletTab(Request $request, User $user): RedirectResponse
+    {
+        $query = ['tab' => 'wallet'];
+        foreach (['wallet_type', 'wallet_q', 'wallet_date_from', 'wallet_date_to', 'wallet_per_page', 'wallet_sort', 'wallet_direction', 'wallet_page'] as $key) {
+            $value = $request->input($key);
+            if (is_numeric($value) || (is_string($value) && $value !== '')) {
+                $query[$key] = $value;
+            }
+        }
+
+        return redirect()->route('plataforma.usuarios.show', array_merge(['user' => $user], $query));
     }
 
     public function create(): Response
