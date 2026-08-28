@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\EnsureInstalled;
 use App\Http\Middleware\EnsureStackerLicense;
+use App\Gateways\Efi\EfiDriver;
 use App\Models\CajuPayAccount;
 use App\Models\GatewayCredential;
 use App\Models\User;
@@ -16,6 +17,8 @@ use Tests\TestCase;
 class PlatformAcquirerWalletBalanceTest extends TestCase
 {
     private ?string $versellTmpDir = null;
+
+    private ?string $efiTmpDir = null;
 
     protected function setUp(): void
     {
@@ -37,6 +40,13 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
             @rmdir($this->versellTmpDir);
         }
 
+        if ($this->efiTmpDir !== null && is_dir($this->efiTmpDir)) {
+            foreach (glob($this->efiTmpDir.DIRECTORY_SEPARATOR.'*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir($this->efiTmpDir);
+        }
+
         parent::tearDown();
     }
 
@@ -56,7 +66,7 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
 
         $rows = app(AcquirerWalletBalanceService::class)->list();
         $this->assertSame(
-            ['cajupay', 'bspay', 'mercadopago', 'stripe', 'versell'],
+            ['cajupay', 'bspay', 'efi', 'mercadopago', 'stripe', 'versell'],
             collect($rows)->pluck('slug')->all()
         );
         $this->assertTrue(collect($rows)->every(fn (array $row) => $row['status'] === 'inactive'));
@@ -126,7 +136,7 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
         $this->assertSame('ok', $bySlug['stripe']['status']);
         $this->assertSame(450.0, $bySlug['stripe']['available']);
         $this->assertSame('inactive', $bySlug['versell']['status']);
-        $this->assertArrayNotHasKey('efi', $bySlug->all());
+        $this->assertSame('inactive', $bySlug['efi']['status']);
         $this->assertArrayNotHasKey('woovi', $bySlug->all());
     }
 
@@ -205,6 +215,29 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
         $this->assertSame(1500.0, $bySlug['versell']['available']);
     }
 
+    public function test_efi_uses_account_balance_endpoint(): void
+    {
+        $this->seedEfiWithCertificate();
+
+        $this->mock(EfiDriver::class, function ($mock) {
+            $mock->shouldReceive('fetchAccountBalance')
+                ->once()
+                ->andReturn([
+                    'saldo' => '321.45',
+                    'bloqueios' => [
+                        'judicial' => '0.00',
+                        'med' => '10.00',
+                        'total' => '10.00',
+                    ],
+                ]);
+        });
+
+        $bySlug = collect(app(AcquirerWalletBalanceService::class)->list())->keyBy('slug');
+
+        $this->assertSame('ok', $bySlug['efi']['status']);
+        $this->assertSame(321.45, $bySlug['efi']['available']);
+    }
+
     public function test_parsers_cover_known_payload_shapes(): void
     {
         $service = app(AcquirerWalletBalanceService::class);
@@ -215,6 +248,7 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
         $this->assertSame(12.34, $service->parseStripeAvailable([
             'available' => [['amount' => 1234, 'currency' => 'brl']],
         ]));
+        $this->assertSame(100.0, $service->parseEfiAvailable(['saldo' => '100.00']));
         $this->assertSame(80.0, $service->parseVersellAvailable([
             'data' => [
                 ['eventDate' => '2026-01-01', 'balanceAmount' => ['available' => 10]],
@@ -281,6 +315,22 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
                 'certificate_path' => $cert,
                 'private_key_path' => $key,
             ],
+        ]);
+    }
+
+    private function seedEfiWithCertificate(): void
+    {
+        $this->efiTmpDir = sys_get_temp_dir().DIRECTORY_SEPARATOR.'efi_bal_'.uniqid('', true);
+        mkdir($this->efiTmpDir, 0700, true);
+        $cert = $this->efiTmpDir.DIRECTORY_SEPARATOR.'cert.p12';
+        file_put_contents($cert, 'dummy-efi-p12');
+
+        $this->seedCredential('efi', [
+            'client_id' => 'efi-id',
+            'client_secret' => 'efi-secret',
+            'certificate_path' => $cert,
+            'pwd_certificate' => '',
+            'sandbox' => true,
         ]);
     }
 }

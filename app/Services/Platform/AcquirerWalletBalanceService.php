@@ -4,6 +4,7 @@ namespace App\Services\Platform;
 
 use App\Gateways\Bspay\BspayDriver;
 use App\Gateways\CajuPay\CajuPayDriver;
+use App\Gateways\Efi\EfiDriver;
 use App\Gateways\GatewayRegistry;
 use App\Gateways\Versell\VersellCredentials;
 use App\Models\CajuPayAccount;
@@ -26,7 +27,7 @@ class AcquirerWalletBalanceService
     private const REQUEST_TIMEOUT_SECONDS = 8;
 
     /** @var list<string> */
-    private const BALANCE_SLUGS = ['cajupay', 'bspay', 'mercadopago', 'stripe', 'versell'];
+    private const BALANCE_SLUGS = ['cajupay', 'bspay', 'efi', 'mercadopago', 'stripe', 'versell'];
 
     /**
      * @return list<array{
@@ -247,6 +248,7 @@ class AcquirerWalletBalanceService
         return match ($slug) {
             'bspay' => trim((string) ($credentials['client_id'] ?? '')) !== ''
                 && trim((string) ($credentials['client_secret'] ?? '')) !== '',
+            'efi' => $this->hasEfiBalanceCredentials($credentials),
             'mercadopago' => trim((string) ($credentials['access_token'] ?? '')) !== '',
             'stripe' => trim((string) ($credentials['secret_key'] ?? '')) !== '',
             'versell' => VersellCredentials::isCashOutReady($credentials),
@@ -271,6 +273,7 @@ class AcquirerWalletBalanceService
     {
         return match ($slug) {
             'bspay' => $this->fetchBspay($credentials),
+            'efi' => $this->fetchEfi($credentials),
             'mercadopago' => $this->fetchMercadoPago($credentials),
             'stripe' => $this->fetchStripe($credentials),
             'versell' => $this->fetchVersell($credentials),
@@ -296,6 +299,16 @@ class AcquirerWalletBalanceService
         $payload = app(BspayDriver::class)->fetchAccountBalance($credentials);
 
         return $this->parseBspayAvailable($payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    private function fetchEfi(array $credentials): float
+    {
+        $payload = app(EfiDriver::class)->fetchAccountBalance($credentials);
+
+        return $this->parseEfiAvailable($payload);
     }
 
     /**
@@ -445,6 +458,18 @@ class AcquirerWalletBalanceService
     /**
      * @param  array<string, mixed>  $body
      */
+    public function parseEfiAvailable(array $body): float
+    {
+        if (isset($body['saldo']) && is_numeric($body['saldo'])) {
+            return round((float) $body['saldo'], 2);
+        }
+
+        throw new \RuntimeException('Efí: saldo da conta não encontrado na resposta.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     */
     public function parseStripeAvailable(array $body): float
     {
         $buckets = $body['available'] ?? null;
@@ -538,6 +563,19 @@ class AcquirerWalletBalanceService
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    private function hasEfiBalanceCredentials(array $credentials): bool
+    {
+        $certPath = trim((string) ($credentials['certificate_path'] ?? ''));
+
+        return trim((string) ($credentials['client_id'] ?? '')) !== ''
+            && trim((string) ($credentials['client_secret'] ?? '')) !== ''
+            && $certPath !== ''
+            && is_file($certPath);
     }
 
     private function centsOrReais(float $value, bool $treatAsCents): float

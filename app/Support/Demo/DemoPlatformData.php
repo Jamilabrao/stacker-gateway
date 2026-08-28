@@ -106,6 +106,7 @@ class DemoPlatformData
             'acquirer_wallets' => [
                 ['id' => 'demo-cajupay', 'slug' => 'cajupay', 'nome' => 'CajuPay', 'conta' => 'Conta principal', 'image' => 'images/gateways/cajupay.png', 'status' => 'ok', 'available' => round(18450.30 + ($seed % 800), 2), 'currency' => 'BRL', 'error' => null],
                 ['id' => 'demo-bspay', 'slug' => 'bspay', 'nome' => 'BSPay', 'conta' => null, 'image' => 'images/gateways/bspay.png', 'status' => 'ok', 'available' => round(9230.10 + ($seed % 400), 2), 'currency' => 'BRL', 'error' => null],
+                ['id' => 'demo-efi', 'slug' => 'efi', 'nome' => 'Efí', 'conta' => null, 'image' => 'images/gateways/efi.png', 'status' => 'ok', 'available' => round(6120.80 + ($seed % 350), 2), 'currency' => 'BRL', 'error' => null],
                 ['id' => 'demo-mercadopago', 'slug' => 'mercadopago', 'nome' => 'Mercado Pago', 'conta' => null, 'image' => 'images/gateways/mercado-pago.webp', 'status' => 'ok', 'available' => round(4100.00 + ($seed % 250), 2), 'currency' => 'BRL', 'error' => null],
                 ['id' => 'demo-stripe', 'slug' => 'stripe', 'nome' => 'Stripe', 'conta' => null, 'image' => 'images/gateways/stripe.png', 'status' => 'ok', 'available' => round(880.50 + ($seed % 120), 2), 'currency' => 'BRL', 'error' => null],
                 ['id' => 'demo-versell', 'slug' => 'versell', 'nome' => 'Versell', 'conta' => null, 'image' => 'images/gateways/versell-logo.svg', 'status' => 'ok', 'available' => round(15670.00 + ($seed % 600), 2), 'currency' => 'BRL', 'error' => null],
