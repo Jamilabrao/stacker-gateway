@@ -324,4 +324,60 @@ class PlatformUsersIndexListingTest extends TestCase
                 ->where('users.data.0.saldo_pix', fn ($v) => (float) $v === 45.75)
             );
     }
+
+    public function test_listing_includes_document_type(): void
+    {
+        $admin = $this->platformAdmin();
+        $pf = $this->merchant('Pessoa Fisica');
+        $pf->forceFill(['person_type' => 'pf', 'document' => '39053344705'])->save();
+        $pj = $this->merchant('Pessoa Juridica');
+        $pj->forceFill(['person_type' => 'pj', 'document' => '11222333000181'])->save();
+
+        $this->actingAs($admin)
+            ->get(route('plataforma.usuarios.index', [
+                'q' => 'Pessoa Fisica',
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('users.data.0.id', $pf->id)
+                ->where('users.data.0.document_type', 'CPF')
+            );
+
+        $this->actingAs($admin)
+            ->get(route('plataforma.usuarios.index', [
+                'q' => 'Pessoa Juridica',
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('users.data.0.id', $pj->id)
+                ->where('users.data.0.document_type', 'CNPJ')
+            );
+    }
+
+    public function test_search_finds_formatted_cpf_and_cnpj(): void
+    {
+        $admin = $this->platformAdmin();
+        $pf = $this->merchant('Doc Cpf Seller');
+        $pf->forceFill(['person_type' => 'pf', 'document' => '39053344705'])->save();
+        $pj = $this->merchant('Doc Cnpj Seller');
+        $pj->forceFill(['person_type' => 'pj', 'document' => '11222333000181'])->save();
+        $this->merchant('Other Seller');
+
+        $this->actingAs($admin)
+            ->get(route('plataforma.usuarios.index', ['q' => '390.533.447-05']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('q', '390.533.447-05')
+                ->where('users.total', 1)
+                ->where('users.data.0.id', $pf->id)
+            );
+
+        $this->actingAs($admin)
+            ->get(route('plataforma.usuarios.index', ['q' => '11.222.333/0001-81']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('users.total', 1)
+                ->where('users.data.0.id', $pj->id)
+            );
+    }
 }

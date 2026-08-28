@@ -139,6 +139,15 @@ function hasCustomFees(user) {
 function hasCustomSettlement(user) {
     return user?.merchant_settlement_overrides && Object.keys(user.merchant_settlement_overrides).length > 0;
 }
+function documentTypeLabel(user) {
+    if (user?.document_type === 'CPF' || user?.document_type === 'CNPJ') return user.document_type;
+    if (user?.person_type === 'pj') return 'CNPJ';
+    if (user?.person_type === 'pf') return 'CPF';
+    const digits = String(user?.document || '').replace(/\D/g, '');
+    if (digits.length === 14) return 'CNPJ';
+    if (digits.length === 11) return 'CPF';
+    return '—';
+}
 </script>
 
 <template>
@@ -156,7 +165,7 @@ function hasCustomSettlement(user) {
         <form class="flex flex-wrap items-center gap-2" @submit.prevent="applySearch">
             <div class="relative min-w-[200px] flex-1">
                 <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                <input v-model="searchQ" type="search" placeholder="Nome, e-mail, documento ou ID" class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900" />
+                <input v-model="searchQ" type="search" placeholder="Nome, e-mail, CPF/CNPJ ou ID" class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900" />
             </div>
             <select v-model="statusFilter" class="min-w-[11rem] rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900" @change="applySearch">
                 <option value="">Todos os status</option>
@@ -245,6 +254,10 @@ function hasCustomSettlement(user) {
                         </div>
                         <dl class="mt-3 grid grid-cols-2 gap-2 text-xs">
                             <div>
+                                <dt class="text-zinc-500">Tipo</dt>
+                                <dd class="text-zinc-800 dark:text-zinc-200">{{ documentTypeLabel(user) }}</dd>
+                            </div>
+                            <div>
                                 <dt class="text-zinc-500">Documento</dt>
                                 <dd class="break-all text-zinc-800 dark:text-zinc-200">{{ user.document || '—' }}</dd>
                             </div>
@@ -322,14 +335,15 @@ function hasCustomSettlement(user) {
                     <thead class="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/80">
                         <tr>
                             <th class="w-10 px-3 py-2.5"><input type="checkbox" :checked="allVisibleSelected" :disabled="!usersList.length" @change="toggleSelectAllVisible" /></th>
-                            <th class="w-[22%] px-3 py-2.5">Infoprodutor</th>
-                            <th class="w-[12%] px-3 py-2.5">Documento</th>
-                            <th class="w-[9%] px-3 py-2.5">Status</th>
-                            <th class="w-[10%] px-3 py-2.5"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('created_at')">Cadastro <ChevronUp v-if="sortIndicator('created_at') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('created_at') === 'desc'" class="h-3 w-3" /></button></th>
-                            <th class="w-[10%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('total_sales')">Vendas <ChevronUp v-if="sortIndicator('total_sales') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('total_sales') === 'desc'" class="h-3 w-3" /></button></th>
-                            <th class="w-[11%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" title="Saldo disponível na carteira" @click="toggleSort('balance')">Disponível <ChevronUp v-if="sortIndicator('balance') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('balance') === 'desc'" class="h-3 w-3" /></button></th>
-                            <th class="w-[11%] px-3 py-2.5 text-right" title="Saldo pendente em liquidação">Pendente</th>
-                            <th class="w-[13%] px-3 py-2.5 text-right">Ações</th>
+                            <th class="w-[18%] px-3 py-2.5">Infoprodutor</th>
+                            <th class="w-[6%] px-3 py-2.5">Tipo</th>
+                            <th class="w-[11%] px-3 py-2.5">Documento</th>
+                            <th class="w-[8%] px-3 py-2.5">Status</th>
+                            <th class="w-[9%] px-3 py-2.5"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('created_at')">Cadastro <ChevronUp v-if="sortIndicator('created_at') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('created_at') === 'desc'" class="h-3 w-3" /></button></th>
+                            <th class="w-[9%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" @click="toggleSort('total_sales')">Vendas <ChevronUp v-if="sortIndicator('total_sales') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('total_sales') === 'desc'" class="h-3 w-3" /></button></th>
+                            <th class="w-[10%] px-3 py-2.5 text-right"><button class="inline-flex items-center gap-1 uppercase" title="Saldo disponível na carteira" @click="toggleSort('balance')">Disponível <ChevronUp v-if="sortIndicator('balance') === 'asc'" class="h-3 w-3" /><ChevronDown v-else-if="sortIndicator('balance') === 'desc'" class="h-3 w-3" /></button></th>
+                            <th class="w-[10%] px-3 py-2.5 text-right" title="Saldo pendente em liquidação">Pendente</th>
+                            <th class="w-[12%] px-3 py-2.5 text-right">Ações</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -370,6 +384,9 @@ function hasCustomSettlement(user) {
                                     </span>
                                 </div>
                             </td>
+                            <td class="px-3 py-2.5">
+                                <span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ documentTypeLabel(user) }}</span>
+                            </td>
                             <td class="truncate px-3 py-2.5 text-zinc-600">{{ user.document || '—' }}</td>
                             <td class="px-3 py-2.5"><span class="rounded-md bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{{ statusLabel(user.account_status) }}</span></td>
                             <td class="truncate px-3 py-2.5 text-zinc-600">{{ formatCreatedAt(user.created_at) }}</td>
@@ -383,7 +400,7 @@ function hasCustomSettlement(user) {
                                 <button type="button" class="rounded-lg p-1.5 text-red-500 hover:bg-red-50" :disabled="deletingId === user.id" @click="destroyUser(user.id)"><Trash2 class="h-4 w-4" /></button>
                             </div></td>
                         </tr>
-                        <tr v-if="!usersList.length"><td colspan="9" class="px-3 py-10 text-center text-zinc-500">{{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}</td></tr>
+                        <tr v-if="!usersList.length"><td colspan="10" class="px-3 py-10 text-center text-zinc-500">{{ q ? 'Nenhum infoprodutor encontrado.' : 'Nenhum infoprodutor cadastrado.' }}</td></tr>
                     </tbody>
                 </table>
             </div>
