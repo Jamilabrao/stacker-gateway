@@ -6,6 +6,7 @@ use App\Gateways\Bspay\BspayDriver;
 use App\Gateways\CajuPay\CajuPayDriver;
 use App\Gateways\Efi\EfiDriver;
 use App\Gateways\GatewayRegistry;
+use App\Gateways\Woovi\WooviDriver;
 use App\Gateways\Versell\VersellCredentials;
 use App\Models\CajuPayAccount;
 use App\Models\GatewayCredential;
@@ -27,7 +28,7 @@ class AcquirerWalletBalanceService
     private const REQUEST_TIMEOUT_SECONDS = 8;
 
     /** @var list<string> */
-    private const BALANCE_SLUGS = ['cajupay', 'bspay', 'efi', 'mercadopago', 'stripe', 'versell'];
+    private const BALANCE_SLUGS = ['cajupay', 'bspay', 'efi', 'woovi', 'mercadopago', 'stripe', 'versell'];
 
     /**
      * @return list<array{
@@ -249,6 +250,7 @@ class AcquirerWalletBalanceService
             'bspay' => trim((string) ($credentials['client_id'] ?? '')) !== ''
                 && trim((string) ($credentials['client_secret'] ?? '')) !== '',
             'efi' => $this->hasEfiBalanceCredentials($credentials),
+            'woovi' => trim((string) ($credentials['app_id'] ?? $credentials['authorization'] ?? '')) !== '',
             'mercadopago' => trim((string) ($credentials['access_token'] ?? '')) !== '',
             'stripe' => trim((string) ($credentials['secret_key'] ?? '')) !== '',
             'versell' => VersellCredentials::isCashOutReady($credentials),
@@ -274,6 +276,7 @@ class AcquirerWalletBalanceService
         return match ($slug) {
             'bspay' => $this->fetchBspay($credentials),
             'efi' => $this->fetchEfi($credentials),
+            'woovi' => $this->fetchWoovi($credentials),
             'mercadopago' => $this->fetchMercadoPago($credentials),
             'stripe' => $this->fetchStripe($credentials),
             'versell' => $this->fetchVersell($credentials),
@@ -309,6 +312,16 @@ class AcquirerWalletBalanceService
         $payload = app(EfiDriver::class)->fetchAccountBalance($credentials);
 
         return $this->parseEfiAvailable($payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $credentials
+     */
+    private function fetchWoovi(array $credentials): float
+    {
+        $payload = app(WooviDriver::class)->fetchAccountBalance($credentials);
+
+        return $this->parseWooviAvailable($payload);
     }
 
     /**
@@ -465,6 +478,57 @@ class AcquirerWalletBalanceService
         }
 
         throw new \RuntimeException('Efí: saldo da conta não encontrado na resposta.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     */
+    public function parseWooviAvailable(array $body): float
+    {
+        $account = $this->wooviAccountNode($body);
+        $available = is_array($account['balance'] ?? null)
+            ? ($account['balance']['available'] ?? null)
+            : null;
+
+        if (! is_numeric($available)) {
+            throw new \RuntimeException('Woovi: saldo disponível não encontrado na resposta.');
+        }
+
+        return round(((float) $available) / 100, 2);
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    private function wooviAccountNode(array $body): array
+    {
+        if (isset($body['account']) && is_array($body['account'])) {
+            return $body['account'];
+        }
+
+        $accounts = $body['accounts'] ?? null;
+        if (is_array($accounts)) {
+            $first = null;
+            foreach ($accounts as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $first ??= $row;
+                if (! empty($row['isDefault'])) {
+                    return $row;
+                }
+            }
+            if (is_array($first)) {
+                return $first;
+            }
+        }
+
+        if (isset($body['balance']) && is_array($body['balance'])) {
+            return $body;
+        }
+
+        throw new \RuntimeException('Woovi: conta não encontrada na resposta.');
     }
 
     /**

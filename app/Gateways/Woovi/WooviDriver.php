@@ -56,6 +56,83 @@ class WooviDriver implements GatewayDriver
     }
 
     /**
+     * Saldo da conta padrão. Lista GET /api/v1/account/ e detalha GET /api/v1/account/{accountId}.
+     *
+     * @param  array<string, mixed>  $credentials
+     * @return array<string, mixed>
+     */
+    public function fetchAccountBalance(array $credentials): array
+    {
+        $appId = $this->appId($credentials);
+        if ($appId === '') {
+            throw new \RuntimeException('Woovi: AppID ausente.');
+        }
+
+        $base = rtrim($this->baseUrl($credentials), '/');
+        $listResponse = Http::timeout(8)
+            ->connectTimeout(4)
+            ->withHeaders($this->authHeaders($credentials))
+            ->get($base.'/api/v1/account/', ['limit' => 50]);
+
+        if (! $listResponse->successful()) {
+            throw new \RuntimeException('Woovi: falha ao listar contas (HTTP '.$listResponse->status().').');
+        }
+
+        $list = $listResponse->json();
+        if (! is_array($list)) {
+            throw new \RuntimeException('Woovi: resposta de contas inválida.');
+        }
+
+        $accountId = $this->defaultAccountId($list);
+        if ($accountId === '') {
+            return $list;
+        }
+
+        $detailResponse = Http::timeout(8)
+            ->connectTimeout(4)
+            ->withHeaders($this->authHeaders($credentials))
+            ->get($base.'/api/v1/account/'.rawurlencode($accountId));
+
+        if (! $detailResponse->successful()) {
+            return $list;
+        }
+
+        $detail = $detailResponse->json();
+
+        return is_array($detail) ? $detail : $list;
+    }
+
+    /**
+     * @param  array<string, mixed>  $list
+     */
+    private function defaultAccountId(array $list): string
+    {
+        $accounts = $list['accounts'] ?? null;
+        if (! is_array($accounts)) {
+            return '';
+        }
+
+        $first = '';
+        foreach ($accounts as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = trim((string) ($row['accountId'] ?? ''));
+            if ($id === '') {
+                continue;
+            }
+            if ($first === '') {
+                $first = $id;
+            }
+            if (! empty($row['isDefault'])) {
+                return $id;
+            }
+        }
+
+        return $first;
+    }
+
+    /**
      * @param  array{name?: string, document?: string, email?: string}  $consumer
      * @return array{transaction_id: string, qrcode?: string|null, copy_paste?: string|null, raw?: array}
      */

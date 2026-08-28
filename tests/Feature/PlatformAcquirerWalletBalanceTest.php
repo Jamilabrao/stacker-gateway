@@ -66,7 +66,7 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
 
         $rows = app(AcquirerWalletBalanceService::class)->list();
         $this->assertSame(
-            ['cajupay', 'bspay', 'efi', 'mercadopago', 'stripe', 'versell'],
+            ['cajupay', 'bspay', 'efi', 'woovi', 'mercadopago', 'stripe', 'versell'],
             collect($rows)->pluck('slug')->all()
         );
         $this->assertTrue(collect($rows)->every(fn (array $row) => $row['status'] === 'inactive'));
@@ -137,7 +137,7 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
         $this->assertSame(450.0, $bySlug['stripe']['available']);
         $this->assertSame('inactive', $bySlug['versell']['status']);
         $this->assertSame('inactive', $bySlug['efi']['status']);
-        $this->assertArrayNotHasKey('woovi', $bySlug->all());
+        $this->assertSame('inactive', $bySlug['woovi']['status']);
     }
 
     public function test_disabled_or_disconnected_credentials_are_marked_inactive(): void
@@ -238,6 +238,47 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
         $this->assertSame(321.45, $bySlug['efi']['available']);
     }
 
+    public function test_woovi_uses_account_balance_endpoint(): void
+    {
+        $this->seedCredential('woovi', [
+            'app_id' => 'woovi-app-id',
+        ]);
+
+        Http::fake([
+            'api.woovi.com/api/v1/account/6290ccfd42831958a405debc' => Http::response([
+                'account' => [
+                    'accountId' => '6290ccfd42831958a405debc',
+                    'isDefault' => true,
+                    'accountName' => 'Main Account',
+                    'balance' => [
+                        'total' => 129430,
+                        'blocked' => 0,
+                        'available' => 129430,
+                    ],
+                ],
+            ], 200),
+            'api.woovi.com/api/v1/account*' => Http::response([
+                'accounts' => [
+                    [
+                        'accountId' => '6286b467a7910113577e00ce',
+                        'isDefault' => false,
+                        'balance' => ['total' => 130, 'blocked' => 100, 'available' => 30],
+                    ],
+                    [
+                        'accountId' => '6290ccfd42831958a405debc',
+                        'isDefault' => true,
+                        'balance' => ['total' => 100, 'blocked' => 0, 'available' => 100],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $bySlug = collect(app(AcquirerWalletBalanceService::class)->list())->keyBy('slug');
+
+        $this->assertSame('ok', $bySlug['woovi']['status']);
+        $this->assertSame(1294.3, $bySlug['woovi']['available']);
+    }
+
     public function test_parsers_cover_known_payload_shapes(): void
     {
         $service = app(AcquirerWalletBalanceService::class);
@@ -249,6 +290,17 @@ class PlatformAcquirerWalletBalanceTest extends TestCase
             'available' => [['amount' => 1234, 'currency' => 'brl']],
         ]));
         $this->assertSame(100.0, $service->parseEfiAvailable(['saldo' => '100.00']));
+        $this->assertSame(1294.3, $service->parseWooviAvailable([
+            'account' => [
+                'balance' => ['total' => 129430, 'blocked' => 0, 'available' => 129430],
+            ],
+        ]));
+        $this->assertSame(1294.3, $service->parseWooviAvailable([
+            'accounts' => [
+                ['isDefault' => false, 'balance' => ['available' => 30]],
+                ['isDefault' => true, 'balance' => ['available' => 129430]],
+            ],
+        ]));
         $this->assertSame(80.0, $service->parseVersellAvailable([
             'data' => [
                 ['eventDate' => '2026-01-01', 'balanceAmount' => ['available' => 10]],
