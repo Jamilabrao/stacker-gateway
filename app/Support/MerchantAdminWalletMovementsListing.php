@@ -124,6 +124,7 @@ final class MerchantAdminWalletMovementsListing
             ->withQueryString()
             ->through(function (WalletTransaction $t) use ($labels) {
                 $meta = is_array($t->meta) ? $t->meta : [];
+                $settlement = self::settlementPayload($t, $meta);
 
                 return [
                     'id' => $t->id,
@@ -135,6 +136,10 @@ final class MerchantAdminWalletMovementsListing
                     'withdrawal_id' => $t->withdrawal_id,
                     'note' => $meta['note'] ?? null,
                     'created_at' => $t->created_at?->toIso8601String(),
+                    'clears_at' => $settlement['clears_at'],
+                    'released_at' => $settlement['released_at'],
+                    'settlement_status' => $settlement['status'],
+                    'settlement_at' => $settlement['at'],
                 ];
             });
 
@@ -142,6 +147,48 @@ final class MerchantAdminWalletMovementsListing
             'wallet_transactions' => $paginator,
             'filters' => $filters,
             'type_options' => $labels,
+        ];
+    }
+
+    /**
+     * Data em que o valor entra no saldo disponível do seller (clears_at).
+     *
+     * @param  array<string, mixed>  $meta
+     * @return array{clears_at: ?string, released_at: ?string, status: ?string, at: ?string}
+     */
+    public static function settlementPayload(WalletTransaction $t, array $meta): array
+    {
+        $clearsAt = isset($meta['clears_at']) && is_string($meta['clears_at']) && $meta['clears_at'] !== ''
+            ? $meta['clears_at']
+            : null;
+        $releasedAt = isset($meta['released_at']) && is_string($meta['released_at']) && $meta['released_at'] !== ''
+            ? $meta['released_at']
+            : null;
+        $released = $releasedAt !== null;
+
+        if ($t->type === WalletTransaction::TYPE_CREDIT_SALE || $released) {
+            return [
+                'clears_at' => $clearsAt,
+                'released_at' => $releasedAt,
+                'status' => 'available',
+                'at' => $releasedAt ?? $clearsAt,
+            ];
+        }
+
+        if ($t->type === WalletTransaction::TYPE_CREDIT_SALE_PENDING) {
+            return [
+                'clears_at' => $clearsAt,
+                'released_at' => $releasedAt,
+                'status' => 'pending',
+                'at' => $clearsAt,
+            ];
+        }
+
+        return [
+            'clears_at' => $clearsAt,
+            'released_at' => $releasedAt,
+            'status' => null,
+            'at' => null,
         ];
     }
 
