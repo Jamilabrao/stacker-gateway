@@ -1749,8 +1749,9 @@ function submitSettlement() {
                         Política de saques
                     </h2>
                     <p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-                        Controle saque automático, janela de horário para solicitações e PIN de aprovação manual.
-                        Ações críticas exigem 2FA quando ativado em Meu perfil.
+                        Controle saque automático, janela de horário para solicitações e PIN de operação.
+                        Com 2FA ativo no perfil, o PIN não é exigido nas aprovações. Sem 2FA, o PIN é obrigatório.
+                        Pagamento manual nunca é aceito sem 2FA ou PIN cadastrado.
                     </p>
                     <form class="space-y-5" @submit.prevent="submitWithdrawalPolicy">
                         <label class="flex items-center gap-3">
@@ -1800,7 +1801,7 @@ function submitSettlement() {
 
                         <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-600">
                             <div class="flex flex-wrap items-start justify-between gap-2">
-                                <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">PIN de aprovação manual</p>
+                                <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">PIN de operação</p>
                                 <button
                                     v-if="withdrawal_policy?.has_manual_approval_pin"
                                     type="button"
@@ -1811,13 +1812,19 @@ function submitSettlement() {
                                 </button>
                             </div>
                             <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                                Obrigatório ao aprovar saques quando o automático estiver desligado.
-                                Use de {{ MANUAL_APPROVAL_PIN_MIN_LENGTH }} a {{ MANUAL_APPROVAL_PIN_MAX_LENGTH }} dígitos numéricos.
+                                Obrigatório para pagar saques quando o 2FA do perfil estiver desligado.
+                                Com 2FA ativo, este PIN não é pedido. Use de {{ MANUAL_APPROVAL_PIN_MIN_LENGTH }} a {{ MANUAL_APPROVAL_PIN_MAX_LENGTH }} dígitos numéricos.
                                 {{
                                     withdrawal_policy?.has_manual_approval_pin
                                         ? 'Para trocar, informe o PIN atual. Deixe os campos em branco para manter.'
                                         : 'Ainda não definido.'
                                 }}
+                            </p>
+                            <p
+                                v-if="!platformTotpEnabled && !withdrawal_policy?.has_manual_approval_pin"
+                                class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+                            >
+                                Seu 2FA está desligado. Cadastre um PIN aqui para conseguir pagar saques (incluindo pagamento manual).
                             </p>
                             <div class="mt-3 grid gap-3 sm:grid-cols-2">
                                 <input

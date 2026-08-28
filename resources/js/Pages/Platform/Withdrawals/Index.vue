@@ -24,6 +24,15 @@ const props = defineProps({
         type: String,
         default: '',
     },
+    /** PIN obrigatório quando o 2FA do admin está desligado */
+    require_manual_approval_pin: {
+        type: Boolean,
+        default: false,
+    },
+    has_manual_approval_pin: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const withdrawalFilterChips = [
@@ -86,7 +95,7 @@ function openApproveStepUp(id, manual = false) {
     stepUpWithdrawalId.value = id;
     stepUpManual.value = manual;
     stepUpAction.value = 'approve';
-    stepUpRequirePin.value = manual;
+    stepUpRequirePin.value = Boolean(props.require_manual_approval_pin) && Boolean(props.has_manual_approval_pin);
     stepUpOpen.value = true;
 }
 
@@ -104,12 +113,46 @@ function closeStepUp() {
     stepUpLoading.value = false;
 }
 
+const totpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
+const payoutBarrierMissing = computed(
+    () => !totpEnabled.value && !Boolean(props.has_manual_approval_pin)
+);
+
+const stepUpDescription = computed(() => {
+    if (stepUpAction.value === 'reject' && stepUpHasExternalPayout.value) {
+        return totpEnabled.value
+            ? 'Informe o código 2FA. Se o PIX já foi liquidado no gateway, o estorno local não reverte o pagamento bancário.'
+            : 'Se o PIX já foi liquidado no gateway, o estorno local não reverte o pagamento bancário.';
+    }
+    if (stepUpAction.value === 'reject') {
+        return totpEnabled.value
+            ? 'Informe o código 2FA para autorizar esta ação.'
+            : 'Confirme o cancelamento. O saldo será devolvido ao infoprodutor.';
+    }
+    if (payoutBarrierMissing.value) {
+        return 'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques. Pelo menos uma barreira é obrigatória para pagar saques.';
+    }
+    if (stepUpManual.value) {
+        return totpEnabled.value
+            ? 'Confirme com 2FA que o PIX já foi enviado fora do sistema.'
+            : 'Informe o PIN de operação e confirme que o PIX já foi enviado fora do sistema.';
+    }
+    if (stepUpRequirePin.value) {
+        return 'Informe o PIN de operação cadastrado em Financeiro > Saques.';
+    }
+    return 'Informe o código 2FA para autorizar esta ação.';
+});
+
 function onStepUpConfirm(payload) {
     const id = stepUpWithdrawalId.value;
     if (!id) return;
     stepUpLoading.value = true;
 
     if (stepUpAction.value === 'approve') {
+        if (payoutBarrierMissing.value) {
+            stepUpLoading.value = false;
+            return;
+        }
         router.post(
             `/plataforma/financeiro/saques/${id}/aprovar`,
             {
@@ -496,18 +539,13 @@ const paginationLinks = computed(() => props.withdrawals?.links ?? []);
         <PlatformStepUpModal
             :open="stepUpOpen"
             :loading="stepUpLoading"
-            :require-totp="Boolean(page.props.auth?.user?.totp_enabled)"
-            :require-pin="stepUpRequirePin"
+            :require-totp="totpEnabled"
+            :require-pin="stepUpRequirePin && stepUpAction === 'approve'"
             :require-external-confirm="stepUpManual"
             :title="stepUpAction === 'reject' ? 'Cancelar saque' : stepUpManual ? 'Aprovar manualmente' : 'Aprovar saque'"
-            :description="
-                stepUpManual
-                    ? 'Confirme com 2FA e PIN (se configurado) que o PIX já foi enviado fora do sistema.'
-                    : stepUpAction === 'reject' && stepUpHasExternalPayout
-                      ? 'Informe o código 2FA. Se o PIX já foi liquidado no gateway, o estorno local não reverte o pagamento bancário.'
-                      : 'Informe o código 2FA para autorizar esta ação.'
-            "
+            :description="stepUpDescription"
             :confirm-label="stepUpAction === 'reject' ? 'Cancelar e estornar' : 'Aprovar'"
+            :confirm-disabled="stepUpAction === 'approve' && payoutBarrierMissing"
             @close="closeStepUp"
             @confirm="onStepUpConfirm"
         />

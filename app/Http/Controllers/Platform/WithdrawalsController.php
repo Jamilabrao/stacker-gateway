@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Platform;
 use App\Http\Controllers\Controller;
 use App\Models\Withdrawal;
 use App\Services\Payout\PlatformPayoutGateway;
+use App\Services\Withdrawal\WithdrawalPolicyService;
 use App\Services\WithdrawalPixReceiptService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -63,6 +64,9 @@ class WithdrawalsController extends Controller
                 'origin' => $origin,
             ],
             'payout_gateway_active' => PlatformPayoutGateway::activeSlug() ?? '',
+            'require_manual_approval_pin' => $request->user() !== null
+                && WithdrawalPolicyService::requiresOperationPinFor($request->user()),
+            'has_manual_approval_pin' => WithdrawalPolicyService::hasManualApprovalPin(),
         ]);
     }
 }

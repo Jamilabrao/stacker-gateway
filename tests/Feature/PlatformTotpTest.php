@@ -76,4 +76,172 @@ class PlatformTotpTest extends TestCase
         $withdrawal->refresh();
         $this->assertSame('pending', $withdrawal->status);
     }
+
+    public function test_manual_approval_is_blocked_without_totp_or_pin(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $withdrawal = \App\Models\Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 10,
+            'fee_amount' => 0,
+            'net_amount' => 10,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+        ]);
+
+        $response = $this->actingAs($admin)->post(route('plataforma.financeiro.saques.approve', $withdrawal), [
+            'payout_manual' => true,
+            'manual_confirm_external' => true,
+        ]);
+        $response->assertRedirect(route('plataforma.saques.index'));
+        $response->assertSessionHas(
+            'error',
+            'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para autorizar pagamentos.'
+        );
+        $this->assertSame('pending', $withdrawal->fresh()->status);
+    }
+
+    public function test_cajupay_approval_requires_pin_when_totp_disabled(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        \App\Services\Withdrawal\WithdrawalPolicyService::setManualApprovalPin('9999');
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $withdrawal = \App\Models\Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 10,
+            'fee_amount' => 0,
+            'net_amount' => 10,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+        ]);
+
+        $withoutPin = $this->actingAs($admin)->post(route('plataforma.financeiro.saques.approve', $withdrawal), [
+            'payout_manual' => false,
+        ]);
+        $withoutPin->assertRedirect(route('plataforma.saques.index'));
+        $withoutPin->assertSessionHas('error', 'PIN de confirmação inválido.');
+        $this->assertSame('pending', $withdrawal->fresh()->status);
+    }
+
+    public function test_cajupay_approval_accepts_pin_without_totp(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        \App\Services\Withdrawal\WithdrawalPolicyService::setManualApprovalPin('9999');
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $withdrawal = \App\Models\Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 10,
+            'fee_amount' => 0,
+            'net_amount' => 10,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+        ]);
+
+        $withPin = $this->actingAs($admin)->post(route('plataforma.financeiro.saques.approve', $withdrawal), [
+            'payout_manual' => false,
+            'manual_approval_pin' => '9999',
+        ]);
+        $withPin->assertRedirect(route('plataforma.saques.index'));
+        $this->assertNotSame('PIN de confirmação inválido.', $withPin->session('error'));
+        $this->assertNotSame(
+            'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para autorizar pagamentos.',
+            $withPin->session('error')
+        );
+    }
+
+    public function test_cajupay_approval_with_totp_does_not_require_pin(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        $setup = PlatformTotpService::beginEnrollment($admin->fresh());
+        $code = $this->totpCodeForSecret($setup['secret']);
+        $this->assertTrue(PlatformTotpService::confirmEnrollment($admin->fresh(), $code));
+
+        \App\Services\Withdrawal\WithdrawalPolicyService::setManualApprovalPin('9999');
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $withdrawal = \App\Models\Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 10,
+            'fee_amount' => 0,
+            'net_amount' => 10,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+        ]);
+
+        $freshCode = $this->totpCodeForSecret($setup['secret']);
+        $response = $this->actingAs($admin->fresh())->post(route('plataforma.financeiro.saques.approve', $withdrawal), [
+            'payout_manual' => false,
+            'totp_code' => $freshCode,
+        ]);
+        $response->assertRedirect(route('plataforma.saques.index'));
+        $this->assertNotSame('PIN de confirmação inválido.', $response->session('error'));
+        $this->assertNotSame('Informe o código 2FA para continuar.', $response->session('error'));
+        $this->assertNotSame('Código 2FA inválido ou expirado.', $response->session('error'));
+    }
+
+    public function test_reject_withdrawal_does_not_require_pin_when_totp_disabled(): void
+    {
+        $admin = User::factory()->create([
+            'role' => User::ROLE_PLATFORM_ADMIN,
+            'tenant_id' => null,
+        ]);
+
+        \App\Services\Withdrawal\WithdrawalPolicyService::setManualApprovalPin('9999');
+
+        $seller = User::factory()->create(['role' => User::ROLE_INFOPRODUTOR]);
+        $seller->forceFill(['tenant_id' => $seller->id])->save();
+
+        $withdrawal = \App\Models\Withdrawal::query()->create([
+            'tenant_id' => $seller->id,
+            'user_id' => $seller->id,
+            'amount' => 10,
+            'fee_amount' => 0,
+            'net_amount' => 10,
+            'bucket' => 'pix',
+            'status' => 'pending',
+            'currency' => 'BRL',
+        ]);
+
+        $response = $this->actingAs($admin)->post(route('plataforma.financeiro.saques.reject', $withdrawal), [
+            'admin_note' => 'teste',
+        ]);
+        $response->assertRedirect(route('plataforma.saques.index'));
+        $response->assertSessionHas('success');
+        $this->assertSame('rejected', $withdrawal->fresh()->status);
+    }
 }

@@ -3,6 +3,8 @@
 namespace App\Services\Withdrawal;
 
 use App\Models\Setting;
+use App\Models\User;
+use App\Services\Platform\PlatformTotpService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -72,9 +74,17 @@ class WithdrawalPolicyService
             .' ('.self::timezone().').';
     }
 
-    public static function requiresManualApprovalPin(): bool
+    /**
+     * PIN de operação só é exigido quando o admin não tem 2FA ativo.
+     */
+    public static function requiresOperationPinFor(User $user): bool
     {
-        return ! self::autoWithdrawalEnabled();
+        return ! PlatformTotpService::isEnabledFor($user);
+    }
+
+    public static function hasPayoutSecurityBarrier(User $user): bool
+    {
+        return PlatformTotpService::isEnabledFor($user) || self::hasManualApprovalPin();
     }
 
     public static function hasManualApprovalPin(): bool
