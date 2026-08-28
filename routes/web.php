@@ -362,6 +362,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
                 ->middleware('throttle:60,1')
                 ->name('account-manager.assign');
             Route::post('/{user}/ajuste-saldo', [\App\Http\Controllers\Platform\UsersController::class, 'adjustBalance'])->name('adjust-balance');
+            Route::post('/{user}/carteira/transacoes/{walletTransaction}/antecipar', [\App\Http\Controllers\Platform\UsersController::class, 'anticipateWalletSale'])
+                ->middleware('throttle:30,1')
+                ->name('wallet.anticipate');
             Route::put('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'update'])->name('update');
             Route::delete('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'destroy'])->name('destroy');
         });

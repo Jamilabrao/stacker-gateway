@@ -44,6 +44,7 @@ const props = defineProps({
     },
     achievements_progress: { type: Object, default: null },
     achievement_unlocks: { type: Array, default: () => [] },
+    has_manual_approval_pin: { type: Boolean, default: false },
 });
 
 const activeTab = computed(() => {
@@ -377,6 +378,7 @@ function formatFeePreview(percent, fixed) {
             :wallet-transactions="wallet_transactions"
             :filters="wallet_filters"
             :type-labels="wallet_transaction_type_labels"
+            :has-manual-approval-pin="has_manual_approval_pin"
         />
 
         <template v-if="activeTab === 'achievements'">
