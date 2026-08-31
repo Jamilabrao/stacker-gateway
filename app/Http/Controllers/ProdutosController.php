@@ -8,31 +8,31 @@ use App\Events\ProductDeleted;
 use App\Events\ProductDuplicated;
 use App\Events\ProductIndexLoading;
 use App\Events\ProductUpdated;
+use App\Gateways\GatewayRegistry;
 use App\Http\Controllers\Concerns\LogsSellerActivity;
 use App\Models\CademiIntegration;
 use App\Models\GatewayCredential;
 use App\Models\Product;
-use App\Models\ShippingStore;
 use App\Models\ProductAffiliateEnrollment;
 use App\Models\ProductCoproducer;
 use App\Models\ProductOffer;
 use App\Models\ProductOrderBump;
+use App\Models\ShippingStore;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
-use App\Services\PaymentService;
 use App\Services\MemberAccessGrantService;
 use App\Services\MinimumChargeService;
+use App\Services\PaymentService;
 use App\Services\PhysicalProductAccess;
-use App\Services\SellerIntegrationVisibility;
+use App\Services\PlatformCardInstallments;
 use App\Services\ProductApprovalService;
 use App\Services\SellerActivityLogService;
+use App\Services\SellerIntegrationVisibility;
 use App\Services\StorageService;
 use App\Services\TeamAccessService;
 use App\Support\CardInstallments;
-use App\Services\PlatformCardInstallments;
 use App\Support\HtmlSanitizer;
 use App\Support\MoneyDecimal;
-use App\Gateways\GatewayRegistry;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -44,6 +44,7 @@ use InvalidArgumentException;
 class ProdutosController extends Controller
 {
     use LogsSellerActivity;
+
     /**
      * @return list<string>
      */
@@ -100,6 +101,7 @@ class ProdutosController extends Controller
             'produtos' => $products,
             'productTypes' => $productTypes,
             'billingTypes' => $billingTypes,
+            'productCategories' => Product::categoriesForSelect(),
             'exchange_rates' => $rates,
             'plugin_card_actions' => [],
             'plugin_form_sections' => [],
@@ -152,6 +154,7 @@ class ProdutosController extends Controller
             'support_email' => ['nullable', 'email', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'category' => ['nullable', 'string', 'in:'.implode(',', Product::categoryKeys())],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes())],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
             'price' => $this->platformPriceRules(),
@@ -520,6 +523,7 @@ class ProdutosController extends Controller
             'produto' => $produtoArray,
             'productTypes' => $productTypes,
             'billingTypes' => $billingTypes,
+            'productCategories' => Product::categoriesForSelect(),
             'exchange_rates' => $rates,
             'checkout_gateway_ui' => $checkoutGatewayUi,
             'global_payment_methods_available' => $globalPaymentMethodsAvailable,
@@ -608,6 +612,7 @@ class ProdutosController extends Controller
             'notification_name' => ['nullable', 'string', 'max:80'],
             'support_email' => ['nullable', 'email', 'max:255'],
             'description' => ['nullable', 'string'],
+            'category' => ['nullable', 'string', 'in:'.implode(',', Product::categoryKeys())],
             'type' => ['required', 'string', 'in:'.implode(',', self::allowedProductTypes($produto))],
             'billing_type' => ['required', 'string', 'in:'.implode(',', self::BILLING_TYPES)],
             'price' => $this->platformPriceRules(),
@@ -937,6 +942,7 @@ class ProdutosController extends Controller
             'name' => $baseName,
             'slug' => $uniqueSlug,
             'description' => $produto->description,
+            'category' => $produto->category,
             'type' => $produto->type,
             'billing_type' => $produto->billing_type ?? Product::BILLING_ONE_TIME,
             'image' => null,
@@ -1359,6 +1365,8 @@ class ProdutosController extends Controller
             'slug' => $p->slug,
             'checkout_slug' => $p->checkout_slug,
             'description' => $p->description,
+            'category' => $p->category,
+            'category_label' => Product::categoryLabels()[$p->category] ?? null,
             'type' => $p->type,
             'type_label' => $typeLabel,
             'billing_type' => $billingType,

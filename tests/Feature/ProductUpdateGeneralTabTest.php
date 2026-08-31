@@ -96,4 +96,34 @@ class ProductUpdateGeneralTabTest extends TestCase
         $product->refresh();
         $this->assertEqualsWithDelta(25.5, (float) $product->price, 0.001);
     }
+
+    public function test_general_tab_update_persists_category(): void
+    {
+        $this->withoutMiddleware([EnsureInstalled::class, ValidateCsrfToken::class]);
+
+        $seller = $this->createApprovedSeller();
+
+        $product = $this->createTestProduct([
+            'tenant_id' => $seller->id,
+            'price' => 10,
+            'currency' => 'BRL',
+            'category' => 'educacao_e_cursos',
+        ]);
+
+        $response = $this->actingAs($seller)->put(route('produtos.update', $product->id), [
+            'name' => $product->name,
+            'description' => $product->description,
+            'category' => 'tecnologia_e_inovacao',
+            'type' => $product->type,
+            'billing_type' => $product->billing_type,
+            'price' => 10,
+            'currency' => 'BRL',
+            'is_active' => true,
+        ]);
+
+        $response->assertRedirect();
+
+        $product->refresh();
+        $this->assertSame('tecnologia_e_inovacao', $product->category);
+    }
 }

@@ -27,6 +27,7 @@ const props = defineProps({
     produtos: { type: [Array, Object], default: () => [] },
     productTypes: { type: Array, default: () => [] },
     billingTypes: { type: Array, default: () => [] },
+    productCategories: { type: Array, default: () => [] },
     exchange_rates: { type: Object, default: () => ({ brl_eur: 0.16, brl_usd: 0.18 }) },
     plugin_card_actions: { type: Object, default: () => ({}) },
     plugin_form_sections: { type: Array, default: () => [] },
@@ -386,6 +387,7 @@ function pluginActions(productId) {
         :open="sidebarOpen"
         :product-types="productTypes"
         :billing-types="billingTypes"
+        :product-categories="productCategories"
         :exchange-rates="exchange_rates"
         :plugin-form-sections="plugin_form_sections"
         :checkout-gateway-ui="checkout_gateway_ui"

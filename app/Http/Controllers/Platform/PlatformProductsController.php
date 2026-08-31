@@ -33,6 +33,7 @@ class PlatformProductsController extends Controller
         if (! in_array($filter, $allowedFilters, true)) {
             $filter = 'all';
         }
+        $category = Product::normalizeCategoryFilter($request->query('category'));
 
         $paginator = new LengthAwarePaginator([], 0, 30, 1, [
             'path' => $request->url(),
@@ -68,6 +69,10 @@ class PlatformProductsController extends Controller
                 default => null,
             };
 
+            if (Schema::hasColumn('products', 'category')) {
+                $query->ofCategory($category);
+            }
+
             $paginator = $query->paginate(30)->withQueryString()->through(function (Product $p) use ($approvalReady) {
                 $status = $approvalReady
                     ? ($p->approval_status ?? Product::APPROVAL_APPROVED)
@@ -76,6 +81,8 @@ class PlatformProductsController extends Controller
                 return [
                     'id' => $p->id,
                     'name' => $p->name,
+                    'category' => $p->category,
+                    'category_label' => Product::categoryLabels()[$p->category] ?? null,
                     'checkout_slug' => $p->checkout_slug,
                     'type' => $p->type,
                     'type_label' => $this->deliverablePreview->typeLabel((string) $p->type),
@@ -104,7 +111,9 @@ class PlatformProductsController extends Controller
             'filters' => [
                 'q' => $q !== '' ? $q : null,
                 'filter' => $filter,
+                'category' => $category !== '' ? $category : null,
             ],
+            'categories' => Product::categoriesForSelect(),
             'approval_enabled' => $approvalReady,
         ]);
     }
