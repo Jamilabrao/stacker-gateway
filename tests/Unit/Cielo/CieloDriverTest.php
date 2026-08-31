@@ -57,7 +57,7 @@ class CieloDriverTest extends TestCase
 
         $paymentId = 'b8c1b2ea-e06a-4135-9389-8bdbdccacd20';
         Http::fake([
-            'apisandbox.cieloecommerce.cielo.com.br/1/sales' => Http::response([
+            'api.cieloecommerce.cielo.com.br/*' => Http::response([
                 'MerchantOrderId' => '42',
                 'Payment' => [
                     'PaymentId' => $paymentId,
@@ -89,7 +89,7 @@ class CieloDriverTest extends TestCase
         $this->assertSame('txid-cielo-1', $result['metadata']['cielo_txid']);
 
         Http::assertSent(function ($request) {
-            if (! str_ends_with($request->url(), '/1/sales') || $request->method() !== 'POST') {
+            if (! str_contains($request->url(), 'api.cieloecommerce.cielo.com.br/1/sales') || $request->method() !== 'POST') {
                 return false;
             }
             $body = $request->data();
@@ -98,8 +98,44 @@ class CieloDriverTest extends TestCase
                 && ($body['Payment']['Type'] ?? null) === 'Pix'
                 && ($body['Payment']['Amount'] ?? null) === 1000
                 && ($body['MerchantOrderId'] ?? null) === '42'
+                && ($body['Customer']['Name'] ?? null) === 'Aline Souza'
                 && $request->hasHeader('MerchantId')
                 && $request->hasHeader('MerchantKey');
+        });
+    }
+
+    public function test_create_pix_maps_cielo_ecommerce_field_aliases(): void
+    {
+        $paymentId = '1997be4d-694a-472e-98f0-e7f4b4c8f1e7';
+        Http::fake([
+            'api.cieloecommerce.cielo.com.br/*' => Http::response([
+                'MerchantOrderId' => '42',
+                'Payment' => [
+                    'Paymentid' => $paymentId,
+                    'Type' => 'Pix',
+                    'QrcodeBase64Image' => 'iVBORw0KGgo=',
+                    'QrCodeString' => '00020101021226880014br.gov.bcb.pix',
+                    'Status' => 12,
+                ],
+            ], 201),
+        ]);
+
+        $result = (new CieloDriver)->createPixPayment(
+            $this->credentials(),
+            10.00,
+            ['name' => 'Jose Silva 12', 'document' => '12345678909', 'email' => 'a@b.com'],
+            '42',
+            'https://pay.exemplo.com/webhooks/gateways/cielo'
+        );
+
+        $this->assertSame($paymentId, $result['transaction_id']);
+        $this->assertSame('00020101021226880014br.gov.bcb.pix', $result['copy_paste']);
+        $this->assertSame('iVBORw0KGgo=', $result['qrcode']);
+
+        Http::assertSent(function ($request) {
+            $body = $request->data();
+
+            return ($body['Customer']['Name'] ?? null) === 'Jose Silva';
         });
     }
 
