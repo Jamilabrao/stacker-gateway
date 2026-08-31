@@ -17,7 +17,7 @@ import {
     requestPagarmeTokenFromForm,
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
-import { requestCieloPaymentToken } from '@/composables/useCieloSilentOrderPost.js';
+import { requestCieloPaymentToken, formatCieloSopHolderName } from '@/composables/useCieloSilentOrderPost.js';
 import { loadCajuPaySdk } from '@/composables/useCajuPaySdk';
 import { isValidCpf } from '@/utils/brazilianDocuments.js';
 import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
@@ -3120,10 +3120,10 @@ function submit() {
                 <!-- Efí / Cielo: campos manuais (Cielo tokeniza via Silent Order Post, sem PAN no backend) -->
                 <div v-else-if="isCardGatewayEfi || isCardGatewayCielo" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <template v-if="isCardGatewayCielo">
-                        <input type="hidden" class="bp-sop-cardholdername" :value="(cardHolderName || form.name || '').trim()" />
+                        <input type="hidden" class="bp-sop-cardholdername" :value="formatCieloSopHolderName(cardHolderName || form.name)" />
                         <input type="hidden" class="bp-sop-cardnumber" :value="cardNumberDigits" />
                         <input type="hidden" class="bp-sop-cardexpirationdate" :value="cieloExpirationDate" />
-                        <input type="hidden" class="bp-sop-cardcvvc" :value="cardCvv" />
+                        <input type="hidden" class="bp-sop-cardcvv bp-sop-cardcvvc" :value="cardCvv" />
                         <input type="hidden" class="bp-sop-cardtype" value="creditCard" />
                     </template>
                     <div class="relative sm:col-span-2">

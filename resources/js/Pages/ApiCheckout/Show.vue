@@ -11,7 +11,7 @@ import {
     requestPagarmeTokenFromForm,
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
-import { requestCieloPaymentToken } from '@/composables/useCieloSilentOrderPost.js';
+import { requestCieloPaymentToken, formatCieloSopHolderName } from '@/composables/useCieloSilentOrderPost.js';
 
 defineOptions({ layout: null });
 
@@ -870,10 +870,10 @@ async function submitCard(ev) {
                                 </template>
                                 <template v-else-if="canPayWithEfi || canPayWithCielo">
                                     <template v-if="canPayWithCielo">
-                                        <input type="hidden" class="bp-sop-cardholdername" :value="(cardHolderName || '').trim()" />
+                                        <input type="hidden" class="bp-sop-cardholdername" :value="formatCieloSopHolderName(cardHolderName)" />
                                         <input type="hidden" class="bp-sop-cardnumber" :value="(efiCardNumber || '').replace(/\D/g, '')" />
                                         <input type="hidden" class="bp-sop-cardexpirationdate" :value="cieloExpirationDate" />
-                                        <input type="hidden" class="bp-sop-cardcvvc" :value="(efiCardCvv || '').replace(/\D/g, '')" />
+                                        <input type="hidden" class="bp-sop-cardcvv bp-sop-cardcvvc" :value="(efiCardCvv || '').replace(/\D/g, '')" />
                                         <input type="hidden" class="bp-sop-cardtype" value="creditCard" />
                                     </template>
                                     <div>

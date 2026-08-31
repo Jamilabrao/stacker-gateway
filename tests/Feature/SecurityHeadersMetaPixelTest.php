@@ -34,4 +34,16 @@ class SecurityHeadersMetaPixelTest extends TestCase
         $this->assertStringContainsString('https://www.facebook.com', $csp);
         $this->assertStringContainsString('https://*.facebook.com', $csp);
     }
+
+    public function test_production_csp_allows_cielo_silent_order_post(): void
+    {
+        config(['app.env' => 'production']);
+
+        $response = $this->get('/');
+
+        $csp = (string) $response->headers->get('Content-Security-Policy');
+        $this->assertNotSame('', $csp);
+        $this->assertStringContainsString('https://*.pagador.com.br', $csp);
+        $this->assertStringContainsString('https://*.cieloecommerce.cielo.com.br', $csp);
+    }
 }
