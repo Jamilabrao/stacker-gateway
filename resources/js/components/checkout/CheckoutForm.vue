@@ -17,6 +17,7 @@ import {
     requestPagarmeTokenFromForm,
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
+import { requestCieloPaymentToken } from '@/composables/useCieloSilentOrderPost.js';
 import { loadCajuPaySdk } from '@/composables/useCajuPaySdk';
 import { isValidCpf } from '@/utils/brazilianDocuments.js';
 import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
@@ -420,6 +421,7 @@ const isCardGatewayEfi = computed(() => isCardMethodSelected.value && currentMet
 const isCardGatewayMercadopago = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'mercadopago');
 const isCardGatewayAsaas = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'asaas');
 const isCardGatewayPagarme = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'pagarme');
+const isCardGatewayCielo = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'cielo');
 const isCardGatewayCajupay = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'cajupay');
 const isCardPaymentFamily = computed(() => ['card', 'apple_pay', 'google_pay'].includes(form.payment_method));
 const isCajupayCardOnly = computed(() => isCajuPaySdkFlow.value && form.payment_method === 'card');
@@ -1007,6 +1009,17 @@ const cardExpYearInput = ref(null);
 const cardCvvInput = ref(null);
 const showFullCardNumber = ref(true);
 const selectedInstallments = ref(1);
+const cieloExpirationDate = computed(() => {
+    const month = String(cardExpMonth.value || '').replace(/\D/g, '').padStart(2, '0').slice(0, 2);
+    let year = String(cardExpYear.value || '').replace(/\D/g, '');
+    if (year.length === 2) {
+        year = `20${year}`;
+    }
+    if (month.length !== 2 || year.length !== 4) {
+        return '';
+    }
+    return `${month}/${year}`;
+});
 const MIN_PARCELA_BRL = 5;
 const effectiveCardMaxInstallments = computed(() => {
     if (!props.cardInstallmentsEnabled) return 1;
@@ -1946,6 +1959,14 @@ async function getPagarmePaymentToken() {
     }
 }
 
+async function getCieloPaymentToken() {
+    await nextTick();
+    return requestCieloPaymentToken({
+        productId: form.product_id,
+        installments: currentInstallments(),
+    });
+}
+
 async function getEfiPaymentToken() {
     const EfiPay = (await import('payment-token-efi')).default;
     const env = props.cardEfiSandbox ? 'sandbox' : 'production';
@@ -2110,6 +2131,16 @@ function submit() {
                 cardFormError.value = 'Preencha o endereço de cobrança completo (CEP, rua, número, bairro, cidade e UF).';
                 return;
             }
+        } else if (isCardGatewayCielo.value) {
+            const nameOk = (cardHolderName.value || form.name || '').trim().length >= 3;
+            const numberOk = cardNumberDigits.value.length >= 13 && cardNumberDigits.value.length <= 19;
+            const expOk = cardExpMonth.value.length === 2 && parseInt(cardExpMonth.value, 10) >= 1 && parseInt(cardExpMonth.value, 10) <= 12
+                && (cardExpYear.value.length === 2 || cardExpYear.value.length === 4);
+            const cvvOk = cardCvv.value.length >= 3 && cardCvv.value.length <= 4;
+            if (!nameOk || !numberOk || !expOk || !cvvOk) {
+                cardFormError.value = props.t('checkout.card_fill_all') || 'Preencha todos os dados do cartão corretamente.';
+                return;
+            }
         } else {
             if (!props.cardPayeeCode || !props.cardPayeeCode.trim()) {
                 cardFormError.value = props.t('checkout.card_not_configured') || 'Pagamento por cartão não está configurado.';
@@ -2131,7 +2162,9 @@ function submit() {
             ? getStripePaymentMethod()
             : isCardGatewayPagarme.value
                 ? getPagarmePaymentToken()
-                : getEfiPaymentToken();
+                : isCardGatewayCielo.value
+                    ? getCieloPaymentToken()
+                    : getEfiPaymentToken();
         getTokenPromise
             .then(({ payment_token, card_mask }) => {
                 const payload = {
@@ -3084,8 +3117,15 @@ function submit() {
                         Aguardando confirmação do pagamento…
                     </p>
                 </div>
-                <!-- Efí: campos manuais para tokenização payment-token-efi -->
-                <div v-else-if="isCardGatewayEfi" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <!-- Efí / Cielo: campos manuais (Cielo tokeniza via Silent Order Post, sem PAN no backend) -->
+                <div v-else-if="isCardGatewayEfi || isCardGatewayCielo" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <template v-if="isCardGatewayCielo">
+                        <input type="hidden" class="bp-sop-cardholdername" :value="(cardHolderName || form.name || '').trim()" />
+                        <input type="hidden" class="bp-sop-cardnumber" :value="cardNumberDigits" />
+                        <input type="hidden" class="bp-sop-cardexpirationdate" :value="cieloExpirationDate" />
+                        <input type="hidden" class="bp-sop-cardcvvc" :value="cardCvv" />
+                        <input type="hidden" class="bp-sop-cardtype" value="creditCard" />
+                    </template>
                     <div class="relative sm:col-span-2">
                         <label for="card-holder" class="mb-2 block text-sm font-medium text-gray-700">{{ t('checkout.card_holder') || 'Nome no cartão' }}</label>
                         <div class="relative">

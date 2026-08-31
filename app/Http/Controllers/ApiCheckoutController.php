@@ -6,25 +6,24 @@ use App\Events\BoletoGenerated;
 use App\Events\OrderCompleted;
 use App\Events\OrderPending;
 use App\Events\PixGenerated;
+use App\Gateways\Versell\VersellCredentials;
 use App\Models\ApiApplication;
 use App\Models\ApiCheckoutSession;
+use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductOffer;
-use App\Models\GatewayCredential;
 use App\Models\Setting;
 use App\Models\SubscriptionPlan;
-use App\Models\User;
+use App\Services\Checkout\CheckoutAbuseGuard;
 use App\Services\EfiPixRecorrenteService;
+use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
 use App\Services\PushinPayPixRecorrenteService;
-use App\Services\Versell\VersellPixRecorrenteService;
-use App\Gateways\Versell\VersellCredentials;
 use App\Services\Shipping\CheckoutShippingHelper;
 use App\Services\StorageService;
-use App\Services\Checkout\CheckoutAbuseGuard;
-use App\Services\MinimumChargeService;
+use App\Services\Versell\VersellPixRecorrenteService;
 use App\Support\CheckoutTurnstileSettings;
 use App\Support\FakeConsumerData;
 use App\Support\GatewayWebhookUrl;
@@ -133,6 +132,18 @@ class ApiCheckoutController extends Controller
             if (trim($cardPagarmePublicKey) === '') {
                 $firstCardGateway = null;
             }
+        } elseif ($cardGatewaySlug === 'cielo') {
+            $cred = GatewayCredential::resolveForPayment($tenantId, 'cielo');
+            $merchantId = '';
+            $merchantKey = '';
+            if ($cred) {
+                $creds = $cred->getDecryptedCredentials();
+                $merchantId = trim((string) ($creds['merchant_id'] ?? ''));
+                $merchantKey = trim((string) ($creds['merchant_key'] ?? ''));
+            }
+            if ($merchantId === '' || $merchantKey === '' || $productModel === null) {
+                $firstCardGateway = null;
+            }
         }
 
         if ($boletoEnabled && ($pg['boleto'] ?? null) === 'efi') {
@@ -188,6 +199,7 @@ class ApiCheckoutController extends Controller
             'amount' => (float) $session->amount,
             'currency' => $session->currency ?? 'BRL',
             'currencies' => $currencies,
+            'product_id' => $productModel?->id,
             'product_name' => $productName,
             'product_image_url' => $productImageUrl,
             'available_methods' => $availableMethods,
@@ -480,7 +492,7 @@ class ApiCheckoutController extends Controller
                         $webhookUrl,
                         $frequency,
                         $subscriptionName,
-                        'Assinatura PIX automático - Pedido #' . $order->id
+                        'Assinatura PIX automático - Pedido #'.$order->id
                     );
 
                     $txid = $result['transaction_id'];
@@ -501,7 +513,7 @@ class ApiCheckoutController extends Controller
                     ]));
 
                     $pixToken = Str::random(32);
-                    session()->put('pix_display.' . $pixToken, [
+                    session()->put('pix_display.'.$pixToken, [
                         'order_id' => $order->id,
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
@@ -510,6 +522,7 @@ class ApiCheckoutController extends Controller
                         'redirect_after_purchase' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                         'created_at' => time(),
                     ]);
+
                     return redirect()->route('checkout.pix', ['token' => $pixToken]);
                 }
 
@@ -523,8 +536,8 @@ class ApiCheckoutController extends Controller
                         throw new \RuntimeException('Efí: certificado ou chave PIX não configurados.');
                     }
 
-                    $base = 'pixauto' . $order->id;
-                    $txid = $base . Str::random(max(26 - strlen($base), 10));
+                    $base = 'pixauto'.$order->id;
+                    $txid = $base.Str::random(max(26 - strlen($base), 10));
                     $txid = substr($txid, 0, 35);
 
                     $efiRecorrente = new EfiPixRecorrenteService($credentials);
@@ -536,7 +549,7 @@ class ApiCheckoutController extends Controller
                         (float) $amount,
                         $consumer,
                         $credentials['pix_key'],
-                        'Assinatura PIX automático - Pedido #' . $order->id
+                        'Assinatura PIX automático - Pedido #'.$order->id
                     );
 
                     $criacao = now();
@@ -597,7 +610,7 @@ class ApiCheckoutController extends Controller
                     ]));
 
                     $pixToken = Str::random(32);
-                    session()->put('pix_display.' . $pixToken, [
+                    session()->put('pix_display.'.$pixToken, [
                         'order_id' => $order->id,
                         'qrcode' => $qrcodeImage,
                         'copy_paste' => $copyPaste ?? '',
@@ -606,6 +619,7 @@ class ApiCheckoutController extends Controller
                         'redirect_after_purchase' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                         'created_at' => time(),
                     ]);
+
                     return redirect()->route('checkout.pix', ['token' => $pixToken]);
                 }
 
@@ -710,6 +724,7 @@ class ApiCheckoutController extends Controller
                 throw new \RuntimeException('Gateway PIX automático não suportado.');
             } catch (\Throwable $e) {
                 $order->delete();
+
                 return redirect()->back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX automático.');
             }
         }
@@ -725,7 +740,7 @@ class ApiCheckoutController extends Controller
                     'transaction_id' => $result['transaction_id'] ?? null,
                 ]));
                 $pixToken = Str::random(32);
-                session()->put('pix_display.' . $pixToken, [
+                session()->put('pix_display.'.$pixToken, [
                     'order_id' => $order->id,
                     'qrcode' => $result['qrcode'] ?? null,
                     'copy_paste' => $result['copy_paste'] ?? null,
@@ -734,9 +749,11 @@ class ApiCheckoutController extends Controller
                     'redirect_after_purchase' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                     'created_at' => time(),
                 ]);
+
                 return redirect()->route('checkout.pix', ['token' => $pixToken]);
             } catch (\Throwable $e) {
                 $order->delete();
+
                 return redirect()->back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o PIX.');
             }
         }
@@ -753,8 +770,8 @@ class ApiCheckoutController extends Controller
                 ];
                 event(new BoletoGenerated($order, $boletoData));
                 $boletoToken = Str::random(32);
-                $amountFormatted = 'R$ ' . number_format($result['amount'] ?? $amount, 2, ',', '.');
-                session()->put('boleto_display.' . $boletoToken, [
+                $amountFormatted = 'R$ '.number_format($result['amount'] ?? $amount, 2, ',', '.');
+                session()->put('boleto_display.'.$boletoToken, [
                     'order_id' => $order->id,
                     'amount_formatted' => $amountFormatted,
                     'expire_at' => $result['expire_at'] ?? null,
@@ -766,9 +783,11 @@ class ApiCheckoutController extends Controller
                     'customer_email' => $email,
                     'customer_phone' => $customer['phone'] ?? null,
                 ]);
+
                 return redirect()->route('checkout.boleto', ['token' => $boletoToken]);
             } catch (\Throwable $e) {
                 $order->delete();
+
                 return redirect()->back()->with('error', $e->getMessage() ?: 'Não foi possível gerar o boleto.');
             }
         }
@@ -809,6 +828,7 @@ class ApiCheckoutController extends Controller
                         'return_url' => route('api-checkout.thank-you', ['order_id' => $order->id]),
                         'stripe_publishable_key' => $stripeKey,
                     ]);
+
                     return redirect()->route('api-checkout.card-confirm');
                 }
                 if ($order->fresh()->status === 'completed') {
@@ -820,6 +840,7 @@ class ApiCheckoutController extends Controller
                 return redirect()->back()->with('success', 'Pagamento em processamento. Você receberá a confirmação por e-mail.');
             } catch (\Throwable $e) {
                 $order->delete();
+
                 return redirect()->back()->with('error', $e->getMessage() ?: 'Não foi possível processar o cartão.');
             }
         }
@@ -869,6 +890,7 @@ class ApiCheckoutController extends Controller
             return redirect()->to('/')->with('error', 'Sessão de confirmação inválida.');
         }
         session()->forget('api_checkout_card_confirm');
+
         return Inertia::render('ApiCheckout/CardConfirm', [
             'client_secret' => $data['client_secret'],
             'return_url' => $data['return_url'] ?? url('/'),

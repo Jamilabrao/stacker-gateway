@@ -123,6 +123,9 @@ class GatewaysController extends Controller
         } elseif ($slug === 'versell') {
             $webhookUrl = GatewayWebhookUrl::forGateway('versell');
             $webhookHelp = 'Cash In: …/webhooks/gateways/versell (notifica em /pix). Cash Out: …/transfer e …/cashout. Pix Automático: …/pix-automatico (notifica em /rec e /cobr). “Testar conexão” tenta registrar todos. Use HTTPS público (GETFY_WEBHOOK_PUBLIC_URL).';
+        } elseif ($slug === 'cielo') {
+            $webhookUrl = GatewayWebhookUrl::forGateway('cielo');
+            $webhookHelp = 'Cadastre esta URL HTTPS no Site Cielo (E-commerce → Gestão API E-commerce → URL de notificações), método POST, JSON. A URL é estática (não vai em cada cobrança). Recomendado: configure o mesmo header Key/Value no portal e nos campos abaixo. O Post de Notificação só traz PaymentId; o sistema confirma o status em GET /1/sales/{PaymentId}. PIX Cielo2 (Provider Cielo2) não tem sandbox de pagamento confirmado.';
         }
 
         $fileFieldsConfigured = [];

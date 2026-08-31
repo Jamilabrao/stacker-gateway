@@ -10,6 +10,7 @@ import {
     requestPagarmeTokenFromForm,
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
+import { requestCieloPaymentToken } from '@/composables/useCieloSilentOrderPost.js';
 
 const RENEWAL_PAGARME_TOKENIZE_FORM_ID = 'renewal-pagarme-tokenize-form';
 
@@ -70,7 +71,20 @@ const canPayWithStripe = computed(() => props.card_gateway_slug === 'stripe' && 
 const canPayWithEfi = computed(() => props.card_gateway_slug === 'efi' && (props.card_payee_code || '').trim() !== '');
 const canPayWithPagarme = computed(() => props.card_gateway_slug === 'pagarme' && (props.card_pagarme_public_key || '').trim() !== '');
 const canPayWithMercadopago = computed(() => props.card_gateway_slug === 'mercadopago' && (props.card_mercadopago_public_key || '').trim() !== '');
-const canPayWithCard = computed(() => methods.value.some((m) => m.id === 'card') && (canPayWithStripe.value || canPayWithEfi.value || canPayWithPagarme.value || canPayWithMercadopago.value));
+const canPayWithCielo = computed(() => props.card_gateway_slug === 'cielo' && props.product?.id != null && String(props.product.id) !== '');
+const canPayWithCard = computed(() => methods.value.some((m) => m.id === 'card') && (canPayWithStripe.value || canPayWithEfi.value || canPayWithPagarme.value || canPayWithMercadopago.value || canPayWithCielo.value));
+const cieloExpirationDate = computed(() => {
+    const digits = (efiCardExp.value || '').replace(/\D/g, '');
+    const month = digits.slice(0, 2);
+    let year = digits.slice(2);
+    if (year.length === 2) {
+        year = `20${year}`;
+    }
+    if (month.length !== 2 || year.length !== 4) {
+        return '';
+    }
+    return `${month}/${year}`;
+});
 
 const stripeCardRef = ref(null);
 const stripeInstance = ref(null);
@@ -255,6 +269,26 @@ async function tokenizeAndSubmitCard() {
             const last4 = numberDigits.slice(-4);
             form.payment_token = JSON.stringify({ card_token: tokenId, installments: 1 });
             form.card_mask = last4 ? `**** ${last4}` : '';
+        } else if (canPayWithCielo.value) {
+            const numberDigits = (efiCardNumber.value || '').replace(/\D/g, '');
+            const expDigits = (efiCardExp.value || '').replace(/\D/g, '');
+            const month = expDigits.slice(0, 2);
+            let year = expDigits.slice(2);
+            if (year.length === 2) year = `20${year}`;
+            const cvv = (efiCardCvv.value || '').replace(/\D/g, '').slice(0, 4);
+            if (numberDigits.length < 13 || numberDigits.length > 19 || month.length !== 2 || year.length !== 4 || cvv.length < 3) {
+                cardError.value = 'Preencha todos os dados do cartão corretamente.';
+                cardSubmitting.value = false;
+                return;
+            }
+            await nextTick();
+            const { payment_token, card_mask } = await requestCieloPaymentToken({
+                productId: props.product.id,
+                installments: 1,
+            });
+            const last4 = numberDigits.slice(-4);
+            form.payment_token = payment_token;
+            form.card_mask = card_mask || (last4 ? `**** ${last4}` : '');
         } else if (canPayWithEfi.value) {
             const numberDigits = (efiCardNumber.value || '').replace(/\D/g, '');
             const expDigits = (efiCardExp.value || '').replace(/\D/g, '');
@@ -428,7 +462,14 @@ function submitRenewal() {
                                 </div>
                             </div>
                         </template>
-                        <template v-else-if="canPayWithEfi">
+                        <template v-else-if="canPayWithEfi || canPayWithCielo">
+                            <template v-if="canPayWithCielo">
+                                <input type="hidden" class="bp-sop-cardholdername" :value="(cardHolderName || '').trim()" />
+                                <input type="hidden" class="bp-sop-cardnumber" :value="(efiCardNumber || '').replace(/\D/g, '')" />
+                                <input type="hidden" class="bp-sop-cardexpirationdate" :value="cieloExpirationDate" />
+                                <input type="hidden" class="bp-sop-cardcvvc" :value="(efiCardCvv || '').replace(/\D/g, '')" />
+                                <input type="hidden" class="bp-sop-cardtype" value="creditCard" />
+                            </template>
                             <div class="grid gap-3">
                                 <div>
                                     <label class="mb-1 block text-xs font-medium text-zinc-600">Número</label>

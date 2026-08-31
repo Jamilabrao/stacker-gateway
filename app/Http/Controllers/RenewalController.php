@@ -6,17 +6,17 @@ use App\Events\BoletoGenerated;
 use App\Events\OrderPending;
 use App\Events\PixGenerated;
 use App\Gateways\GatewayRegistry;
+use App\Gateways\Versell\VersellCredentials;
 use App\Models\GatewayCredential;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Subscription;
 use App\Services\EfiPixRecorrenteService;
-use App\Services\Versell\VersellPixRecorrenteService;
-use App\Gateways\Versell\VersellCredentials;
 use App\Services\MinimumChargeService;
 use App\Services\PaymentService;
 use App\Services\PlatformCardInstallments;
 use App\Services\SubscriptionRenewalService;
+use App\Services\Versell\VersellPixRecorrenteService;
 use App\Support\CheckoutCardContract;
 use App\Support\FakeConsumerData;
 use Illuminate\Http\RedirectResponse;
@@ -196,6 +196,20 @@ class RenewalController extends Controller
             }
             if ($slug === 'pagarme') {
                 $payload['card_gateway_keys'][$slug]['api_base_url'] = rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/');
+            }
+            if ($slug === 'cielo') {
+                $payload['card_gateway_keys'][$slug]['sandbox'] = ! empty($creds['sandbox']);
+                $payload['card_gateway_keys'][$slug]['sop_configured'] = trim((string) ($creds['sop_client_id'] ?? '')) !== ''
+                    && trim((string) ($creds['sop_client_secret'] ?? '')) !== '';
+            }
+        }
+        foreach ($availablePaymentMethods as $m) {
+            if (($m['id'] ?? '') === 'card' && ($m['gateway_slug'] ?? '') === 'cielo') {
+                $cred = GatewayCredential::resolveForPayment($tenantId, 'cielo');
+                if ($cred) {
+                    $payload['card_gateway_slug'] = 'cielo';
+                }
+                break;
             }
         }
     }

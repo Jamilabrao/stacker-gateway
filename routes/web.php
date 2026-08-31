@@ -163,6 +163,7 @@ Route::middleware(['throttle:60,1', \App\Http\Middleware\LogInboundGatewayWebhoo
     Route::post('/webhooks/gateways/pushinpay', [\App\Http\Controllers\Webhooks\PushinPayWebhookController::class, 'handle'])->name('webhooks.pushinpay');
     Route::post('/webhooks/gateways/asaas', [\App\Http\Controllers\Webhooks\AsaasWebhookController::class, 'handle'])->name('webhooks.asaas');
     Route::post('/webhooks/gateways/pagarme', [\App\Http\Controllers\Webhooks\PagarmeWebhookController::class, 'handle'])->name('webhooks.pagarme');
+    Route::post('/webhooks/gateways/cielo', [\App\Http\Controllers\Webhooks\CieloWebhookController::class, 'handle'])->name('webhooks.cielo');
     Route::post('/webhooks/gateways/cajupay/checkout', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay.checkout');
     Route::post('/webhooks/gateways/cajupay', [\App\Http\Controllers\Webhooks\CajuPayCheckoutWebhookController::class, 'handle'])->name('webhooks.cajupay');
     Route::post('/webhooks/gateways/cajupay/payout', [\App\Http\Controllers\Webhooks\CajuPayPayoutWebhookController::class, 'handle'])->name('webhooks.cajupay.payout');
@@ -228,6 +229,9 @@ Route::get('/checkout/cajupay/session-status', [\App\Http\Controllers\CajuPayChe
 Route::post('/checkout/pagarme-tokenize-sink', fn () => response()->noContent())
     ->name('checkout.pagarme-tokenize-sink')
     ->middleware('throttle:120,1');
+Route::post('/checkout/cielo-sop-token', [\App\Http\Controllers\CieloSopController::class, 'token'])
+    ->name('checkout.cielo-sop-token')
+    ->middleware('throttle:30,1');
 Route::post('/api/checkout/track', [\App\Http\Controllers\CheckoutTrackingController::class, 'track'])
     ->name('checkout.track')
     ->middleware('throttle:checkout-track');

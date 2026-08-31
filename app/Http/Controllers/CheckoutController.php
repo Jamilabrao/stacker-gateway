@@ -330,6 +330,11 @@ class CheckoutController extends Controller
             if ($slug === 'pagarme') {
                 $payload['card_gateway_keys'][$slug]['api_base_url'] = rtrim((string) config('services.pagarme.base_url', 'https://api.pagar.me/core/v5'), '/');
             }
+            if ($slug === 'cielo') {
+                $payload['card_gateway_keys'][$slug]['sandbox'] = ! empty($creds['sandbox']);
+                $payload['card_gateway_keys'][$slug]['sop_configured'] = trim((string) ($creds['sop_client_id'] ?? '')) !== ''
+                    || ! empty($creds['sandbox']);
+            }
         }
         $cardInstallmentsConfig = $config['card_installments'] ?? ['enabled' => false, 'max' => 1];
         $isSubscriptionCheckout = ($resolved['plan'] ?? null) !== null;

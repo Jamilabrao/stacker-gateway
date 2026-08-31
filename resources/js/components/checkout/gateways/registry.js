@@ -57,6 +57,10 @@ export const gatewayMethodComponents = {
         card: DefaultMethodCard,
         boleto: DefaultMethodCard,
     },
+    cielo: {
+        pix: DefaultMethodCard,
+        card: DefaultMethodCard,
+    },
     cajupay: {
         pix: DefaultMethodCard,
         card: DefaultMethodCard,

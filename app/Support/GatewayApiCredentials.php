@@ -32,6 +32,8 @@ final class GatewayApiCredentials
                 && trim((string) ($credentials['client_secret'] ?? '')) !== '',
             // Cash In: client_id/secret/pix_key + mTLS. Cash Out não é exigido para cobrança.
             'versell' => \App\Gateways\Versell\VersellCredentials::isCashInReady($credentials),
+            'cielo' => trim((string) ($credentials['merchant_id'] ?? '')) !== ''
+                && trim((string) ($credentials['merchant_key'] ?? '')) !== '',
             default => true,
         };
     }

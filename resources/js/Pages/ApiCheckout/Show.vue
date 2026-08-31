@@ -11,6 +11,7 @@ import {
     requestPagarmeTokenFromForm,
     resetPagarmeTokenizeScriptState,
 } from '@/composables/usePagarmeTokenizecard.js';
+import { requestCieloPaymentToken } from '@/composables/useCieloSilentOrderPost.js';
 
 defineOptions({ layout: null });
 
@@ -25,6 +26,7 @@ const props = defineProps({
     amount: { type: Number, required: true },
     currency: { type: String, default: 'BRL' },
     currencies: { type: Array, default: () => [] },
+    product_id: { type: [String, Number], default: null },
     product_name: { type: String, default: null },
     product_image_url: { type: String, default: null },
     available_methods: { type: Array, default: () => [] },
@@ -166,7 +168,20 @@ function onError(errors) {
 const canPayWithStripe = computed(() => props.card_gateway_slug === 'stripe' && (props.card_stripe_publishable_key || '').trim() !== '');
 const canPayWithEfi = computed(() => props.card_gateway_slug === 'efi' && (props.card_efi_payee_code || '').trim() !== '');
 const canPayWithPagarme = computed(() => props.card_gateway_slug === 'pagarme' && (props.card_pagarme_public_key || '').trim() !== '');
-const canPayWithCard = computed(() => props.available_methods?.includes('card') && (canPayWithStripe.value || canPayWithEfi.value || canPayWithPagarme.value));
+const canPayWithCielo = computed(() => props.card_gateway_slug === 'cielo' && props.product_id != null && String(props.product_id) !== '');
+const canPayWithCard = computed(() => props.available_methods?.includes('card') && (canPayWithStripe.value || canPayWithEfi.value || canPayWithPagarme.value || canPayWithCielo.value));
+const cieloExpirationDate = computed(() => {
+    const digits = (efiCardExp.value || '').replace(/\D/g, '');
+    const month = digits.slice(0, 2);
+    let year = digits.slice(2);
+    if (year.length === 2) {
+        year = `20${year}`;
+    }
+    if (month.length !== 2 || year.length !== 4) {
+        return '';
+    }
+    return `${month}/${year}`;
+});
 
 /** Método selecionado para exibir o bloco de ação (pix, boleto, card ou null). */
 const selectedMethod = ref(null);
@@ -392,6 +407,42 @@ async function submitCard(ev) {
                 payment_method: 'card',
                 payment_token: JSON.stringify({ card_token: tokenId, installments: 1 }),
                 card_mask: last4 ? `**** ${last4}` : '',
+            }, {
+                preserveScroll: true,
+                onError: (err) => {
+                    onError(err);
+                    cardSubmitting.value = false;
+                },
+                onFinish: () => { cardSubmitting.value = false; },
+            });
+            return;
+        }
+
+        if (canPayWithCielo.value) {
+            const numberDigits = (efiCardNumber.value || '').replace(/\D/g, '');
+            const expDigits = (efiCardExp.value || '').replace(/\D/g, '');
+            const month = expDigits.slice(0, 2);
+            let year = expDigits.slice(2);
+            if (year.length === 2) {
+                year = `20${year}`;
+            }
+            const cvv = (efiCardCvv.value || '').replace(/\D/g, '').slice(0, 4);
+            if (numberDigits.length < 13 || numberDigits.length > 19 || month.length !== 2 || year.length !== 4 || cvv.length < 3) {
+                error.value = 'Preencha todos os dados do cartão corretamente.';
+                cardSubmitting.value = false;
+                return;
+            }
+            await nextTick();
+            const { payment_token, card_mask } = await requestCieloPaymentToken({
+                productId: props.product_id,
+                installments: 1,
+            });
+            const last4 = numberDigits.slice(-4);
+            router.post('/api-checkout/pay', {
+                session_token: props.session_token,
+                payment_method: 'card',
+                payment_token,
+                card_mask: card_mask || (last4 ? `**** ${last4}` : ''),
             }, {
                 preserveScroll: true,
                 onError: (err) => {
@@ -817,7 +868,14 @@ async function submitCard(ev) {
                                         </div>
                                     </div>
                                 </template>
-                                <template v-else-if="canPayWithEfi">
+                                <template v-else-if="canPayWithEfi || canPayWithCielo">
+                                    <template v-if="canPayWithCielo">
+                                        <input type="hidden" class="bp-sop-cardholdername" :value="(cardHolderName || '').trim()" />
+                                        <input type="hidden" class="bp-sop-cardnumber" :value="(efiCardNumber || '').replace(/\D/g, '')" />
+                                        <input type="hidden" class="bp-sop-cardexpirationdate" :value="cieloExpirationDate" />
+                                        <input type="hidden" class="bp-sop-cardcvvc" :value="(efiCardCvv || '').replace(/\D/g, '')" />
+                                        <input type="hidden" class="bp-sop-cardtype" value="creditCard" />
+                                    </template>
                                     <div>
                                         <label for="card-number-efi" class="mb-2 block text-sm font-medium text-zinc-700">Número do cartão</label>
                                         <input

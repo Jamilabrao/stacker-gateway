@@ -3,7 +3,7 @@
 namespace App\Support;
 
 /**
- * Parcelamento no cartão (Pagar.me, Efí, Asaas): teto 12x e mínimo R$ 5,00 por parcela.
+ * Parcelamento no cartão (Pagar.me, Efí, Asaas, Cielo): teto 12x e mínimo R$ 5,00 por parcela.
  * O comprador vê o valor total dividido em Nx sem juros; taxas ficam no contrato do adquirente.
  */
 final class CardInstallments
@@ -13,7 +13,7 @@ final class CardInstallments
     public const MAX_ALLOWED = 12;
 
     /** @var list<string> */
-    public const GATEWAY_SLUGS = ['pagarme', 'efi', 'asaas'];
+    public const GATEWAY_SLUGS = ['pagarme', 'efi', 'asaas', 'cielo'];
 
     public static function gatewaySupports(?string $slug): bool
     {

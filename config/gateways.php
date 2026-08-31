@@ -266,6 +266,28 @@ return [
                 ['key' => 'versell_admin_fee_payout_brl', 'label' => 'Taxa de saque paga à Versell (R$)', 'type' => 'text', 'optional' => true, 'group' => 'cash_out', 'group_label' => 'Versell — Cash Out'],
             ],
         ],
+        'cielo' => [
+            'slug' => 'cielo',
+            'name' => 'Cielo',
+            'image' => 'images/gateways/cielo.svg',
+            'methods' => ['pix', 'card'],
+            'scope' => 'national',
+            'country' => 'br',
+            'country_name' => 'Brasil',
+            'country_flag' => 'brasil.png',
+            'signup_url' => 'https://www.cielo.com.br',
+            'driver' => \App\Gateways\Cielo\CieloDriver::class,
+            'checkout_payload_keys' => ['sandbox'],
+            'credential_keys' => [
+                ['key' => 'merchant_id', 'label' => 'MerchantId (API E-commerce)', 'type' => 'text', 'group' => 'api', 'group_label' => 'API de pagamentos'],
+                ['key' => 'merchant_key', 'label' => 'MerchantKey (API E-commerce)', 'type' => 'password', 'group' => 'api', 'group_label' => 'API de pagamentos'],
+                ['key' => 'sandbox', 'label' => 'Usar sandbox (cartão; PIX Cielo2 não tem sandbox de pago)', 'type' => 'boolean', 'group' => 'api', 'group_label' => 'API de pagamentos'],
+                ['key' => 'webhook_header_key', 'label' => 'Header do webhook (nome, cadastro no Site Cielo)', 'type' => 'text', 'optional' => true, 'group' => 'api', 'group_label' => 'API de pagamentos'],
+                ['key' => 'webhook_header_value', 'label' => 'Header do webhook (valor secreto)', 'type' => 'password', 'optional' => true, 'group' => 'api', 'group_label' => 'API de pagamentos'],
+                ['key' => 'sop_client_id', 'label' => 'ClientId Silent Order Post (cartão)', 'type' => 'text', 'optional' => true, 'group' => 'sop', 'group_label' => 'Silent Order Post (cartão)'],
+                ['key' => 'sop_client_secret', 'label' => 'ClientSecret Silent Order Post (cartão)', 'type' => 'password', 'optional' => true, 'group' => 'sop', 'group_label' => 'Silent Order Post (cartão)'],
+            ],
+        ],
     ],
 
     /*
@@ -297,6 +319,7 @@ return [
         'stripe',
         'linaopenx',
         'versell', // Cash In + Cash Out (dict)
+        'cielo',
     ],
 
     /*
@@ -305,8 +328,8 @@ return [
     |--------------------------------------------------------------------------
     */
     'default_order' => [
-        'pix' => ['cajupay', /* 'spacepag', */ 'woovi', 'bspay', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas', 'versell'],
-        'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas'],
+        'pix' => ['cajupay', /* 'spacepag', */ 'woovi', 'bspay', 'onlyup', 'efi', 'mercadopago', 'pagarme', 'pushinpay', 'asaas', 'versell', 'cielo'],
+        'card' => ['cajupay', 'efi', 'stripe', 'mercadopago', 'pagarme', 'asaas', 'cielo'],
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
         'pix_auto' => ['efi', 'pushinpay', 'versell'],
         'open_finance' => ['linaopenx'],

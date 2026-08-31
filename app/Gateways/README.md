@@ -7,7 +7,7 @@ Cada gateway fica em sua própria pasta (ex: `Spacepag/`, `Efi/`) para facilitar
 - `Contracts/GatewayDriver.php` – interface que todo driver implementa.
 - `GatewayRegistry.php` – registro de gateways (config + plugins).
 - `Spacepag/SpacepagDriver.php` – driver do gateway Spacepag (PIX).
-- `Efi/EfiDriver.php` – driver Efí (PIX; boleto/cartão/assinaturas preparados para fase futura). Requer certificado P12 (upload nas configurações) e suporta sandbox/produção.
+- `Cielo/CieloDriver.php` – driver Cielo API E-commerce (PIX Cielo2 + cartão com captura automática e Silent Order Post). Credenciais: MerchantId/MerchantKey; SOP ClientId/Secret só para cartão.
 
 ## Como adicionar um novo gateway (core)
 
