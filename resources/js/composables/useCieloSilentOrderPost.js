@@ -12,6 +12,24 @@ const SOP_SCRIPT = {
     production: 'https://www.pagador.com.br/post/scripts/silentorderpost-1.0.min.js',
 };
 
+function sopFunction() {
+    const fn = typeof window !== 'undefined' ? window.bpSop_silentOrderPost : null;
+    return typeof fn === 'function' ? fn : null;
+}
+
+/**
+ * SOP só aceita A-Z e espaço no nome (sem acento). Sem isso o script recusa o cartão.
+ */
+export function formatCieloSopHolderName(name) {
+    return String(name || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z ]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 64);
+}
+
 function csrfToken() {
     const match = typeof document !== 'undefined' && document.cookie ? document.cookie.match(/XSRF-TOKEN=([^;]+)/) : null;
     if (match) {
@@ -25,23 +43,31 @@ function csrfToken() {
 }
 
 function loadSopScript(environment) {
-    const env = environment === 'sandbox' ? 'sandbox' : 'production';
-    const src = SOP_SCRIPT[env];
-    const existing = document.querySelector(`script[${SCRIPT_ATTR}]`);
-    if (existing && existing.getAttribute('src') === src) {
+    if (sopFunction()) {
         return Promise.resolve();
     }
-    if (existing) {
-        existing.remove();
-    }
+
+    const env = environment === 'sandbox' ? 'sandbox' : 'production';
+    const src = SOP_SCRIPT[env];
+    document.querySelectorAll(`script[${SCRIPT_ATTR}]`).forEach((el) => el.remove());
 
     return new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
         script.async = true;
         script.setAttribute(SCRIPT_ATTR, '1');
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('Não foi possível carregar o Silent Order Post da Cielo.'));
+        script.onload = () => {
+            if (sopFunction()) {
+                resolve();
+                return;
+            }
+            script.remove();
+            reject(new Error('Script Silent Order Post da Cielo indisponível.'));
+        };
+        script.onerror = () => {
+            script.remove();
+            reject(new Error('Não foi possível carregar o Silent Order Post da Cielo.'));
+        };
         document.head.appendChild(script);
     });
 }
@@ -88,8 +114,8 @@ export async function requestCieloPaymentToken(options) {
 
     await loadSopScript(environment);
 
-    const sopFn = typeof window !== 'undefined' ? window.bpSop_silentOrderPost : null;
-    if (typeof sopFn !== 'function') {
+    const sopFn = sopFunction();
+    if (!sopFn) {
         throw new Error('Script Silent Order Post da Cielo indisponível.');
     }
 
@@ -106,7 +132,11 @@ export async function requestCieloPaymentToken(options) {
                 cardType: 'creditCard',
                 onSuccess: (response) => resolve(response && typeof response === 'object' ? response : {}),
                 onError: (response) => {
-                    const msg = response?.Message || response?.message || 'Falha na tokenização Cielo.';
+                    const msg = response?.Message
+                        || response?.message
+                        || response?.Text
+                        || (response?.Code != null ? `Falha na tokenização Cielo (HTTP ${response.Code}).` : null)
+                        || 'Falha na tokenização Cielo.';
                     reject(new Error(typeof msg === 'string' ? msg : 'Falha na tokenização Cielo.'));
                 },
                 onInvalid: (validation) => {
