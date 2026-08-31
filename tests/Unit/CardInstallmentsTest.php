@@ -7,11 +7,12 @@ use Tests\TestCase;
 
 class CardInstallmentsTest extends TestCase
 {
-    public function test_gateway_supports_pagarme_efi_asaas_only(): void
+    public function test_gateway_supports_pagarme_efi_asaas_cielo(): void
     {
         $this->assertTrue(CardInstallments::gatewaySupports('pagarme'));
         $this->assertTrue(CardInstallments::gatewaySupports('efi'));
         $this->assertTrue(CardInstallments::gatewaySupports('asaas'));
+        $this->assertTrue(CardInstallments::gatewaySupports('cielo'));
         $this->assertFalse(CardInstallments::gatewaySupports('cajupay'));
         $this->assertFalse(CardInstallments::gatewaySupports('stripe'));
         $this->assertFalse(CardInstallments::gatewaySupports(null));

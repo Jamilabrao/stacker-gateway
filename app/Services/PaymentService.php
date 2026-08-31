@@ -80,6 +80,9 @@ class PaymentService
                 if (! empty($resolved['gateway_credential_id'])) {
                     $meta['gateway_credential_id'] = (int) $resolved['gateway_credential_id'];
                 }
+                if (isset($result['metadata']) && is_array($result['metadata'])) {
+                    $meta = array_merge($meta, $result['metadata']);
+                }
                 $order->update([
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
@@ -156,11 +159,18 @@ class PaymentService
                     (string) $order->id,
                     $card
                 );
-                $order->update([
+                $cardPatch = [
                     'gateway' => $gatewaySlug,
                     'gateway_id' => $result['transaction_id'] ?? null,
                     'cajupay_account_id' => $gatewaySlug === 'cajupay' ? ($resolved['cajupay_account_id'] ?? null) : $order->cajupay_account_id,
-                ]);
+                ];
+                if (isset($result['metadata']) && is_array($result['metadata']) && $result['metadata'] !== []) {
+                    $cardPatch['metadata'] = array_merge(
+                        is_array($order->metadata) ? $order->metadata : [],
+                        $result['metadata']
+                    );
+                }
+                $order->update($cardPatch);
                 $return = [
                     'transaction_id' => $result['transaction_id'] ?? '',
                     'gateway' => $gatewaySlug,

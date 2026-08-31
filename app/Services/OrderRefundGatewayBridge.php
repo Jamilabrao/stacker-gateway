@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Gateways\CajuPay\CajuPayDriver;
+use App\Gateways\Cielo\CieloDriver;
 use App\Gateways\GatewayRegistry;
 use App\Gateways\Versell\VersellDriver;
 use App\Models\Order;
@@ -39,6 +40,7 @@ class OrderRefundGatewayBridge
         return match ($gatewaySlug) {
             'cajupay' => $this->tryCajuPayRefund($driver, $order, $credentials),
             'versell' => $this->tryVersellRefund($driver, $order, $credentials),
+            'cielo' => $this->tryCieloRefund($driver, $order, $credentials),
             default => ['status' => 'skipped', 'note' => 'Estorno automático não implementado para este gateway; conclua no adquirente se necessário.'],
         };
     }
@@ -117,6 +119,35 @@ class OrderRefundGatewayBridge
     }
 
     /**
+     * @param  array<string, mixed>  $credentials
+     * @return array{status: string, note: ?string, error_code?: string}
+     */
+    private function tryCieloRefund(object $driver, Order $order, array $credentials): array
+    {
+        if (! $driver instanceof CieloDriver) {
+            return ['status' => 'skipped', 'note' => 'Driver Cielo indisponível para reembolso.'];
+        }
+
+        $paymentId = is_string($order->gateway_id) ? trim($order->gateway_id) : '';
+        if ($paymentId === '') {
+            return ['status' => 'skipped', 'note' => 'Sem PaymentId Cielo no pedido.'];
+        }
+
+        try {
+            $result = $driver->refundTransaction(
+                $credentials,
+                $paymentId,
+                (float) $order->amount,
+                (string) $order->id
+            );
+
+            return $this->mapDriverRefundResult($order, $result, 'cielo');
+        } catch (\Throwable $e) {
+            return $this->mapRefundException($order, 'cielo', $e);
+        }
+    }
+
+    /**
      * @param  array{success?: bool, pending?: bool, message?: string, error_code?: string, raw?: array<string, mixed>, refund_id?: string}  $result
      * @return array{status: string, note: ?string, error_code?: string}
      */
@@ -153,6 +184,19 @@ class OrderRefundGatewayBridge
                     return [
                         'status' => 'gateway_pending',
                         'note' => $result['message'] ?? 'Reembolso PIX enviado; aguardando liquidação na Versell.',
+                    ];
+                }
+            }
+
+            if ($gatewaySlug === 'cielo') {
+                $meta['cielo_refund_status'] = $raw['Status'] ?? ($result['pending'] ? 'scheduled' : 'requested');
+                $meta['cielo_refund_pending'] = ! empty($result['pending']);
+                $order->update(['metadata' => $meta]);
+
+                if (! empty($result['pending'])) {
+                    return [
+                        'status' => 'gateway_pending',
+                        'note' => $result['message'] ?? 'Estorno enviado à Cielo; aguardando confirmação.',
                     ];
                 }
             }
