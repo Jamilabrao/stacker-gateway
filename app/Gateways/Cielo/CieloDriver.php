@@ -41,8 +41,8 @@ class CieloDriver implements GatewayDriver
         $expiration = max(60, min(86400, $expiration));
 
         $body = [
-            'MerchantOrderId' => $this->merchantOrderId($externalId),
-            'Customer' => $this->buildCustomer($consumer),
+            'MerchantOrderId' => $this->merchantOrderId($externalId, 50),
+            'Customer' => $this->buildCustomer($consumer, true),
             'Payment' => [
                 'Type' => 'Pix',
                 'Provider' => 'Cielo2',
@@ -53,7 +53,8 @@ class CieloDriver implements GatewayDriver
             ],
         ];
 
-        $url = CieloHttpClient::transactionalBase($credentials).'/1/sales';
+        // Cielo2 PIX não tem sandbox: cartão pode usar sandbox, PIX sempre produção.
+        $url = CieloHttpClient::transactionalBase($credentials, true).'/1/sales/';
         $response = CieloHttpClient::send($credentials, 'POST', $url, $body);
 
         if (! $response->successful()) {
@@ -63,26 +64,30 @@ class CieloDriver implements GatewayDriver
         $data = $response->json();
         $data = is_array($data) ? $data : [];
         $payment = is_array($data['Payment'] ?? null) ? $data['Payment'] : [];
-        $paymentId = trim((string) ($payment['PaymentId'] ?? ''));
+        $qrNode = is_array($payment['QrCode'] ?? null) ? $payment['QrCode'] : [];
+        $paymentId = $this->firstNonEmptyString($payment, ['PaymentId', 'Paymentid', 'paymentId']);
         if ($paymentId === '') {
             throw new \RuntimeException('Cielo: resposta PIX sem PaymentId.');
         }
 
-        $copy = isset($payment['QrCodeString']) && is_string($payment['QrCodeString'])
-            ? $payment['QrCodeString']
-            : null;
-        $qr = isset($payment['QrCodeBase64Image']) && is_string($payment['QrCodeBase64Image'])
-            ? $payment['QrCodeBase64Image']
-            : null;
+        $copy = $this->firstNonEmptyString($payment, ['QrCodeString', 'QrcodeString', 'Emv']);
+        if ($copy === '') {
+            $copy = $this->firstNonEmptyString($qrNode, ['String', 'Emv', 'QrCodeString']);
+        }
+        $qr = $this->firstNonEmptyString($payment, ['QrCodeBase64Image', 'QrcodeBase64Image']);
+        if ($qr === '') {
+            $qr = $this->firstNonEmptyString($qrNode, ['Base64Image', 'QrcodeBase64Image', 'QrCodeBase64Image']);
+        }
+        $qr = $this->normalizeQrImage($qr);
 
-        if (($copy === null || $copy === '') && ($qr === null || $qr === '')) {
+        if ($copy === '' && $qr === '') {
             throw new \RuntimeException('Cielo: PIX gerado sem QR Code ou copia e cola.');
         }
 
         return [
             'transaction_id' => $paymentId,
-            'qrcode' => $qr,
-            'copy_paste' => $copy,
+            'qrcode' => $qr !== '' ? $qr : null,
+            'copy_paste' => $copy !== '' ? $copy : null,
             'raw' => $data,
             'metadata' => array_filter([
                 'cielo_txid' => isset($payment['SentOrderId']) ? (string) $payment['SentOrderId'] : null,
@@ -120,31 +125,38 @@ class CieloDriver implements GatewayDriver
             return null;
         }
 
-        try {
-            $url = CieloHttpClient::queryBase($credentials).'/1/sales/'.rawurlencode($transactionId);
-            $response = CieloHttpClient::send($credentials, 'GET', $url);
-            if ($response->status() === 404) {
-                return null;
-            }
-            if (! $response->successful()) {
-                Log::debug('CieloDriver getSale HTTP', [
-                    'transaction_id' => $transactionId,
-                    'status' => $response->status(),
-                ]);
-
-                return null;
-            }
-            $data = $response->json();
-
-            return is_array($data) ? $data : null;
-        } catch (\Throwable $e) {
-            Log::debug('CieloDriver getSale', [
-                'transaction_id' => $transactionId,
-                'message' => $e->getMessage(),
-            ]);
-
-            return null;
+        $bases = [CieloHttpClient::queryBase($credentials)];
+        if (CieloHttpClient::isSandbox($credentials)) {
+            $bases[] = rtrim(CieloHttpClient::QUERY_PRODUCTION, '/');
         }
+
+        foreach (array_unique($bases) as $base) {
+            try {
+                $url = $base.'/1/sales/'.rawurlencode($transactionId);
+                $response = CieloHttpClient::send($credentials, 'GET', $url);
+                if ($response->status() === 404) {
+                    continue;
+                }
+                if (! $response->successful()) {
+                    Log::debug('CieloDriver getSale HTTP', [
+                        'transaction_id' => $transactionId,
+                        'status' => $response->status(),
+                    ]);
+
+                    continue;
+                }
+                $data = $response->json();
+
+                return is_array($data) ? $data : null;
+            } catch (\Throwable $e) {
+                Log::debug('CieloDriver getSale', [
+                    'transaction_id' => $transactionId,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return null;
     }
 
     public function createCardPayment(
@@ -246,16 +258,35 @@ class CieloDriver implements GatewayDriver
         }
 
         $amountCents = $this->amountToCents($amount);
-        $url = CieloHttpClient::transactionalBase($credentials).'/1/sales/'.rawurlencode($paymentId).'/void?amount='.$amountCents;
+        $path = '/1/sales/'.rawurlencode($paymentId).'/void?amount='.$amountCents;
+        $urls = [CieloHttpClient::transactionalBase($credentials).$path];
+        if (CieloHttpClient::isSandbox($credentials)) {
+            $urls[] = rtrim(CieloHttpClient::TRANSACTIONAL_PRODUCTION, '/').$path;
+        }
 
+        $payload = [];
+        $response = null;
         try {
-            $response = CieloHttpClient::send($credentials, 'PUT', $url);
+            foreach (array_unique($urls) as $url) {
+                $response = CieloHttpClient::send($credentials, 'PUT', $url);
+                if ($response->status() !== 404) {
+                    break;
+                }
+            }
         } catch (\Throwable $e) {
             Log::warning('CieloDriver refundTransaction request failed', [
                 'order_id' => $externalId,
                 'error' => mb_substr($e->getMessage(), 0, 300),
             ]);
 
+            return [
+                'success' => false,
+                'message' => 'Cielo: falha de comunicação ao solicitar estorno.',
+                'error_code' => 'communication_failure',
+            ];
+        }
+
+        if ($response === null) {
             return [
                 'success' => false,
                 'message' => 'Cielo: falha de comunicação ao solicitar estorno.',
@@ -310,28 +341,37 @@ class CieloDriver implements GatewayDriver
      * @param  array<string, mixed>  $consumer
      * @return array<string, mixed>
      */
-    private function buildCustomer(array $consumer): array
+    private function buildCustomer(array $consumer, bool $forPix = false): array
     {
         $name = trim((string) ($consumer['name'] ?? ''));
         if ($name === '') {
             $name = 'Cliente';
         }
         $name = $this->ascii($name);
+        if ($forPix) {
+            $name = trim((string) preg_replace('/[^a-zA-Z ]+/', ' ', $name));
+            $name = trim((string) preg_replace('/\s+/', ' ', $name));
+            if ($name === '') {
+                $name = 'Cliente';
+            }
+        }
         if (strlen($name) > 255) {
             $name = substr($name, 0, 255);
         }
 
         $document = preg_replace('/\D/', '', (string) ($consumer['document'] ?? '')) ?? '';
         if (strlen($document) < 11) {
-            $document = '00000000000';
+            $document = $forPix ? '' : '00000000000';
         }
         $identityType = strlen($document) >= 14 ? 'CNPJ' : 'CPF';
 
         $customer = [
             'Name' => $name,
-            'Identity' => $document,
-            'IdentityType' => $identityType,
         ];
+        if ($document !== '') {
+            $customer['Identity'] = $document;
+            $customer['IdentityType'] = $identityType;
+        }
 
         $email = trim((string) ($consumer['email'] ?? ''));
         if ($email !== '' && str_contains($email, '@')) {
@@ -411,14 +451,49 @@ class CieloDriver implements GatewayDriver
         return ucfirst($brand);
     }
 
-    private function merchantOrderId(string $externalId): string
+    private function merchantOrderId(string $externalId, int $maxLength = 25): string
     {
         $clean = preg_replace('/[^a-zA-Z0-9]/', '', $externalId) ?? '';
         if ($clean === '') {
             $clean = 'ord';
         }
+        $maxLength = max(1, min(50, $maxLength));
 
-        return substr($clean, 0, 25);
+        return substr($clean, 0, $maxLength);
+    }
+
+    /**
+     * @param  array<string, mixed>  $source
+     * @param  list<string>  $keys
+     */
+    private function firstNonEmptyString(array $source, array $keys): string
+    {
+        foreach ($keys as $key) {
+            if (! isset($source[$key]) || ! is_scalar($source[$key])) {
+                continue;
+            }
+            $value = trim((string) $source[$key]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    private function normalizeQrImage(string $qr): string
+    {
+        $qr = trim($qr);
+        if ($qr === '') {
+            return '';
+        }
+        if (str_starts_with($qr, 'data:image')) {
+            $parts = explode(',', $qr, 2);
+
+            return isset($parts[1]) ? trim($parts[1]) : $qr;
+        }
+
+        return $qr;
     }
 
     private function amountToCents(float $amount): int

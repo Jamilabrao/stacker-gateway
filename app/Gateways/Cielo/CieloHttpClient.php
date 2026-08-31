@@ -61,17 +61,21 @@ final class CieloHttpClient
     /**
      * @param  array<string, mixed>  $credentials
      */
-    public static function transactionalBase(array $credentials): string
+    public static function transactionalBase(array $credentials, bool $forceProduction = false): string
     {
-        return rtrim(self::isSandbox($credentials) ? self::TRANSACTIONAL_SANDBOX : self::TRANSACTIONAL_PRODUCTION, '/');
+        $sandbox = ! $forceProduction && self::isSandbox($credentials);
+
+        return rtrim($sandbox ? self::TRANSACTIONAL_SANDBOX : self::TRANSACTIONAL_PRODUCTION, '/');
     }
 
     /**
      * @param  array<string, mixed>  $credentials
      */
-    public static function queryBase(array $credentials): string
+    public static function queryBase(array $credentials, bool $forceProduction = false): string
     {
-        return rtrim(self::isSandbox($credentials) ? self::QUERY_SANDBOX : self::QUERY_PRODUCTION, '/');
+        $sandbox = ! $forceProduction && self::isSandbox($credentials);
+
+        return rtrim($sandbox ? self::QUERY_SANDBOX : self::QUERY_PRODUCTION, '/');
     }
 
     /**
