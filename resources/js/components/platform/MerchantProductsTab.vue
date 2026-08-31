@@ -12,6 +12,7 @@ const props = defineProps({
     summary: { type: Object, default: null },
     approvalEnabled: { type: Boolean, default: false },
     typeOptions: { type: Array, default: () => [] },
+    categoryOptions: { type: Array, default: () => [] },
     productsTotal: { type: Number, default: 0 },
 });
 
@@ -19,6 +20,7 @@ const searchQ = ref(props.filters?.products_q ?? '');
 const approval = ref(props.filters?.products_approval ?? 'all');
 const active = ref(props.filters?.products_active ?? 'all');
 const type = ref(props.filters?.products_type ?? '');
+const category = ref(props.filters?.products_category ?? '');
 const dateFrom = ref(props.filters?.products_date_from ?? '');
 const dateTo = ref(props.filters?.products_date_to ?? '');
 const perPage = ref(String(props.filters?.products_per_page ?? 25));
@@ -32,6 +34,7 @@ watch(
         approval.value = f?.products_approval ?? 'all';
         active.value = f?.products_active ?? 'all';
         type.value = f?.products_type ?? '';
+        category.value = f?.products_category ?? '';
         dateFrom.value = f?.products_date_from ?? '';
         dateTo.value = f?.products_date_to ?? '';
         perPage.value = String(f?.products_per_page ?? 25);
@@ -49,6 +52,7 @@ const hasFilters = computed(() => {
         (f.products_approval && f.products_approval !== 'all') ||
         (f.products_active && f.products_active !== 'all') ||
         f.products_type ||
+        f.products_category ||
         f.products_date_from ||
         f.products_date_to
     );
@@ -69,6 +73,7 @@ function visitParams(extra = {}) {
         products_approval: approval.value !== 'all' ? approval.value : undefined,
         products_active: active.value !== 'all' ? active.value : undefined,
         products_type: type.value || undefined,
+        products_category: category.value || undefined,
         products_date_from: dateFrom.value || undefined,
         products_date_to: dateTo.value || undefined,
         products_per_page: Number(perPage.value) || 25,
@@ -229,6 +234,11 @@ async function copyDeliverableUrl(url) {
                     <option value="">Tipo: todos</option>
                     <option v-for="opt in typeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
+                <select v-model="category" class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900">
+                    <option value="">Categoria: todas</option>
+                    <option v-for="opt in categoryOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    <option value="uncategorized">Sem categoria</option>
+                </select>
                 <input v-model="dateFrom" type="date" class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900" />
                 <input v-model="dateTo" type="date" class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900" />
                 <select v-model="perPage" class="rounded-xl border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900">
@@ -301,6 +311,7 @@ async function copyDeliverableUrl(url) {
                                     </div>
                                     <div>
                                         <div class="font-medium text-zinc-900 dark:text-white">{{ p.name }}</div>
+                                        <div class="text-xs text-zinc-500">{{ p.category_label || 'Sem categoria' }}</div>
                                         <div class="text-xs text-zinc-500">ID {{ p.id }}</div>
                                     </div>
                                 </div>

@@ -127,7 +127,8 @@ final class MerchantAdminProductsListing
      *     filters: array<string, mixed>,
      *     summary: array<string, int>,
      *     approval_enabled: bool,
-     *     type_options: list<array{value: string, label: string}>
+     *     type_options: list<array{value: string, label: string}>,
+     *     category_options: list<array{value: string, label: string}>
      * }
      */
     public static function paginateForTenant(int $tenantId, Request $request): array
@@ -141,6 +142,7 @@ final class MerchantAdminProductsListing
         $approval = (string) $request->query('products_approval', 'all');
         $active = (string) $request->query('products_active', 'all');
         $type = trim((string) $request->query('products_type', ''));
+        $category = Product::normalizeCategoryFilter($request->query('products_category'));
         $dateFrom = trim((string) $request->query('products_date_from', ''));
         $dateTo = trim((string) $request->query('products_date_to', ''));
 
@@ -162,6 +164,8 @@ final class MerchantAdminProductsListing
             $type = '';
         }
 
+        $categoryOptions = Product::categoriesForSelect();
+
         $empty = new LengthAwarePaginator([], 0, $perPage, max(1, (int) $request->query('products_page', 1)), [
             'path' => $request->url(),
             'pageName' => 'products_page',
@@ -171,10 +175,11 @@ final class MerchantAdminProductsListing
         if ($tenantId <= 0 || ! Schema::hasTable('products')) {
             return [
                 'products' => $empty,
-                'filters' => self::filtersPayload($q, $approval, $active, $type, $dateFrom, $dateTo, $perPage, $sort, $direction),
+                'filters' => self::filtersPayload($q, $approval, $active, $type, $category, $dateFrom, $dateTo, $perPage, $sort, $direction),
                 'summary' => self::summary($tenantId),
                 'approval_enabled' => $approvalReady,
                 'type_options' => $typeOptions,
+                'category_options' => $categoryOptions,
             ];
         }
 
@@ -213,6 +218,10 @@ final class MerchantAdminProductsListing
 
         if ($type !== '') {
             $query->where('type', $type);
+        }
+
+        if (Schema::hasColumn('products', 'category')) {
+            $query->ofCategory($category);
         }
 
         if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
@@ -256,6 +265,8 @@ final class MerchantAdminProductsListing
                 return [
                     'id' => $p->id,
                     'name' => $p->name,
+                    'category' => $p->category,
+                    'category_label' => Product::categoryLabels()[$p->category] ?? null,
                     'image_url' => $imageUrl,
                     'checkout_slug' => $p->checkout_slug,
                     'type' => $p->type,
@@ -284,10 +295,11 @@ final class MerchantAdminProductsListing
 
         return [
             'products' => $paginator,
-            'filters' => self::filtersPayload($q, $approval, $active, $type, $dateFrom, $dateTo, $perPage, $sort, $direction),
+            'filters' => self::filtersPayload($q, $approval, $active, $type, $category, $dateFrom, $dateTo, $perPage, $sort, $direction),
             'summary' => self::summary($tenantId),
             'approval_enabled' => $approvalReady,
             'type_options' => $typeOptions,
+            'category_options' => $categoryOptions,
         ];
     }
 
@@ -317,6 +329,7 @@ final class MerchantAdminProductsListing
         string $approval,
         string $active,
         string $type,
+        string $category,
         string $dateFrom,
         string $dateTo,
         int $perPage,
@@ -328,6 +341,7 @@ final class MerchantAdminProductsListing
             'products_approval' => $approval,
             'products_active' => $active,
             'products_type' => $type !== '' ? $type : null,
+            'products_category' => $category !== '' ? $category : null,
             'products_date_from' => $dateFrom !== '' ? $dateFrom : null,
             'products_date_to' => $dateTo !== '' ? $dateTo : null,
             'products_per_page' => $perPage,

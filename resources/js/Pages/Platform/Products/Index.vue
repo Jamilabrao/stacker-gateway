@@ -12,20 +12,23 @@ const props = defineProps({
     products: { type: Object, required: true },
     filters: {
         type: Object,
-        default: () => ({ q: null, filter: 'all' }),
+        default: () => ({ q: null, filter: 'all', category: null }),
     },
+    categories: { type: Array, default: () => [] },
     approval_enabled: { type: Boolean, default: false },
 });
 
 const page = usePage();
 const searchQ = ref(props.filters?.q ?? '');
 const activeFilter = ref(props.filters?.filter ?? 'all');
+const selectedCategory = ref(props.filters?.category ?? '');
 
 watch(
     () => props.filters,
     (f) => {
         searchQ.value = f?.q ?? '';
         activeFilter.value = f?.filter ?? 'all';
+        selectedCategory.value = f?.category ?? '';
     },
     { deep: true }
 );
@@ -55,9 +58,17 @@ function applyFilters() {
     const q = searchQ.value?.trim() || undefined;
     router.get(
         '/plataforma/produtos',
-        { q, filter: activeFilter.value === 'all' ? undefined : activeFilter.value },
+        {
+            q,
+            filter: activeFilter.value === 'all' ? undefined : activeFilter.value,
+            category: selectedCategory.value || undefined,
+        },
         { preserveState: true, replace: true }
     );
+}
+
+function selectCategory() {
+    applyFilters();
 }
 
 function selectFilter(value) {
@@ -222,6 +233,21 @@ function approvalLabel(status) {
                     class="w-full rounded-xl border border-zinc-300 bg-white py-2 pl-9 pr-3 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
                 />
             </div>
+            <select
+                v-model="selectedCategory"
+                class="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+                @change="selectCategory"
+            >
+                <option value="">Todas as categorias</option>
+                <option
+                    v-for="cat in categories"
+                    :key="cat.value"
+                    :value="cat.value"
+                >
+                    {{ cat.label }}
+                </option>
+                <option value="uncategorized">Sem categoria</option>
+            </select>
             <button
                 type="submit"
                 class="rounded-xl bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
@@ -265,6 +291,9 @@ function approvalLabel(status) {
                         <tr v-for="p in productRows" :key="p.id" class="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40">
                             <td class="px-4 py-3">
                                 <div class="font-medium text-zinc-900 dark:text-white">{{ p.name }}</div>
+                                <div class="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                                    {{ p.category_label || 'Sem categoria' }}
+                                </div>
                                 <div class="mt-0.5 font-mono text-xs text-zinc-500">/c/{{ p.checkout_slug }}</div>
                                 <div class="mt-0.5 text-xs text-zinc-400">ID {{ p.id }}</div>
                             </td>

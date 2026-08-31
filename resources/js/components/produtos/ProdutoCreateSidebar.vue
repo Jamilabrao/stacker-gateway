@@ -21,6 +21,7 @@ const props = defineProps({
     open: { type: Boolean, default: false },
     productTypes: { type: Array, default: () => [] },
     billingTypes: { type: Array, default: () => [] },
+    productCategories: { type: Array, default: () => [] },
     exchangeRates: { type: Object, default: () => ({ brl_eur: 0.16, brl_usd: 0.18 }) },
     pluginFormSections: { type: Array, default: () => [] },
     checkoutGatewayUi: {
@@ -59,6 +60,7 @@ const typeIcons = {
 const form = useForm({
     name: '',
     description: '',
+    category: '',
     type: '',
     billing_type: 'one_time',
     price: '',
@@ -144,6 +146,7 @@ function submit() {
     const fd = new FormData();
     fd.append('name', form.name);
     fd.append('description', form.description ?? '');
+    fd.append('category', form.category ?? '');
     fd.append('type', form.type);
     fd.append('billing_type', form.billing_type);
     fd.append('price', String(normalizeMoneyInput(form.price)));
@@ -347,6 +350,30 @@ function safePluginSectionHtml(html) {
                                 class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 placeholder-zinc-400 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
                                 :placeholder="t('products.create.description_placeholder', 'Breve descrição do produto')"
                             />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                {{ t('common.category', 'Categoria') }} *
+                            </label>
+                            <select
+                                v-model="form.category"
+                                required
+                                class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 focus:border-[var(--color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] dark:border-zinc-600 dark:bg-zinc-800 dark:text-white"
+                            >
+                                <option value="" disabled>
+                                    {{ t('products.create.category_placeholder', 'Selecione a categoria') }}
+                                </option>
+                                <option
+                                    v-for="cat in productCategories"
+                                    :key="cat.value"
+                                    :value="cat.value"
+                                >
+                                    {{ cat.label }}
+                                </option>
+                            </select>
+                            <p v-if="form.errors.category" class="mt-1 text-sm text-red-600 dark:text-red-400">
+                                {{ form.errors.category }}
+                            </p>
                         </div>
                         <div v-if="form.type === 'link'">
                             <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">

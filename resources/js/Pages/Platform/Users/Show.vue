@@ -29,6 +29,7 @@ const props = defineProps({
     products_summary: { type: Object, default: null },
     products_approval_enabled: { type: Boolean, default: false },
     products_type_options: { type: Array, default: () => [] },
+    products_category_options: { type: Array, default: () => [] },
     effective_merchant_fees: { type: Array, default: () => [] },
     admin_notes: { type: Array, default: () => [] },
     platform_referral_commission_percent: { type: Number, default: 20 },
@@ -369,6 +370,7 @@ function formatFeePreview(percent, fixed) {
             :summary="products_summary"
             :approval-enabled="products_approval_enabled"
             :type-options="products_type_options"
+            :category-options="products_category_options"
             :products-total="products_total"
         />
 

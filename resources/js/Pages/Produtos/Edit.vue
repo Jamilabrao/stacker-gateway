@@ -89,6 +89,7 @@ const props = defineProps({
     produto: { type: Object, required: true },
     productTypes: { type: Array, default: () => [] },
     billingTypes: { type: Array, default: () => [] },
+    productCategories: { type: Array, default: () => [] },
     exchange_rates: { type: Object, default: () => ({ brl_eur: 0.16, brl_usd: 0.18 }) },
     cademi_integrations: { type: Array, default: () => [] },
     cademi_available: { type: Boolean, default: true },
@@ -147,6 +148,7 @@ const form = useForm({
     notification_name: props.produto.notification_name ?? '',
     support_email: props.produto.support_email ?? '',
     description: props.produto.description ?? '',
+    category: props.produto.category ?? '',
     type: props.produto.type,
     billing_type: props.produto.billing_type ?? 'one_time',
     price: formatPriceForInput(props.produto.price_brl ?? props.produto.price),
@@ -1149,6 +1151,7 @@ function appendCoreProductFields(fd) {
     fd.append('notification_name', form.notification_name ?? '');
     fd.append('support_email', form.support_email ?? '');
     fd.append('description', form.description ?? '');
+    fd.append('category', form.category ?? '');
     fd.append('type', form.type);
     fd.append('billing_type', form.billing_type);
     fd.append('price', String(normalizeMoneyInput(form.price)));
@@ -1417,6 +1420,30 @@ function submit() {
                                         placeholder="Breve descrição do produto..."
                                         :class="inputClass"
                                     />
+                                </div>
+                                <div>
+                                    <label class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                                        {{ t('common.category', 'Categoria') }} *
+                                    </label>
+                                    <select
+                                        v-model="form.category"
+                                        required
+                                        :class="inputClass"
+                                    >
+                                        <option value="" disabled>
+                                            {{ t('products.create.category_placeholder', 'Selecione a categoria') }}
+                                        </option>
+                                        <option
+                                            v-for="cat in productCategories"
+                                            :key="cat.value"
+                                            :value="cat.value"
+                                        >
+                                            {{ cat.label }}
+                                        </option>
+                                    </select>
+                                    <p v-if="form.errors.category" class="mt-1.5 text-sm text-red-600 dark:text-red-400">
+                                        {{ form.errors.category }}
+                                    </p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-4 pt-1">
                                     <Toggle

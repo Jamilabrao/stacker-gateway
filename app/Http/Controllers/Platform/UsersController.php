@@ -420,6 +420,7 @@ class UsersController extends Controller
             'summary' => null,
             'approval_enabled' => Schema::hasTable('products') && Schema::hasColumn('products', 'approval_status'),
             'type_options' => [],
+            'category_options' => [],
         ];
         if ($tab === 'products') {
             $productsPayload = MerchantAdminProductsListing::paginateForTenant($tenantId, $request);
@@ -489,6 +490,7 @@ class UsersController extends Controller
             'products_summary' => $productsPayload['summary'],
             'products_approval_enabled' => $productsPayload['approval_enabled'],
             'products_type_options' => $productsPayload['type_options'],
+            'products_category_options' => $productsPayload['category_options'] ?? [],
             'achievements_progress' => $achievementsPayload['progress'],
             'achievement_unlocks' => $achievementsPayload['unlocks'],
             'effective_merchant_fees' => $this->formatEffectiveFeesForFrontend(
