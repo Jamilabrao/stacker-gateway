@@ -196,6 +196,10 @@ Route::get('/coproducao/convite/{token}', [\App\Http\Controllers\CoproductionInv
     ->name('coproduction.invite.show')
     ->where('token', '[A-Za-z0-9]{32,64}');
 
+Route::get('/afiliar/{token}', [\App\Http\Controllers\AffiliateJoinController::class, 'show'])
+    ->name('affiliate.join.show')
+    ->where('token', '[a-z0-9]{32,64}');
+
 Route::get('/c/{slug}', [\App\Http\Controllers\CheckoutController::class, 'show'])->name('checkout.show')->where('slug', '[a-z0-9]{6,16}');
 Route::get('/checkout/pix', [\App\Http\Controllers\CheckoutController::class, 'pixPage'])->name('checkout.pix');
 Route::get('/checkout/lina/return/{order}', [\App\Http\Controllers\CheckoutController::class, 'linaReturn'])->name('checkout.lina.return')->where('order', '[0-9]+');
@@ -670,6 +674,10 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         ->name('coproduction.invite.accept')
         ->middleware('throttle:20,1')
         ->where('token', '[A-Za-z0-9]{32,64}');
+    Route::post('/afiliar/{token}', [\App\Http\Controllers\AffiliateJoinController::class, 'enroll'])
+        ->name('affiliate.join.enroll')
+        ->middleware('throttle:30,1')
+        ->where('token', '[a-z0-9]{32,64}');
     Route::post('/painel/idioma', [\App\Http\Controllers\PanelLanguageController::class, 'switch'])->name('panel.language.switch');
     Route::post('/painel/push-subscribe', [\App\Http\Controllers\PanelPwaController::class, 'pushSubscribe'])->name('panel.pwa.push-subscribe')->middleware('throttle:20,1');
     Route::get('/painel/notifications', [\App\Http\Controllers\PanelNotificationsController::class, 'index'])->name('panel.notifications.index');
@@ -878,6 +886,7 @@ Route::middleware(['auth', 'admin.tenant', 'seller.panel', 'stacker.license', 'r
         Route::post('/produtos/{produto}/coproducers', [\App\Http\Controllers\ProductCoproductionController::class, 'store'])->name('produtos.coproducers.store')->middleware('throttle:30,1');
         Route::delete('/produtos/{produto}/coproducers/{coproducer}', [\App\Http\Controllers\ProductCoproductionController::class, 'destroy'])->name('produtos.coproducers.destroy');
         Route::put('/produtos/{produto}/affiliate-settings', [\App\Http\Controllers\ProductAffiliateController::class, 'updateSettings'])->name('produtos.affiliate-settings.update');
+        Route::post('/produtos/{produto}/affiliate-invite-token/regenerate', [\App\Http\Controllers\ProductAffiliateController::class, 'regenerateInviteToken'])->name('produtos.affiliate-invite-token.regenerate');
         Route::post('/produtos/{produto}/affiliate-enrollments/{enrollment}/approve', [\App\Http\Controllers\ProductAffiliateController::class, 'approve'])->name('produtos.affiliate-enrollments.approve');
         Route::post('/produtos/{produto}/affiliate-enrollments/{enrollment}/reject', [\App\Http\Controllers\ProductAffiliateController::class, 'reject'])->name('produtos.affiliate-enrollments.reject');
         Route::post('/produtos/{produto}/affiliate-enrollments/{enrollment}/revoke', [\App\Http\Controllers\ProductAffiliateController::class, 'revoke'])->name('produtos.affiliate-enrollments.revoke');

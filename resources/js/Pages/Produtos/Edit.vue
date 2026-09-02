@@ -321,7 +321,34 @@ function submitAffiliateSettings() {
 
 function copyAffiliateLink(url) {
     if (!url) return;
-    navigator.clipboard.writeText(url);
+    copyToClipboard(url).then((ok) => {
+        if (ok) {
+            copiedSlug.value = url;
+            setTimeout(() => {
+                if (copiedSlug.value === url) copiedSlug.value = null;
+            }, 2000);
+        }
+    });
+}
+
+function copyAffiliateJoinLink() {
+    const url = props.produto.affiliate_join_url;
+    if (!url) return;
+    copyToClipboard(url).then((ok) => {
+        if (ok) {
+            copiedSlug.value = 'affiliate-join';
+            setTimeout(() => {
+                if (copiedSlug.value === 'affiliate-join') copiedSlug.value = null;
+            }, 2000);
+        }
+    });
+}
+
+function regenerateAffiliateJoinLink() {
+    if (!confirm(t('products.edit.affiliate_join_regenerate_confirm', 'Gerar um novo link invalida o atual. Quem tiver o link antigo não conseguirá mais se afiliar por ele. Continuar?'))) {
+        return;
+    }
+    router.post(`/produtos/${props.produto.id}/affiliate-invite-token/regenerate?tab=afiliados`, {}, { preserveScroll: true });
 }
 
 function approveAffiliateEnrollment(id) {
@@ -3177,6 +3204,34 @@ function submit() {
                             :label="t('products.edit.affiliate_showcase', 'Mostrar na vitrine')"
                             class="w-full"
                         />
+                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                            {{ t('products.edit.affiliate_showcase_hint', 'A vitrine é a listagem pública. Se o produto não estiver nela, compartilhe o link de afiliação abaixo para outros infoprodutores solicitarem.') }}
+                        </p>
+                        <div
+                            v-if="affiliateForm.affiliate_enabled"
+                            class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20"
+                        >
+                            <p class="text-sm font-medium text-emerald-900 dark:text-emerald-200">
+                                {{ t('products.edit.affiliate_join_link', 'Link de afiliação do produto') }}
+                            </p>
+                            <p class="mt-1 text-xs text-emerald-800/80 dark:text-emerald-300/80">
+                                {{ t('products.edit.affiliate_join_link_hint', 'Quem receber este link pode solicitar afiliação mesmo sem o produto aparecer na vitrine. O link de checkout com ?ref= só é gerado depois da aprovação.') }}
+                            </p>
+                            <template v-if="produto.affiliate_join_url">
+                                <div class="mt-3 flex flex-wrap items-center gap-2">
+                                    <span class="max-w-[min(100%,28rem)] truncate font-mono text-xs text-emerald-900 dark:text-emerald-200">{{ produto.affiliate_join_url }}</span>
+                                    <Button type="button" size="sm" variant="outline" @click="copyAffiliateJoinLink">
+                                        {{ copiedSlug === 'affiliate-join' ? t('common.copy', 'Copiar') + ' ✓' : t('products.edit.affiliate_copy_link', 'Copiar link') }}
+                                    </Button>
+                                    <Button type="button" size="sm" variant="outline" @click="regenerateAffiliateJoinLink">
+                                        {{ t('products.edit.affiliate_join_regenerate', 'Gerar novo link') }}
+                                    </Button>
+                                </div>
+                            </template>
+                            <p v-else class="mt-2 text-xs text-amber-800 dark:text-amber-200">
+                                {{ t('products.edit.affiliate_join_link_save_hint', 'Salve as configurações para gerar o link de afiliação.') }}
+                            </p>
+                        </div>
                         <div>
                             <label class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ t('products.edit.affiliate_page_url', 'Link da página de afiliados') }}</label>
                             <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">

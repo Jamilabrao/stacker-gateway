@@ -477,6 +477,10 @@ class ProdutosController extends Controller
         $produtoArray['affiliate_showcase_description'] = $produto->affiliate_showcase_description;
         $produtoArray['affiliate_hide_customer_data'] = (bool) $produto->affiliate_hide_customer_data;
         $produtoArray['affiliate_checkout_base_url'] = $checkoutBaseUrl;
+        if ($produto->affiliate_enabled) {
+            $produto->ensureAffiliateInviteToken();
+        }
+        $produtoArray['affiliate_join_url'] = $produto->affiliate_enabled ? $produto->affiliateJoinUrl() : null;
 
         $produtoArray['refund_policy_days'] = $produto->refund_policy_days !== null
             ? (int) $produto->refund_policy_days
