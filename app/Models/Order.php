@@ -227,18 +227,12 @@ class Order extends Model
         return $base;
     }
 
-    public function saleApprovedPushBody(?OrderItem $item = null, bool $isOrderBump = false): string
+    public function saleApprovedPushBody(?OrderItem $item = null): string
     {
-        $lines = [];
-        if ($isOrderBump) {
-            $lines[] = 'Order bump';
-        }
-        $lines = array_merge($lines, $this->salePushContentLines($item));
+        $lines = $this->salePushContentLines($item);
 
         if ($lines === []) {
-            return $isOrderBump
-                ? 'Você recebeu uma nova venda de Order bump.'
-                : 'Você recebeu uma nova venda aprovada.';
+            return 'Você recebeu uma nova venda aprovada.';
         }
 
         return implode("\n", $lines);
@@ -284,7 +278,7 @@ class Order extends Model
         if ($items->isEmpty()) {
             return [[
                 'title' => $this->saleApprovedPushTitle(false),
-                'body' => $this->saleApprovedPushBody(null, false),
+                'body' => $this->saleApprovedPushBody(null),
                 'event_key' => 'sale_'.$this->id,
                 'is_order_bump' => false,
             ]];
@@ -299,7 +293,7 @@ class Order extends Model
 
             $messages[] = [
                 'title' => $this->saleApprovedPushTitle($isBump),
-                'body' => $this->saleApprovedPushBody($item, $isBump),
+                'body' => $this->saleApprovedPushBody($item),
                 'event_key' => $eventKey,
                 'is_order_bump' => $isBump,
             ];

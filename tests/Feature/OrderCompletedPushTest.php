@@ -215,7 +215,7 @@ class OrderCompletedPushTest extends TestCase
             ->first();
         $this->assertNotNull($bumpNotification);
         $this->assertStringContainsString('Order bump', (string) $bumpNotification->title);
-        $this->assertStringContainsString('Order bump', (string) $bumpNotification->body);
+        $this->assertStringNotContainsString('Order bump', (string) $bumpNotification->body);
         $this->assertStringContainsString('Bump Extra', (string) $bumpNotification->body);
     }
 }
