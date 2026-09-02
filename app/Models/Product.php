@@ -79,6 +79,7 @@ class Product extends Model
         'affiliate_support_email',
         'affiliate_showcase_description',
         'affiliate_hide_customer_data',
+        'affiliate_invite_token',
         'refund_policy_days',
         'shipping_store_id',
         'physical_config',
@@ -798,6 +799,64 @@ class Product extends Model
     public function affiliateEnrollments(): HasMany
     {
         return $this->hasMany(ProductAffiliateEnrollment::class);
+    }
+
+    public static function generateAffiliateInviteToken(): string
+    {
+        do {
+            $token = Str::lower(Str::random(40));
+        } while (self::query()->where('affiliate_invite_token', $token)->exists());
+
+        return $token;
+    }
+
+    public function ensureAffiliateInviteToken(): string
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn($this->getTable(), 'affiliate_invite_token')) {
+            return '';
+        }
+
+        $current = trim((string) ($this->affiliate_invite_token ?? ''));
+        if ($current !== '') {
+            return $current;
+        }
+
+        $this->affiliate_invite_token = self::generateAffiliateInviteToken();
+        $this->save();
+
+        return (string) $this->affiliate_invite_token;
+    }
+
+    public function regenerateAffiliateInviteToken(): string
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn($this->getTable(), 'affiliate_invite_token')) {
+            return '';
+        }
+
+        $this->affiliate_invite_token = self::generateAffiliateInviteToken();
+        $this->save();
+
+        return (string) $this->affiliate_invite_token;
+    }
+
+    public function affiliateJoinUrl(): ?string
+    {
+        $token = trim((string) ($this->affiliate_invite_token ?? ''));
+        if ($token === '') {
+            return null;
+        }
+
+        return url('/afiliar/'.$token);
+    }
+
+    public static function findByAffiliateInviteToken(string $token): ?self
+    {
+        $token = Str::lower(trim($token));
+        if ($token === '' || ! \Illuminate\Support\Facades\Schema::hasColumn((new static)->getTable(), 'affiliate_invite_token')) {
+            return null;
+        }
+
+        return self::query()->where('affiliate_invite_token', $token)->first();
     }
 
     /**
