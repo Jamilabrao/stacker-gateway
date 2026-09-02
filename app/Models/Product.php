@@ -931,6 +931,7 @@ class Product extends Model
             'desenvolvimento_pessoal' => 'Desenvolvimento Pessoal',
             'lifestyle_e_hobbies' => 'Lifestyle e Hobbies',
             'conteudo_e_recursos_digitais' => 'Conteúdo e Recursos Digitais',
+            'automotivos' => 'Automotivos',
             'outros' => 'Outros',
         ];
     }
