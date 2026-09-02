@@ -4,7 +4,7 @@ import { Link, usePage, Head, router } from '@inertiajs/vue3';
 import PwaInstallPrompt from '@/components/member-area/PwaInstallPrompt.vue';
 import MemberAreaNotificationsPanel from '@/components/member-area/MemberAreaNotificationsPanel.vue';
 import Button from '@/components/ui/Button.vue';
-import { Bell, ChevronDown, User, X, Camera, Lock, CheckCircle, AlertCircle, Menu, Trophy, Award } from 'lucide-vue-next';
+import { Bell, ChevronDown, User, X, Camera, Lock, CheckCircle, AlertCircle, Menu, Trophy, Award, Package } from 'lucide-vue-next';
 import { resolveMemberAreaHref as buildMemberAreaHref } from '@/utils/memberAreaHref';
 
 const page = usePage();
@@ -150,6 +150,11 @@ function isExternalMenuLink(item) {
 const memberAreaHomeHref = computed(() => resolveMemberAreaHref('/'));
 const communityHref = computed(() => resolveMemberAreaHref('/comunidade'));
 const certificadoHref = computed(() => resolveMemberAreaHref('/certificado'));
+const canOpenCustomerPanel = computed(() => Boolean(user.value && props.value?.auth?.user?.panel_switch?.customer));
+const customerPanelHref = computed(() => {
+    const appUrl = String(props.value?.app_url || '').replace(/\/$/, '');
+    return appUrl ? `${appUrl}/painel-cliente` : '/painel-cliente';
+});
 
 const initials = computed(() => {
     if (!user.value?.name) return '?';
@@ -578,6 +583,14 @@ watch(
                     >
                         Comunidade
                     </Link>
+                    <a
+                        v-if="canOpenCustomerPanel"
+                        :href="customerPanelHref"
+                        class="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white drop-shadow transition hover:bg-white/25"
+                    >
+                        <Package class="h-4 w-4 shrink-0" />
+                        Minhas compras
+                    </a>
                 </nav>
                 <!-- Menu principal no mobile: sempre drawer (evita colisão logo + links + ícones) -->
                 <button
@@ -705,6 +718,16 @@ watch(
                             <User class="h-4 w-4" />
                             Minha conta
                         </button>
+                        <a
+                            v-if="canOpenCustomerPanel"
+                            :href="customerPanelHref"
+                            class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                            role="menuitem"
+                            @click="accountMenuOpen = false"
+                        >
+                            <Package class="h-4 w-4" />
+                            Minhas compras
+                        </a>
                         <Link
                             v-if="certificateEnabled"
                             :href="certificadoHref"
@@ -826,6 +849,15 @@ watch(
                         >
                             Comunidade
                         </Link>
+                        <a
+                            v-if="canOpenCustomerPanel"
+                            :href="customerPanelHref"
+                            class="flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white"
+                            @click="closeMobileMenu"
+                        >
+                            <Package class="h-4 w-4 shrink-0" />
+                            Minhas compras
+                        </a>
                     </nav>
                     <div v-if="canRegisterPush && !pushRegistered" class="border-t border-zinc-700 px-4 py-3">
                         <button
@@ -865,6 +897,15 @@ watch(
                                 <User class="h-4 w-4" />
                                 Minha conta
                             </button>
+                            <a
+                                v-if="canOpenCustomerPanel"
+                                :href="customerPanelHref"
+                                class="flex w-full items-center gap-2 rounded-lg px-4 py-3 text-left text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+                                @click="closeMobileMenu"
+                            >
+                                <Package class="h-4 w-4" />
+                                Minhas compras
+                            </a>
                             <Link
                                 v-if="certificateEnabled"
                                 :href="certificadoHref"
