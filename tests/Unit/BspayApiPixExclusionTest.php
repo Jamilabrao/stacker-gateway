@@ -8,7 +8,7 @@ use Tests\TestCase;
 
 class BspayApiPixExclusionTest extends TestCase
 {
-    public function test_bspay_is_excluded_from_api_pix_but_allowed_on_checkout(): void
+    public function test_bspay_is_excluded_from_api_pix_and_pixgo_but_allowed_on_checkout(): void
     {
         $service = app(PaymentService::class);
 
@@ -17,9 +17,10 @@ class BspayApiPixExclusionTest extends TestCase
         $pixGoOrder = new Order(['metadata' => ['source' => 'pixgo']]);
 
         $this->assertFalse($service->isPixAcquirerAllowedForOrder('bspay', $apiOrder));
+        $this->assertFalse($service->isPixAcquirerAllowedForOrder('bspay', $pixGoOrder));
         $this->assertTrue($service->isPixAcquirerAllowedForOrder('cajupay', $apiOrder));
         $this->assertTrue($service->isPixAcquirerAllowedForOrder('woovi', $apiOrder));
+        $this->assertTrue($service->isPixAcquirerAllowedForOrder('cajupay', $pixGoOrder));
         $this->assertTrue($service->isPixAcquirerAllowedForOrder('bspay', $checkoutOrder));
-        $this->assertTrue($service->isPixAcquirerAllowedForOrder('bspay', $pixGoOrder));
     }
 }
