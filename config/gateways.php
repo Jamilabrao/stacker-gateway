@@ -292,8 +292,8 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Adquirentes excluídas da ApiPix (integração do infoprodutor).
-    | Checkout, PixGO e demais canais continuam podendo usá-las.
+    | Adquirentes só no checkout da plataforma (ex. BSPay).
+    | ApiPix e PixGO não usam estes slugs; checkout e demais canais sim.
     |--------------------------------------------------------------------------
     */
     'api_pix_excluded_slugs' => [

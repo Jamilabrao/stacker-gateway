@@ -650,8 +650,8 @@ class PaymentService
     }
 
     /**
-     * ApiPix do infoprodutor não pode usar certas adquirentes (ex. BSPay).
-     * Checkout, PixGO e demais canais não são afetados.
+     * ApiPix e PixGO não podem usar certas adquirentes (ex. BSPay).
+     * Checkout da plataforma e demais canais não são afetados.
      */
     public function isPixAcquirerAllowedForOrder(string $gatewaySlug, Order $order): bool
     {
@@ -660,7 +660,7 @@ class PaymentService
             return true;
         }
 
-        return SaleOrigin::resolveForOrder($order) !== SaleOrigin::API;
+        return ! in_array(SaleOrigin::resolveForOrder($order), [SaleOrigin::API, SaleOrigin::PIXGO], true);
     }
 
     private function webhookUrlForGateway(string $gatewaySlug): string
