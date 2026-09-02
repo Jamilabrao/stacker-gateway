@@ -57,7 +57,7 @@ class OrderSalePushNotificationTest extends TestCase
         $this->assertStringNotContainsString('Nome Interno Longo', $order->saleApprovedPushBody());
     }
 
-    public function test_order_bump_push_title_and_body_include_order_bump_label(): void
+    public function test_order_bump_push_keeps_label_in_title_only(): void
     {
         $order = new Order([
             'amount' => 150,
@@ -95,7 +95,7 @@ class OrderSalePushNotificationTest extends TestCase
         $this->assertTrue($messages[1]['is_order_bump']);
         $this->assertSame('sale_55_bump_2', $messages[1]['event_key']);
         $this->assertSame('Venda aprovada — Order bump (PIX)', $messages[1]['title']);
-        $this->assertStringStartsWith("Order bump\n", $messages[1]['body']);
+        $this->assertStringNotContainsString('Order bump', $messages[1]['body']);
         $this->assertStringContainsString('Produto: Bump Extra', $messages[1]['body']);
         $this->assertStringContainsString('Valor: R$ 50,00', $messages[1]['body']);
     }
