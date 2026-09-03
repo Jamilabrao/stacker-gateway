@@ -363,6 +363,7 @@ class UsersController extends Controller
                 ])
                 ->values()
                 ->all(),
+            'has_manual_approval_pin' => WithdrawalPolicyService::hasManualApprovalPin(),
         ]);
     }
 
@@ -677,6 +678,39 @@ class UsersController extends Controller
 
         return $this->redirectToWalletTab($request, $user)
             ->with('success', 'Saldo antecipado com sucesso.');
+    }
+
+    public function resetTotp(Request $request, User $user): RedirectResponse
+    {
+        Gate::authorize('manageMerchantForPlatform', $user);
+
+        $this->validateRequiredSecurityStepUp(
+            $request,
+            'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para resetar o 2FA deste infoprodutor.'
+        );
+
+        $request->validate([
+            'totp_code' => ['nullable', 'string', 'max:16'],
+            'manual_approval_pin' => ['nullable', 'string', 'max:'.WithdrawalPolicyService::MANUAL_APPROVAL_PIN_MAX_LENGTH, 'regex:/^\d*$/'],
+        ]);
+
+        $user->refresh();
+        if (! PlatformTotpService::isEnabledFor($user) && (! is_string($user->totp_secret) || $user->totp_secret === '')) {
+            return redirect()
+                ->route('plataforma.usuarios.edit', $user)
+                ->with('error', 'Este infoprodutor não possui 2FA ativo.');
+        }
+
+        PlatformTotpService::forceDisable($user);
+
+        PlatformAuditService::log('platform.merchant.totp_reset', [
+            'merchant_user_id' => $user->id,
+            'tenant_id' => $user->tenant_id,
+        ], $request);
+
+        return redirect()
+            ->route('plataforma.usuarios.edit', $user)
+            ->with('success', '2FA desativado. O infoprodutor poderá entrar apenas com a senha e cadastrar um novo 2FA.');
     }
 
     private function redirectToWalletTab(Request $request, User $user): RedirectResponse

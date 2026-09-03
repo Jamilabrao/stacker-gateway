@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { Link, useForm } from '@inertiajs/vue3';
+import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import LayoutPlatform from '@/Layouts/LayoutPlatform.vue';
 import Button from '@/components/ui/Button.vue';
 import FeeFixedInput from '@/components/ui/FeeFixedInput.vue';
 import FeePercentInput from '@/components/ui/FeePercentInput.vue';
 import MerchantAdminNotesPanel from '@/components/platform/MerchantAdminNotesPanel.vue';
+import PlatformStepUpModal from '@/components/platform/PlatformStepUpModal.vue';
 import { ArrowLeft, List } from 'lucide-vue-next';
 import { formatPercentForInput, normalizeMerchantFeeOverridesForSubmit, normalizeMerchantSettlementOverridesForSubmit } from '@/lib/percentDecimal';
 
@@ -22,7 +23,53 @@ const props = defineProps({
     platform_integrations_enabled: { type: Object, default: () => ({}) },
     platform_integrations: { type: Array, default: () => [] },
     cajupay_accounts: { type: Array, default: () => [] },
+    has_manual_approval_pin: { type: Boolean, default: false },
 });
+
+const page = usePage();
+const platformTotpEnabled = computed(() => Boolean(page.props.auth?.user?.totp_enabled));
+const barrierMissing = computed(() => !platformTotpEnabled.value && !props.has_manual_approval_pin);
+const requirePin = computed(() => !platformTotpEnabled.value && props.has_manual_approval_pin);
+const resetTotpOpen = ref(false);
+const resetTotpLoading = ref(false);
+
+const resetTotpDescription = computed(() => {
+    if (barrierMissing.value) {
+        return 'Cadastre o 2FA em Meu perfil ou o PIN de operação em Financeiro > Saques para resetar o 2FA deste infoprodutor.';
+    }
+    if (platformTotpEnabled.value) {
+        return 'Informe o código 2FA para desativar o autenticador deste infoprodutor. Após o reset, ele entra só com a senha e pode cadastrar um novo 2FA.';
+    }
+    return 'Informe o PIN de operação para desativar o autenticador deste infoprodutor. Após o reset, ele entra só com a senha e pode cadastrar um novo 2FA.';
+});
+
+function openResetTotp() {
+    resetTotpOpen.value = true;
+}
+
+function closeResetTotp() {
+    if (resetTotpLoading.value) return;
+    resetTotpOpen.value = false;
+}
+
+function submitResetTotp({ totp_code: totpCode, manual_approval_pin: manualPin }) {
+    if (barrierMissing.value || resetTotpLoading.value) return;
+    resetTotpLoading.value = true;
+    router.post(
+        `/plataforma/usuarios/${props.merchant.id}/resetar-2fa`,
+        {
+            totp_code: totpCode || undefined,
+            manual_approval_pin: manualPin || undefined,
+        },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                resetTotpLoading.value = false;
+                resetTotpOpen.value = false;
+            },
+        }
+    );
+}
 
 const feeRows = [
     { key: 'pix', label: 'PIX (checkout)' },
@@ -293,6 +340,19 @@ function submit() {
             </div>
         </div>
 
+        <p
+            v-if="page.props.flash?.success"
+            class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200"
+        >
+            {{ page.props.flash.success }}
+        </p>
+        <p
+            v-if="page.props.flash?.error || page.props.errors?.totp_code"
+            class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
+        >
+            {{ page.props.flash?.error || page.props.errors?.totp_code }}
+        </p>
+
         <form class="space-y-6" @submit.prevent="submit">
             <section class="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:grid-cols-2 dark:border-zinc-700 dark:bg-zinc-900">
                 <div><label class="text-sm font-medium">Nome</label><input v-model="form.name" required class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" /><p v-if="form.errors.name" class="mt-1 text-sm text-red-600">{{ form.errors.name }}</p></div>
@@ -301,6 +361,33 @@ function submit() {
                 <div><label class="text-sm font-medium">Status da conta</label><select v-model="form.account_status" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800"><option value="approved">Aprovado</option><option value="pending">Pendente</option><option value="rejected">Rejeitado</option><option value="suspended">Suspenso</option><option value="blocked">Bloqueado</option></select><p v-if="form.errors.account_status" class="mt-1 text-sm text-red-600">{{ form.errors.account_status }}</p></div>
                 <div><label class="text-sm font-medium">Nova senha (opcional)</label><input v-model="form.password" type="password" minlength="8" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" /><p v-if="form.errors.password" class="mt-1 text-sm text-red-600">{{ form.errors.password }}</p></div>
                 <div><label class="text-sm font-medium">Confirmar senha</label><input v-model="form.password_confirmation" type="password" minlength="8" class="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-600 dark:bg-zinc-800" /></div>
+            </section>
+
+            <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                <h2 class="font-semibold">Autenticação em dois fatores (2FA)</h2>
+                <p class="mt-1 text-sm text-zinc-500">
+                    Se o infoprodutor perdeu o app ou o token, você pode resetar o 2FA para ele voltar a entrar só com a senha e cadastrar um novo.
+                </p>
+                <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-2 text-sm">
+                        <span
+                            class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium"
+                            :class="merchant.totp_enabled
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
+                                : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'"
+                        >
+                            {{ merchant.totp_enabled ? '2FA ativo' : '2FA inativo' }}
+                        </span>
+                    </div>
+                    <Button
+                        v-if="merchant.totp_enabled"
+                        type="button"
+                        variant="secondary"
+                        @click="openResetTotp"
+                    >
+                        Resetar 2FA
+                    </Button>
+                </div>
             </section>
 
             <section class="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -392,5 +479,18 @@ function submit() {
                 <Button type="submit" :disabled="form.processing">Salvar alterações</Button>
             </div>
         </form>
+
+        <PlatformStepUpModal
+            :open="resetTotpOpen"
+            title="Resetar 2FA do infoprodutor"
+            :description="resetTotpDescription"
+            confirm-label="Desativar 2FA"
+            :loading="resetTotpLoading"
+            :require-totp="platformTotpEnabled"
+            :require-pin="requirePin"
+            :confirm-disabled="barrierMissing"
+            @close="closeResetTotp"
+            @confirm="submitResetTotp"
+        />
     </div>
 </template>
