@@ -365,6 +365,7 @@ class PaymentService
             'boleto' => $pick('boleto'),
             'pix_auto' => $pick('pix_auto'),
             'open_finance' => $pick('open_finance'),
+            'paypal' => $pick('paypal'),
         ];
     }
 
@@ -470,6 +471,7 @@ class PaymentService
             'boleto' => ['id' => 'boleto', 'label' => 'Boleto'],
             'pix_auto' => ['id' => 'pix_auto', 'label' => 'PIX automático'],
             'open_finance' => ['id' => 'open_finance', 'label' => 'Open Finance'],
+            'paypal' => ['id' => 'paypal', 'label' => 'PayPal'],
         ];
 
         foreach ($methodConfig as $methodKey => $meta) {
@@ -482,6 +484,9 @@ class PaymentService
                     continue;
                 }
             } elseif (($enabled[$methodKey] ?? true) === false) {
+                continue;
+            }
+            if ($methodKey === 'paypal' && $subscription !== null) {
                 continue;
             }
             if ($methodKey === 'pix_auto') {
@@ -565,8 +570,8 @@ class PaymentService
     {
         $tenantId = $product->tenant_id;
         $credentialBySlug = GatewayCredential::connectedMapForPayment($tenantId);
-        $out = ['pix' => false, 'card' => false, 'boleto' => false, 'pix_auto' => false, 'apple_pay' => false, 'google_pay' => false, 'open_finance' => false];
-        foreach (['pix', 'card', 'boleto', 'pix_auto', 'open_finance'] as $methodKey) {
+        $out = ['pix' => false, 'card' => false, 'boleto' => false, 'pix_auto' => false, 'apple_pay' => false, 'google_pay' => false, 'open_finance' => false, 'paypal' => false];
+        foreach (['pix', 'card', 'boleto', 'pix_auto', 'open_finance', 'paypal'] as $methodKey) {
             if ($methodKey === 'pix_auto' && $plan === null) {
                 continue;
             }

@@ -36,6 +36,10 @@ class GatewayWebhookUrlTest extends TestCase
             'https://gateway.loja.com/webhooks/gateways/pagarme',
             GatewayWebhookUrl::forGateway('pagarme')
         );
+        $this->assertSame(
+            'https://gateway.loja.com/webhooks/gateways/paypal',
+            GatewayWebhookUrl::forGateway('paypal')
+        );
         $this->assertSame('https://gateway.loja.com', PublicAppUrl::base());
     }
 }

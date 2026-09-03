@@ -55,6 +55,12 @@ defineProps({
             alt="Open Finance"
             class="h-7 w-7 shrink-0 object-contain self-center"
         />
+        <img
+            v-else-if="method.id === 'paypal'"
+            src="/images/gateways/paypal.svg"
+            alt="PayPal"
+            class="h-7 w-7 shrink-0 object-contain self-center"
+        />
         <CreditCard v-else class="h-5 w-5" />
     </span>
     <div class="min-w-0 flex-1">

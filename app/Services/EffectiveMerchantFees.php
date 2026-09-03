@@ -102,6 +102,10 @@ class EffectiveMerchantFees
             return $cajuWallet;
         }
 
+        if (in_array($feeMethod, ['paypal'], true)) {
+            return 'card';
+        }
+
         return $feeMethod;
     }
 
@@ -237,6 +241,7 @@ class EffectiveMerchantFees
             'apple_pay' => 'apple_pay',
             'google_pay' => 'google_pay',
             'boleto' => 'boleto',
+            'paypal' => 'card',
             'pix_auto' => 'pix',
         ];
         $key = $map[$method] ?? $method;

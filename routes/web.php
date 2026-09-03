@@ -150,6 +150,7 @@ Route::middleware(['throttle:60,1', \App\Http\Middleware\LogInboundGatewayWebhoo
     Route::post('/webhooks/gateways/woovi', [\App\Http\Controllers\Webhooks\WooviWebhookController::class, 'handle'])->name('webhooks.woovi');
     Route::post('/webhooks/gateways/bspay', [\App\Http\Controllers\Webhooks\BspayWebhookController::class, 'handle'])->name('webhooks.bspay');
     Route::post('/webhooks/gateways/stripe', [\App\Http\Controllers\Webhooks\StripeWebhookController::class, 'handle'])->name('webhooks.stripe');
+    Route::post('/webhooks/gateways/paypal', [\App\Http\Controllers\Webhooks\PayPalWebhookController::class, 'handle'])->name('webhooks.paypal');
     Route::post('/webhooks/gateways/efi/pix', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'pix'])->name('webhooks.efi.pix');
     Route::post('/webhooks/gateways/efi/pix-recorrente', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'pixRecorrente'])->name('webhooks.efi.pix-recorrente');
     Route::post('/webhooks/gateways/efi/notification', [\App\Http\Controllers\Webhooks\EfiWebhookController::class, 'notification'])->name('webhooks.efi.notification');
@@ -223,6 +224,12 @@ Route::post('/checkout/cajupay/session', [\App\Http\Controllers\CheckoutControll
 Route::post('/checkout/cajupay/confirm-order', [\App\Http\Controllers\CheckoutController::class, 'cajupayConfirmOrder'])
     ->name('checkout.cajupay.confirm-order')
     ->middleware('throttle:checkout-cajupay-confirm');
+Route::post('/checkout/paypal/create-order', [\App\Http\Controllers\CheckoutController::class, 'paypalCreateOrder'])
+    ->name('checkout.paypal.create-order')
+    ->middleware('throttle:checkout-card');
+Route::post('/checkout/paypal/capture', [\App\Http\Controllers\CheckoutController::class, 'paypalCapture'])
+    ->name('checkout.paypal.capture')
+    ->middleware('throttle:checkout-card');
 Route::post('/checkout/cajupay/sdk-session', [\App\Http\Controllers\CajuPayCheckoutSdkController::class, 'createSession'])
     ->name('checkout.cajupay.sdk-session')
     ->middleware('throttle:checkout-cajupay-session');

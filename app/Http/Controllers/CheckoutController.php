@@ -336,6 +336,21 @@ class CheckoutController extends Controller
                     || ! empty($creds['sandbox']);
             }
         }
+        $payload['paypal_client_id'] = '';
+        $payload['paypal_sandbox'] = false;
+        foreach ($payload['available_payment_methods'] as $m) {
+            if (($m['id'] ?? '') !== 'paypal') {
+                continue;
+            }
+            $cred = GatewayCredential::resolveForPayment($product->tenant_id, 'paypal');
+            if (! $cred) {
+                break;
+            }
+            $creds = $cred->getDecryptedCredentials();
+            $payload['paypal_client_id'] = (string) ($creds['client_id'] ?? '');
+            $payload['paypal_sandbox'] = ! empty($creds['sandbox']);
+            break;
+        }
         $cardInstallmentsConfig = $config['card_installments'] ?? ['enabled' => false, 'max' => 1];
         $isSubscriptionCheckout = ($resolved['plan'] ?? null) !== null;
         $resolvedInstallments = PlatformCardInstallments::forProductConfig(
@@ -2449,6 +2464,422 @@ class CheckoutController extends Controller
     }
 
     /**
+     * Cria pedido PayPal (Orders API) para o botão da carteira. Não entra na redundância de PIX/cartão.
+     */
+    public function paypalCreateOrder(Request $request): JsonResponse
+    {
+        $product = Product::where('id', $request->input('product_id'))->availableForPurchase()->first();
+        if (! $product) {
+            return response()->json(['message' => 'Produto não encontrado.'], 404);
+        }
+
+        $paypalGateway = app(PaymentService::class)->getFirstAvailableGatewayForMethod($product->tenant_id, 'paypal', $product);
+        if ($paypalGateway !== 'paypal') {
+            return response()->json(['message' => 'PayPal não está disponível neste checkout.'], 422);
+        }
+
+        $customerFields = $product->checkout_config['customer_fields'] ?? [];
+        $displayCurrencyInput = $request->input('display_currency');
+        $displayCurrency = is_string($displayCurrencyInput) && $displayCurrencyInput !== ''
+            ? strtoupper($displayCurrencyInput)
+            : strtoupper((string) ($product->currency ?? 'BRL'));
+        $requireCpf = (($customerFields['cpf'] ?? false) && $displayCurrency === 'BRL');
+        $phoneRequired = ($customerFields['phone'] ?? false);
+
+        $rules = [
+            'product_id' => ['required', 'exists:products,id'],
+            'product_offer_id' => ['nullable', 'exists:product_offers,id'],
+            'subscription_plan_id' => ['nullable', 'exists:subscription_plans,id'],
+            'order_bump_ids' => ['nullable', 'array'],
+            'order_bump_ids.*' => ['integer', 'exists:product_order_bumps,id'],
+            'checkout_session_token' => ['required', 'string', 'max:64'],
+            'display_currency' => ['nullable', 'string', 'in:BRL,USD,EUR'],
+            'email' => ['required', 'email'],
+            'name' => [($customerFields['name'] ?? true) ? 'required' : 'nullable', 'string', 'max:255'],
+            'cpf' => [$requireCpf ? 'required' : 'nullable', 'string', 'max:14'],
+            'phone' => [$phoneRequired ? 'required' : 'nullable', 'string', 'max:24'],
+            'coupon_code' => ['nullable', 'string', 'max:64'],
+            'affiliate_ref' => ['nullable', 'string', 'max:32'],
+            'checkout_locale' => ['nullable', 'string', 'max:16'],
+            'billing_country' => ['nullable', 'string', 'size:2'],
+            'website' => ['nullable', 'string', 'max:255'],
+            '_hp' => ['nullable', 'string', 'max:255'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
+            'fbp' => ['nullable', 'string', 'max:512'],
+            'fbc' => ['nullable', 'string', 'max:512'],
+            'user_agent' => ['nullable', 'string', 'max:2048'],
+            'metrics_session_key' => ['nullable', 'uuid'],
+        ];
+        foreach (CheckoutSession::TRACKING_FIELD_KEYS as $trackingKey) {
+            $rules[$trackingKey] = ['nullable', 'string', 'max:2048'];
+        }
+        $shippingHelper = app(CheckoutShippingHelper::class);
+        if ($shippingHelper->productRequiresShipping($product)) {
+            $rules = $shippingHelper->appendAddressRulesIfNeeded($product, $rules, $displayCurrency);
+        }
+        $validated = $request->validate($rules);
+        $validated['payment_method'] = 'paypal';
+
+        $subscriptionPlanId = $request->filled('subscription_plan_id') ? (int) $request->input('subscription_plan_id') : null;
+        $plan = $subscriptionPlanId
+            ? SubscriptionPlan::where('id', $subscriptionPlanId)->where('product_id', $product->id)->first()
+            : null;
+        $allowedPaymentIds = array_column(
+            app(PaymentService::class)->availablePaymentMethodsForCheckout($product, $plan, null),
+            'id'
+        );
+        if (! in_array('paypal', $allowedPaymentIds, true)) {
+            return response()->json(['message' => 'PayPal não está disponível para este produto.'], 422);
+        }
+
+        $email = strtolower(trim((string) $validated['email']));
+        app(CheckoutAbuseGuard::class)->assertCanProcess($request, $product, array_merge($validated, [
+            'payment_method' => 'paypal',
+            'email' => $email,
+        ]), false);
+
+        try {
+            $context = $this->calculateCajuPayDraftContext($request, $product, $validated);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage() ?: 'Não foi possível calcular o pedido.'], 422);
+        }
+
+        $credential = GatewayCredential::resolveForPayment($product->tenant_id, 'paypal');
+        if (! $credential) {
+            return response()->json(['message' => 'PayPal não está conectado.'], 422);
+        }
+        $credentials = $credential->getDecryptedCredentials();
+        if (empty($credentials['client_id']) || empty($credentials['client_secret'])) {
+            return response()->json(['message' => 'PayPal: Client ID/Secret não configurados.'], 422);
+        }
+
+        $order = Order::query()
+            ->where('tenant_id', $product->tenant_id)
+            ->where('product_id', $product->id)
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->where('status', 'pending')
+            ->where('gateway', 'paypal')
+            ->where('created_at', '>=', now()->subHours(2))
+            ->latest('id')
+            ->first();
+
+        if (! $order) {
+            $draft = [
+                'product_id' => $product->id,
+                'product_offer_id' => $context['offer']?->id,
+                'subscription_plan_id' => $context['plan']?->id,
+                'order_bump_ids' => $context['order_bump_ids'],
+                'payment_method' => 'paypal',
+                'coupon_code' => $context['coupon_code'],
+                'total_amount' => $context['total_amount'],
+                'base_amount' => $context['base_amount'],
+                'checkout_session_token' => $validated['checkout_session_token'] ?? null,
+                'shipping_amount' => (float) ($context['shipping_amount'] ?? 0),
+                'gateway' => 'paypal',
+                'gateway_id' => null,
+            ];
+
+            try {
+                $created = $this->createUserAndOrderFromCajuPayDraft($request, $product, $draft, $validated);
+            } catch (\Throwable $e) {
+                Log::warning('PayPalCreateOrder: falha ao criar pedido', [
+                    'product_id' => $product->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return response()->json(['message' => $e->getMessage() ?: 'Falha ao registrar o pedido.'], 422);
+            }
+
+            /** @var Order $order */
+            $order = $created['order'];
+            $this->updateCheckoutSessionForCajuPayOrder($order, $validated);
+            event(new OrderPending($order->fresh()));
+        } else {
+            $this->syncPendingPaypalOrderWithCheckoutContext($order, $product, $context, $validated);
+            $this->updateCheckoutSessionForCajuPayOrder($order, $validated);
+        }
+
+        $chargeCurrency = strtoupper((string) ($validated['display_currency'] ?? $order->currency ?? 'BRL'));
+        if (strlen($chargeCurrency) !== 3) {
+            $chargeCurrency = 'BRL';
+        }
+        $chargeAmount = (float) ($context['total_amount'] ?? $order->amount);
+
+        try {
+            /** @var \App\Gateways\PayPal\PayPalDriver|null $driver */
+            $driver = GatewayRegistry::driver('paypal');
+            if (! $driver) {
+                throw new \RuntimeException('Driver PayPal não disponível.');
+            }
+            $paypalResult = $driver->createPayPalOrder(
+                $credentials,
+                $chargeAmount,
+                $chargeCurrency,
+                (string) $order->id,
+                [
+                    'name' => $validated['name'] ?? '',
+                    'email' => $validated['email'],
+                    'phone' => (string) ($validated['phone'] ?? ''),
+                    'document' => preg_replace('/\D/', '', (string) ($validated['cpf'] ?? '')),
+                    'country' => strtoupper((string) ($validated['billing_country'] ?? '')),
+                    'locale' => (string) ($validated['checkout_locale'] ?? 'pt_BR'),
+                ],
+                (string) $product->name,
+                'buttons'
+            );
+        } catch (\Throwable $e) {
+            $this->rollbackFailedOrder($order, $e);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Não foi possível iniciar o pagamento PayPal.',
+            ], 422);
+        }
+
+        $paypalOrderId = (string) ($paypalResult['transaction_id'] ?? '');
+        $order->update([
+            'gateway' => 'paypal',
+            'gateway_id' => $paypalOrderId,
+            'payment_method' => 'paypal',
+            'metadata' => array_merge(is_array($order->metadata) ? $order->metadata : [], [
+                'checkout_payment_method' => 'paypal',
+                'paypal_order_id' => $paypalOrderId,
+            ]),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'order_id' => $order->id,
+            'paypal_order_id' => $paypalOrderId,
+            'id' => $paypalOrderId,
+        ]);
+    }
+
+    /**
+     * Captura o pedido PayPal após aprovação na carteira.
+     */
+    public function paypalCapture(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'paypal_order_id' => ['required', 'string', 'max:64'],
+            'order_id' => ['nullable', 'integer'],
+        ]);
+
+        $paypalOrderId = trim($validated['paypal_order_id']);
+        $order = Order::where('gateway', 'paypal')
+            ->where('gateway_id', $paypalOrderId)
+            ->when(! empty($validated['order_id']), fn ($q) => $q->where('id', (int) $validated['order_id']))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Pedido PayPal não encontrado.'], 404);
+        }
+
+        if ($order->status === 'completed') {
+            return response()->json($this->paypalCaptureSuccessPayload($order));
+        }
+
+        if ($order->status !== 'pending') {
+            return response()->json(['message' => 'Pedido não está pendente de pagamento.'], 422);
+        }
+
+        $product = Product::find($order->product_id);
+        if (! $product) {
+            return response()->json(['message' => 'Produto não encontrado.'], 404);
+        }
+
+        $offer = $order->product_offer_id
+            ? ProductOffer::where('id', $order->product_offer_id)->where('product_id', $product->id)->first()
+            : null;
+        $plan = $order->subscription_plan_id
+            ? SubscriptionPlan::where('id', $order->subscription_plan_id)->where('product_id', $product->id)->first()
+            : null;
+
+        $credential = GatewayCredential::resolveForPayment($order->tenant_id, 'paypal');
+        if (! $credential) {
+            return response()->json(['message' => 'PayPal não está conectado.'], 422);
+        }
+
+        /** @var \App\Gateways\PayPal\PayPalDriver|null $driver */
+        $driver = GatewayRegistry::driver('paypal');
+        if (! $driver) {
+            return response()->json(['message' => 'Driver PayPal não disponível.'], 422);
+        }
+
+        $order->loadMissing('user');
+        $consumer = CheckoutPaymentConsumer::build([
+            'name' => $order->user?->name ?? '',
+            'email' => (string) $order->email,
+            'cpf' => (string) ($order->cpf ?? ''),
+            'phone' => (string) ($order->phone ?? ''),
+        ], $order->id);
+
+        try {
+            $cardResult = $driver->createCardPayment(
+                $credential->getDecryptedCredentials(),
+                (float) $order->amount,
+                $consumer,
+                (string) $order->id,
+                ['payment_token' => $paypalOrderId]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('PayPalCapture: falha', [
+                'order_id' => $order->id,
+                'paypal_order_id' => $paypalOrderId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Não foi possível processar o pagamento. Tente novamente.',
+            ], 422);
+        }
+
+        $status = $cardResult['status'] ?? null;
+        $isApproved = in_array($status, ['paid', 'settled', 'approved', 'completed'], true);
+
+        if (! $isApproved) {
+            return response()->json([
+                'success' => true,
+                'payment_method' => 'paypal',
+                'order_id' => $order->id,
+                'status' => $status ?? 'pending',
+                'message' => 'Pagamento em processamento.',
+                'redirect_url' => $this->paypalRedirectUrlForOrder($order, $product, $offer, $plan, false),
+            ]);
+        }
+
+        if ($order->fresh()->status !== 'completed') {
+            $order->update(['status' => 'completed']);
+            $order->load('orderItems');
+            $order->grantPurchasedProductAccessToBuyer();
+
+            if ($plan && $order->user_id) {
+                $existing = Subscription::where('user_id', $order->user_id)
+                    ->where('product_id', $product->id)
+                    ->where('subscription_plan_id', $plan->id)
+                    ->whereIn('status', [Subscription::STATUS_ACTIVE, Subscription::STATUS_PAST_DUE])
+                    ->first();
+                if (! $existing) {
+                    [$periodStart, $periodEnd] = $plan->getCurrentPeriod();
+                    $subscription = Subscription::create([
+                        'tenant_id' => $order->tenant_id,
+                        'user_id' => $order->user_id,
+                        'product_id' => $product->id,
+                        'subscription_plan_id' => $plan->id,
+                        'status' => Subscription::STATUS_ACTIVE,
+                        'current_period_start' => $order->period_start ?? $periodStart,
+                        'current_period_end' => $order->period_end ?? $periodEnd,
+                    ]);
+                    event(new SubscriptionCreated($subscription));
+                }
+            }
+
+            event(new OrderCompleted($order->fresh()));
+        }
+
+        return response()->json($this->paypalCaptureSuccessPayload($order->fresh(), $product, $offer, $plan));
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $validated
+     */
+    private function syncPendingPaypalOrderWithCheckoutContext(Order $order, Product $product, array $context, array $validated): void
+    {
+        $totalAmount = (float) ($context['total_amount'] ?? $order->amount);
+        $baseAmount = (float) ($context['base_amount'] ?? $order->amount);
+        $order->update([
+            'amount' => $totalAmount,
+            'coupon_code' => $context['coupon_code'] ?? $order->coupon_code,
+            'product_offer_id' => $context['offer']?->id ?? $order->product_offer_id,
+            'subscription_plan_id' => $context['plan']?->id ?? $order->subscription_plan_id,
+        ]);
+
+        $order->orderItems()->delete();
+        OrderItem::create([
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'product_offer_id' => $context['offer']?->id,
+            'subscription_plan_id' => $context['plan']?->id,
+            'amount' => $baseAmount,
+            'position' => 0,
+        ]);
+        $bumpIds = is_array($context['order_bump_ids'] ?? null) ? $context['order_bump_ids'] : [];
+        if ($bumpIds) {
+            $bumps = ProductOrderBump::where('product_id', $product->id)->whereIn('id', $bumpIds)->get();
+            $pos = 1;
+            foreach ($bumps as $bump) {
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'product_id' => $bump->target_product_id,
+                    'product_offer_id' => $bump->target_product_offer_id,
+                    'subscription_plan_id' => null,
+                    'amount' => $bump->getEffectiveAmountBrl(),
+                    'position' => $pos++,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function paypalCaptureSuccessPayload(Order $order, ?Product $product = null, ?ProductOffer $offer = null, ?SubscriptionPlan $plan = null): array
+    {
+        $product = $product ?? Product::find($order->product_id);
+        $offer = $offer ?? ($order->product_offer_id ? ProductOffer::find($order->product_offer_id) : null);
+        $plan = $plan ?? ($order->subscription_plan_id ? SubscriptionPlan::find($order->subscription_plan_id) : null);
+        $redirectUrl = $product
+            ? $this->paypalRedirectUrlForOrder($order, $product, $offer, $plan, true)
+            : route('checkout.thank-you', ['order_id' => $order->id, 'next' => 'login']);
+
+        return [
+            'success' => true,
+            'payment_method' => 'paypal',
+            'order_id' => $order->id,
+            'status' => 'paid',
+            'message' => 'Pagamento aprovado.',
+            'redirect_url' => $redirectUrl,
+        ];
+    }
+
+    private function paypalRedirectUrlForOrder(
+        Order $order,
+        Product $product,
+        ?ProductOffer $offer,
+        ?SubscriptionPlan $plan,
+        bool $approved
+    ): string {
+        if (! $approved) {
+            $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
+
+            return route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
+        }
+
+        $config = $this->getOrderCheckoutConfigForProcess($order, $product, $offer, $plan);
+        $upsell = $config['upsell'] ?? [];
+        if (! empty($upsell['enabled']) && ! empty($upsell['products']) && is_array($upsell['products'])) {
+            $upsellToken = Str::random(64);
+            Cache::put('upsell_token.'.$upsellToken, ['order_id' => $order->id, 'gateway' => $order->gateway], now()->addMinutes(60));
+
+            return route('checkout.upsell', ['token' => $upsellToken]);
+        }
+
+        $customRedirect = $config['redirect_after_purchase'] ?? null;
+        if (is_string($customRedirect) && trim($customRedirect) !== '') {
+            $normalized = SafeUrl::normalizeCheckoutRedirect($customRedirect);
+            if ($normalized !== null) {
+                return $normalized;
+            }
+        }
+
+        $next = ($order->user_id && User::find($order->user_id)) ? 'member-area' : 'login';
+
+        return route('checkout.thank-you', ['order_id' => $order->id, 'next' => $next]);
+    }
+
+    /**
      * @param  array<string, mixed>  $validated
      */
     private function updateCheckoutSessionForCajuPayOrder(Order $order, array $validated): void
@@ -2621,13 +3052,20 @@ class CheckoutController extends Controller
             $user->update(['name' => trim((string) $validated['name'])]);
         }
 
+        $gatewaySlug = (string) ($draft['gateway'] ?? 'cajupay');
+        if ($gatewaySlug === '') {
+            $gatewaySlug = 'cajupay';
+        }
+        $orderPaymentMethod = $gatewaySlug === 'paypal' ? 'paypal' : 'card';
         $cajupayToken = $draft['cajupay_token'] ?? null;
         $orderMetadata = [
-            'checkout_payment_method' => $draft['payment_method'],
-            'cajupay_session_token' => $cajupayToken,
-            'cajupay_sdk_token' => $cajupayToken,
-            'cajupay_checkout_session_id' => $draft['checkout_session_id'] ?? null,
+            'checkout_payment_method' => $draft['payment_method'] ?? $orderPaymentMethod,
         ];
+        if ($gatewaySlug === 'cajupay') {
+            $orderMetadata['cajupay_session_token'] = $cajupayToken;
+            $orderMetadata['cajupay_sdk_token'] = $cajupayToken;
+            $orderMetadata['cajupay_checkout_session_id'] = $draft['checkout_session_id'] ?? null;
+        }
         if ($product->type === Product::TYPE_AREA_MEMBROS && $plainPassword !== null) {
             Cache::put('access_password.'.$user->id.'.'.$product->id, $plainPassword, now()->addHours(2));
             $orderMetadata['access_password_temp'] = encrypt($plainPassword);
@@ -2679,10 +3117,12 @@ class CheckoutController extends Controller
             'coupon_code' => $draft['coupon_code'] ?? null,
             'metadata' => $orderMetadata,
             'status' => 'pending',
-            'gateway' => 'cajupay',
-            'gateway_id' => $draft['checkout_session_id'] ?? null,
-            'cajupay_account_id' => app(\App\Services\CajuPay\CajuPayAccountResolver::class)->accountIdForTenant($tenantId),
-            'payment_method' => 'card',
+            'gateway' => $gatewaySlug,
+            'gateway_id' => $draft['gateway_id'] ?? $draft['checkout_session_id'] ?? null,
+            'cajupay_account_id' => $gatewaySlug === 'cajupay'
+                ? app(\App\Services\CajuPay\CajuPayAccountResolver::class)->accountIdForTenant($tenantId)
+                : null,
+            'payment_method' => $orderPaymentMethod,
         ];
         if ($shippingResolved !== null) {
             $orderPayload['shipping_amount'] = $shippingResolved['shipping_amount'];

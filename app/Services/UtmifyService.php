@@ -262,7 +262,7 @@ class UtmifyService
             return match ($key) {
                 'pix', 'pix_auto' => 'pix',
                 'boleto' => 'boleto',
-                'card', 'apple_pay', 'google_pay' => 'credit_card',
+                'card', 'apple_pay', 'google_pay', 'paypal' => 'credit_card',
                 default => $this->mapPaymentMethodFromGateway($order->gateway),
             };
         }

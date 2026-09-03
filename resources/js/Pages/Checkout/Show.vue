@@ -58,6 +58,8 @@ const props = defineProps({
     card_mercadopago_sandbox: { type: Boolean, default: false },
     /** Chaves por gateway slug para gateways de plugin (checkout_payload_keys na definição). Ex.: { 'meu-gateway': { publishable_key: '...' } } */
     card_gateway_keys: { type: Object, default: () => ({}) },
+    paypal_client_id: { type: String, default: '' },
+    paypal_sandbox: { type: Boolean, default: false },
     subscription_plan: { type: Object, default: null },
     /** Definido no servidor quando a URL traz `?preview=1` (preview no iframe do Builder). */
     checkout_builder_preview: { type: Boolean, default: false },
@@ -459,6 +461,9 @@ function onConversionPixelsReady() {
                             :card-mercadopago-public-key="card_mercadopago_public_key || ''"
                             :card-mercadopago-sandbox="card_mercadopago_sandbox"
                             :card-gateway-keys="card_gateway_keys || {}"
+                            :paypal-client-id="paypal_client_id || ''"
+                            :paypal-sandbox="paypal_sandbox"
+                            :checkout-locale="locale"
                             :checkout-total-brl="checkoutTotalBrl"
                             :conversion-pixels="conversion_pixels"
                             :requires-shipping="requiresShipping"

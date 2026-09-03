@@ -14,6 +14,7 @@ import SapcepagCard from './sapcepag/Card.vue';
 import SapcepagBoleto from './sapcepag/Boleto.vue';
 
 import StripeCard from './stripe/Card.vue';
+import PaypalMethod from './paypal/Paypal.vue';
 
 import MercadopagoPix from './mercadopago/Pix.vue';
 import MercadopagoCard from './mercadopago/Card.vue';
@@ -35,6 +36,9 @@ export const gatewayMethodComponents = {
         card: StripeCard,
         pix: DefaultMethodCard,
         boleto: DefaultMethodCard,
+    },
+    paypal: {
+        paypal: PaypalMethod,
     },
     mercadopago: {
         pix: MercadopagoPix,

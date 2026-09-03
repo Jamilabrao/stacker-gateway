@@ -105,7 +105,7 @@ const props = defineProps({
     },
     global_payment_methods_available: {
         type: Object,
-        default: () => ({ pix: false, card: false, boleto: false, pix_auto: false, apple_pay: false, google_pay: false }),
+        default: () => ({ pix: false, card: false, boleto: false, pix_auto: false, apple_pay: false, google_pay: false, paypal: false }),
     },
     shipping_stores: { type: Array, default: () => [] },
 });
@@ -170,6 +170,7 @@ const form = useForm({
         apple_pay: pme.apple_pay !== false && pme.apple_pay !== '0',
         google_pay: pme.google_pay !== false && pme.google_pay !== '0',
         open_finance: pme.open_finance !== false && pme.open_finance !== '0',
+        paypal: pme.paypal !== false && pme.paypal !== '0',
     },
     email_template: {
         logo_url: et.logo_url ?? DEFAULT_EMAIL_TEMPLATE.logo_url,
@@ -454,12 +455,13 @@ const paymentMethodMeta = {
     boleto: { label: 'Boleto', hint: 'Compensação bancária', visual: 'boleto' },
     pix_auto: { label: 'PIX automático', hint: 'Débito recorrente na assinatura', visual: 'pix_auto' },
     open_finance: { label: 'Open Finance', hint: 'Pagamento autorizado no app do banco', visual: 'open_finance' },
+    paypal: { label: 'PayPal', hint: 'Carteira PayPal (não substitui PIX/cartão)', visual: 'paypal' },
 };
 
 /** Somente métodos com gateway ativo na plataforma (configuração admin + credencial conectada). */
 const paymentMethodCardsList = computed(() => {
     const avail = props.global_payment_methods_available ?? {};
-    const order = ['pix', 'open_finance', 'card', 'apple_pay', 'google_pay', 'boleto'];
+    const order = ['pix', 'open_finance', 'card', 'apple_pay', 'google_pay', 'paypal', 'boleto'];
     if (form.billing_type === 'subscription') {
         order.push('pix_auto');
     }
@@ -1219,6 +1221,7 @@ function appendCheckoutConfigFields(fd) {
     fd.append('payment_methods_enabled[apple_pay]', form.payment_methods_enabled.apple_pay ? '1' : '0');
     fd.append('payment_methods_enabled[google_pay]', form.payment_methods_enabled.google_pay ? '1' : '0');
     fd.append('payment_methods_enabled[open_finance]', form.payment_methods_enabled.open_finance ? '1' : '0');
+    fd.append('payment_methods_enabled[paypal]', form.payment_methods_enabled.paypal ? '1' : '0');
     fd.append('deliverable_link', form.deliverable_link || '');
 }
 
@@ -1924,6 +1927,13 @@ function submit() {
                                     <template v-else-if="m.visual === 'open_finance'">
                                         <img
                                             src="/images/gateways/open-finance.svg"
+                                            alt=""
+                                            class="h-10 w-10 object-contain"
+                                        />
+                                    </template>
+                                    <template v-else-if="m.visual === 'paypal'">
+                                        <img
+                                            src="/images/gateways/paypal.svg"
                                             alt=""
                                             class="h-10 w-10 object-contain"
                                         />

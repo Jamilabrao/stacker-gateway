@@ -130,6 +130,44 @@ return [
                 ['key' => 'link_enabled', 'label' => 'Habilitar Stripe Link no checkout', 'type' => 'boolean'],
             ],
         ],
+        'paypal' => [
+            'slug' => 'paypal',
+            'name' => 'PayPal',
+            'image' => 'images/gateways/paypal.png',
+            'methods' => ['paypal'],
+            'scope' => 'international',
+            'country_flag' => 'global.png',
+            'country_name' => 'Global',
+            'signup_url' => 'https://developer.paypal.com/dashboard/',
+            'driver' => \App\Gateways\PayPal\PayPalDriver::class,
+            'checkout_payload_keys' => ['client_id'],
+            'credential_keys' => [
+                [
+                    'key' => 'client_id',
+                    'label' => 'Client ID',
+                    'type' => 'text',
+                    'hint' => 'Client ID do app REST no PayPal Developer Dashboard (sandbox ou live).',
+                ],
+                [
+                    'key' => 'client_secret',
+                    'label' => 'Client Secret',
+                    'type' => 'password',
+                    'hint' => 'Client Secret do mesmo app. Nunca é exposto no checkout.',
+                ],
+                [
+                    'key' => 'webhook_id',
+                    'label' => 'Webhook ID',
+                    'type' => 'text',
+                    'hint' => 'Cadastre a URL do webhook no PayPal Developer Dashboard e cole aqui o Webhook ID. Eventos: PAYMENT.CAPTURE.COMPLETED, PAYMENT.CAPTURE.DENIED, PAYMENT.CAPTURE.REFUNDED.',
+                ],
+                [
+                    'key' => 'sandbox',
+                    'label' => 'Usar ambiente Sandbox',
+                    'type' => 'boolean',
+                    'hint' => 'Ative com credenciais sandbox; desative em produção com Client ID/Secret live.',
+                ],
+            ],
+        ],
         'mercadopago' => [
             'slug' => 'mercadopago',
             'name' => 'Mercado Pago',
@@ -317,6 +355,7 @@ return [
         'mercadopago',
         'pagarme',
         'stripe',
+        'paypal',
         'linaopenx',
         'versell', // Cash In + Cash Out (dict)
         'cielo',
@@ -333,6 +372,7 @@ return [
         'boleto' => ['efi', 'mercadopago', 'pagarme', 'asaas'],
         'pix_auto' => ['efi', 'pushinpay', 'versell'],
         'open_finance' => ['linaopenx'],
+        'paypal' => ['paypal'],
         'crypto' => [],
     ],
 ];

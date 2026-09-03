@@ -19,6 +19,7 @@ class PlatformPaymentMethods
         'apple_pay',
         'google_pay',
         'open_finance',
+        'paypal',
     ];
 
     /**
@@ -90,6 +91,7 @@ class PlatformPaymentMethods
             ['key' => 'apple_pay', 'label' => 'Apple Pay', 'hint' => 'Wallet via CajuPay (iOS)'],
             ['key' => 'google_pay', 'label' => 'Google Pay', 'hint' => 'Wallet via CajuPay (Android/desktop)'],
             ['key' => 'open_finance', 'label' => 'Open Finance', 'hint' => 'Pagamento autorizado no app do banco'],
+            ['key' => 'paypal', 'label' => 'PayPal', 'hint' => 'Carteira PayPal (não altera PIX/cartão das outras adquirentes)'],
         ];
     }
 }
