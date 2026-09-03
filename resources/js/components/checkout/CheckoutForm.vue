@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import axios from 'axios';
-import { User, UserRound, Mail, ShoppingBag, Loader2, CreditCard, Tag, Check, Pencil, ScanQrCode, Shield, X, AlertCircle, FileText, MapPin } from 'lucide-vue-next';
+import { User, UserRound, Mail, ShoppingBag, Loader2, CreditCard, Tag, Check, Pencil, ScanQrCode, X, AlertCircle, FileText, MapPin } from 'lucide-vue-next';
 import CheckoutDropdown from './CheckoutDropdown.vue';
 import CheckoutOrderBumps from './CheckoutOrderBumps.vue';
 import CheckoutPaymentMethods from './CheckoutPaymentMethods.vue';
@@ -23,7 +23,7 @@ import { isValidCpf } from '@/utils/brazilianDocuments.js';
 import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
 import { trackCheckoutPurchase } from '@/composables/useCheckoutPurchaseTracking.js';
 import { getMetricsSessionKey } from '@/lib/metricsTracking.js';
-import CheckoutPlatformNotice from './CheckoutPlatformNotice.vue';
+import CheckoutLegalFooter from './CheckoutLegalFooter.vue';
 import { usePlatformBranding } from '@/composables/usePlatformBranding';
 
 const STORAGE_KEY = 'checkout_draft';
@@ -3371,6 +3371,9 @@ function submit() {
                     v-model="turnstileToken"
                 />
             </div>
+            <div v-if="$slots['before-submit']" class="lg:hidden" data-checkout="form-purchase-summary-slot">
+                <slot name="before-submit" />
+            </div>
             <button
                 v-if="(!isCardPaymentFamily || !isCardGatewayMercadopago) && !hidePrimarySubmitForCajupayWallet"
                 type="submit"
@@ -3415,50 +3418,13 @@ function submit() {
             <input type="hidden" name="_token" :value="getCsrfToken()" />
             <span data-pagarmecheckout-element="brand" class="hidden" aria-hidden="true" />
         </form>
-        <div v-if="platformLogoUrl" class="mt-6 flex justify-center sm:hidden" data-checkout="platform-logo">
-            <img
-                :src="platformLogoUrl"
-                :alt="appName"
-                class="h-8 w-auto max-w-[180px] object-contain"
-                loading="lazy"
+        <footer class="mt-8 hidden border-t border-gray-100 pt-6 lg:block" data-checkout="form-footer-desktop">
+            <CheckoutLegalFooter
+                :logo-url="platformLogoUrl"
+                :app-name="appName"
+                :notice="platformCheckoutNotice"
             />
-        </div>
-        <footer class="mt-8 hidden border-t border-gray-100 pt-6 sm:block" data-checkout="form-footer-desktop">
-            <div v-if="platformLogoUrl" class="mb-4 flex justify-center" data-checkout="platform-logo-desktop">
-                <img
-                    :src="platformLogoUrl"
-                    :alt="appName"
-                    class="h-8 w-auto max-w-[180px] object-contain"
-                    loading="lazy"
-                />
-            </div>
-            <p class="flex items-center justify-center gap-2 text-sm text-gray-500">
-                <Shield class="h-4 w-4 shrink-0" aria-hidden="true" />
-                Compra 100% segura
-            </p>
-            <p class="mt-2 text-center text-xs text-gray-400">
-                Este site é protegido pelo reCAPTCHA do Google
-            </p>
-            <p class="mt-2 text-center text-xs text-gray-400">
-                Copyright © {{ new Date().getFullYear() }}. Todos os direitos reservados.
-            </p>
         </footer>
-        <CheckoutPlatformNotice
-            v-if="platformCheckoutNotice"
-            data-checkout="platform-notice"
-            class="text-center text-xs leading-relaxed text-gray-400"
-            :class="platformLogoUrl ? 'mt-3 sm:mt-2' : 'mt-4 sm:mt-2'"
-            :text="platformCheckoutNotice"
-        />
-        <p
-            v-else
-            class="text-center text-xs text-gray-400"
-            :class="platformLogoUrl ? 'mt-3 sm:mt-2' : 'mt-4 sm:mt-2'"
-        >
-            <a href="/termos-de-uso" target="_blank" rel="noopener" class="underline hover:text-gray-600">Termos</a>
-            <span class="mx-1">·</span>
-            <a href="/politica-privacidade" target="_blank" rel="noopener" class="underline hover:text-gray-600">Privacidade</a>
-        </p>
 
         <!-- Modal pagamento recusado (cartão) -->
         <Teleport to="body">
