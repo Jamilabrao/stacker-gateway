@@ -674,6 +674,7 @@ class ProdutosController extends Controller
             'payment_methods_enabled.apple_pay' => ['nullable', 'boolean'],
             'payment_methods_enabled.google_pay' => ['nullable', 'boolean'],
             'payment_methods_enabled.open_finance' => ['nullable', 'boolean'],
+            'payment_methods_enabled.paypal' => ['nullable', 'boolean'],
             'email_template' => ['nullable', 'array'],
             'email_template.logo_url' => ['nullable', 'string', 'max:500'],
             'email_template.from_name' => ['nullable', 'string', 'max:255'],
@@ -1424,6 +1425,7 @@ class ProdutosController extends Controller
             'apple_pay' => $request->boolean('payment_methods_enabled.apple_pay', true),
             'google_pay' => $request->boolean('payment_methods_enabled.google_pay', true),
             'open_finance' => $request->boolean('payment_methods_enabled.open_finance', true),
+            'paypal' => $request->boolean('payment_methods_enabled.paypal', true),
         ];
         $keysToCheck = ['pix', 'card', 'boleto', 'open_finance'];
         if ($billingType === Product::BILLING_SUBSCRIPTION && $basePlan) {
@@ -1434,6 +1436,9 @@ class ProdutosController extends Controller
         }
         if (! empty($global['google_pay'])) {
             $keysToCheck[] = 'google_pay';
+        }
+        if (! empty($global['paypal'])) {
+            $keysToCheck[] = 'paypal';
         }
         foreach (array_keys($pm) as $k) {
             if (empty($global[$k])) {

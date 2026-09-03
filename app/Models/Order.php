@@ -172,6 +172,7 @@ class Order extends Model
             'card' => 'Cartão',
             'apple_pay' => 'Apple Pay',
             'google_pay' => 'Google Pay',
+            'paypal' => 'PayPal',
             'boleto' => 'Boleto',
             default => self::gatewaySlugDisplayLabel($this->gateway),
         };
@@ -434,7 +435,7 @@ class Order extends Model
 
         return match ($column) {
             'credit_card', 'creditcard', 'card' => 'card',
-            'pix', 'pix_auto', 'boleto', 'apple_pay', 'google_pay', 'open_finance' => $column,
+            'pix', 'pix_auto', 'boleto', 'apple_pay', 'google_pay', 'open_finance', 'paypal' => $column,
             default => null,
         };
     }
@@ -480,13 +481,16 @@ class Order extends Model
         if (in_array($method, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi', 'linaopenx'], true)) {
             $method = 'pix';
         }
-        if (in_array($method, ['pix', 'card', 'boleto'], true)) {
-            return $method;
+        if (in_array($method, ['pix', 'card', 'boleto', 'paypal'], true)) {
+            return $method === 'paypal' ? 'card' : $method;
         }
 
         $gateway = strtolower(trim((string) ($this->gateway ?? '')));
         if ($gateway === '') {
             return 'outro';
+        }
+        if ($gateway === 'paypal' || $gateway === 'stripe') {
+            return 'card';
         }
         if ($gateway === 'linaopenx' || str_contains($gateway, 'pix') || in_array($gateway, ['spacepag', 'woovi', 'pushinpay', 'cajupay', 'efi'], true)) {
             return 'pix';

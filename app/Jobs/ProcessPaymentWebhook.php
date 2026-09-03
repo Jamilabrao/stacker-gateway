@@ -218,6 +218,9 @@ class ProcessPaymentWebhook implements ShouldQueue
         ], true)) {
             return true;
         }
+        if ($this->gatewaySlug === 'paypal' && $this->event === 'PAYMENT.CAPTURE.COMPLETED') {
+            return true;
+        }
 
         return false;
     }
@@ -666,12 +669,12 @@ class ProcessPaymentWebhook implements ShouldQueue
     {
         $meta = is_array($order->metadata ?? null) ? $order->metadata : [];
         $m = $meta['checkout_payment_method'] ?? null;
-        if (in_array($m, ['pix', 'card', 'boleto', 'pix_auto', 'open_finance'], true)) {
+        if (in_array($m, ['pix', 'card', 'boleto', 'pix_auto', 'open_finance', 'paypal'], true)) {
             return $m;
         }
         $g = (string) ($order->gateway ?? '');
-        if ($g === 'stripe') {
-            return 'card';
+        if ($g === 'stripe' || $g === 'paypal') {
+            return $g === 'paypal' ? 'paypal' : 'card';
         }
         if ($g === 'linaopenx') {
             return 'open_finance';

@@ -263,6 +263,7 @@ class Product extends Model
                 'apple_pay' => true,
                 'google_pay' => true,
                 'open_finance' => true,
+                'paypal' => true,
             ],
             'stripe_link_enabled' => true,
             'deliverable_link' => '',

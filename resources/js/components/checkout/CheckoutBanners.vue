@@ -15,7 +15,7 @@ function hideImageOnError(e) {
 <template>
     <div
         v-if="urls && urls.length"
-        class="mb-6 space-y-5"
+        class="mb-3 space-y-3"
         :data-checkout="placement === 'side' ? 'banners-side' : 'banners-top'"
     >
         <img

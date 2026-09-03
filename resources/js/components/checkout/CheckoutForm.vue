@@ -2,12 +2,13 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import axios from 'axios';
-import { User, UserRound, Mail, ShoppingBag, Loader2, CreditCard, Tag, Check, Pencil, ScanQrCode, Shield, X, AlertCircle, FileText, MapPin } from 'lucide-vue-next';
+import { User, UserRound, Mail, ShoppingBag, Loader2, CreditCard, Tag, Check, Pencil, ScanQrCode, X, AlertCircle, FileText, MapPin } from 'lucide-vue-next';
 import CheckoutDropdown from './CheckoutDropdown.vue';
 import CheckoutOrderBumps from './CheckoutOrderBumps.vue';
 import CheckoutPaymentMethods from './CheckoutPaymentMethods.vue';
 import AsaasCard from './gateways/asaas/Card.vue';
 import CajuPaySdkMount from './CajuPaySdkMount.vue';
+import PaypalButtons from './PaypalButtons.vue';
 import CheckoutTurnstile from './CheckoutTurnstile.vue';
 import {
     CHECKOUT_PAGARME_TOKENIZE_FORM_ID,
@@ -23,7 +24,7 @@ import { isValidCpf } from '@/utils/brazilianDocuments.js';
 import { navigateAfterCheckout } from '@/lib/checkoutRedirect.js';
 import { trackCheckoutPurchase } from '@/composables/useCheckoutPurchaseTracking.js';
 import { getMetricsSessionKey } from '@/lib/metricsTracking.js';
-import CheckoutPlatformNotice from './CheckoutPlatformNotice.vue';
+import CheckoutLegalFooter from './CheckoutLegalFooter.vue';
 import { usePlatformBranding } from '@/composables/usePlatformBranding';
 
 const STORAGE_KEY = 'checkout_draft';
@@ -222,6 +223,9 @@ const props = defineProps({
     cardMercadopagoSandbox: { type: Boolean, default: false },
     /** Chaves por gateway slug para gateways de plugin (checkout_payload_keys). Ex.: { 'meu-gateway': { publishable_key: '...' } } */
     cardGatewayKeys: { type: Object, default: () => ({}) },
+    paypalClientId: { type: String, default: '' },
+    paypalSandbox: { type: Boolean, default: false },
+    checkoutLocale: { type: String, default: 'pt_BR' },
     /** Cloudflare Turnstile: { enabled, site_key, mode } */
     turnstile: { type: Object, default: () => ({ enabled: false, site_key: '', mode: 'pix_boleto' }) },
     checkoutBuilderPreview: { type: Boolean, default: false },
@@ -424,10 +428,28 @@ const isCardGatewayPagarme = computed(() => isCardMethodSelected.value && curren
 const isCardGatewayCielo = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'cielo');
 const isCardGatewayCajupay = computed(() => isCardMethodSelected.value && currentMethodGatewaySlug.value === 'cajupay');
 const isCardPaymentFamily = computed(() => ['card', 'apple_pay', 'google_pay'].includes(form.payment_method));
+const isPaypalMethodSelected = computed(() => form.payment_method === 'paypal');
+const paypalButtonsReady = computed(() => {
+    if (!isPaypalMethodSelected.value) return false;
+    if (!(props.paypalClientId || '').trim()) return false;
+    const email = (form.email || '').trim();
+    if (!email.includes('@')) return false;
+    if (showName.value && !(form.name || '').trim()) return false;
+    if (showCpf.value && (form.cpf || '').replace(/\D/g, '').length < 11) return false;
+    if (showPhone.value && phoneDigits.value.replace(/\D/g, '').length < 8) return false;
+    if (props.requiresShipping) {
+        const cep = (form.address_zipcode || '').replace(/\D/g, '');
+        if (cep.length < 8) return false;
+        if (!(form.address_street || '').trim() || !(form.address_number || '').trim()) return false;
+        if (!(form.address_city || '').trim() || (form.address_state || '').trim().length !== 2) return false;
+    }
+    return true;
+});
 const isCajupayCardOnly = computed(() => isCajuPaySdkFlow.value && form.payment_method === 'card');
 const isCajupayCheckoutUi = computed(() => isCajuPaySdkFlow.value);
 /** Apple/Google Pay CajuPay: o SDK exibe o botão de pagar; escondemos o submit principal do formulário. */
 const hidePrimarySubmitForCajupayWallet = computed(() => isCajuPayWalletSdk.value);
+const hidePrimarySubmitForPaypal = computed(() => isPaypalMethodSelected.value);
 
 const primarySubmitButtonLabel = computed(() => {
     const pm = form.payment_method;
@@ -777,7 +799,7 @@ watch(
             } else {
                 showEditForm.value = true;
             }
-        } else if (method === 'pix' || method === 'boleto' || method === 'open_finance') {
+        } else if (method === 'pix' || method === 'boleto' || method === 'open_finance' || method === 'paypal') {
             showEditForm.value = true;
         } else if (method === 'card' || method === 'apple_pay' || method === 'google_pay') {
             if ((form.email || '').trim().length > 0 && (form.email || '').includes('@')) {
@@ -794,7 +816,7 @@ watch(
     () => Object.keys(form.errors || {}).length,
     (count) => {
         if (count > 0 && (form.payment_method === 'pix' || form.payment_method === 'pix_auto' || form.payment_method === 'boleto'
-            || form.payment_method === 'open_finance'
+            || form.payment_method === 'open_finance' || form.payment_method === 'paypal'
             || isCardGatewayPagarme.value)) {
             showEditForm.value = true;
         }
@@ -1280,6 +1302,60 @@ function buildCajuPaySessionPayload() {
     }
     appendUtmsAndAffiliate(payload);
     return payload;
+}
+
+function buildPaypalPayload() {
+    const payload = {
+        product_id: form.product_id,
+        payment_method: 'paypal',
+        email: form.email,
+        name: showName.value ? form.name : '',
+        cpf: showCpf.value ? (form.cpf || '').replace(/\D/g, '') : '',
+        phone: showPhone.value ? form.country_code + phoneDigits.value : '',
+        coupon_code: (form.coupon_code || '').trim() || null,
+        website: honeypotWebsite.value,
+        turnstile_token: turnstileActive.value ? turnstileToken.value : '',
+        checkout_session_token: props.checkoutSessionToken?.trim() || '',
+        checkout_locale: props.checkoutLocale || 'pt_BR',
+    };
+    if (props.productOfferId) payload.product_offer_id = props.productOfferId;
+    if (props.subscriptionPlanId) payload.subscription_plan_id = props.subscriptionPlanId;
+    if (props.displayCurrency) payload.display_currency = props.displayCurrency;
+    if (Array.isArray(props.orderBumpIds) && props.orderBumpIds.length > 0) {
+        payload.order_bump_ids = props.orderBumpIds
+            .map((id) => (typeof id === 'number' ? id : parseInt(id, 10)))
+            .filter((n) => !Number.isNaN(n));
+    }
+    if (props.requiresShipping) {
+        payload.shipping_cep = (form.address_zipcode || '').replace(/\D/g, '').slice(0, 8);
+        payload.shipping_street = (form.address_street || '').trim();
+        payload.shipping_number = (form.address_number || '').trim();
+        payload.shipping_complement = (form.address_complement || '').trim();
+        payload.shipping_neighborhood = (form.address_neighborhood || '').trim();
+        payload.shipping_city = (form.address_city || '').trim();
+        payload.shipping_state = (form.address_state || '').trim().slice(0, 2).toUpperCase();
+    }
+    appendUtmsAndAffiliate(payload);
+    return payload;
+}
+
+async function onPaypalApproved(result) {
+    const oid = result?.order_id;
+    const url = result?.redirect_url;
+    if (oid && url) {
+        await completeApprovedPurchase(oid, url, 'approved');
+        return;
+    }
+    if (url) {
+        navigateAfterCheckout(url);
+    }
+}
+
+function onPaypalError(message) {
+    const msg = typeof message === 'string' && message.trim()
+        ? message
+        : 'Não foi possível pagar com PayPal. Tente novamente.';
+    form.setError('payment_method', msg);
 }
 
 function cajupayMinimumFieldsReady() {
@@ -2005,6 +2081,10 @@ function submit() {
         return;
     }
     form.clearErrors('payment_method');
+
+    if (paymentMethod === 'paypal') {
+        return;
+    }
 
     const isCardLikeSubmit = paymentMethod === 'card' || paymentMethod === 'apple_pay' || paymentMethod === 'google_pay';
 
@@ -3371,8 +3451,11 @@ function submit() {
                     v-model="turnstileToken"
                 />
             </div>
+            <div v-if="$slots['before-submit']" class="lg:hidden" data-checkout="form-purchase-summary-slot">
+                <slot name="before-submit" />
+            </div>
             <button
-                v-if="(!isCardPaymentFamily || !isCardGatewayMercadopago) && !hidePrimarySubmitForCajupayWallet"
+                v-if="(!isCardPaymentFamily || !isCardGatewayMercadopago) && !hidePrimarySubmitForCajupayWallet && !hidePrimarySubmitForPaypal"
                 type="submit"
                 data-checkout="form-submit"
                 class="flex w-full items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-semibold text-white shadow-lg shadow-black/10 transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-70"
@@ -3400,6 +3483,20 @@ function submit() {
                 <ShoppingBag v-else class="h-5 w-5" />
                 {{ cardApproved ? 'Aprovado!' : (form.processing || cardTokenizing) ? t('checkout.processing') : primarySubmitButtonLabel }}
             </button>
+            <PaypalButtons
+                v-if="isPaypalMethodSelected"
+                class="mt-2"
+                :client-id="paypalClientId || ''"
+                :currency="displayCurrency || 'BRL'"
+                :locale="checkoutLocale || 'pt_BR'"
+                :disabled="!paypalButtonsReady"
+                :build-payload="buildPaypalPayload"
+                :get-csrf-token="getCsrfToken"
+                :fill-hint="t('checkout.paypal_fill_data')"
+                :loading-hint="t('checkout.paypal_loading')"
+                @approved="onPaypalApproved"
+                @error="onPaypalError"
+            />
         </form>
         <!-- Form vazio: tokenizecard.js; campos cartão Pagar.me associam-se via atributo HTML form="" -->
         <form
@@ -3415,50 +3512,13 @@ function submit() {
             <input type="hidden" name="_token" :value="getCsrfToken()" />
             <span data-pagarmecheckout-element="brand" class="hidden" aria-hidden="true" />
         </form>
-        <div v-if="platformLogoUrl" class="mt-6 flex justify-center sm:hidden" data-checkout="platform-logo">
-            <img
-                :src="platformLogoUrl"
-                :alt="appName"
-                class="h-8 w-auto max-w-[180px] object-contain"
-                loading="lazy"
+        <footer class="mt-8 hidden border-t border-gray-100 pt-6 lg:block" data-checkout="form-footer-desktop">
+            <CheckoutLegalFooter
+                :logo-url="platformLogoUrl"
+                :app-name="appName"
+                :notice="platformCheckoutNotice"
             />
-        </div>
-        <footer class="mt-8 hidden border-t border-gray-100 pt-6 sm:block" data-checkout="form-footer-desktop">
-            <div v-if="platformLogoUrl" class="mb-4 flex justify-center" data-checkout="platform-logo-desktop">
-                <img
-                    :src="platformLogoUrl"
-                    :alt="appName"
-                    class="h-8 w-auto max-w-[180px] object-contain"
-                    loading="lazy"
-                />
-            </div>
-            <p class="flex items-center justify-center gap-2 text-sm text-gray-500">
-                <Shield class="h-4 w-4 shrink-0" aria-hidden="true" />
-                Compra 100% segura
-            </p>
-            <p class="mt-2 text-center text-xs text-gray-400">
-                Este site é protegido pelo reCAPTCHA do Google
-            </p>
-            <p class="mt-2 text-center text-xs text-gray-400">
-                Copyright © {{ new Date().getFullYear() }}. Todos os direitos reservados.
-            </p>
         </footer>
-        <CheckoutPlatformNotice
-            v-if="platformCheckoutNotice"
-            data-checkout="platform-notice"
-            class="text-center text-xs leading-relaxed text-gray-400"
-            :class="platformLogoUrl ? 'mt-3 sm:mt-2' : 'mt-4 sm:mt-2'"
-            :text="platformCheckoutNotice"
-        />
-        <p
-            v-else
-            class="text-center text-xs text-gray-400"
-            :class="platformLogoUrl ? 'mt-3 sm:mt-2' : 'mt-4 sm:mt-2'"
-        >
-            <a href="/termos-de-uso" target="_blank" rel="noopener" class="underline hover:text-gray-600">Termos</a>
-            <span class="mx-1">·</span>
-            <a href="/politica-privacidade" target="_blank" rel="noopener" class="underline hover:text-gray-600">Privacidade</a>
-        </p>
 
         <!-- Modal pagamento recusado (cartão) -->
         <Teleport to="body">

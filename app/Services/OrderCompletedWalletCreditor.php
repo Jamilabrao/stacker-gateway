@@ -66,7 +66,7 @@ class OrderCompletedWalletCreditor
         }
         $feeMethod = EffectiveMerchantFees::feeMethodForOrder($order);
         $bucket = match ($method) {
-            'card', 'apple_pay', 'google_pay' => 'card',
+            'card', 'apple_pay', 'google_pay', 'paypal' => 'card',
             'boleto' => 'boleto',
             'pix_auto', 'pix', 'open_finance', null, '' => 'pix',
             default => 'pix',
@@ -76,6 +76,7 @@ class OrderCompletedWalletCreditor
             'apple_pay' => 'apple_pay',
             'google_pay' => 'google_pay',
             'card' => 'card',
+            'paypal' => 'card',
             'boleto' => 'boleto',
             'open_finance' => 'open_finance',
             default => 'pix',
