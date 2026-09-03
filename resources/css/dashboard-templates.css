@@ -80,9 +80,11 @@ html:not(.dark) [data-seller-template='aurora'] {
     color: var(--aurora-muted);
 }
 
-[data-seller-template='aurora'] .aurora-nav-link:hover {
-    background-color: var(--aurora-nav-hover-bg);
-    color: var(--aurora-text);
+@media (hover: hover) and (pointer: fine) {
+    [data-seller-template='aurora'] .aurora-nav-link:hover {
+        background-color: var(--aurora-nav-hover-bg);
+        color: var(--aurora-text);
+    }
 }
 
 [data-seller-template='aurora'] .aurora-nav-active {

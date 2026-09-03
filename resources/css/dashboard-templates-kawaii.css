@@ -95,9 +95,11 @@ html.dark [data-seller-template='kawaii'].kawaii-shell-root {
     border-radius: 14px;
 }
 
-[data-seller-template='kawaii'] .kawaii-nav-link:hover {
-    background-color: var(--kawaii-panel-hover);
-    color: var(--kawaii-text);
+@media (hover: hover) and (pointer: fine) {
+    [data-seller-template='kawaii'] .kawaii-nav-link:hover {
+        background-color: var(--kawaii-panel-hover);
+        color: var(--kawaii-text);
+    }
 }
 
 [data-seller-template='kawaii'] .kawaii-nav-active {

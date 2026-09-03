@@ -43,8 +43,12 @@ const iconMap = {
     CodeXml,
 };
 
-/** Hover only — evita rajadas de prefetch ao clicar e competir com a navegação real. */
+/** Hover only no desktop — no mobile o primeiro toque vira hover e compete com a navegação. */
 export const panelNavPrefetch = 'hover';
+
+export function navPrefetch(isMobile) {
+    return isMobile ? false : panelNavPrefetch;
+}
 
 export function useAppSidebarNav() {
     const page = usePage();

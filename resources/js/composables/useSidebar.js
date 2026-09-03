@@ -8,7 +8,7 @@ function applyMobileScrollLock(locked) {
         return;
     }
     document.body.style.overflow = locked ? 'hidden' : '';
-    document.body.style.touchAction = locked ? 'none' : '';
+    document.documentElement.style.overflow = locked ? 'hidden' : '';
 }
 
 export function useSidebarProvider() {

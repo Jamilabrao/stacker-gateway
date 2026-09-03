@@ -41,7 +41,7 @@
 
 /* Utilities para sidebar */
 @utility menu-item {
-    @apply relative flex items-center w-full gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors;
+    @apply relative flex items-center w-full gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors touch-manipulation;
 }
 
 @utility menu-item-active {
@@ -49,7 +49,16 @@
 }
 
 @utility menu-item-inactive {
-    @apply text-zinc-600 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800/80 dark:hover:text-zinc-200;
+    @apply text-zinc-600 dark:text-zinc-400;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .menu-item-inactive:hover {
+        @apply bg-zinc-100 text-zinc-800;
+    }
+    .dark .menu-item-inactive:hover {
+        @apply bg-zinc-800/80 text-zinc-200;
+    }
 }
 
 @utility menu-item-icon-active {

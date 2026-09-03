@@ -33,7 +33,7 @@ import {
 import { useSidebar } from '@/composables/useSidebar';
 
 const page = usePage();
-const { isExpanded, isMobileOpen, toggleSidebar, isMobile } = useSidebar();
+const { isExpanded, isMobileOpen, toggleSidebar, isMobile, closeMobileSidebarIfOpen } = useSidebar();
 
 const showText = () => isExpanded.value || isMobileOpen.value;
 
@@ -269,10 +269,9 @@ const linkInactive =
         <div class="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 dark:border-zinc-800">
             <Link
                 href="/plataforma/dashboard"
-                :class="[
-                    'flex min-w-0 flex-1 items-center overflow-hidden py-1.5',
-                    showText() ? 'justify-start gap-2' : 'justify-center',
-                ]"
+                class="flex min-w-0 flex-1 cursor-pointer touch-manipulation items-center overflow-hidden py-1.5"
+                :class="showText() ? 'justify-start gap-2' : 'justify-center'"
+                @click="closeMobileSidebarIfOpen"
             >
                 <template v-if="hasLogoFull()">
                     <img
@@ -343,13 +342,13 @@ const linkInactive =
                         v-for="item in group.items"
                         :key="item.href"
                         :href="item.href"
-                        class="relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors"
+                        class="relative flex cursor-pointer touch-manipulation items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors"
                         :class="[
                             isNavItemActive(item.href) ? linkActive : linkInactive,
                             showText() ? '' : 'justify-center px-0',
                         ]"
                         :title="!showText() ? item.name : undefined"
-                        @click="isMobile ? toggleSidebar() : null"
+                        @click="closeMobileSidebarIfOpen"
                     >
                         <span
                             v-if="isNavItemActive(item.href)"
