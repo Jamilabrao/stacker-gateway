@@ -71,11 +71,24 @@ class PlatformTotpService
             return false;
         }
 
+        self::clearTotp($user);
+
+        return true;
+    }
+
+    /**
+     * Remove 2FA sem exigir o código TOTP da conta (ex.: reset administrativo).
+     */
+    public static function forceDisable(User $user): void
+    {
+        self::clearTotp($user);
+    }
+
+    private static function clearTotp(User $user): void
+    {
         $user->totp_secret = null;
         $user->totp_enabled_at = null;
         $user->save();
-
-        return true;
     }
 
     public static function verifyCodeForUser(User $user, string $code, bool $allowPending = false): bool

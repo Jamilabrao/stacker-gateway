@@ -380,6 +380,9 @@ Route::prefix('plataforma')->name('plataforma.')->group(function () {
             Route::post('/{user}/carteira/transacoes/{walletTransaction}/antecipar', [\App\Http\Controllers\Platform\UsersController::class, 'anticipateWalletSale'])
                 ->middleware('throttle:30,1')
                 ->name('wallet.anticipate');
+            Route::post('/{user}/resetar-2fa', [\App\Http\Controllers\Platform\UsersController::class, 'resetTotp'])
+                ->middleware('throttle:10,1')
+                ->name('reset-totp');
             Route::put('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'update'])->name('update');
             Route::delete('/{user}', [\App\Http\Controllers\Platform\UsersController::class, 'destroy'])->name('destroy');
         });
