@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { getVideoProviderType } from '@/lib/utils';
+import { iframeVideoEmbedUrl, MEMBER_IFRAME_ALLOW, vimeoVidstackSrc } from '@/lib/memberVideoEmbed';
 import { ensureVidstackLoaded } from '@/lib/vidstackLoader';
 import { Maximize2, Minimize2, Play, Pause, Monitor, Gauge } from 'lucide-vue-next';
 
@@ -26,10 +27,14 @@ const isEmbedProvider = computed(() => {
     return t === 'youtube' || t === 'vimeo';
 });
 const isYoutube = computed(() => providerType.value === 'youtube' && !!props.src);
+const iframeSrc = computed(() => iframeVideoEmbedUrl(props.src));
+const isIframeProvider = computed(() => !!iframeSrc.value);
 /** Quando a IFrame API falha (CSP, bloqueador, timeout), usa Vidstack como na referência open source. */
 const useVidstackFallback = ref(false);
 const useLegacyYoutube = computed(() => isYoutube.value && !useVidstackFallback.value);
-const showVidstackPlayer = computed(() => !!props.src?.trim() && (!isYoutube.value || useVidstackFallback.value));
+const showVidstackPlayer = computed(
+    () => !!props.src?.trim() && !isIframeProvider.value && (!isYoutube.value || useVidstackFallback.value),
+);
 const vidstackReady = ref(false);
 
 watch(
@@ -679,8 +684,7 @@ const vidstackSrc = computed(() => {
         return m ? `youtube/${m[1]}?vq=hd1080&playsinline=1&rel=0&modestbranding=1` : u;
     }
     if (type === 'vimeo') {
-        const m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/);
-        return m ? `vimeo/${m[1]}` : u;
+        return vimeoVidstackSrc(u);
     }
     return u;
 });
@@ -704,6 +708,40 @@ const watermarkText = computed(() => {
     }
     return (d.email && String(d.email).trim()) ? `${name} - ${String(d.email).trim()}` : name;
 });
+
+function isTrustedLessonEmbedOrigin(origin) {
+    try {
+        const host = new URL(origin).hostname.replace(/^www\./i, '').toLowerCase();
+        return (
+            host === 'wistia.com' ||
+            host.endsWith('.wistia.com') ||
+            host === 'wistia.net' ||
+            host.endsWith('.wistia.net') ||
+            host === 'loom.com' ||
+            host.endsWith('.loom.com')
+        );
+    } catch (_) {
+        return false;
+    }
+}
+
+function onLessonEmbedMessage(e) {
+    if (!iframeSrc.value) return;
+    if (!isTrustedLessonEmbedOrigin(e.origin)) return;
+    let data = e.data;
+    if (typeof data === 'string') {
+        try {
+            data = JSON.parse(data);
+        } catch (_) {
+            return;
+        }
+    }
+    if (!data || typeof data !== 'object') return;
+    const eventName = data.event || data.method || data.type || data.name;
+    if (eventName === 'ended' || eventName === 'end') {
+        onEnded();
+    }
+}
 
 onMounted(() => {
     if (typeof window !== 'undefined' && 'matchMedia' in window) {
@@ -743,8 +781,14 @@ onMounted(() => {
     }
 
     initYoutubePlayer();
+    if (typeof window !== 'undefined') {
+        window.addEventListener('message', onLessonEmbedMessage);
+    }
 });
 onUnmounted(() => {
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('message', onLessonEmbedMessage);
+    }
     if (watermarkInterval) clearInterval(watermarkInterval);
     destroyYoutubePlayer();
     exitImmersiveMode();
@@ -996,6 +1040,16 @@ function onContextMenu(e) {
             </div>
         </div>
 
+        <iframe
+            v-else-if="iframeSrc"
+            class="member-embed-iframe"
+            :src="iframeSrc"
+            title="Vídeo da aula"
+            :allow="MEMBER_IFRAME_ALLOW"
+            allowfullscreen
+            referrerpolicy="strict-origin-when-cross-origin"
+        />
+
         <media-player
             v-else-if="showVidstackPlayer && vidstackReady"
             ref="playerRef"
@@ -1053,10 +1107,17 @@ function onContextMenu(e) {
     flex: 1;
     min-height: 0;
 }
-.member-area-video-player.is-immersive .player {
+.member-area-video-player.is-immersive .player,
+.member-area-video-player.is-immersive .member-embed-iframe {
     flex: 1;
     min-height: 0;
     height: 100%;
+}
+.member-embed-iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
 }
 .exit-immersive-btn {
     position: absolute;

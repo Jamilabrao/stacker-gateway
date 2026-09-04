@@ -1,6 +1,8 @@
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+export { getVideoProviderType, videoEmbedUrl } from '@/lib/memberVideoEmbed';
+
 export function cn(...inputs) {
     return twMerge(clsx(inputs));
 }
@@ -22,43 +24,6 @@ export function formatCompactCurrency(value) {
         return (k % 1 === 0 ? k : k.toFixed(1)) + 'K';
     }
     return String(Math.round(n));
-}
-
-/**
- * Detecta o tipo de provedor de vídeo a partir da URL (para escolher player Vidstack vs iframe).
- * @param {string} url - URL do vídeo
- * @returns {'youtube'|'vimeo'|'native'}
- */
-export function getVideoProviderType(url) {
-    if (!url || typeof url !== 'string') return 'native';
-    const u = url.trim();
-    if (/^(https?:\/\/)?(www\.|m\.)?youtube\.com\/watch\?.*v=/i.test(u)) return 'youtube';
-    if (/^(https?:\/\/)?youtu\.be\//i.test(u)) return 'youtube';
-    if (/youtube\.com\/embed\//i.test(u)) return 'youtube';
-    if (/vimeo\.com\/(?:video\/)?(\d+)/i.test(u)) return 'vimeo';
-    if (/player\.vimeo\.com\/video\//i.test(u)) return 'vimeo';
-    return 'native';
-}
-
-/**
- * Converte URL de vídeo (YouTube, Vimeo) para formato embed, permitindo exibir em iframe.
- * @param {string} url - URL do vídeo (ex: youtube.com/watch?v=ID ou youtu.be/ID)
- * @returns {string} URL para usar no src do iframe, ou a própria url se não for conversível
- */
-export function videoEmbedUrl(url) {
-    if (!url || typeof url !== 'string') return url || '';
-    const u = url.trim();
-    // YouTube: watch?v=ID, youtu.be/ID, embed/ID
-    const ytWatch = u.match(/^(https?:\/\/)?(www\.|m\.)?youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]+)/);
-    if (ytWatch) return `https://www.youtube.com/embed/${ytWatch[3]}`;
-    const ytShort = u.match(/^(https?:\/\/)?youtu\.be\/([a-zA-Z0-9_-]+)/);
-    if (ytShort) return `https://www.youtube.com/embed/${ytShort[2]}`;
-    if (/youtube\.com\/embed\//i.test(u)) return u;
-    // Vimeo: vimeo.com/ID ou player.vimeo.com/video/ID
-    const vimeo = u.match(/vimeo\.com\/(?:video\/)?(\d+)/);
-    if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
-    if (/player\.vimeo\.com\/video\//i.test(u)) return u;
-    return u;
 }
 
 /**
