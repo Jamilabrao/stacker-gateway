@@ -5,9 +5,9 @@ import { PanelRightOpen, X } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 import ConquistasWidget from '@/components/layout/ConquistasWidget.vue';
 import AppSidebarNavList from '@/components/layout/sidebar/AppSidebarNavList.vue';
-import { useAppSidebarNav, panelNavPrefetch } from '@/composables/useAppSidebarNav';
+import { useAppSidebarNav, navPrefetch } from '@/composables/useAppSidebarNav';
 
-const { isExpanded, isMobileOpen, toggleSidebar, isMobile } = useSidebar();
+const { isExpanded, isMobileOpen, toggleSidebar, isMobile, closeMobileSidebarIfOpen } = useSidebar();
 const {
     page,
     homeHref,
@@ -66,8 +66,9 @@ function onItemMouseLeave() {
             <template v-if="showText()">
                 <Link
                     :href="homeHref"
-                    :prefetch="panelNavPrefetch"
-                    class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-zinc-900 dark:text-white"
+                    :prefetch="navPrefetch(isMobile)"
+                    class="flex min-w-0 flex-1 cursor-pointer touch-manipulation items-center gap-2 overflow-hidden text-zinc-900 dark:text-white"
+                    @click="closeMobileSidebarIfOpen"
                 >
                     <template v-if="hasLogoFull()">
                         <img v-if="appSettings().app_logo" :src="appSettings().app_logo" :alt="appName()" class="h-10 max-w-[200px] object-contain object-left" :class="appSettings().app_logo_dark ? 'dark:hidden' : ''" />

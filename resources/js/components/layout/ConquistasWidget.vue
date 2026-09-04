@@ -3,14 +3,16 @@ import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import { usePage } from '@inertiajs/vue3';
 import { formatCompactCurrency } from '@/lib/utils';
+import { navPrefetch } from '@/composables/useAppSidebarNav';
 import { useSellerDashboardTemplate } from '@/composables/useSellerDashboardTemplate';
-import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
+import { useSidebar } from '@/composables/useSidebar';
 
 const props = defineProps({
     variant: { type: String, default: 'header' }, // 'header' | 'sidebar' | 'dashboard'
 });
 
 const { isAurora, isKawaii, isThemedShell } = useSellerDashboardTemplate();
+const { closeMobileSidebarIfOpen, isMobile } = useSidebar();
 
 const page = usePage();
 const progress = computed(() => page.props.achievementsProgress ?? null);
@@ -57,14 +59,15 @@ const totalLabel = computed(() => {
     <Link
         v-if="progress"
         href="/conquistas"
-        :prefetch="panelNavPrefetch"
-        class="group flex shrink-0 items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        :prefetch="navPrefetch(isMobile)"
+        class="group flex shrink-0 cursor-pointer touch-manipulation items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
         :class="{
             'flex-col items-stretch gap-2': props.variant === 'sidebar',
             'w-full rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-700': props.variant === 'dashboard',
             '!border-0 !bg-transparent !p-0 hover:!bg-transparent': isAurora && props.variant === 'sidebar',
         }"
         title="Conquistas"
+        @click="closeMobileSidebarIfOpen"
     >
         <div
             class="flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 dark:bg-zinc-800"

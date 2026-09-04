@@ -4,9 +4,9 @@ import { X } from 'lucide-vue-next';
 import { useSidebar } from '@/composables/useSidebar';
 import ConquistasWidget from '@/components/layout/ConquistasWidget.vue';
 import AppSidebarNavList from '@/components/layout/sidebar/AppSidebarNavList.vue';
-import { useAppSidebarNav, panelNavPrefetch } from '@/composables/useAppSidebarNav';
+import { useAppSidebarNav, navPrefetch } from '@/composables/useAppSidebarNav';
 
-const { isMobileOpen, toggleSidebar, isMobile } = useSidebar();
+const { isMobileOpen, toggleSidebar, isMobile, closeMobileSidebarIfOpen } = useSidebar();
 const {
     page,
     homeHref,
@@ -31,8 +31,9 @@ const {
         <div class="flex h-[72px] shrink-0 items-center justify-between px-5">
             <Link
                 :href="homeHref"
-                :prefetch="panelNavPrefetch"
-                class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
+                :prefetch="navPrefetch(isMobile)"
+                class="flex min-w-0 flex-1 cursor-pointer touch-manipulation items-center gap-3 overflow-hidden"
+                @click="closeMobileSidebarIfOpen"
             >
                 <template v-if="hasLogoFull()">
                     <img

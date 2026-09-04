@@ -1,6 +1,7 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
-import { panelNavPrefetch } from '@/composables/useAppSidebarNav';
+import { navPrefetch } from '@/composables/useAppSidebarNav';
+import { useSidebar } from '@/composables/useSidebar';
 import PwaInstallButton from '@/components/layout/PwaInstallButton.vue';
 
 const props = defineProps({
@@ -13,6 +14,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['item-mouseenter', 'item-mousemove', 'item-mouseleave']);
+const { closeMobileSidebarIfOpen } = useSidebar();
 
 function onMouseEnter(e, label) {
     emit('item-mouseenter', e, label);
@@ -26,24 +28,32 @@ function onMouseLeave() {
     emit('item-mouseleave');
 }
 
+function onNavClick() {
+    closeMobileSidebarIfOpen();
+}
+
+function linkPrefetch() {
+    return navPrefetch(props.isMobile);
+}
+
 function linkClasses(href, isChild = false) {
     const active = props.isActive(href);
     if (props.variant === 'aurora') {
         return [
-            'aurora-nav-link flex items-center gap-3 rounded-lg text-[13px] font-medium transition-colors',
+            'aurora-nav-link flex cursor-pointer touch-manipulation items-center gap-3 rounded-lg text-[13px] font-medium transition-colors',
             isChild ? 'py-2 pl-9 pr-3' : 'px-3 py-2.5',
             active ? 'aurora-nav-active' : '',
         ];
     }
     if (props.variant === 'kawaii') {
         return [
-            'kawaii-nav-link flex items-center gap-3 text-[13px] font-semibold transition-colors',
+            'kawaii-nav-link flex cursor-pointer touch-manipulation items-center gap-3 text-[13px] font-semibold transition-colors',
             isChild ? 'py-2 pl-9 pr-3' : 'px-3 py-2.5',
             active ? 'kawaii-nav-active' : '',
         ];
     }
     return [
-        'menu-item group relative',
+        'menu-item group relative cursor-pointer touch-manipulation',
         isChild ? 'py-2 pl-9' : '',
         props.showText ? 'justify-start' : 'lg:justify-center',
         active ? 'menu-item-active' : 'menu-item-inactive',
@@ -88,9 +98,10 @@ function iconClasses(href) {
             <li v-else-if="!item.pwaInstall" class="overflow-visible">
                 <Link
                     :href="item.href"
-                    :prefetch="panelNavPrefetch"
+                    :prefetch="linkPrefetch()"
                     :title="showText ? '' : item.name"
                     :class="linkClasses(item.href)"
+                    @click="onNavClick"
                     @mouseenter="(e) => onMouseEnter(e, item.name)"
                     @mousemove="onMouseMove"
                     @mouseleave="onMouseLeave"
@@ -125,8 +136,9 @@ function iconClasses(href) {
                     <li v-for="child in item.children" :key="child.href">
                         <Link
                             :href="child.href"
-                            :prefetch="panelNavPrefetch"
+                            :prefetch="linkPrefetch()"
                             :class="linkClasses(child.href, true)"
+                            @click="onNavClick"
                             @mouseenter="(e) => onMouseEnter(e, child.name)"
                             @mousemove="onMouseMove"
                             @mouseleave="onMouseLeave"
